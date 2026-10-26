@@ -1,0 +1,17 @@
+{
+  "name": "@rawtisserie/pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RAWtisserie pixel pipeline: edit parameter types and WebAssembly bindings",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts",
+    "./wasm": "./wasm/pipeline.js",
+    "./wasm/pipeline_bg.wasm": "./wasm/pipeline_bg.wasm"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test src/*.test.ts"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "rawtisserie",
+  "private": true,
+  "description": "🍗 RAWtisserie — from raw to well done",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build:wasm": "./scripts/build-wasm.sh",
+    "build": "npm run build:wasm && npm run build --workspaces --if-present",
+    "dev": "npm run build:wasm && node --run dev:all",
+    "dev:all": "npm run dev -w @rawtisserie/server & npm run dev -w @rawtisserie/web & wait",
+    "db:up": "./scripts/db-up.sh",
+    "db:migrate": "npm run db:migrate -w @rawtisserie/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "cargo test --workspace && npm test --workspaces --if-present"
+  }
+}

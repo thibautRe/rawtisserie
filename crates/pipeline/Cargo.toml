@@ -1,0 +1,16 @@
+[package]
+name = "rawtisserie-pipeline"
+description = "RAWtisserie pixel pipeline: RAW decoding, development and encoding"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rawler.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+jpeg-encoder.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }

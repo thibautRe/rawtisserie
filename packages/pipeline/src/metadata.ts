@@ -1,0 +1,37 @@
+/** Metadata extracted from a RAW file. Mirrors `PhotoMetadata` in `crates/pipeline/src/metadata.rs`. */
+export interface PhotoMetadata {
+  make: string | null;
+  model: string | null;
+  lensMake: string | null;
+  lensModel: string | null;
+  iso: number | null;
+  /** Seconds. */
+  exposureTime: number | null;
+  fNumber: number | null;
+  /** Millimetres. */
+  focalLength: number | null;
+  /** EV. */
+  exposureBias: number | null;
+  /** ISO 8601 local date-time, with offset when the camera recorded one. */
+  capturedAt: string | null;
+  width: number | null;
+  height: number | null;
+  orientation: number | null;
+  artist: string | null;
+  copyright: string | null;
+  serialNumber: string | null;
+  rating: number | null;
+  flash: number | null;
+  meteringMode: number | null;
+  exposureProgram: number | null;
+  gpsLatitude: number | null;
+  gpsLongitude: number | null;
+  gpsAltitude: number | null;
+}
+
+/** `0.004` → `"1/250"`, `2.5` → `"2.5″"`. */
+export function formatExposureTime(seconds: number | null | undefined): string | null {
+  if (seconds == null || !(seconds > 0)) return null;
+  if (seconds >= 0.3) return `${Number(seconds.toFixed(1))}″`;
+  return `1/${Math.round(1 / seconds)}`;
+}

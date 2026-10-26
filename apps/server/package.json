@@ -1,0 +1,46 @@
+{
+  "name": "@rawtisserie/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../.env --watch src/index.ts",
+    "start": "node --env-file-if-exists=../../.env src/index.ts",
+    "db:migrate": "node --env-file-if-exists=../../.env src/scripts/migrate.ts",
+    "db:schema": "node --env-file-if-exists=../../.env ../../node_modules/@databases/pg-schema-cli/lib/cli.js && node src/scripts/fix-generated-types.ts",
+    "typecheck": "tsc -p .",
+    "test": "node --env-file-if-exists=../../.env --test 'src/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@databases/pg": "^6.1.0",
+    "@databases/pg-typed": "^5.0.0",
+    "@fastify/cookie": "^11.1.3",
+    "@fastify/multipart": "^10.1.6",
+    "@fastify/static": "^10.1.7",
+    "@rawtisserie/pipeline": "*",
+    "fastify": "^5.12.7",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@databases/pg-migrations": "^6.0.0",
+    "@databases/pg-schema-cli": "^5.0.0",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  },
+  "pg": {
+    "connectionStringEnvironmentVariable": "DATABASE_URL",
+    "migrationsDirectory": "migrations",
+    "types": {
+      "directory": "src/__generated__",
+      "primaryKeyTypeMode": "inline_no_brand",
+      "domainTypeMode": "inline",
+      "columnTypeOverrides": {
+        "photos.edit_params": "import('@rawtisserie/pipeline').EditParams",
+        "photos.exif": "import('@rawtisserie/pipeline').PhotoMetadata",
+        "photos.flag": "'picked' | 'rejected'",
+        "photos.color_label": "'red' | 'yellow' | 'green' | 'blue' | 'purple'",
+        "photos.render_status": "'pending' | 'ready' | 'failed'"
+      }
+    }
+  }
+}
