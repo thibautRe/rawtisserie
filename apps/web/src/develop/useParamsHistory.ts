@@ -59,5 +59,7 @@ export function useParamsHistory(initial: EditParams) {
     reset,
     canUndo: h.past.length > 0,
     canRedo: h.future.length > 0,
+    /** A live change (e.g. a slider being dragged) has not been committed yet. */
+    live: h.present !== h.committed,
   };
 }

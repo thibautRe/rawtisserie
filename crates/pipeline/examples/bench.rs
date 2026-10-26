@@ -1,0 +1,51 @@
+//! Render timings for typical interactions:
+//! `cargo run --release --example bench -- photo.ARW [size]`
+
+use std::time::Instant;
+
+use rawtisserie_pipeline::params::EditParams;
+use rawtisserie_pipeline::{Developer, RenderSize};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    let size: u32 = args.get(2).map(|s| s.parse()).transpose()?.unwrap_or(2400);
+    let mut dev = Developer::from_bytes(&std::fs::read(&args[1])?)?;
+    let fit = RenderSize::fit(size, size);
+
+    let mut p = EditParams::default();
+    p.white_balance.warmth = 0.2;
+    p.color.saturation = 0.2;
+    p.color.vibrance = 0.2;
+    p.tone_map.shadows = 0.3;
+    p.sharpen.amount = 0.5;
+
+    let time = |label: &str, dev: &mut Developer, p: &EditParams| {
+        let t = Instant::now();
+        let img = dev.render(p, fit);
+        println!("{label:<34} {:>7.1} ms  ({}×{})", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    };
+
+    time("cold (decode excluded)", &mut dev, &p);
+    for i in 0..3 {
+        p.exposure.ev += 0.1;
+        p.tone_map.contrast += 0.05 * i as f32;
+        time("exposure/tone slider", &mut dev, &p);
+    }
+    p.sharpen.amount += 0.1;
+    time("sharpen slider", &mut dev, &p);
+    p.geometry.angle += 0.5;
+    time("straighten slider", &mut dev, &p);
+    p.exposure.ev += 0.1;
+    time("exposure slider again", &mut dev, &p);
+
+    // Interactive: drag at half resolution, release at full.
+    let draft = RenderSize::fit(size / 2, size / 2);
+    for i in 0..3 {
+        p.exposure.ev += 0.1;
+        let t = Instant::now();
+        let img = dev.render(&p, draft);
+        println!("{:<34} {:>7.1} ms  ({}×{})", if i == 0 { "drag (draft, first)" } else { "drag (draft)" }, t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
+    time("release (full, cached)", &mut dev, &p);
+    Ok(())
+}

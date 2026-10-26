@@ -18,3 +18,9 @@ See README.md for the architecture overview and commands.
   condition blocks in first-seen order, and the `.dark` block must come last to win.
 - The pipeline is scene-referred linear Rec.2020 until tone mapping; spatial parameters
   are in full-resolution pixels and get scaled by the render scale.
+- `Developer` caches intermediate images (base → geometry → blur/sharpen) keyed by the
+  parameters that affect them. A new spatial/geometry parameter must go into the
+  matching cache key in `pipeline.rs`, or edits won't invalidate the cache. Per-pixel
+  operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep
+  it cheap: precompute in `PointOps::new` and use lookup tables, not `powf`/`exp` per pixel.
+- Measure with `cargo run --release --example bench -- photo.ARW 2400`.

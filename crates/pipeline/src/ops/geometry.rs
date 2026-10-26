@@ -6,7 +6,7 @@ use crate::image::Image;
 use crate::params::Crop;
 
 /// Everything needed to map the (sensor-oriented) base image into the output frame.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
     pub orient: Orient,
     /// Straighten angle, degrees, clockwise positive.
@@ -44,13 +44,16 @@ pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
     let (sin, cos) = (-t.angle.to_radians()).sin_cos();
     let (cx, cy) = (ow / 2.0, oh / 2.0);
 
-    // Source pixels per output pixel; supersample when shrinking to avoid aliasing.
+    // Source pixels per output pixel. The base image is binned to within 2× of the
+    // output, so plain bilinear is enough unless we shrink by more than 1.5×.
     let ratio = (crop.width * ow / out_w as f32).max(crop.height * oh / out_h as f32);
-    let ss = (ratio.ceil() as usize).clamp(1, 4);
+    let ss = if ratio > 1.5 { (ratio.ceil() as usize).clamp(2, 4) } else { 1 };
     let inv_ss = 1.0 / ss as f32;
     let norm = 1.0 / (ss * ss) as f32;
 
-    let map = |fx: f32, fy: f32| -> (f32, f32) {
+    // Output pixel → base image, as a chain of maps that are each affine.
+    let map = |x: f32, y: f32| -> (f32, f32) {
+        let (fx, fy) = ((crop.x + x / out_w as f32 * crop.width) * ow, (crop.y + y / out_h as f32 * crop.height) * oh);
         // Output frame → oriented frame (undo straighten: rotate back and shrink).
         let (dx, dy) = ((fx - cx) / scale, (fy - cy) / scale);
         let (u, v) = (dx * cos - dy * sin + cx, dx * sin + dy * cos + cy);
@@ -66,23 +69,27 @@ pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
         }
         (u, v)
     };
+    // …so the whole chain is affine: evaluate it once, then step through it.
+    let (u0, v0) = map(0.0, 0.0);
+    let (ux, vx) = map(1.0, 0.0);
+    let (uy, vy) = map(0.0, 1.0);
+    let (du_dx, dv_dx, du_dy, dv_dy) = (ux - u0, vx - v0, uy - u0, vy - v0);
 
     let mut out = Image::new(out_w, out_h);
-    for y in 0..out_h {
-        for x in 0..out_w {
+    for (y, row) in out.pixels.chunks_exact_mut(out_w).enumerate() {
+        for (x, px) in row.iter_mut().enumerate() {
             let mut acc = [0.0f32; 3];
             for sy in 0..ss {
                 for sx in 0..ss {
-                    let px = (x as f32 + (sx as f32 + 0.5) * inv_ss) / out_w as f32;
-                    let py = (y as f32 + (sy as f32 + 0.5) * inv_ss) / out_h as f32;
-                    let (u, v) = map((crop.x + px * crop.width) * ow, (crop.y + py * crop.height) * oh);
-                    let s = src.sample_bilinear(u, v);
+                    let fx = x as f32 + (sx as f32 + 0.5) * inv_ss;
+                    let fy = y as f32 + (sy as f32 + 0.5) * inv_ss;
+                    let s = src.sample_bilinear(u0 + fx * du_dx + fy * du_dy, v0 + fx * dv_dx + fy * dv_dy);
                     acc[0] += s[0];
                     acc[1] += s[1];
                     acc[2] += s[2];
                 }
             }
-            out.pixels[y * out_w + x] = acc.map(|a| a * norm);
+            *px = acc.map(|a| a * norm);
         }
     }
     out

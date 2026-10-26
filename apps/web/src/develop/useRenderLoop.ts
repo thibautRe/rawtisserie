@@ -6,6 +6,12 @@ interface Job {
   params: EditParams;
   width: number;
   height: number;
+  /** Fraction of the display resolution being rendered (< 1 for drafts). */
+  scale: number;
+}
+
+export interface ScaledFrame extends Frame {
+  scale: number;
 }
 
 /**
@@ -14,7 +20,7 @@ interface Job {
  * so dragging a slider never builds up a backlog.
  */
 export function useRenderLoop(client: PipelineClient | null, job: Job | null) {
-  const [frame, setFrame] = useState<Frame | null>(null);
+  const [frame, setFrame] = useState<ScaledFrame | null>(null);
   const [error, setError] = useState<string | null>(null);
   const state = useRef<{ busy: boolean; next: Job | null }>({ busy: false, next: null });
 
@@ -24,7 +30,7 @@ export function useRenderLoop(client: PipelineClient | null, job: Job | null) {
     const run = async (j: Job) => {
       s.busy = true;
       try {
-        setFrame(await client.render(j.params, j.width, j.height));
+        setFrame({ ...(await client.render(j.params, j.width, j.height)), scale: j.scale });
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));

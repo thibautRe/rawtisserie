@@ -37,16 +37,28 @@ Rec.2020 working space, and are only compressed to display range by the tone map
 at the end.
 
 ```
-RAW ─▶ decode ─▶ demosaic/bin ─▶ white balance ─▶ camera → Rec.2020      (cached "base")
-    ─▶ geometry (orientation, straighten, crop, resample)
-    ─▶ exposure ─▶ warmth/tint ─▶ saturation/vibrance ─▶ blur ─▶ sharpen
-    ─▶ shadows/highlights ─▶ sigmoid tone mapping ─▶ sRGB
+RAW ─▶ decode ─▶ demosaic/bin ─▶ white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
+    ─▶ geometry (orientation, straighten, crop, resample)               cached: per output size
+    ─▶ blur ─▶ sharpen                                                  cached: per output size
+    ─▶ exposure ─▶ warmth/tint ─▶ saturation/vibrance ─▶ shadows/highlights
+    ─▶ Rec.709 ─▶ sigmoid tone mapping + sRGB encoding                  one fused pass, always re-run
 ```
 
+Each cached stage is keyed by the parameters it depends on, so a slider only re-runs
+the stages after it. Exposure, white balance, colour and tone sliders only re-run the
+fused per-pixel pass. Its curves are baked into lookup tables indexed by the top bits
+of the `f32` value (log-spaced, no `log`/`pow` per pixel), and the tone curve and sRGB
+encoding share a single table. Blur and sharpen come before the per-pixel stages:
+exposure, white balance and saturation are linear, so the order doesn't change the
+result. Two output sizes are cached, because while a slider is being dragged the UI
+renders a ~1 MP draft and renders full size on release.
+
 Previews bin photosites ("superpixel") down to roughly the output size instead of
-demosaicing at full resolution. The binned base image is cached, so moving a slider
-only re-runs the cheap stages. Spatial parameters (blur and sharpen radii) are
+demosaicing at full resolution. Spatial parameters (blur and sharpen radii) are
 expressed in full-resolution pixels, so previews match full-size exports.
+
+`cargo run --release --example bench -- photo.ARW 2400` prints timings for typical
+interactions.
 
 Edit parameters are a versioned JSON recipe (`crates/pipeline/src/params.rs`, mirrored
 in `packages/pipeline/src/params.ts`). Every field has a default, so older recipes
@@ -108,7 +120,9 @@ double-click a slider to reset it.
 - Full-resolution export of very large files (60 MP+) needs a few GB of wasm memory.
   Tiled processing would fix this.
 - The wasm build is single-threaded. wasm threads (SharedArrayBuffer + COOP/COEP) or a
-  native N-API build for the server would speed it up a lot.
+  native N-API build for the server would speed up cold renders and geometry changes.
+- The fused per-pixel pass is a natural WebGL/WebGPU fragment shader. Rust would still
+  build the gains and lookup tables, and the GPU would only apply them.
 - Shadows/highlights is global; a guided-filter tone equalizer would preserve local contrast.
 - No histogram, lens correction, denoise, masks or XMP sidecar import/export yet.
 - Storage is local disk; the storage module is small enough to swap for S3-compatible storage.

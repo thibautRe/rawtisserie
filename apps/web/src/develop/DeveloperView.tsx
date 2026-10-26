@@ -23,6 +23,7 @@ interface Props {
 }
 
 const MAX_PREVIEW = 3200;
+const DRAFT_PIXELS = 1_000_000;
 const FULL_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
 
 function useElementSize<T extends HTMLElement>() {
@@ -60,14 +61,15 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
     if (cropDraft) return { ...params, geometry: { ...params.geometry, crop: FULL_CROP } };
     return params;
   }, [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
-  const job = useMemo(
-    () => ({
-      params: effective,
-      width: Math.min(MAX_PREVIEW, Math.floor((size.width - 32) * dpr)),
-      height: Math.min(MAX_PREVIEW, Math.floor((size.height - 32) * dpr)),
-    }),
-    [effective, size.width, size.height, dpr],
-  );
+  // While a slider is being dragged, render a ~1 MP draft (the pipeline keeps its
+  // caches for both sizes); the full-resolution render follows on release.
+  const draft = history.live && !cropDraft;
+  const job = useMemo(() => {
+    const width = Math.min(MAX_PREVIEW, Math.floor((size.width - 32) * dpr));
+    const height = Math.min(MAX_PREVIEW, Math.floor((size.height - 32) * dpr));
+    const scale = draft ? Math.min(1, Math.sqrt(DRAFT_PIXELS / Math.max(1, width * height))) : 1;
+    return { params: effective, width: Math.floor(width * scale), height: Math.floor(height * scale), scale };
+  }, [effective, size.width, size.height, dpr, draft]);
   const { frame, error } = useRenderLoop(client, job);
 
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -237,7 +239,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
             <Box position="relative" lineHeight="0" boxShadow="2xl">
               <canvas
                 ref={canvas}
-                style={{ width: frame.image.width / dpr, height: frame.image.height / dpr, display: 'block' }}
+                style={{ width: frame.image.width / dpr / frame.scale, height: frame.image.height / dpr / frame.scale, display: 'block' }}
               />
               {cropDraft && !comparing && (
                 <CropOverlay rect={cropDraft} aspect={aspectRatio(aspect)} frameAspect={frameAspect} onChange={setCropDraft} />

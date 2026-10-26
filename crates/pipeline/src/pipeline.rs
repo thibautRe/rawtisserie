@@ -4,7 +4,8 @@ use crate::decode::{self, RawPhoto};
 use crate::demosaic;
 use crate::image::{Image, Rgba8};
 use crate::metadata::PhotoMetadata;
-use crate::ops::{adjust, filters, geometry, output, tone};
+use crate::ops::point::PointOps;
+use crate::ops::{filters, geometry};
 use crate::params::EditParams;
 use crate::Result;
 
@@ -24,12 +25,50 @@ impl RenderSize {
     }
 }
 
-/// Holds a decoded RAW file plus a cached demosaiced "base" image so that
-/// re-rendering with different parameters (e.g. dragging a slider) only re-runs
-/// the cheap part of the pipeline.
+/// Holds a decoded RAW file plus caches of intermediate images, so that re-rendering
+/// with different parameters (e.g. dragging a slider) only re-runs the stages that
+/// are affected:
+///
+/// ```text
+///  base        demosaic/bin, white balance, camera → working     keyed by binning factor
+///   └ geometry  orientation, straighten, crop, resample          keyed by geometry + output size (2 sizes kept)
+///      └ detail blur, sharpen                                     keyed by the above + blur/sharpen
+///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
+/// ```
+///
+/// Blur and sharpen run before exposure, white balance and saturation. Those are
+/// linear per-pixel operations, so the order makes no difference to the result,
+/// but it means the most-used sliders never invalidate the spatial stages.
 pub struct Developer {
     photo: RawPhoto,
     base: Option<(usize, Image)>,
+    /// Spatial-stage caches per output size, most recently used first. Two sizes cover
+    /// the interactive case: a reduced "draft" size while dragging, full size after.
+    slots: Vec<Slot>,
+}
+
+const MAX_SLOTS: usize = 2;
+
+struct Slot {
+    size: (usize, usize),
+    geometry: Option<(GeometryKey, Image)>,
+    detail: Option<(DetailKey, Image)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GeometryKey {
+    base_factor: usize,
+    transform: geometry::Transform,
+    width: usize,
+    height: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DetailKey {
+    geometry: GeometryKey,
+    blur_sigma: f32,
+    sharpen_amount: f32,
+    sharpen_sigma: f32,
 }
 
 impl Developer {
@@ -38,7 +77,7 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None }
+        Self { photo, base: None, slots: Vec::new() }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -49,9 +88,10 @@ impl Developer {
         &self.photo.metadata
     }
 
-    /// Drop the cached base image to free memory.
+    /// Drop all cached intermediate images to free memory.
     pub fn release_cache(&mut self) {
         self.base = None;
+        self.slots.clear();
     }
 
     fn transform(&self, params: &EditParams) -> geometry::Transform {
@@ -80,36 +120,66 @@ impl Developer {
     }
 
     pub fn render(&mut self, params: &EditParams, size: RenderSize) -> Rgba8 {
-        output::to_srgb8(&self.render_linear(params, size))
+        let ops = PointOps::new(params);
+        ops.render(self.detail_image(params, size))
     }
 
-    /// Run the pipeline up to (and including) tone mapping; the result is display-
-    /// referred linear Rec.2020.
-    pub fn render_linear(&mut self, params: &EditParams, size: RenderSize) -> Image {
-        let (out_w, out_h, scale) = self.output_size(params, size);
-        let transform = self.transform(params);
+    /// The output of the spatial stages (geometry, blur, sharpen), from cache when possible.
+    fn detail_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
+        let (width, height, scale) = self.output_size(params, size);
         // Bin as much as possible while keeping the base at least as large as the output.
         let factor = ((1.0 / scale).floor() as usize).clamp(1, 64);
-        let base = self.base(factor);
+        let base_factor = self.ensure_base(factor);
 
-        let mut img = geometry::apply(base, &transform, out_w, out_h);
+        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
+
+        // Pick (or create) the cache slot for this output size, and make it the most recent.
+        let slot = match self.slots.iter().position(|s| s.size == (width, height)) {
+            Some(i) => self.slots.remove(i),
+            None => Slot { size: (width, height), geometry: None, detail: None },
+        };
+        self.slots.insert(0, slot);
+        self.slots.truncate(MAX_SLOTS);
+        let slot = &mut self.slots[0];
+        let base = &self.base.as_ref().expect("base was just built").1;
+
+        if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
+            slot.detail = None;
+            slot.geometry = None; // free before allocating
+            slot.geometry = Some((gkey, geometry::apply(base, &gkey.transform, width, height)));
+        }
+
         // Spatial parameters are expressed in full-resolution pixels.
-        adjust::exposure(&mut img, &params.exposure);
-        adjust::white_balance(&mut img, &params.white_balance);
-        adjust::color(&mut img, &params.color);
-        filters::blur(&mut img, params.blur.radius * scale);
-        filters::sharpen(&mut img, params.sharpen.amount, params.sharpen.radius * scale);
-        tone::shadows_highlights(&mut img, &params.tone_map);
-        tone::sigmoid(&mut img, &params.tone_map);
-        img
+        let dkey = DetailKey {
+            geometry: gkey,
+            blur_sigma: params.blur.radius * scale,
+            sharpen_amount: params.sharpen.amount,
+            sharpen_sigma: params.sharpen.radius * scale,
+        };
+        let no_detail = !filters::blur_active(dkey.blur_sigma) && !filters::sharpen_active(dkey.sharpen_amount, dkey.sharpen_sigma);
+        let geometry_img = &slot.geometry.as_ref().expect("geometry was just built").1;
+        if no_detail {
+            slot.detail = None;
+            return geometry_img;
+        }
+        if slot.detail.as_ref().map(|(k, _)| k) != Some(&dkey) {
+            let mut img = geometry_img.clone();
+            filters::blur(&mut img, dkey.blur_sigma);
+            filters::sharpen(&mut img, dkey.sharpen_amount, dkey.sharpen_sigma);
+            slot.detail = Some((dkey, img));
+        }
+        &slot.detail.as_ref().expect("detail was just built").1
     }
 
-    fn base(&mut self, factor: usize) -> &Image {
-        let reusable = matches!(&self.base, Some((f, _)) if *f <= factor && factor <= *f * 4);
-        if !reusable {
-            self.base = None; // free the old one before allocating the new one
-            self.base = Some((factor, demosaic::develop_base(&self.photo, factor)));
+    /// Make sure a base image suitable for `factor` is cached; returns its actual factor.
+    fn ensure_base(&mut self, factor: usize) -> usize {
+        match &self.base {
+            Some((f, _)) if *f <= factor && factor <= *f * 4 => *f,
+            _ => {
+                self.release_cache(); // free the old one before allocating the new one
+                self.base = Some((factor, demosaic::develop_base(&self.photo, factor)));
+                factor
+            }
         }
-        &self.base.as_ref().expect("base was just built").1
     }
 }

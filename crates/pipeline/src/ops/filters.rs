@@ -20,15 +20,23 @@ pub fn gaussian_blur(img: &Image, sigma: f32) -> Image {
     out
 }
 
+pub fn blur_active(sigma: f32) -> bool {
+    sigma >= 0.2
+}
+
+pub fn sharpen_active(amount: f32, sigma: f32) -> bool {
+    amount > 0.0 && sigma >= 0.2
+}
+
 pub fn blur(img: &mut Image, sigma: f32) {
-    if sigma >= 0.2 {
+    if blur_active(sigma) {
         *img = gaussian_blur(img, sigma);
     }
 }
 
 /// Unsharp mask on luminance: adds `amount × (Y − blur(Y))` to every channel.
 pub fn sharpen(img: &mut Image, amount: f32, sigma: f32) {
-    if amount <= 0.0 || sigma < 0.2 {
+    if !sharpen_active(amount, sigma) {
         return;
     }
     let mut lum: Vec<f32> = img.pixels.iter().map(|p| luminance(*p)).collect();
