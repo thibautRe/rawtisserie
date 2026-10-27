@@ -1,0 +1,17 @@
+{
+  "size": 400,
+  "recipe": {
+    "version": 5,
+    "modules": [
+      { "kind": "geometry", "params": { "rotation": 1, "flipHorizontal": true, "angle": 3.5,
+          "crop": { "x": 0.1, "y": 0.05, "width": 0.8, "height": 0.85 } } },
+      { "kind": "exposure", "params": { "ev": 0.4, "black": 0.002 } },
+      { "id": "exposure-2", "label": "push", "kind": "exposure", "params": { "ev": 0.3, "black": 0 } },
+      { "kind": "whiteBalance", "params": { "warmth": 0.25, "tint": -0.1 } },
+      { "kind": "color", "params": { "saturation": 0.2, "vibrance": 0.3 } },
+      { "kind": "shadowsHighlights", "params": { "shadows": 0.3, "highlights": -0.4 } },
+      { "kind": "filmic", "params": { "whiteExposure": 4.0, "blackExposure": -9.5, "contrast": 1.4,
+          "toe": 20, "shoulder": 15, "huePreservation": 30, "bleach": "high" } }
+    ]
+  }
+}

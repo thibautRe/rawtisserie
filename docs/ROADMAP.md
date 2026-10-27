@@ -2,7 +2,7 @@
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
 and history); 2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators);
-the `RenderBackend` interface (M6 prerequisite).
+the `RenderBackend` interface (M6 prerequisite); golden-image tests (before M3).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -484,6 +484,18 @@ small, even with only the local implementation.
 - **Golden-image tests** (before M3): about five reference RAWs from different brands
   (raw.pixls.us is CC0), each with a recipe and a small expected PNG, compared with a
   ΔE tolerance. Port changes must explain any diff.
+
+  > **Done** (`crates/pipeline/tests/golden.rs`). As built: six RAWs (Sony ARW, Canon
+  > CR3, Nikon NEF, Fujifilm X-Trans RAF, Leica DNG, Panasonic RW2), pinned by sha256 in
+  > `tests/golden/raws.txt` and fetched by `scripts/fetch-golden-raws.sh` (not
+  > committed). Every RAW is rendered with every recipe in `tests/golden/recipes`:
+  > `default`, `edited` (all modules, two exposure instances, rotate/flip/straighten/
+  > crop) at 400 px, and `detail`, a 10 % crop at full size, which goes through the
+  > full demosaic, blur and sharpen instead of binning. That makes 18 PNGs (2.8 MB).
+  > Tolerance: CIEDE2000 mean ≤ 0.15 and 99.9th percentile ≤ 1. Today's renders are
+  > bit-identical between runs and between debug and release builds, and +0.02 EV on
+  > one recipe already gives a mean of about 0.5. New modules should add a recipe that
+  > uses them (for 3.1, one with lens correction on).
 - **Performance budget:** extend `bench.rs` per module and record numbers in PRs.
   Point modules must not use transcendental functions per pixel; anything nontrivial
   gets baked into a lookup table.

@@ -1,0 +1,4 @@
+{
+  "size": 400,
+  "recipe": { "version": 5, "modules": [{ "kind": "exposure" }, { "kind": "filmic" }] }
+}

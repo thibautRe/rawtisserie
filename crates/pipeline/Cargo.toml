@@ -14,3 +14,6 @@ jpeg-encoder.workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["js"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+png = "0.18"

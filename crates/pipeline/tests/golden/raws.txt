@@ -1,0 +1,8 @@
+# Reference RAWs for the golden-image tests, from https://raw.pixls.us (CC0).
+# <sha256> <local name> <url>. Fetch with ./scripts/fetch-golden-raws.sh.
+250784580ea527442c09004417bb0eead484f2bf3ee8f9121a776ac65bb50d0f sony-ilce-7m3.arw https://raw.pixls.us/data/Sony/ILCE-7M3/_DSC0009.ARW
+6156ee9cfd1a61e08719a8309095d05162891fd2adb8dd1505b31d4716dcee05 canon-eos-r6.cr3 https://raw.pixls.us/data/Canon/EOS%20R6/Canon_EOS_R6_RAW_ISO_100_crop_nodual.CR3
+f0ab08da469ee205f2bc08efd9005778c64cdcb064893cee03768e32e5da1a36 nikon-z6.nef https://raw.pixls.us/data/Nikon/Z%206/DSC_0757.NEF
+929d4ab996145d06787a684154585d00b01c68240e3aead0a3193232259c1849 fujifilm-x-t30.raf https://raw.pixls.us/data/Fujifilm/X-T30/DSCF0066.RAF
+26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e leica-m10.dng https://raw.pixls.us/data/Leica/M10/f5381888.dng
+696303d9029099be41a451fce878e4de0a6a7b70a3b01e1c3f0f9848efe975c6 panasonic-dc-gx9.rw2 https://raw.pixls.us/data/Panasonic/DC-GX9/gx9_3_2.RW2

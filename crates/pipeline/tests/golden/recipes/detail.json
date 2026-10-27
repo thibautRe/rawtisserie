@@ -1,0 +1,13 @@
+{
+  "size": 0,
+  "recipe": {
+    "version": 5,
+    "modules": [
+      { "kind": "geometry", "params": { "crop": { "x": 0.45, "y": 0.45, "width": 0.1, "height": 0.1 } } },
+      { "kind": "blur", "params": { "radius": 1.2 } },
+      { "kind": "sharpen", "params": { "amount": 1.0, "radius": 1.0 } },
+      { "kind": "exposure" },
+      { "kind": "filmic" }
+    ]
+  }
+}

@@ -28,6 +28,10 @@ See README.md for the architecture overview and commands.
   operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep
   it cheap: precompute in `PointOps::new` and use lookup tables, not `powf`/`exp` per pixel.
 - Measure with `cargo run --release --example bench -- photo.ARW 2400`.
+- Golden-image tests (`crates/pipeline/tests/golden.rs`) need `./scripts/fetch-golden-raws.sh`
+  once. A change that moves the output fails them; if it's intended, re-bless with
+  `GOLDEN_UPDATE=1 cargo test --release -p rawtisserie-pipeline --test golden` and say
+  why in the commit. Pipeline refactors and optimisations must keep them passing as is.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.

@@ -104,6 +104,16 @@ server start; `npm run db:migrate` runs them by hand.
 `RAWTISSERIE_SAMPLE=/path/to/file.ARW npm test -w @rawtisserie/pipeline` also runs a
 real decode-and-render through the wasm module.
 
+The Rust tests include **golden-image tests** (`crates/pipeline/tests/golden.rs`): six
+reference RAWs from different brands ([raw.pixls.us](https://raw.pixls.us), CC0) are
+rendered with each recipe in `tests/golden/recipes` and compared with the PNGs in
+`tests/golden/expected` (CIEDE2000; mean ≤ 0.15 and 99.9th percentile ≤ 1). Run
+`./scripts/fetch-golden-raws.sh` once to download the RAWs (~140 MB, gitignored). When a
+change is meant to alter the look, re-bless the references with
+`GOLDEN_UPDATE=1 cargo test --release -p rawtisserie-pipeline --test golden`, then
+check the new PNGs in the diff. On failure, the actual render and a ΔE heatmap are
+written to `target/tmp/golden/`.
+
 ### Production
 
 `npm run build && npm run start -w @rawtisserie/server` serves both the API and the
@@ -161,4 +171,5 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 The filmic module is a port of [Ansel](https://ansel.photos)'s `filmicrgb` by
 Aurélien Pierre and contributors, licensed GPL-3.0-or-later. RAW decoding uses
-[rawler](https://github.com/dnglab/dnglab) (LGPL-2.1).
+[rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
+[raw.pixls.us](https://raw.pixls.us) (CC0).

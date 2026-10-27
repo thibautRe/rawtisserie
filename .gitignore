@@ -6,3 +6,4 @@ target/
 .env
 *.log
 .DS_Store
+/crates/pipeline/tests/golden/raws/
