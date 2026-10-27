@@ -107,7 +107,12 @@ const HistoryAppend = z.object({
   label: z.string().trim().min(1).max(200).default('Edit'),
   /** The `revision` the client based its change on; a mismatch means someone else edited it. */
   baseRevision: z.number().int().optional(),
-});
+  /**
+   * Overwrite the latest entry instead of appending (autosave coalescing). Requires
+   * `baseRevision`, so it can only replace an entry nobody has built on since.
+   */
+  replace: z.boolean().default(false),
+}).refine((b) => !b.replace || b.baseRevision !== undefined, 'replace requires baseRevision');
 
 export async function photoRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
   app.addHook('preHandler', requireUser);
@@ -231,12 +236,14 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
 
   /**
    * Record a new recipe as the next history entry. Entries after `history_end` (undone
-   * changes) are dropped first: history is linear. Previews are re-rendered in the background.
+   * changes) are dropped first: history is linear. With `replace`, the entry at
+   * `history_end` is overwritten instead (it keeps its `created_at`). Previews are
+   * re-rendered in the background.
    */
   app.post('/api/versions/:id/history', async (request) => {
     const user = currentUser(request);
     const { id } = Id.parse(request.params);
-    const { recipe, label, baseRevision } = HistoryAppend.parse(request.body);
+    const { recipe, label, baseRevision, replace } = HistoryAppend.parse(request.body);
     const normalized = normalizeEditParams(recipe);
     await db.tx(async (tx) => {
       const [current] = (await tx.query(sql`
@@ -246,9 +253,11 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
       if (baseRevision !== undefined && baseRevision !== current.revision) {
         throw conflict('This version changed elsewhere — reload');
       }
-      const seq = current.history_end + 1;
-      await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq >= ${seq}`);
-      await historyEntries(tx).insert({ version_id: id, seq, label, recipe: normalized });
+      const overwrite = replace && current.history_end > 0;
+      const seq = overwrite ? current.history_end : current.history_end + 1;
+      await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq > ${current.history_end}`);
+      if (overwrite) await historyEntries(tx).update({ version_id: id, seq }, { label, recipe: normalized });
+      else await historyEntries(tx).insert({ version_id: id, seq, label, recipe: normalized });
       await versions(tx).update(
         { id },
         {

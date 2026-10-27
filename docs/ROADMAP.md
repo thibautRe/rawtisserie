@@ -1,7 +1,7 @@
 # 🍗 RAWtisserie roadmap
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
-and history); 2.4 (clipping indicators);
+and history); 2.1 (autosave); 2.4 (clipping indicators);
 the `RenderBackend` interface (M6 prerequisite).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
@@ -105,14 +105,23 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 
 ### 2.1 Autosave, no Save button (S, after 1.2)
 
+> **Done** (`develop/useAutosave.ts`). As built: coalescing is decided by the client,
+> which sends `replace: true` (with `baseRevision`) to overwrite the entry it wrote
+> last; the revision check guarantees nobody wrote since, so no "session" column was
+> needed. The 30 s window counts from the entry's creation, and a replaced entry keeps
+> its `created_at`. Labels come from a recipe diff (`develop/changes.ts`, e.g.
+> "Exposure: ev 1.2"). Ctrl+S saves immediately. Until 2.2, local undo/redo is saved
+> as new entries.
+
 - Each committed change (slider release, crop applied…) is sent, debounced ~750 ms,
   as `POST /api/versions/:id/history` with `{ recipe, label, baseRevision }`.
 - **Coalescing:** if the previous entry is the same module instance, comes from the same
-  session, and is less than 10 s old, replace it rather than append.
+  session, and is less than 30 s old, replace it rather than append.
 - **Conflicts:** `revision` gives optimistic concurrency. Another tab editing the same
   version gets a 409 → "This version changed elsewhere — reload".
 - **Flush on leave:** `visibilitychange`/`pagehide` with `fetch(..., { keepalive: true })`.
-- The header shows "Saving… / Saved". The `beforeunload` warning goes away.
+- The header shows "Saving… / Saved". The `beforeunload` warning stays, but only while
+  a save is pending or in flight.
 - The public `/develop` page has no server, so it keeps undo/redo in memory.
 
 ### 2.2 History stack (M, after 1.2)

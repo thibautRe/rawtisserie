@@ -52,6 +52,8 @@ export function useParamsHistory(initial: EditParams) {
 
   return {
     params: h.present,
+    /** The last committed value (what gets saved). */
+    committed: h.committed,
     setLive,
     commit,
     undo,

@@ -58,9 +58,9 @@ export interface ModuleParams {
     blackExposure: number;
     /** Slope of the linear part, 0 … 5. */
     contrast: number;
-    /** Toe size: curved share of the range between black and middle grey, 0 … 100 %. */
+    /** Linear share of the range between black and middle grey, 0 … 100 % (the rest is the toe). */
     toe: number;
-    /** Shoulder size: curved share of the range between middle grey and white, 0 … 100 %. */
+    /** Linear share of the range between middle grey and white, 0 … 100 % (the rest is the shoulder). */
     shoulder: number;
     /** AgX hue recovery: -100 keeps the film-like drift, +100 restores original hues. */
     huePreservation: number;
@@ -118,8 +118,9 @@ export type Bleach = (typeof BLEACH_LEVELS)[number];
 /**
  * v2: the sigmoid tone mapper was replaced by filmic. v3: a list of module instances.
  * v4: filmic's latitude/balance became independent toe/shoulder sizes.
+ * v5: filmic's toe/shoulder measure the linear share instead of the curved one.
  */
-export const EDIT_PARAMS_VERSION = 4;
+export const EDIT_PARAMS_VERSION = 5;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
@@ -137,8 +138,8 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     blackExposure: -8.85,
     contrast: 1.18,
     // Ansel's latitude 10 %, balance 0.
-    toe: 90,
-    shoulder: 90,
+    toe: 10,
+    shoulder: 10,
     huePreservation: 0,
     bleach: 'medium',
     dynamicRangeScaling: 0,
@@ -165,7 +166,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  */
 export function normalizeEditParams(input: unknown): EditParams {
   const raw = isObject(input) ? structuredClone(input) : {};
-  migrateFilmicLatitude(raw);
+  migrateFilmic(raw);
   const version = typeof raw.version === 'number' ? raw.version : 0;
   if (version < 3 && !('modules' in raw)) return migrateV2(raw);
 
@@ -235,21 +236,28 @@ export function migrateV2(input: Record<string, unknown>): EditParams {
 }
 
 /**
- * v1–v3 filmic `latitude`/`balance` → `toe`/`shoulder`. Exact when balance is 0;
- * otherwise assumes equal room on both sides of grey. Mirrors `migrate_filmic_latitude`.
+ * Filmic's toe and shoulder (v5: linear share of each side of middle grey, %) from
+ * v1–v3 `latitude`/`balance` (exact when balance is 0; otherwise assumes equal room
+ * on both sides of grey) or from v4 `toe`/`shoulder` (the curved share, 100 % minus
+ * the v5 value). Mirrors `migrate_filmic`.
  */
-function migrateFilmicLatitude(raw: Record<string, unknown>) {
+function migrateFilmic(raw: Record<string, unknown>) {
+  const version = typeof raw.version === 'number' ? raw.version : 0;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const round = (v: number) => Math.round(clamp(v, 0, 1) * 10_000) / 100;
   const fix = (p: unknown) => {
-    if (!isObject(p) || !('latitude' in p || 'balance' in p)) return;
-    const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
-    const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-    const latitude = clamp(num(p.latitude, 10), 0, 100) / 100;
-    const balance = clamp(num(p.balance, 0), -50, 50) / 100;
-    const size = (s: number) => Math.round(clamp(1 - latitude * s, 0, 1) * 10_000) / 100;
-    delete p.latitude;
-    delete p.balance;
-    p.toe ??= size(1 + 2 * balance);
-    p.shoulder ??= size(1 - 2 * balance);
+    if (!isObject(p)) return;
+    if ('latitude' in p || 'balance' in p) {
+      const num = (v: unknown, fallback: number) => (typeof v === 'number' ? v : fallback);
+      const latitude = clamp(num(p.latitude, 10), 0, 100) / 100;
+      const balance = clamp(num(p.balance, 0), -50, 50) / 100;
+      delete p.latitude;
+      delete p.balance;
+      p.toe ??= round(latitude * (1 + 2 * balance));
+      p.shoulder ??= round(latitude * (1 - 2 * balance));
+    } else if (version === 4) {
+      for (const key of ['toe', 'shoulder']) if (typeof p[key] === 'number') p[key] = round(1 - p[key] / 100);
+    }
   };
   if (Array.isArray(raw.modules)) {
     for (const m of raw.modules) if (isObject(m) && m.kind === 'filmic') fix(m.params);

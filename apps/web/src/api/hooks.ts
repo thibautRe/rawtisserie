@@ -7,6 +7,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { ApiError, api } from './client.ts';
 import type { BulkPatch, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
 
@@ -217,15 +218,27 @@ export function useUpload() {
   });
 }
 
-/** Record a recipe as the version's next history entry. */
-export function useSaveEdit() {
+export interface HistoryWrite {
+  recipe: EditParams;
+  label: string;
+  baseRevision: number;
+  /** Overwrite the latest entry (written by this client) instead of appending. */
+  replace: boolean;
+}
+
+/**
+ * Record a recipe in a version's history. Returns a function (not a mutation) so the
+ * caller controls ordering and can save with `keepalive` while the page unloads.
+ */
+export function useSaveHistory(id: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, params, baseRevision }: { id: string; params: EditParams; baseRevision?: number }) =>
-      api.post<PhotoDetail>(`/api/versions/${id}/history`, { recipe: params, baseRevision }),
-    onSuccess: (photo) => {
+  return useCallback(
+    async (write: HistoryWrite, options?: { keepalive?: boolean }) => {
+      const photo = await api.post<PhotoDetail>(`/api/versions/${id}/history`, write, options);
       qc.setQueryData(['photo', photo.id], photo);
       refreshLibrary(qc);
+      return photo.revision;
     },
-  });
+    [id, qc],
+  );
 }

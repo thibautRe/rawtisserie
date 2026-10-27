@@ -9,6 +9,7 @@ import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
 import type { RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
+import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useParamsHistory } from './useParamsHistory.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 
@@ -17,9 +18,10 @@ interface Props {
   filename: string;
   metadata: PhotoMetadata;
   initialParams: EditParams;
-  /** Persist the recipe (library mode). */
-  onSave?: (params: EditParams) => Promise<unknown>;
-  saving?: boolean;
+  /** Persist each committed recipe as a history entry (library mode). */
+  save?: SaveFn;
+  /** The version's `revision` that `initialParams` comes from. */
+  revision?: number;
   /** Extra toolbar actions, given the current parameters. */
   actions?: (params: EditParams) => React.ReactNode;
 }
@@ -56,11 +58,10 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-export function DeveloperView({ backend, filename, metadata, initialParams, onSave, saving, actions }: Props) {
+export function DeveloperView({ backend, filename, metadata, initialParams, save, revision = 0, actions }: Props) {
   const history = useParamsHistory(initialParams);
   const { params } = history;
-  const [saved, setSaved] = useState(initialParams);
-  const dirty = !!onSave && JSON.stringify(params) !== JSON.stringify(saved);
+  const autosave = useAutosave(history.committed, revision, save);
 
   const [comparing, setComparing] = useState(false);
   // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
@@ -131,17 +132,6 @@ export function DeveloperView({ backend, filename, metadata, initialParams, onSa
   };
 
   // ── Actions ──
-  const save = async () => {
-    if (!onSave) return;
-    try {
-      await onSave(params);
-      setSaved(params);
-      toaster.create({ type: 'success', title: 'Edit saved', description: 'Library previews are being re-rendered.' });
-    } catch (err) {
-      toaster.create({ type: 'error', title: 'Could not save', description: err instanceof Error ? err.message : undefined });
-    }
-  };
-
   const exportJpeg = async (maxSize: number) => {
     setExporting(true);
     try {
@@ -180,7 +170,7 @@ export function DeveloperView({ backend, filename, metadata, initialParams, onSa
       const key = e.key.toLowerCase();
       if (mod && key === 'z' && !e.shiftKey) history.undo();
       else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) history.redo();
-      else if (mod && key === 's') void save();
+      else if (mod && key === 's') autosave.flush();
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'c') startCrop();
       else if (mod && key === 'b') setAssessment((a) => !a);
@@ -200,14 +190,6 @@ export function DeveloperView({ backend, filename, metadata, initialParams, onSa
     };
   });
 
-  // Warn before leaving with unsaved changes.
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
-
   const exif = [
     [metadata.make, metadata.model].filter(Boolean).join(' '),
     metadata.lensModel,
@@ -225,12 +207,6 @@ export function DeveloperView({ backend, filename, metadata, initialParams, onSa
           <Stack gap="0" minW="0" flex="1">
             <Text fontWeight="semibold" truncate>
               {filename}
-              {dirty && (
-                <Text as="span" color="orange.fg" title="Unsaved changes">
-                  {' '}
-                  •
-                </Text>
-              )}
             </Text>
             <Text textStyle="xs" color="fg.muted" truncate>
               {exif.join(' · ')}
@@ -270,11 +246,6 @@ export function DeveloperView({ backend, filename, metadata, initialParams, onSa
             </Portal>
           </Menu.Root>
           {actions?.(params)}
-          {onSave && (
-            <Button size="sm" colorPalette="orange" disabled={!dirty} loading={saving} onClick={() => void save()}>
-              Save
-            </Button>
-          )}
         </HStack>
 
         <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
@@ -320,6 +291,7 @@ export function DeveloperView({ backend, filename, metadata, initialParams, onSa
           )}
         </Center>
         <StatusBar
+          save={save && { status: autosave.status, retry: autosave.flush }}
           ms={frame?.ms ?? null}
           clipping={clipping}
           onClippingChange={setClipping}

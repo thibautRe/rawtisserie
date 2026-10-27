@@ -31,7 +31,7 @@ See README.md for the architecture overview and commands.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
-- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 4).
+- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 5).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
 - A recipe (v3) is a list of module instances; pipeline order is fixed by `ModuleKind`

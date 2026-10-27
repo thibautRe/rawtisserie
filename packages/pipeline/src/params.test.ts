@@ -35,6 +35,8 @@ const samples: unknown[] = [
   { version: 2, filmic: { latitude: 30, balance: -10 } },
   { version: 3, modules: [{ kind: 'filmic', params: { latitude: 17.3, balance: 12.5, contrast: 1.4 } }] },
   { version: 4, modules: [{ kind: 'filmic', params: { toe: 50, shoulder: 75 } }] },
+  { version: 4, modules: [{ kind: 'filmic', params: { toe: 82.7 } }] },
+  { version: 5, modules: [{ kind: 'filmic', params: { toe: 50, shoulder: 75 } }] },
   {
     version: 3,
     modules: [
@@ -72,7 +74,7 @@ test('normalizeEditParams fills gaps and ignores junk', () => {
 
 test('v2 recipes become one instance per section', () => {
   const p = normalizeEditParams({ version: 2, exposure: { ev: 2 }, filmic: { enabled: false, contrast: 1.5 }, geometry: { crop: { x: 0.5 } } });
-  assert.equal(p.version, 4);
+  assert.equal(p.version, 5);
   assert.deepEqual(
     p.modules.map((m) => [m.id, m.enabled]),
     [

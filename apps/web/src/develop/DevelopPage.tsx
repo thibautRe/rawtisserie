@@ -4,7 +4,7 @@ import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, fetchBytes } from '../api/client.ts';
-import { useMe, usePhoto, useSaveEdit, type UploadResult } from '../api/hooks.ts';
+import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
@@ -192,7 +192,7 @@ export function LibraryDevelopPage() {
   const { id } = useParams();
   const backend = useLocalBackend();
   const { data: photo, error: photoError } = usePhoto(id);
-  const saveEdit = useSaveEdit();
+  const save = useSaveHistory(id!);
   const [progress, setProgress] = useState(0);
   const [metadata, setMetadata] = useState<PhotoMetadata | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -235,8 +235,8 @@ export function LibraryDevelopPage() {
       filename={photo.filename}
       metadata={metadata}
       initialParams={photo.editParams ? normalizeEditParams(photo.editParams) : defaultEditParams}
-      onSave={(params) => saveEdit.mutateAsync({ id: photo.id, params, baseRevision: photo.revision })}
-      saving={saveEdit.isPending}
+      save={save}
+      revision={photo.revision}
     />
   );
 }

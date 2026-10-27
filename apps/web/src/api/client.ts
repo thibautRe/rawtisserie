@@ -6,8 +6,13 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, credentials: 'same-origin', headers: {} };
+interface RequestOptions {
+  /** Let the request outlive the page (limited to 64 KB bodies), for saving on unload. */
+  keepalive?: boolean;
+}
+
+async function request<T>(method: string, url: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+  const init: RequestInit = { method, credentials: 'same-origin', headers: {}, keepalive: options.keepalive };
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -22,7 +27,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 
 export const api = {
   get: <T>(url: string) => request<T>('GET', url),
-  post: <T>(url: string, body?: unknown) => request<T>('POST', url, body ?? {}),
+  post: <T>(url: string, body?: unknown, options?: RequestOptions) => request<T>('POST', url, body ?? {}, options),
   put: <T>(url: string, body: unknown) => request<T>('PUT', url, body),
   patch: <T>(url: string, body: unknown) => request<T>('PATCH', url, body),
   delete: <T>(url: string) => request<T>('DELETE', url),

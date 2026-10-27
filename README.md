@@ -119,8 +119,9 @@ and colour science v8 "AgX" with all five bleach variants. Highlight reconstruct
 deprecated in Ansel, is left out. Defaults match Ansel's for RAW files (white +3.15 EV,
 black −8.85 EV, contrast 1.18, latitude 10 %, medium bleach) together with the +0.7 EV
 exposure default. One deviation in the controls: Ansel's latitude and shadows/highlights
-balance are replaced by independent **toe** and **shoulder** sizes (the curved share of
-each side of middle grey); toe = shoulder = 90 % is Ansel's latitude 10 %, balance 0.
+balance are replaced by independent **toe** and **shoulder** settings (the linear share of
+each side of middle grey; higher means more contrast); toe = shoulder = 10 % is Ansel's
+latitude 10 %, balance 0.
 
 **Auto-tune** follows Ansel's `autoset`. It measures filmic's input over the image as
 displayed (after crop): white relative exposure from the brightest max(R, G, B), black

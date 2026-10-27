@@ -18,7 +18,8 @@ use serde_json::Value;
 /// v2: the sigmoid tone mapper was replaced by filmic; shadows/highlights got their own section.
 /// v3: a list of module instances instead of one section per module.
 /// v4: filmic's latitude/balance became independent toe/shoulder sizes.
-pub const CURRENT_VERSION: u32 = 4;
+/// v5: filmic's toe/shoulder measure the linear share instead of the curved one.
+pub const CURRENT_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Value")]
@@ -260,7 +261,7 @@ impl TryFrom<Value> for EditParams {
     type Error = serde_json::Error;
 
     fn try_from(mut json: Value) -> Result<Self, Self::Error> {
-        migrate_filmic_latitude(&mut json);
+        migrate_filmic(&mut json);
         let version = json.get("version").and_then(Value::as_u64).unwrap_or(0);
         let mut params = if version >= 3 || json.get("modules").is_some() {
             let raw = match json.get("modules") {
@@ -280,22 +281,31 @@ impl TryFrom<Value> for EditParams {
     }
 }
 
-/// v1–v3 filmic `latitude` (width of the linear part, %) and `balance` (its shift,
-/// -50 … +50 %) → `toe`/`shoulder` (curved share of each side of middle grey, %).
-/// Exact when balance is 0; otherwise it assumes equal room on both sides of grey,
-/// since the old balance mixed the two. Must match `migrateFilmicLatitude` in TS.
-fn migrate_filmic_latitude(json: &mut Value) {
-    fn fix(params: &mut Value) {
+/// Filmic's toe and shoulder (v5: linear share of each side of middle grey, %) from
+/// * v1–v3 `latitude` (width of the linear part, %) and `balance` (its shift,
+///   -50 … +50 %). Exact when balance is 0; otherwise it assumes equal room on both
+///   sides of grey, since the old balance mixed the two.
+/// * v4 `toe`/`shoulder`, which were the curved share (100 % minus the v5 value).
+///
+/// Must match `migrateFilmic` in TS.
+fn migrate_filmic(json: &mut Value) {
+    let version = json.get("version").and_then(Value::as_u64).unwrap_or(0);
+    let round = |v: f64| (v.clamp(0.0, 1.0) * 10_000.0).round() / 100.0;
+    let fix = |params: &mut Value| {
         let Some(p) = params.as_object_mut() else { return };
-        if !p.contains_key("latitude") && !p.contains_key("balance") {
-            return;
+        if p.contains_key("latitude") || p.contains_key("balance") {
+            let latitude = p.remove("latitude").and_then(|v| v.as_f64()).unwrap_or(10.0).clamp(0.0, 100.0) / 100.0;
+            let balance = p.remove("balance").and_then(|v| v.as_f64()).unwrap_or(0.0).clamp(-50.0, 50.0) / 100.0;
+            p.entry("toe").or_insert_with(|| round(latitude * (1.0 + 2.0 * balance)).into());
+            p.entry("shoulder").or_insert_with(|| round(latitude * (1.0 - 2.0 * balance)).into());
+        } else if version == 4 {
+            for key in ["toe", "shoulder"] {
+                if let Some(curved) = p.get(key).and_then(Value::as_f64) {
+                    p.insert(key.into(), round(1.0 - curved / 100.0).into());
+                }
+            }
         }
-        let latitude = p.remove("latitude").and_then(|v| v.as_f64()).unwrap_or(10.0).clamp(0.0, 100.0) / 100.0;
-        let balance = p.remove("balance").and_then(|v| v.as_f64()).unwrap_or(0.0).clamp(-50.0, 50.0) / 100.0;
-        let size = |s: f64| ((1.0 - latitude * s).clamp(0.0, 1.0) * 10_000.0).round() / 100.0;
-        p.entry("toe").or_insert_with(|| size(1.0 + 2.0 * balance).into());
-        p.entry("shoulder").or_insert_with(|| size(1.0 - 2.0 * balance).into());
-    }
+    };
     if let Some(modules) = json.get_mut("modules").and_then(Value::as_array_mut) {
         for m in modules.iter_mut().filter(|m| m.get("kind").and_then(Value::as_str) == Some("filmic")) {
             if let Some(params) = m.get_mut("params") {
@@ -362,11 +372,11 @@ pub struct Filmic {
     pub black_exposure: f32,
     /// Slope of the curve's linear part, 0 … 5.
     pub contrast: f32,
-    /// Size of the toe: the curved share of the range between black and middle grey,
-    /// 0 … 100 % (the rest is the linear part).
+    /// Toe: the linear share of the range between black and middle grey, 0 … 100 %
+    /// (the rest is the curved toe). Higher is more contrast in the shadows.
     pub toe: f32,
-    /// Size of the shoulder: the curved share of the range between middle grey and
-    /// white, 0 … 100 %.
+    /// Shoulder: the linear share of the range between middle grey and white,
+    /// 0 … 100 % (the rest is the curved shoulder).
     pub shoulder: f32,
     /// AgX hue recovery, -100 (keep the film-like hue drift) … +100 (original hues).
     pub hue_preservation: f32,
@@ -384,8 +394,8 @@ impl Default for Filmic {
             black_exposure: -8.85,
             contrast: 1.18,
             // Ansel's latitude 10 %, balance 0.
-            toe: 90.0,
-            shoulder: 90.0,
+            toe: 10.0,
+            shoulder: 10.0,
             hue_preservation: 0.0,
             bleach: Bleach::Medium,
             dynamic_range_scaling: 0.0,
@@ -518,7 +528,7 @@ mod tests {
         p.get_mut::<Sharpen>().amount = 0.5;
         p.add(Exposure { ev: -1.0, black: 0.0 });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.starts_with(r#"{"version":4,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
+        assert!(json.starts_with(r#"{"version":5,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
         assert_eq!(EditParams::from_json(&json).unwrap(), p);
     }
 
@@ -578,11 +588,20 @@ mod tests {
     fn migrates_filmic_latitude_to_toe_and_shoulder() {
         let filmic = |json: &str| EditParams::from_json(json).unwrap().get::<Filmic>().cloned().unwrap();
         let f = filmic(r#"{"version":3,"modules":[{"kind":"filmic","params":{"latitude":10,"balance":0}}]}"#);
-        assert_eq!((f.toe, f.shoulder), (90.0, 90.0));
+        assert_eq!((f.toe, f.shoulder), (10.0, 10.0));
         let f = filmic(r#"{"version":3,"modules":[{"kind":"filmic","params":{"latitude":20,"balance":25}}]}"#);
-        assert_eq!((f.toe, f.shoulder), (70.0, 90.0));
+        assert_eq!((f.toe, f.shoulder), (30.0, 10.0));
         let f = filmic(r#"{"version":2,"filmic":{"latitude":30}}"#);
-        assert_eq!((f.toe, f.shoulder), (70.0, 70.0));
+        assert_eq!((f.toe, f.shoulder), (30.0, 30.0));
+    }
+
+    #[test]
+    fn migrates_v4_curved_toe_and_shoulder() {
+        let filmic = |json: &str| EditParams::from_json(json).unwrap().get::<Filmic>().cloned().unwrap();
+        let f = filmic(r#"{"version":4,"modules":[{"kind":"filmic","params":{"toe":90,"shoulder":62.5}}]}"#);
+        assert_eq!((f.toe, f.shoulder), (10.0, 37.5));
+        let f = filmic(r#"{"version":5,"modules":[{"kind":"filmic","params":{"toe":90}}]}"#);
+        assert_eq!((f.toe, f.shoulder), (90.0, 10.0));
     }
 
     #[test]

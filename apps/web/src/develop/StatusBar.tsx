@@ -1,7 +1,8 @@
-import { Button, HStack, IconButton, Menu, Portal, Separator, Text } from '@chakra-ui/react';
-import { ChevronDown, Frame, SunMoon, Zap } from 'lucide-react';
+import { Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
+import { ChevronDown, CloudAlert, CloudCheck, Frame, SunMoon, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ClipMode } from './protocol.ts';
+import type { SaveStatus } from './useAutosave.ts';
 
 /** Clipping indicator settings; display options, not part of the recipe. */
 export interface ClippingSettings {
@@ -34,6 +35,8 @@ export function useClippingSettings() {
 }
 
 interface Props {
+  /** Autosave state (library mode only). */
+  save?: { status: SaveStatus; retry: () => void };
   /** Render time of the last frame, if any. */
   ms: number | null;
   clipping: ClippingSettings;
@@ -42,10 +45,11 @@ interface Props {
   onAssessmentChange: (on: boolean) => void;
 }
 
-/** A slim bar under the image: render time and view toggles. */
-export function StatusBar({ ms, clipping, onClippingChange, assessment, onAssessmentChange }: Props) {
+/** A slim bar under the image: save state, render time and view toggles. */
+export function StatusBar({ save, ms, clipping, onClippingChange, assessment, onAssessmentChange }: Props) {
   return (
     <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
+      {save && <SaveIndicator {...save} />}
       <Text textStyle="2xs" color="fg.subtle" fontVariantNumeric="tabular-nums" px="1" flex="1">
         {ms !== null && `${Math.round(ms)} ms`}
       </Text>
@@ -120,5 +124,42 @@ export function StatusBar({ ms, clipping, onClippingChange, assessment, onAssess
         <Frame /> Assessment
       </Button>
     </HStack>
+  );
+}
+
+/** Only show the saving state once a save has taken this long. */
+const SAVING_DELAY_MS = 1000;
+
+/** A fixed-size icon, so state changes don't move anything. */
+function SaveIndicator({ status, retry }: { status: SaveStatus; retry: () => void }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (status !== 'saving') return;
+    const timer = setTimeout(() => setSlow(true), SAVING_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  if (status === 'error' || status === 'conflict') {
+    const conflict = status === 'conflict';
+    return (
+      <IconButton
+        aria-label={conflict ? 'Changed elsewhere — reload' : 'Not saved — retry'}
+        title={conflict ? 'This version changed elsewhere — click to reload' : 'Not saved — click to retry'}
+        size="2xs"
+        variant="ghost"
+        color="fg.error"
+        minW="5"
+        onClick={conflict ? () => location.reload() : retry}
+      >
+        <CloudAlert />
+      </IconButton>
+    );
+  }
+  const saving = status === 'saving' && slow;
+  return (
+    <Center boxSize="5" color="fg.subtle" title={saving ? 'Saving…' : 'All changes saved'} aria-label={saving ? 'Saving' : 'Saved'}>
+      {saving ? <Spinner size="xs" borderWidth="1.5px" /> : <CloudCheck size={14} />}
+    </Center>
   );
 }
