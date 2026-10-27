@@ -133,7 +133,8 @@ decide the range.
 
 **Library**: `0`–`5` rate · `P` pick · `X` reject · `U` unflag · `6`–`9` colour labels ·
 arrows move · Shift+arrows/click extend the selection · Ctrl/⌘+click toggles ·
-Ctrl/⌘+A selects all · `D`/Enter develops · Delete deletes · Esc clears.
+Ctrl/⌘+A selects all · `D`/Enter develops · Ctrl/⌘+D duplicates (Ctrl/⌘+Shift+D from
+the original) · Delete deletes · Esc clears.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
 colour-assessment frame · hold `\` to compare with the unedited image · `C` crop

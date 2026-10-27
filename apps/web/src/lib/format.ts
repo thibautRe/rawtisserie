@@ -31,3 +31,6 @@ export function toDateTimeLocal(iso: string | null): string {
 
 export const RAW_ACCEPT =
   '.3fr,.ari,.arw,.cr2,.cr3,.crw,.dcr,.dcs,.dng,.erf,.fff,.iiq,.kdc,.mef,.mos,.mrw,.nef,.nrw,.orf,.ori,.pef,.raf,.raw,.rw2,.rwl,.sr2,.srf,.srw,.x3f';
+
+/** "B&W", or "Version 2" for an unnamed version. */
+export const versionLabel = (v: { name: string | null; index: number }) => v.name ?? `Version ${v.index}`;

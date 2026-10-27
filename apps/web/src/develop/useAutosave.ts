@@ -1,13 +1,10 @@
-import type { EditParams } from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HistoryWrite } from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
-import { describeChange } from './changes.ts';
+import type { HistoryOp, HistoryStore } from './history.ts';
 
-/** Save this long after the last committed change. */
+/** Save this long after the last change. */
 const DEBOUNCE_MS = 750;
-/** Successive changes to the same module instance within this window share one history entry. */
-const COALESCE_MS = 30_000;
 
 export type SaveFn = (write: HistoryWrite, options?: { keepalive?: boolean }) => Promise<number>;
 
@@ -19,65 +16,66 @@ export type SaveFn = (write: HistoryWrite, options?: { keepalive?: boolean }) =>
  */
 export type SaveStatus = 'saved' | 'saving' | 'error' | 'conflict';
 
-interface LastEntry {
-  moduleId: string;
-  /** The recipe before this entry, to label it when a later change replaces it. */
-  before: EditParams;
-  createdAt: number;
+/** Add `op` to the queue, merging it with the previous one when possible. */
+function enqueue(queue: HistoryOp[], op: HistoryOp) {
+  const tail = queue.at(-1);
+  if (tail?.type === 'goto') {
+    // A splice or goto sets `end` itself, and a goto changes nothing else.
+    queue.pop();
+    return enqueue(queue, op);
+  }
+  if (tail?.type === 'splice') {
+    const count = tail.from - 1 + tail.entries.length;
+    if (op.type === 'goto' && op.end <= count) {
+      queue[queue.length - 1] = { ...tail, end: op.end };
+      return;
+    }
+    if (op.type === 'splice' && op.from >= tail.from && op.from <= count + 1) {
+      const entries = [...tail.entries.slice(0, op.from - tail.from), ...op.entries];
+      queue[queue.length - 1] = { type: 'splice', from: tail.from, entries, end: op.end };
+      return;
+    }
+  }
+  queue.push(op);
 }
 
-const same = (a: EditParams, b: EditParams) => JSON.stringify(a) === JSON.stringify(b);
-
 /**
- * Save each committed recipe as a history entry, debounced, one request at a time.
- * Changes to the same module instance within `COALESCE_MS` replace the entry this
- * hook last wrote instead of appending. Pending changes are flushed on unmount and
- * with `keepalive` when the page is hidden or unloaded.
+ * Mirror the history's changes on the server: debounced, merged, and sent as one
+ * batch at a time. Pending changes are flushed on unmount and with `keepalive` when
+ * the page is hidden or unloaded.
  */
-export function useAutosave(recipe: EditParams, initialRevision: number, save: SaveFn | undefined) {
+export function useAutosave(store: HistoryStore, initialRevision: number, save: SaveFn | undefined) {
   const [status, setStatus] = useState<SaveStatus>('saved');
   const s = useRef({
-    latest: recipe,
-    saved: recipe,
+    queue: [] as HistoryOp[],
     revision: initialRevision,
-    last: null as LastEntry | null,
-    inFlight: null as EditParams | null,
+    inFlight: false,
+    /** The in-flight save (it settles after its success or error handling). */
+    request: null as Promise<void> | null,
     timer: 0,
     conflict: false,
   }).current;
-
-  const write = useCallback(
-    (target: EditParams, base: EditParams, baseRevision: number, keepalive: boolean, coalesce = true) => {
-      const change = describeChange(base, target);
-      const now = Date.now();
-      const last = coalesce ? s.last : null;
-      const replace = !!last && change.moduleId === last.moduleId && now - last.createdAt < COALESCE_MS;
-      const label = replace ? describeChange(last.before, target).label : change.label;
-      const entry = replace ? last : change.moduleId ? { moduleId: change.moduleId, before: base, createdAt: now } : null;
-      return { request: save!({ recipe: target, label, baseRevision, replace }, { keepalive }), entry };
-    },
-    [s, save],
-  );
 
   const flush = useCallback(
     (keepalive = false) => {
       clearTimeout(s.timer);
       if (!save || s.conflict || s.inFlight) return;
-      const target = s.latest;
-      if (same(target, s.saved)) return setStatus('saved');
+      if (!s.queue.length) return setStatus('saved');
       setStatus('saving');
-      s.inFlight = target;
-      const { request, entry } = write(target, s.saved, s.revision, keepalive);
-      request.then(
+      const ops = s.queue;
+      s.queue = [];
+      s.inFlight = true;
+      s.request = save({ ops, baseRevision: s.revision }, { keepalive }).then(
         (revision) => {
-          s.inFlight = null;
+          s.inFlight = false;
           s.revision = revision;
-          s.saved = target;
-          s.last = entry;
           flush();
         },
         (err: unknown) => {
-          s.inFlight = null;
+          s.inFlight = false;
+          const rest = s.queue;
+          s.queue = [];
+          for (const op of [...ops, ...rest]) enqueue(s.queue, op);
           // Toasts are raised here rather than from an effect on `status`: the toaster's
           // state machine uses flushSync, which React refuses during a commit.
           if ((err as { status?: number }).status === 409) {
@@ -102,22 +100,23 @@ export function useAutosave(recipe: EditParams, initialRevision: number, save: S
         },
       );
     },
-    [s, save, write],
+    [s, save],
   );
 
-  // Debounce committed changes.
+  // Queue each change and debounce.
   useEffect(() => {
-    s.latest = recipe;
-    if (!save || s.conflict) return;
-    if (same(recipe, s.saved) && !s.inFlight) {
+    if (!save) return;
+    store.onOp = (op) => {
+      enqueue(s.queue, op);
+      if (s.conflict) return;
+      setStatus('saving');
       clearTimeout(s.timer);
-      setStatus('saved');
-      return;
-    }
-    setStatus('saving');
-    clearTimeout(s.timer);
-    s.timer = window.setTimeout(flush, DEBOUNCE_MS);
-  }, [recipe, s, save, flush]);
+      s.timer = window.setTimeout(flush, DEBOUNCE_MS);
+    };
+    return () => {
+      store.onOp = null;
+    };
+  }, [store, s, save, flush]);
 
   // Flush when leaving: hidden tab, page unload, or navigating away in the app.
   useEffect(() => {
@@ -127,7 +126,7 @@ export function useAutosave(recipe: EditParams, initialRevision: number, save: S
       if (s.conflict || !s.inFlight) return flush(true);
       // A save is in flight and the page is going away: send the rest now, assuming
       // the in-flight one succeeds (otherwise the server rejects this one with a 409).
-      if (!same(s.latest, s.inFlight)) write(s.latest, s.inFlight, s.revision + 1, true, false).request.catch(() => {});
+      if (s.queue.length) save({ ops: s.queue, baseRevision: s.revision + 1 }, { keepalive: true }).catch(() => {});
     };
     document.addEventListener('visibilitychange', hidden);
     window.addEventListener('pagehide', unload);
@@ -136,7 +135,7 @@ export function useAutosave(recipe: EditParams, initialRevision: number, save: S
       window.removeEventListener('pagehide', unload);
       flush();
     };
-  }, [s, save, flush, write]);
+  }, [s, save, flush]);
 
   // Warn before leaving while changes aren't saved yet. Not after a conflict: they
   // can't be saved anyway, and the way out is the reload the toast offers.
@@ -147,5 +146,12 @@ export function useAutosave(recipe: EditParams, initialRevision: number, save: S
     return () => window.removeEventListener('beforeunload', handler);
   }, [status]);
 
-  return { status, flush: () => flush() };
+  /** Save now and wait until everything is saved; rejects if something couldn't be. */
+  const whenSaved = useCallback(async () => {
+    flush();
+    while (s.inFlight) await s.request;
+    if (s.conflict || s.queue.length) throw new Error('Your last changes could not be saved');
+  }, [s, flush]);
+
+  return { status, flush: () => flush(), whenSaved };
 }

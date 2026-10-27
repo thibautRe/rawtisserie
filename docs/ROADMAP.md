@@ -1,7 +1,7 @@
 # 🍗 RAWtisserie roadmap
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
-and history); 2.1 (autosave); 2.4 (clipping indicators);
+and history); 2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators);
 the `RenderBackend` interface (M6 prerequisite).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
@@ -10,7 +10,7 @@ and become **a list of module instances with a history**. So the plan starts wit
 foundation, then builds features on top in milestones that each ship something usable.
 
 ```
-M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipping indicators)
+M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipping indicators, sliders, guided editing)
                  ├─▶ M3 Image quality (lens correction, colour primaries, contrast equalizer)
                  ├─▶ M4 Creative control (module instances, presets, shapes, retouch, masks)
                  └─▶ M5 Compare
@@ -81,8 +81,7 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
 > `/api/photos`. Saving already goes through `POST /api/versions/:id/history` with
 > `baseRevision` (409 on mismatch) and truncates entries after `history_end`, which is
 > ready for 2.1/2.2. History labels are still a generic "Edit" until 2.1 sends real
-> ones. Deleting a version deletes its photo once no version is left. The dialog
-> wording assumes one version per photo until 2.3.
+> ones. Deleting a version deletes its photo once no version is left.
 
 Split "the file" from "an edit of the file", like darktable duplicates:
 
@@ -110,8 +109,8 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 > last; the revision check guarantees nobody wrote since, so no "session" column was
 > needed. The 30 s window counts from the entry's creation, and a replaced entry keeps
 > its `created_at`. Labels come from a recipe diff (`develop/changes.ts`, e.g.
-> "Exposure: ev 1.2"). Ctrl+S saves immediately. Until 2.2, local undo/redo is saved
-> as new entries.
+> "Exposure: ev 1.2"). Ctrl+S saves immediately. Since 2.2 coalescing happens in the
+> client's history model and saves are batches of history ops (see 2.2).
 
 - Each committed change (slider release, crop applied…) is sent, debounced ~750 ms,
   as `POST /api/versions/:id/history` with `{ recipe, label, baseRevision }`.
@@ -126,6 +125,16 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 
 ### 2.2 History stack (M, after 1.2)
 
+> **Done** (`develop/history.ts`, `develop/HistoryPanel.tsx`). As built: the client owns
+> the history (`HistoryStore`: entries, `end`, coalescing) and mirrors each change on
+> the server as ops, batched in one `POST /api/versions/:id/history` per save:
+> `splice` (drop entries from `from` on, insert new ones) and `goto` (move
+> `history_end`). The version detail includes every entry's recipe, so moving through
+> history is instant. Dropping undone entries and compressing both offer an Undo toast
+> until the next history change. Compressing keeps one entry per instance that differs
+> from the original, in order of each one's last change. The public `/develop` page uses
+> the same store in memory, and "Add to library" uploads its whole history.
+
 - A left panel in the developer (as in Ansel): entries newest-first with module icon and
   change summary, plus a "0 — original" entry at the bottom.
 - Clicking an entry moves `history_end` there and renders that state. Editing from an
@@ -135,6 +144,16 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 - Undo/redo shortcuts move `history_end` instead of the local stack.
 
 ### 2.3 Duplicates (S–M, after 1.2)
+
+> **Done.** As built: `POST /api/versions/:id/duplicate` (`fromOriginal` for an empty
+> history) inserts the copy right after its source. The copy keeps the curation and the
+> whole history, undone entries included. The copy is rendered again rather than
+> copying files. Reordering is `POST /api/versions/:id/move { position }`, and renaming
+> is the `versionName` patch field. Unnamed versions show as "Version N" (their
+> position). The developer's switcher (`develop/VersionMenu.tsx`) waits for pending
+> saves before duplicating, and keeps the decoded original when switching between
+> versions of the same photo. Library: Ctrl+D / Ctrl+Shift+D duplicate the selection,
+> and the delete dialog says which photos lose their last version (and their RAW file).
 
 - Library and developer actions: **Duplicate** (copies the history) and **Duplicate
   from original** (starts from `default_recipe`).
@@ -163,6 +182,41 @@ Two toggles, like Ansel's `overexposed.c` and `rawoverexposed.c`:
    geometry by nearest sampling, and paint it on top.
 
 Toolbar toggle plus a shortcut. Both apply to drafts too.
+
+### 2.5 Slider feel (M, independent)
+
+Rework `ParamSlider` into the one control used by every module:
+
+- **Gradient tracks** that show what the value does: warmth blue → amber and tint
+  green → magenta for white balance, hue/saturation ramps for the future colour
+  primaries (3.2), grey ramps for exposure-like values.
+- **Soft range:** the track covers the useful range, but the module accepts more, and
+  today there is no way to reach it. For example filmic's contrast slider stops at 3
+  while the module goes up to 5. Ways to get there (like Ansel's soft/hard limits):
+  type a value (click or right-click on the number), and keep values
+  outside the track. The track then pins at its end and the number shows the real
+  value. Each slider declares its soft range and its hard range (the module's clamp).
+- **Stepped sliders for enumerations:** filmic's AgX bleach (none → extra) becomes a
+  slider with five detents instead of a select.
+- Fine/coarse adjustment with modifiers (Shift ×10, Ctrl ×0.1) on drag, wheel and
+  arrow keys. Double-click on the track keeps resetting to the default.
+
+### 2.6 Keyboard-driven, stepped editing (exploration)
+
+Needs brainstorming and prototyping before it's planned. The idea is a primarily
+keyboard-driven flow that walks through an opinionated order of steps, one control at a
+time, e.g.:
+
+1. exposure,
+2. filmic white/black relative exposures,
+3. contrast (then toe/shoulder),
+4. colour (white balance, saturation/vibrance, later primaries).
+
+Open questions: how a step is shown (focus one slider, dim the rest, show a hint of
+what to look at, e.g. turn on clipping indicators for the exposure steps), which keys
+change the value, step forward/back and skip, and whether the sequence is fixed or a
+preset. It builds on 2.5 (every slider usable from the keyboard) and fits the history
+(2.2): one entry per step.
 
 ---
 
@@ -447,6 +501,8 @@ small, even with only the local implementation.
 2. M2.4 clipping indicators (small, independent quick win) and the `RenderBackend`
    interface.
 3. M2.1 → M2.2 → M2.3: autosave, history, duplicates.
+   M2.5 sliders can go in at any time; M2.6 stays an exploration until it has a
+   prototype.
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.

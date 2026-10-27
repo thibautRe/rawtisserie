@@ -10,6 +10,8 @@ import {
   IconButton,
   Image,
   Input,
+  Menu,
+  Portal,
   RatingGroup,
   Separator,
   Stack,
@@ -17,12 +19,12 @@ import {
   Text,
   Textarea,
 } from '@chakra-ui/react';
-import { Aperture, Check, Download, Trash2, X } from 'lucide-react';
+import { Aperture, Check, Copy, Download, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useBulkUpdate, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
 import { COLOR_LABELS, type ColorLabel, type Flag, type Photo, type PhotoPatch } from '../api/types.ts';
-import { formatBytes, formatExposureTime, toDateTimeLocal } from '../lib/format.ts';
+import { formatBytes, formatExposureTime, toDateTimeLocal, versionLabel } from '../lib/format.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
 const PANEL_PROPS = {
@@ -36,20 +38,47 @@ const PANEL_PROPS = {
   gap: '4',
 } as const;
 
-export function InfoPanel({ selected, onDelete }: { selected: Photo[]; onDelete: (ids: string[]) => void }) {
+interface Actions {
+  onDelete: (versions: Photo[]) => void;
+  /** Duplicate the selected versions. */
+  onDuplicate: (fromOriginal: boolean) => void;
+}
+
+/** Duplicate / Duplicate from original. */
+export function DuplicateMenu({ onDuplicate, children }: { onDuplicate: Actions['onDuplicate']; children: React.ReactNode }) {
+  return (
+    <Menu.Root onSelect={(d) => onDuplicate(d.value === 'original')}>
+      <Menu.Trigger asChild>{children}</Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content>
+            <Menu.Item value="copy">
+              Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
+            </Menu.Item>
+            <Menu.Item value="original">
+              Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
+  );
+}
+
+export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Actions) {
   if (selected.length === 0) {
     return (
       <Stack {...PANEL_PROPS} justify="center" align="center" color="fg.muted" textAlign="center">
         <Text>Select a photo to see and edit its metadata.</Text>
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels ·{' '}
-          <b>D</b> develop · <b>Del</b> delete · arrows to move
+          <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Del</b> delete · arrows to move
         </Text>
       </Stack>
     );
   }
-  if (selected.length > 1) return <BulkPanel photos={selected} onDelete={onDelete} />;
-  return <SinglePanel photo={selected[0]!} onDelete={onDelete} />;
+  if (selected.length > 1) return <BulkPanel photos={selected} {...actions} />;
+  return <SinglePanel photo={selected[0]!} {...actions} />;
 }
 
 // ── Shared culling controls ─────────────────────────────────────────────────
@@ -171,7 +200,7 @@ function parseExposure(s: string): number | null {
   return numOrNull(s.replace(/[″"s]$/, ''));
 }
 
-function SinglePanel({ photo: listPhoto, onDelete }: { photo: Photo; onDelete: (ids: string[]) => void }) {
+function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo } & Actions) {
   const { data: detail } = usePhoto(listPhoto.id);
   const photo = detail ?? listPhoto;
   const update = useUpdatePhoto();
@@ -186,6 +215,12 @@ function SinglePanel({ photo: listPhoto, onDelete }: { photo: Photo; onDelete: (
       <Box>
         <Text fontWeight="semibold" truncate title={photo.filename}>
           {photo.filename}
+          {photo.versionCount > 1 && (
+            <Text as="span" fontWeight="normal" color="fg.muted">
+              {' · '}
+              {versionLabel({ name: photo.versionName, index: photo.versionIndex })}
+            </Text>
+          )}
         </Text>
         <Text textStyle="xs" color="fg.muted">
           {[photo.width && photo.height && `${photo.width} × ${photo.height}`, formatBytes(photo.fileSize)]
@@ -203,7 +238,12 @@ function SinglePanel({ photo: listPhoto, onDelete }: { photo: Photo; onDelete: (
             <Download />
           </a>
         </IconButton>
-        <IconButton size="sm" variant="outline" colorPalette="red" aria-label="Delete" onClick={() => onDelete([photo.id])}>
+        <DuplicateMenu onDuplicate={onDuplicate}>
+          <IconButton size="sm" variant="outline" aria-label="Duplicate">
+            <Copy />
+          </IconButton>
+        </DuplicateMenu>
+        <IconButton size="sm" variant="outline" colorPalette="red" aria-label="Delete" onClick={() => onDelete([photo])}>
           <Trash2 />
         </IconButton>
       </HStack>
@@ -212,6 +252,12 @@ function SinglePanel({ photo: listPhoto, onDelete }: { photo: Photo; onDelete: (
 
       <Separator />
       <Heading size="xs">Description</Heading>
+      <MetaField
+        label="Version name"
+        value={photo.versionName ?? ''}
+        placeholder={`Version ${photo.versionIndex}`}
+        onCommit={(v) => save({ versionName: textOrNull(v) })}
+      />
       <MetaField label="Title" value={photo.title ?? ''} onCommit={(v) => save({ title: textOrNull(v) })} />
       <Field.Root>
         <Field.Label textStyle="xs" color="fg.muted">
@@ -302,7 +348,7 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
 
 // ── Several photos ──────────────────────────────────────────────────────────
 
-function BulkPanel({ photos, onDelete }: { photos: Photo[]; onDelete: (ids: string[]) => void }) {
+function BulkPanel({ photos, onDelete, onDuplicate }: { photos: Photo[] } & Actions) {
   const bulk = useBulkUpdate();
   const ids = photos.map((p) => p.id);
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
@@ -350,7 +396,12 @@ function BulkPanel({ photos, onDelete }: { photos: Photo[]; onDelete: (ids: stri
         </Button>
       </HStack>
       <Separator />
-      <Button size="sm" variant="outline" colorPalette="red" onClick={() => onDelete(ids)}>
+      <DuplicateMenu onDuplicate={onDuplicate}>
+        <Button size="sm" variant="outline">
+          <Copy /> Duplicate {photos.length}
+        </Button>
+      </DuplicateMenu>
+      <Button size="sm" variant="outline" colorPalette="red" onClick={() => onDelete(photos)}>
         <Trash2 /> Delete {photos.length} photos
       </Button>
     </Stack>

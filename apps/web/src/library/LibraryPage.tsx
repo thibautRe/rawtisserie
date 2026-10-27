@@ -2,15 +2,12 @@ import {
   Box,
   Button,
   Center,
-  CloseButton,
-  Dialog,
   Flex,
   HStack,
   Heading,
   Input,
   InputGroup,
   NativeSelect,
-  Portal,
   Slider,
   Spinner,
   Stack,
@@ -19,9 +16,10 @@ import {
 import { Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useBulkUpdate, useDeletePhotos, usePhotos, useUpload } from '../api/hooks.ts';
+import { useBulkUpdate, useDeletePhotos, useDuplicateVersion, usePhotos, useUpload } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
+import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVersionsDialog.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
@@ -52,10 +50,11 @@ export function LibraryPage() {
   const anchorRef = useRef<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(() => Number(localStorage.getItem('library.cellSize')) || 200);
-  const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Photo[] | null>(null);
 
   const bulk = useBulkUpdate();
   const del = useDeletePhotos();
+  const duplicate = useDuplicateVersion();
   const upload = useUpload();
 
   useEffect(() => localStorage.setItem('library.cellSize', String(cellSize)), [cellSize]);
@@ -102,6 +101,23 @@ export function LibraryPage() {
 
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
 
+  /** Duplicate each selected version, then select the copies. */
+  const duplicateSelection = useCallback(
+    async (fromOriginal: boolean) => {
+      const ids = photos.filter((p) => selection.has(p.id)).map((p) => p.id);
+      if (!ids.length) return;
+      try {
+        const copies = await Promise.all(ids.map((id) => duplicate.mutateAsync({ id, fromOriginal })));
+        setSelection(new Set(copies.map((c) => c.id)));
+        setFocusedId(copies.at(-1)!.id);
+        anchorRef.current = copies.at(-1)!.id;
+      } catch (err) {
+        toaster.create({ type: 'error', title: 'Could not duplicate', description: err instanceof Error ? err.message : undefined });
+      }
+    },
+    [photos, selection, duplicate],
+  );
+
   const applyToSelection = useCallback(
     (patch: BulkPatch) => {
       if (selection.size) bulk.mutate({ ids: [...selection], patch });
@@ -129,6 +145,11 @@ export function LibraryPage() {
         setSelection(new Set(photos.map((p) => p.id)));
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && key === 'd') {
+        e.preventDefault();
+        void duplicateSelection(e.shiftKey);
+        return;
+      }
       if (e.metaKey || e.ctrlKey) return;
       if (/^[0-5]$/.test(key)) applyToSelection({ rating: Number(key) });
       else if (/^[6-9]$/.test(key)) {
@@ -143,14 +164,14 @@ export function LibraryPage() {
       else if (key === 'arrowdown') move(columns);
       else if (key === 'arrowup') move(-columns);
       else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/versions/${focusedId}/develop`);
-      else if ((key === 'delete' || key === 'backspace') && selection.size) setPendingDelete([...selection]);
+      else if ((key === 'delete' || key === 'backspace') && selection.size) setPendingDelete(selectedPhotos);
       else if (key === 'escape') setSelection(new Set());
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [photos, focusedId, cellSize, selection, selectedPhotos, applyToSelection, selectOne, navigate]);
+  }, [photos, focusedId, cellSize, selection, selectedPhotos, applyToSelection, duplicateSelection, selectOne, navigate]);
 
   // ── Upload (button or drag & drop) ──
   const fileInput = useRef<HTMLInputElement>(null);
@@ -184,11 +205,12 @@ export function LibraryPage() {
     [upload],
   );
 
-  const confirmDelete = () => {
-    if (!pendingDelete) return;
-    del.mutate(pendingDelete, {
-      onSuccess: ({ deleted }) => toaster.create({ type: 'info', title: `Deleted ${deleted.length} photo(s)` }),
-    });
+  const confirmDelete = (versions: Photo[]) => {
+    const { done } = describeDeletion(versions);
+    del.mutate(
+      versions.map((v) => v.id),
+      { onSuccess: () => toaster.create({ type: 'info', title: done }) },
+    );
     setPendingDelete(null);
   };
 
@@ -309,7 +331,11 @@ export function LibraryPage() {
         )}
       </Flex>
 
-      <InfoPanel selected={selectedPhotos} onDelete={setPendingDelete} />
+      <InfoPanel
+        selected={selectedPhotos}
+        onDelete={setPendingDelete}
+        onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
+      />
 
       {dragging && (
         <Center
@@ -326,34 +352,11 @@ export function LibraryPage() {
         </Center>
       )}
 
-      <Dialog.Root open={!!pendingDelete} onOpenChange={(e) => !e.open && setPendingDelete(null)} role="alertdialog">
-        <Portal>
-          <Dialog.Backdrop />
-          <Dialog.Positioner>
-            <Dialog.Content>
-              <Dialog.Header>
-                <Dialog.Title>
-                  Delete {pendingDelete?.length} photo{pendingDelete?.length === 1 ? '' : 's'}?
-                </Dialog.Title>
-              </Dialog.Header>
-              <Dialog.Body>
-                <Text>The original RAW files, edits and metadata will be permanently removed.</Text>
-              </Dialog.Body>
-              <Dialog.Footer>
-                <Dialog.ActionTrigger asChild>
-                  <Button variant="outline">Cancel</Button>
-                </Dialog.ActionTrigger>
-                <Button colorPalette="red" onClick={confirmDelete} autoFocus>
-                  Delete
-                </Button>
-              </Dialog.Footer>
-              <Dialog.CloseTrigger asChild>
-                <CloseButton size="sm" />
-              </Dialog.CloseTrigger>
-            </Dialog.Content>
-          </Dialog.Positioner>
-        </Portal>
-      </Dialog.Root>
+      <DeleteVersionsDialog
+        versions={pendingDelete}
+        onConfirm={confirmDelete}
+        onClose={() => setPendingDelete(null)}
+      />
     </Flex>
   );
 }

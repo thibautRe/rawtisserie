@@ -1,4 +1,3 @@
-import type { EditParams } from '@rawtisserie/pipeline';
 import {
   type InfiniteData,
   type QueryClient,
@@ -8,6 +7,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback } from 'react';
+import type { HistoryOp } from '../develop/history.ts';
 import { ApiError, api } from './client.ts';
 import type { BulkPatch, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
 
@@ -136,6 +136,12 @@ function refreshLibrary(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: ['facets'] });
 }
 
+/** After versions were added, removed or reordered: their siblings' details are stale too. */
+function refreshVersions(qc: QueryClient) {
+  refreshLibrary(qc);
+  void qc.invalidateQueries({ queryKey: ['photo'] });
+}
+
 export function useUpdatePhoto() {
   const qc = useQueryClient();
   return useMutation({
@@ -145,8 +151,9 @@ export function useUpdatePhoto() {
       qc.setQueryData(['photo', photo.id], photo);
       updateCachedPhotos(qc, [photo.id], (p) => ({ ...p, ...photo }));
     },
-    // Metadata belongs to the photo: other versions of it change too.
-    onSettled: () => refreshLibrary(qc),
+    // Metadata belongs to the photo, and names show in the version switcher: other
+    // versions of it change too.
+    onSettled: () => refreshVersions(qc),
   });
 }
 
@@ -185,7 +192,28 @@ export function useDeletePhotos() {
           : data,
       );
     },
-    onSettled: () => refreshLibrary(qc),
+    onSettled: () => refreshVersions(qc),
+  });
+}
+
+/** Duplicate a version (with its history, or from the original). Resolves to the new version. */
+export function useDuplicateVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, fromOriginal = false }: { id: string; fromOriginal?: boolean }) =>
+      api.post<PhotoDetail>(`/api/versions/${id}/duplicate`, { fromOriginal }),
+    onSuccess: (photo) => qc.setQueryData(['photo', photo.id], photo),
+    onSettled: () => refreshVersions(qc),
+  });
+}
+
+/** Move a version to `position` (0-based) among its photo's versions. */
+export function useMoveVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, position }: { id: string; position: number }) =>
+      api.post<PhotoDetail>(`/api/versions/${id}/move`, { position }),
+    onSettled: () => refreshVersions(qc),
   });
 }
 
@@ -219,15 +247,12 @@ export function useUpload() {
 }
 
 export interface HistoryWrite {
-  recipe: EditParams;
-  label: string;
+  ops: HistoryOp[];
   baseRevision: number;
-  /** Overwrite the latest entry (written by this client) instead of appending. */
-  replace: boolean;
 }
 
 /**
- * Record a recipe in a version's history. Returns a function (not a mutation) so the
+ * Apply changes to a version's history. Returns a function (not a mutation) so the
  * caller controls ordering and can save with `keepalive` while the page unloads.
  */
 export function useSaveHistory(id: string) {

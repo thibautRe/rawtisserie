@@ -19,6 +19,8 @@ export interface Photo {
   photoId: string;
   /** Name of a duplicate; null for an unnamed version. */
   versionName: string | null;
+  /** 1-based position among the photo's versions. */
+  versionIndex: number;
   /** How many versions the photo has (a stack badge shows when there is more than one). */
   versionCount: number;
   filename: string;
@@ -58,6 +60,17 @@ export interface HistoryEntry {
   seq: number;
   label: string;
   createdAt: string;
+  /** The full recipe after this change. */
+  recipe: EditParams;
+}
+
+/** One of the versions of a photo, for the version switcher. */
+export interface VersionSummary {
+  id: string;
+  name: string | null;
+  index: number;
+  edited: boolean;
+  thumbUrl: string | null;
 }
 
 export interface PhotoDetail extends Photo {
@@ -69,11 +82,14 @@ export interface PhotoDetail extends Photo {
   /** Bumped on every history change (optimistic concurrency). */
   revision: number;
   history: HistoryEntry[];
+  /** All versions of the photo, in order (this one included). */
+  versions: VersionSummary[];
 }
 
 export type PhotoPatch = Partial<
   Pick<
     Photo,
+    | 'versionName'
     | 'title'
     | 'description'
     | 'rating'

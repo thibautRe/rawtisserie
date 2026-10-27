@@ -6,7 +6,8 @@ import { z } from 'zod';
 import { normalizeEditParams } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
-import { conflict, notFound } from '../errors.ts';
+import type { Queryable } from '@databases/pg';
+import { badRequest, conflict, notFound } from '../errors.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
@@ -36,6 +37,7 @@ const COLOR_LABELS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
  */
 const VersionPatch = z
   .object({
+    versionName: nullableText(200),
     title: nullableText(500),
     description: nullableText(10_000),
     rating: z.number().int().min(0).max(5),
@@ -61,6 +63,7 @@ const VersionPatch = z
 type VersionPatch = z.infer<typeof VersionPatch>;
 
 const VERSION_FIELDS: Partial<Record<keyof VersionPatch, keyof Versions>> = {
+  versionName: 'name',
   title: 'title',
   description: 'description',
   rating: 'rating',
@@ -102,17 +105,39 @@ const Bulk = z.object({
   }),
 });
 
-const HistoryAppend = z.object({
+const Duplicate = z.object({
+  /** Start from the original (an empty history) instead of copying the history. */
+  fromOriginal: z.boolean().default(false),
+});
+
+const HistoryEntryInput = z.object({
+  label: z.string().trim().min(1).max(200),
   recipe: z.unknown().refine((r) => r !== null && r !== undefined, 'A recipe is required'),
-  label: z.string().trim().min(1).max(200).default('Edit'),
-  /** The `revision` the client based its change on; a mismatch means someone else edited it. */
+  createdAt: z.coerce.date().optional(),
+});
+
+/**
+ * A change to a version's history. Entries are numbered from 1; `end` is the new
+ * `history_end` (0 = the original).
+ * - `splice`: drop the entries from `from` on, then insert `entries` there. Appending
+ *   is `from = end + 1`, replacing the latest entry is `from = end`.
+ * - `goto`: move `history_end` (undo/redo, or a click in the history stack).
+ */
+const HistoryOp = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('splice'),
+    from: z.number().int().min(1),
+    entries: z.array(HistoryEntryInput).max(1000),
+    end: z.number().int().min(0),
+  }),
+  z.object({ type: z.literal('goto'), end: z.number().int().min(0) }),
+]);
+
+const HistoryChange = z.object({
+  ops: z.array(HistoryOp).min(1).max(100),
+  /** The `revision` the client based its changes on; a mismatch means someone else edited it. */
   baseRevision: z.number().int().optional(),
-  /**
-   * Overwrite the latest entry instead of appending (autosave coalescing). Requires
-   * `baseRevision`, so it can only replace an entry nobody has built on since.
-   */
-  replace: z.boolean().default(false),
-}).refine((b) => !b.replace || b.baseRevision !== undefined, 'replace requires baseRevision');
+});
 
 export async function photoRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
   app.addHook('preHandler', requireUser);
@@ -126,11 +151,12 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
 
   const versionDetail = async (ownerId: string, id: string) => {
     const row = await findVersion(ownerId, id);
-    const [photo, history] = await Promise.all([
+    const [photo, history, siblings] = await Promise.all([
       photos(db).findOne({ id: row.photo_id }),
       historyEntries(db).find({ version_id: id }).orderByAsc('seq').all(),
+      versions(db).find({ photo_id: row.photo_id }).orderByAsc('position').orderByAsc('id').all(),
     ]);
-    return versionDetailDto(row, photo!, history);
+    return versionDetailDto(row, photo!, history, siblings);
   };
 
   // ── Library (versions) ────────────────────────────────────────────────────
@@ -235,33 +261,109 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
   });
 
   /**
-   * Record a new recipe as the next history entry. Entries after `history_end` (undone
-   * changes) are dropped first: history is linear. With `replace`, the entry at
-   * `history_end` is overwritten instead (it keeps its `created_at`). Previews are
-   * re-rendered in the background.
+   * Duplicate a version, right after it among its photo's versions. The copy keeps the
+   * curation (rating, flag, labels, tags, title, description) and, unless `fromOriginal`,
+   * the whole history, undone entries included.
+   */
+  app.post('/api/versions/:id/duplicate', async (request, reply) => {
+    const user = currentUser(request);
+    const { id } = Id.parse(request.params);
+    const { fromOriginal } = Duplicate.parse(request.body ?? {});
+    const { photo_id } = await findVersion(user.id, id);
+    const created = await db.tx(async (tx) => {
+      // Lock the photo's versions: positions are renumbered below.
+      const siblings = (await tx.query(sql`
+        SELECT * FROM versions WHERE photo_id = ${photo_id} ORDER BY position, id FOR UPDATE`)) as Versions[];
+      const index = siblings.findIndex((v) => v.id === id);
+      const source = siblings[index];
+      if (!source) throw notFound('Photo not found');
+      const [copy] = await versions(tx).insert({
+        photo_id,
+        position: index + 1,
+        title: source.title,
+        description: source.description,
+        rating: source.rating,
+        flag: source.flag,
+        color_label: source.color_label,
+        tags: source.tags,
+        history_end: fromOriginal ? 0 : source.history_end,
+        edited_at: fromOriginal ? null : source.edited_at,
+      });
+      await setPositions(tx, siblings.toSpliced(index + 1, 0, copy!).map((v) => v.id));
+      if (!fromOriginal) {
+        await tx.query(sql`
+          INSERT INTO history_entries (version_id, seq, created_at, label, recipe)
+          SELECT ${copy!.id}, seq, created_at, label, recipe FROM history_entries WHERE version_id = ${id}`);
+      }
+      return copy!;
+    });
+    renderQueue.enqueue(created.id);
+    return reply.code(201).send(await versionDetail(user.id, created.id));
+  });
+
+  /** Move a version to `position` (0-based) among its photo's versions. */
+  app.post('/api/versions/:id/move', async (request) => {
+    const user = currentUser(request);
+    const { id } = Id.parse(request.params);
+    const { position } = z.object({ position: z.number().int().min(0) }).parse(request.body);
+    const { photo_id } = await findVersion(user.id, id);
+    await db.tx(async (tx) => {
+      const ids = (
+        (await tx.query(sql`
+          SELECT id FROM versions WHERE photo_id = ${photo_id} ORDER BY position, id FOR UPDATE`)) as Pick<Versions, 'id'>[]
+      ).map((v) => v.id);
+      const others = ids.filter((v) => v !== id);
+      await setPositions(tx, others.toSpliced(Math.min(position, others.length), 0, id));
+    });
+    return versionDetail(user.id, id);
+  });
+
+  /**
+   * Apply a batch of history changes (see `HistoryOp`) in one transaction. The client
+   * sends everything it has queued at once, so a batch also works with `keepalive`
+   * while the page unloads. Previews are re-rendered in the background.
    */
   app.post('/api/versions/:id/history', async (request) => {
     const user = currentUser(request);
     const { id } = Id.parse(request.params);
-    const { recipe, label, baseRevision, replace } = HistoryAppend.parse(request.body);
-    const normalized = normalizeEditParams(recipe);
+    const { ops, baseRevision } = HistoryChange.parse(request.body);
     await db.tx(async (tx) => {
       const [current] = (await tx.query(sql`
-        SELECT v.history_end, v.revision FROM ${VERSIONS_FROM}
-        WHERE v.id = ${id} AND p.owner_id = ${user.id} FOR UPDATE OF v`)) as Pick<Versions, 'history_end' | 'revision'>[];
+        SELECT v.history_end, v.revision,
+          (SELECT coalesce(max(seq), 0)::int FROM history_entries h WHERE h.version_id = v.id) AS count
+        FROM ${VERSIONS_FROM}
+        WHERE v.id = ${id} AND p.owner_id = ${user.id} FOR UPDATE OF v`)) as (Pick<Versions, 'history_end' | 'revision'> & {
+        count: number;
+      })[];
       if (!current) throw notFound('Photo not found');
       if (baseRevision !== undefined && baseRevision !== current.revision) {
         throw conflict('This version changed elsewhere — reload');
       }
-      const overwrite = replace && current.history_end > 0;
-      const seq = overwrite ? current.history_end : current.history_end + 1;
-      await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq > ${current.history_end}`);
-      if (overwrite) await historyEntries(tx).update({ version_id: id, seq }, { label, recipe: normalized });
-      else await historyEntries(tx).insert({ version_id: id, seq, label, recipe: normalized });
+      let { count, history_end: end } = current;
+      for (const op of ops) {
+        if (op.type === 'splice') {
+          if (op.from > count + 1) throw badRequest(`Cannot splice history at ${op.from}: it has ${count} entries`);
+          await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq >= ${op.from}`);
+          if (op.entries.length) {
+            await historyEntries(tx).insert(
+              ...op.entries.map((e, i) => ({
+                version_id: id,
+                seq: op.from + i,
+                label: e.label,
+                recipe: normalizeEditParams(e.recipe),
+                ...(e.createdAt && { created_at: e.createdAt }),
+              })),
+            );
+          }
+          count = op.from - 1 + op.entries.length;
+        }
+        if (op.end > count) throw badRequest(`History has no entry ${op.end}`);
+        end = op.end;
+      }
       await versions(tx).update(
         { id },
         {
-          history_end: seq,
+          history_end: end,
           revision: current.revision + 1,
           edited_at: new Date(),
           render_status: 'pending',
@@ -359,3 +461,11 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
 }
 
 type SQLColumn = 'camera_model' | 'lens';
+
+/** Number versions 0, 1, 2… in the given order. */
+async function setPositions(tx: Queryable, ids: string[]) {
+  await tx.query(sql`
+    UPDATE versions v SET position = o.ordinality - 1
+    FROM unnest(${ids}::uuid[]) WITH ORDINALITY AS o(id, ordinality)
+    WHERE v.id = o.id AND v.position <> o.ordinality - 1`);
+}

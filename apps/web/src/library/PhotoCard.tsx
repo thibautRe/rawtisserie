@@ -78,8 +78,8 @@ export const PhotoCard = memo(function PhotoCard({ photo, selected, focused, onC
         </HStack>
         <Box flex="1" />
         {photo.versionCount > 1 && (
-          <Badge size="xs" variant="solid" title={`${photo.versionCount} versions of this photo`}>
-            <Layers size={10} /> {photo.versionName ?? photo.versionCount}
+          <Badge size="xs" variant="solid" title={`Version ${photo.versionIndex} of ${photo.versionCount}`}>
+            <Layers size={10} /> {photo.versionName ?? `${photo.versionIndex}/${photo.versionCount}`}
           </Badge>
         )}
         {photo.edited && (

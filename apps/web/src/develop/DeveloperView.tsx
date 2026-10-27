@@ -1,29 +1,34 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
 import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
 import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
+import { type HistorySnapshot, HistoryStore } from './history.ts';
+import { HistoryPanel } from './HistoryPanel.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
 import type { RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
-import { useParamsHistory } from './useParamsHistory.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 
 interface Props {
   backend: RenderBackend;
   filename: string;
   metadata: PhotoMetadata;
-  initialParams: EditParams;
-  /** Persist each committed recipe as a history entry (library mode). */
+  /** The recipe of the unedited image (history entry 0). */
+  original: EditParams;
+  initialHistory: HistorySnapshot;
+  /** Mirror history changes on the server (library mode). */
   save?: SaveFn;
-  /** The version's `revision` that `initialParams` comes from. */
+  /** The version's `revision` that `initialHistory` comes from. */
   revision?: number;
-  /** Extra toolbar actions, given the current parameters. */
-  actions?: (params: EditParams) => React.ReactNode;
+  /** Extra toolbar actions, given the current parameters and history. */
+  actions?: (params: EditParams, history: HistorySnapshot) => React.ReactNode;
+  /** Shown next to the file name (the version switcher), given a way to wait for pending saves. */
+  versions?: (whenSaved: () => Promise<void>) => React.ReactNode;
 }
 
 const MAX_PREVIEW = 3200;
@@ -31,6 +36,8 @@ const DRAFT_PIXELS = 1_000_000;
 const FULL_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
 /** Width of the zebra stripes, in CSS pixels. */
 const STRIPE_PX = 4;
+/** The toast offering to undo a truncation or compression of the history. */
+const UNDO_TOAST = 'history-undo';
 
 /**
  * Layout of the ISO 12646 assessment mode: the image shrinks, gets a white frame,
@@ -58,10 +65,13 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-export function DeveloperView({ backend, filename, metadata, initialParams, save, revision = 0, actions }: Props) {
-  const history = useParamsHistory(initialParams);
-  const { params } = history;
-  const autosave = useAutosave(history.committed, revision, save);
+export function DeveloperView({ backend, filename, metadata, original, initialHistory, save, revision = 0, actions, versions }: Props) {
+  const [store] = useState(() => new HistoryStore(original, initialHistory));
+  const history = useSyncExternalStore(store.subscribe, store.getState);
+  const params = history.live;
+  /** A live change (e.g. a slider being dragged) has not been committed yet. */
+  const live = params !== (history.entries[history.end - 1]?.recipe ?? original);
+  const autosave = useAutosave(store, revision, save);
 
   const [comparing, setComparing] = useState(false);
   // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
@@ -83,7 +93,7 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
   }, [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
   // While a slider is being dragged, render a ~1 MP draft (the pipeline keeps its
   // caches for both sizes); the full-resolution render follows on release.
-  const draft = history.live && !cropDraft;
+  const draft = live && !cropDraft;
   const { margin, frameWidth } = assessmentLayout(size, assessment);
   const job = useMemo(() => {
     const inset = 2 * (margin + frameWidth);
@@ -108,6 +118,46 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
     c.getContext('2d')!.putImageData(frame.image, 0, 0);
   }, [frame]);
 
+  // ── History ──
+  // Dropping undone entries (by editing from an earlier point) or compressing can be
+  // undone from a toast, until the next history change.
+  const undoToast = useRef(false);
+  const dismissUndo = () => {
+    if (undoToast.current) toaster.dismiss(UNDO_TOAST);
+    undoToast.current = false;
+  };
+  const offerUndo = (title: string, snapshot: HistorySnapshot) => {
+    undoToast.current = true;
+    toaster.create({
+      id: UNDO_TOAST,
+      type: 'info',
+      title,
+      action: { label: 'Undo', onClick: () => store.restore(snapshot) },
+      onStatusChange: ({ status }) => status === 'unmounted' && (undoToast.current = false),
+    });
+  };
+  const commit = (p?: EditParams) => {
+    const snapshot = store.snapshot();
+    const dropped = store.commit(p);
+    if (store.snapshot().entries === snapshot.entries) return;
+    dismissUndo();
+    if (dropped) offerUndo(`Dropped ${dropped} undone history ${dropped === 1 ? 'entry' : 'entries'}`, snapshot);
+  };
+  const goto = (seq: number) => {
+    dismissUndo();
+    setCropDraft(null);
+    store.goto(seq);
+  };
+  const compress = () => {
+    dismissUndo();
+    setCropDraft(null);
+    const snapshot = store.snapshot();
+    store.compress();
+    offerUndo('History compressed', snapshot);
+  };
+  const canUndo = history.end > 0;
+  const canRedo = history.end < history.entries.length;
+
   // ── Crop ──
   const frameAspect = frame ? frame.fullWidth / frame.fullHeight : 1;
   const aspectRatio = (value: string) => {
@@ -121,7 +171,7 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
   };
   const applyCrop = () => {
     if (!cropDraft) return;
-    history.commit(updateModule(params, 'geometry', { enabled: true, params: { crop: cropDraft } }));
+    commit(updateModule(params, 'geometry', { enabled: true, params: { crop: cropDraft } }));
     setCropDraft(null);
   };
   const changeAspect = (value: string) => {
@@ -154,7 +204,7 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
       const result = await backend.autoTuneFilmic(params, job.width, job.height);
       if (!result) throw new Error('Nothing to measure');
       const round = (v: number) => Math.round(v * 100) / 100;
-      history.commit(updateModule(params, 'filmic', { params: { whiteExposure: round(result.white), blackExposure: round(result.black) } }));
+      commit(updateModule(params, 'filmic', { params: { whiteExposure: round(result.white), blackExposure: round(result.black) } }));
     } catch (err) {
       toaster.create({ type: 'error', title: 'Auto-tune failed', description: err instanceof Error ? err.message : undefined });
     } finally {
@@ -168,8 +218,8 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
       if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
-      if (mod && key === 'z' && !e.shiftKey) history.undo();
-      else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) history.redo();
+      if (mod && key === 'z' && !e.shiftKey) goto(history.end - 1);
+      else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) goto(history.end + 1);
       else if (mod && key === 's') autosave.flush();
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'c') startCrop();
@@ -201,21 +251,27 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
 
   return (
     <Flex h="full" minH="0">
+      <Box as="aside" w="56" flexShrink={0} borderRightWidth="1px" bg="bg.panel" minH="0">
+        <HistoryPanel original={original} entries={history.entries} end={history.end} onSelect={goto} onCompress={compress} />
+      </Box>
       <Flex direction="column" flex="1" minW="0">
         <HStack px="3" py="2" borderBottomWidth="1px" gap="2">
           <AppMenu />
           <Stack gap="0" minW="0" flex="1">
-            <Text fontWeight="semibold" truncate>
-              {filename}
-            </Text>
+            <HStack gap="1" minW="0">
+              <Text fontWeight="semibold" truncate>
+                {filename}
+              </Text>
+              {versions?.(autosave.whenSaved)}
+            </HStack>
             <Text textStyle="xs" color="fg.muted" truncate>
               {exif.join(' · ')}
             </Text>
           </Stack>
-          <IconButton aria-label="Undo (Ctrl+Z)" size="sm" variant="ghost" disabled={!history.canUndo} onClick={history.undo}>
+          <IconButton aria-label="Undo (Ctrl+Z)" size="sm" variant="ghost" disabled={!canUndo} onClick={() => goto(history.end - 1)}>
             <Undo2 />
           </IconButton>
-          <IconButton aria-label="Redo (Ctrl+Shift+Z)" size="sm" variant="ghost" disabled={!history.canRedo} onClick={history.redo}>
+          <IconButton aria-label="Redo (Ctrl+Shift+Z)" size="sm" variant="ghost" disabled={!canRedo} onClick={() => goto(history.end + 1)}>
             <Redo2 />
           </IconButton>
           <Button
@@ -245,7 +301,7 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
               </Menu.Positioner>
             </Portal>
           </Menu.Root>
-          {actions?.(params)}
+          {actions?.(params, history)}
         </HStack>
 
         <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
@@ -303,8 +359,8 @@ export function DeveloperView({ backend, filename, metadata, initialParams, save
       <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg.panel" overflowY="auto">
         <ModulePanel
           params={params}
-          onChange={history.setLive}
-          onCommit={history.commit}
+          onChange={(p) => store.setLive(p)}
+          onCommit={commit}
           cropping={!!cropDraft}
           aspect={aspect}
           onAspectChange={changeAspect}

@@ -1,5 +1,5 @@
 import { Box, Button, Center, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
-import { type EditParams, type PhotoMetadata, defaultEditParams, normalizeEditParams } from '@rawtisserie/pipeline';
+import { type PhotoMetadata, defaultEditParams, normalizeEditParams } from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -9,6 +9,8 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
+import type { HistoryOp, HistorySnapshot } from './history.ts';
+import { VersionMenu } from './VersionMenu.tsx';
 import { LocalRenderBackend } from './localRenderBackend.ts';
 
 function useLocalBackend() {
@@ -67,7 +69,8 @@ export function LocalDevelopPage() {
     };
   }, [backend, file]);
 
-  const saveToLibrary = async (params: EditParams) => {
+  /** Upload the file, then save the whole in-memory history to its version. */
+  const saveToLibrary = async ({ entries, end }: HistorySnapshot) => {
     if (!loaded) return;
     setSavingToLibrary(true);
     try {
@@ -76,7 +79,10 @@ export function LocalDevelopPage() {
       const { created, skipped } = await api.post<UploadResult>('/api/photos', form);
       const version = created[0];
       if (!version) throw new Error(skipped[0]?.reason ?? 'Upload failed');
-      await api.post(`/api/versions/${version.id}/history`, { recipe: params });
+      if (entries.length) {
+        const ops: HistoryOp[] = [{ type: 'splice', from: 1, entries: [...entries], end }];
+        await api.post(`/api/versions/${version.id}/history`, { ops });
+      }
       toaster.create({ type: 'success', title: 'Added to your library' });
       navigate(`/versions/${version.id}/develop`);
     } catch (err) {
@@ -109,14 +115,15 @@ export function LocalDevelopPage() {
           backend={backend}
           filename={loaded.file.name}
           metadata={loaded.metadata}
-          initialParams={defaultEditParams}
-          actions={(params) => (
+          original={defaultEditParams}
+          initialHistory={{ entries: [], end: 0 }}
+          actions={(_params, history) => (
             <>
               <Button size="sm" variant="ghost" onClick={() => input.current?.click()}>
                 <FolderOpen /> Open…
               </Button>
               {me && (
-                <Button size="sm" colorPalette="orange" loading={savingToLibrary} onClick={() => void saveToLibrary(params)}>
+                <Button size="sm" colorPalette="orange" loading={savingToLibrary} onClick={() => void saveToLibrary(history)}>
                   <LibraryBig /> Add to library
                 </Button>
               )}
@@ -194,23 +201,31 @@ export function LibraryDevelopPage() {
   const { data: photo, error: photoError } = usePhoto(id);
   const save = useSaveHistory(id!);
   const [progress, setProgress] = useState(0);
-  const [metadata, setMetadata] = useState<PhotoMetadata | null>(null);
+  const [loaded, setLoaded] = useState<{ url: string; metadata: PhotoMetadata } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const originalUrl = photo?.originalUrl;
+  // Versions of the same photo share the original: switching between them keeps it loaded.
+  const loadedUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!backend || !originalUrl) return;
+    if (!backend || !originalUrl || loadedUrl.current === originalUrl) return;
     let cancelled = false;
-    setMetadata(null);
+    let done = false;
+    loadedUrl.current = originalUrl;
+    setLoaded(null);
     setError(null);
     fetchBytes(originalUrl, setProgress)
       .then((bytes) => backend.load(bytes))
-      .then((m) => !cancelled && setMetadata(m))
-      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
+      .then((metadata) => !cancelled && setLoaded({ url: originalUrl, metadata }))
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => (done = !cancelled));
     return () => {
       cancelled = true;
+      // An interrupted load must start over next time.
+      if (!done && loadedUrl.current === originalUrl) loadedUrl.current = null;
     };
   }, [backend, originalUrl]);
+  const metadata = loaded && loaded.url === originalUrl ? loaded.metadata : null;
 
   const err = error ?? (photoError instanceof Error ? photoError.message : null);
   if (err) {
@@ -234,9 +249,14 @@ export function LibraryDevelopPage() {
       backend={backend}
       filename={photo.filename}
       metadata={metadata}
-      initialParams={photo.editParams ? normalizeEditParams(photo.editParams) : defaultEditParams}
+      original={defaultEditParams}
+      initialHistory={{
+        entries: photo.history.map((h) => ({ ...h, recipe: normalizeEditParams(h.recipe) })),
+        end: photo.historyEnd,
+      }}
       save={save}
       revision={photo.revision}
+      versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
     />
   );
 }

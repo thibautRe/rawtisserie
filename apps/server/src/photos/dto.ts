@@ -29,20 +29,26 @@ export type VersionRow = Versions &
     | 'gps_longitude'
     | 'artist'
     | 'copyright'
-  > & { version_count: number };
+  > & { version_count: number; version_index: number };
 
 export const VERSION_COLUMNS = sql`v.*, p.owner_id, p.original_filename, p.file_size, p.camera_make, p.camera_model,
   p.lens, p.iso, p.exposure_time, p.f_number, p.focal_length, p.exposure_bias, p.captured_at, p.width, p.height,
   p.gps_latitude, p.gps_longitude, p.artist, p.copyright,
-  (SELECT count(*)::int FROM versions s WHERE s.photo_id = v.photo_id) AS version_count`;
+  (SELECT count(*)::int FROM versions s WHERE s.photo_id = v.photo_id) AS version_count,
+  (SELECT count(*)::int + 1 FROM versions s WHERE s.photo_id = v.photo_id AND (s.position, s.id) < (v.position, v.id))
+    AS version_index`;
+
+const renderUrl = (v: Pick<Versions, 'id' | 'render_version'>, size: 'thumb' | 'preview') =>
+  v.render_version > 0 ? `/api/versions/${v.id}/render/${size}?v=${v.render_version}` : null;
 
 /** The JSON shape of a library item (one version of a photo) in the API. */
 export function versionDto(v: VersionRow) {
-  const r = v.render_version;
   return {
     id: v.id,
     photoId: v.photo_id,
     versionName: v.name,
+    /** 1-based position among the photo's versions ("Version 2" when unnamed). */
+    versionIndex: v.version_index,
     versionCount: v.version_count,
     filename: v.original_filename,
     fileSize: v.file_size,
@@ -70,8 +76,8 @@ export function versionDto(v: VersionRow) {
     edited: v.history_end > 0,
     renderStatus: v.render_status,
     renderError: v.render_error,
-    thumbUrl: r > 0 ? `/api/versions/${v.id}/render/thumb?v=${r}` : null,
-    previewUrl: r > 0 ? `/api/versions/${v.id}/render/preview?v=${r}` : null,
+    thumbUrl: renderUrl(v, 'thumb'),
+    previewUrl: renderUrl(v, 'preview'),
     originalUrl: `/api/photos/${v.photo_id}/original`,
     createdAt: v.created_at.toISOString(),
     updatedAt: v.updated_at.toISOString(),
@@ -82,15 +88,29 @@ export function versionDetailDto(
   v: VersionRow,
   photo: Pick<Photos, 'exif'>,
   history: Pick<HistoryEntries, 'seq' | 'label' | 'created_at' | 'recipe'>[],
+  /** All versions of the photo, in order (this one included). */
+  siblings: Versions[],
 ) {
-  const current = history.find((h) => h.seq === v.history_end);
+  // Stored recipes may predate the current version; they are migrated on read.
+  const entries = history.map((h) => ({
+    seq: h.seq,
+    label: h.label,
+    createdAt: h.created_at.toISOString(),
+    recipe: normalizeEditParams(h.recipe),
+  }));
   return {
     ...versionDto(v),
     exif: photo.exif,
-    // Stored recipes may predate the current version; they are migrated on read.
-    editParams: current ? normalizeEditParams(current.recipe) : null,
+    editParams: entries.find((h) => h.seq === v.history_end)?.recipe ?? null,
     historyEnd: v.history_end,
     revision: v.revision,
-    history: history.map((h) => ({ seq: h.seq, label: h.label, createdAt: h.created_at.toISOString() })),
+    history: entries,
+    versions: siblings.map((s, i) => ({
+      id: s.id,
+      name: s.name,
+      index: i + 1,
+      edited: s.history_end > 0,
+      thumbUrl: renderUrl(s, 'thumb'),
+    })),
   };
 }
