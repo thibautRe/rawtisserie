@@ -1,5 +1,5 @@
 import { Badge, Box, Center, Circle, HStack, Image, Spinner, Stack, Text } from '@chakra-ui/react';
-import { Check, CircleAlert, Star, X } from 'lucide-react';
+import { Check, CircleAlert, Layers, Star, X } from 'lucide-react';
 import { memo } from 'react';
 import type { Photo } from '../api/types.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
@@ -67,7 +67,7 @@ export const PhotoCard = memo(function PhotoCard({ photo, selected, focused, onC
         gradientFrom="blackAlpha.700"
         gradientTo="transparent"
         color="white"
-        opacity={selected || photo.rating > 0 || photo.flag || photo.colorLabel ? 1 : 0}
+        opacity={selected || photo.rating > 0 || photo.flag || photo.colorLabel || photo.versionCount > 1 ? 1 : 0}
         _groupHover={{ opacity: 1 }}
         transition="opacity 0.15s"
       >
@@ -77,6 +77,11 @@ export const PhotoCard = memo(function PhotoCard({ photo, selected, focused, onC
           ))}
         </HStack>
         <Box flex="1" />
+        {photo.versionCount > 1 && (
+          <Badge size="xs" variant="solid" title={`${photo.versionCount} versions of this photo`}>
+            <Layers size={10} /> {photo.versionName ?? photo.versionCount}
+          </Badge>
+        )}
         {photo.edited && (
           <Badge size="xs" variant="solid" colorPalette="orange">
             edited

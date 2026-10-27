@@ -5,17 +5,19 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { normalizeEditParams } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
-import { db, photos, sql } from '../db.ts';
-import { notFound } from '../errors.ts';
+import { db, historyEntries, photos, sql, versions } from '../db.ts';
+import { conflict, notFound } from '../errors.ts';
 import type Photos from '../__generated__/photos.ts';
+import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
-import { photoDetailDto, photoDto } from './dto.ts';
+import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
 import {
   RAW_EXTENSIONS,
   RENDER_SIZES,
   commitUpload,
-  deletePhotoFiles,
+  deleteOriginal,
+  deleteRenders,
   discardUpload,
   fileExists,
   originalPath,
@@ -28,8 +30,11 @@ const Id = z.object({ id: z.uuid() });
 const nullableText = (max: number) => z.string().trim().max(max).nullable().transform((s) => s || null);
 const COLOR_LABELS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
 
-/** Fields a user may edit. Metadata corrections live in the database; originals are never modified. */
-const PhotoPatch = z
+/**
+ * Fields a user may edit on a library item. Curation belongs to the version; metadata
+ * corrections belong to the photo (shared by its versions). Originals are never modified.
+ */
+const VersionPatch = z
   .object({
     title: nullableText(500),
     description: nullableText(10_000),
@@ -53,14 +58,18 @@ const PhotoPatch = z
   })
   .partial()
   .strict();
+type VersionPatch = z.infer<typeof VersionPatch>;
 
-const COLUMNS: Record<keyof z.infer<typeof PhotoPatch>, keyof Photos> = {
+const VERSION_FIELDS: Partial<Record<keyof VersionPatch, keyof Versions>> = {
   title: 'title',
   description: 'description',
   rating: 'rating',
   flag: 'flag',
   colorLabel: 'color_label',
   tags: 'tags',
+};
+
+const PHOTO_FIELDS: Partial<Record<keyof VersionPatch, keyof Photos>> = {
   cameraMake: 'camera_make',
   cameraModel: 'camera_model',
   lens: 'lens',
@@ -76,121 +85,214 @@ const COLUMNS: Record<keyof z.infer<typeof PhotoPatch>, keyof Photos> = {
   copyright: 'copyright',
 };
 
-function toColumns(patch: z.infer<typeof PhotoPatch>): Partial<Photos> {
+function toColumns<T>(patch: VersionPatch, fields: Partial<Record<keyof VersionPatch, keyof T>>): Partial<T> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined) out[COLUMNS[key as keyof typeof COLUMNS]] = value;
+    const column = fields[key as keyof VersionPatch];
+    if (column && value !== undefined) out[column as string] = value;
   }
-  return out as Partial<Photos>;
+  return out as Partial<T>;
 }
 
 const Bulk = z.object({
   ids: z.array(z.uuid()).min(1).max(5000),
-  patch: PhotoPatch.pick({ rating: true, flag: true, colorLabel: true }).extend({
+  patch: VersionPatch.pick({ rating: true, flag: true, colorLabel: true }).extend({
     addTags: z.array(z.string().trim().min(1).max(100)).optional(),
     removeTags: z.array(z.string().trim().min(1).max(100)).optional(),
   }),
 });
 
+const HistoryAppend = z.object({
+  recipe: z.unknown().refine((r) => r !== null && r !== undefined, 'A recipe is required'),
+  label: z.string().trim().min(1).max(200).default('Edit'),
+  /** The `revision` the client based its change on; a mismatch means someone else edited it. */
+  baseRevision: z.number().int().optional(),
+});
+
 export async function photoRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
   app.addHook('preHandler', requireUser);
 
-  const findOwned = async (ownerId: string, id: string) => {
-    const photo = await photos(db).findOne({ id, owner_id: ownerId });
-    if (!photo) throw notFound('Photo not found');
-    return photo;
+  const findVersion = async (ownerId: string, id: string) => {
+    const [row] = (await db.query(sql`
+      SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ${id} AND p.owner_id = ${ownerId}`)) as VersionRow[];
+    if (!row) throw notFound('Photo not found');
+    return row;
   };
 
-  app.get('/api/photos', async (request) => {
+  const versionDetail = async (ownerId: string, id: string) => {
+    const row = await findVersion(ownerId, id);
+    const [photo, history] = await Promise.all([
+      photos(db).findOne({ id: row.photo_id }),
+      historyEntries(db).find({ version_id: id }).orderByAsc('seq').all(),
+    ]);
+    return versionDetailDto(row, photo!, history);
+  };
+
+  // ── Library (versions) ────────────────────────────────────────────────────
+
+  app.get('/api/versions', async (request) => {
     const user = currentUser(request);
     const q = PhotoListQuery.parse(request.query);
     const where = whereClause(user.id, q);
     const [rows, [{ count }]] = await Promise.all([
-      db.query(sql`SELECT * FROM photos WHERE ${where} ORDER BY ${SORTS[q.sort]} LIMIT ${q.limit} OFFSET ${q.offset}`),
-      db.query(sql`SELECT count(*)::int AS count FROM photos WHERE ${where}`),
+      db.query(sql`
+        SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM}
+        WHERE ${where} ORDER BY ${SORTS[q.sort]} LIMIT ${q.limit} OFFSET ${q.offset}`),
+      db.query(sql`SELECT count(*)::int AS count FROM ${VERSIONS_FROM} WHERE ${where}`),
     ]);
-    return { photos: (rows as Photos[]).map(photoDto), total: count as number };
+    return { versions: (rows as VersionRow[]).map(versionDto), total: count as number };
   });
 
   /** Distinct values (with counts) to populate the filter sidebar. */
-  app.get('/api/photos/facets', async (request) => {
+  app.get('/api/versions/facets', async (request) => {
     const user = currentUser(request);
     const filters = PhotoFilters.parse(request.query);
     const where = whereClause(user.id, filters);
     const facet = (column: SQLColumn) =>
       db.query(sql`
-        SELECT ${sql.ident(column)} AS value, count(*)::int AS count FROM photos
-        WHERE ${where} AND ${sql.ident(column)} IS NOT NULL
+        SELECT ${sql.ident('p', column)} AS value, count(*)::int AS count FROM ${VERSIONS_FROM}
+        WHERE ${where} AND ${sql.ident('p', column)} IS NOT NULL
         GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100`);
     const [cameras, lenses, tags, ratings, ranges] = await Promise.all([
       facet('camera_model'),
       facet('lens'),
       db.query(sql`
-        SELECT t AS value, count(*)::int AS count FROM photos, unnest(tags) t
+        SELECT t AS value, count(*)::int AS count FROM ${VERSIONS_FROM}, unnest(v.tags) t
         WHERE ${where} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 200`),
-      db.query(sql`SELECT rating AS value, count(*)::int AS count FROM photos WHERE ${where} GROUP BY 1 ORDER BY 1`),
       db.query(sql`
-        SELECT count(*)::int AS total, min(captured_at) AS "capturedFrom", max(captured_at) AS "capturedTo",
-          min(iso) AS "isoMin", max(iso) AS "isoMax", min(focal_length) AS "focalMin", max(focal_length) AS "focalMax",
-          min(f_number) AS "apertureMin", max(f_number) AS "apertureMax"
-        FROM photos WHERE ${where}`),
+        SELECT v.rating AS value, count(*)::int AS count FROM ${VERSIONS_FROM} WHERE ${where} GROUP BY 1 ORDER BY 1`),
+      db.query(sql`
+        SELECT count(*)::int AS total, min(p.captured_at) AS "capturedFrom", max(p.captured_at) AS "capturedTo",
+          min(p.iso) AS "isoMin", max(p.iso) AS "isoMax", min(p.focal_length) AS "focalMin",
+          max(p.focal_length) AS "focalMax", min(p.f_number) AS "apertureMin", max(p.f_number) AS "apertureMax"
+        FROM ${VERSIONS_FROM} WHERE ${where}`),
     ]);
     return { cameras, lenses, tags, ratings, ranges: ranges[0] };
   });
 
-  app.get('/api/photos/:id', async (request) => {
+  app.get('/api/versions/:id', async (request) => {
     const { id } = Id.parse(request.params);
-    return photoDetailDto(await findOwned(currentUser(request).id, id));
+    return versionDetail(currentUser(request).id, id);
   });
 
-  app.patch('/api/photos/:id', async (request) => {
+  app.patch('/api/versions/:id', async (request) => {
     const user = currentUser(request);
     const { id } = Id.parse(request.params);
-    const patch = PhotoPatch.parse(request.body);
-    await findOwned(user.id, id);
-    const [updated] = await photos(db).update(
-      { id, owner_id: user.id },
-      { ...toColumns(patch), updated_at: new Date() },
-    );
-    return photoDetailDto(updated!);
+    const patch = VersionPatch.parse(request.body);
+    const row = await findVersion(user.id, id);
+    const versionColumns = toColumns<Versions>(patch, VERSION_FIELDS);
+    const photoColumns = toColumns<Photos>(patch, PHOTO_FIELDS);
+    await db.tx(async (tx) => {
+      if (Object.keys(versionColumns).length) await versions(tx).update({ id }, { ...versionColumns, updated_at: new Date() });
+      if (Object.keys(photoColumns).length) {
+        await photos(tx).update({ id: row.photo_id }, { ...photoColumns, updated_at: new Date() });
+      }
+    });
+    return versionDetail(user.id, id);
   });
 
-  app.post('/api/photos/bulk', async (request) => {
+  app.post('/api/versions/bulk', async (request) => {
     const user = currentUser(request);
     const { ids, patch } = Bulk.parse(request.body);
     const { addTags, removeTags, ...simple } = patch;
     const sets = [sql`updated_at = now()`];
-    for (const [key, value] of Object.entries(toColumns(simple))) sets.push(sql`${sql.ident(key)} = ${value}`);
+    for (const [key, value] of Object.entries(toColumns<Versions>(simple, VERSION_FIELDS))) {
+      sets.push(sql`${sql.ident(key)} = ${value}`);
+    }
     if (addTags?.length) sets.push(sql`tags = ARRAY(SELECT DISTINCT t FROM unnest(tags || ${addTags}::text[]) t ORDER BY 1)`);
     if (removeTags?.length) sets.push(sql`tags = ARRAY(SELECT unnest(tags) EXCEPT SELECT unnest(${removeTags}::text[]))`);
-    const rows = await db.query(sql`
-      UPDATE photos SET ${sql.join(sets, sql`, `)}
-      WHERE owner_id = ${user.id} AND id = ANY(${ids}) RETURNING *`);
-    return { photos: (rows as Photos[]).map(photoDto) };
+    const updated = await db.query(sql`
+      UPDATE versions SET ${sql.join(sets, sql`, `)}
+      WHERE id = ANY(${ids}) AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
+      RETURNING id`);
+    const rows = (await db.query(sql`
+      SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ANY(${updated.map((r) => r.id)})`)) as VersionRow[];
+    return { versions: rows.map(versionDto) };
   });
 
-  app.post('/api/photos/delete', async (request) => {
+  /** Delete versions. A photo left without any version is deleted too, original file included. */
+  app.post('/api/versions/delete', async (request) => {
     const user = currentUser(request);
     const { ids } = z.object({ ids: z.array(z.uuid()).min(1).max(5000) }).parse(request.body);
-    const rows = (await db.query(sql`
-      DELETE FROM photos WHERE owner_id = ${user.id} AND id = ANY(${ids}) RETURNING id, storage_key`)) as Photos[];
-    await Promise.all(rows.map(deletePhotoFiles));
-    return { deleted: rows.map((r) => r.id) };
+    const { deleted, orphans } = await db.tx(async (tx) => {
+      const deleted = (await tx.query(sql`
+        DELETE FROM versions
+        WHERE id = ANY(${ids}) AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
+        RETURNING id, photo_id`)) as Pick<Versions, 'id' | 'photo_id'>[];
+      const orphans = (await tx.query(sql`
+        DELETE FROM photos p WHERE p.id = ANY(${deleted.map((d) => d.photo_id)})
+          AND NOT EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id)
+        RETURNING storage_key`)) as Pick<Photos, 'storage_key'>[];
+      return { deleted, orphans };
+    });
+    await Promise.all([...deleted.map((d) => deleteRenders(d.id)), ...orphans.map((p) => deleteOriginal(p.storage_key))]);
+    return { deleted: deleted.map((d) => d.id) };
   });
 
-  app.delete('/api/photos/:id', async (request) => {
+  /**
+   * Record a new recipe as the next history entry. Entries after `history_end` (undone
+   * changes) are dropped first: history is linear. Previews are re-rendered in the background.
+   */
+  app.post('/api/versions/:id/history', async (request) => {
     const user = currentUser(request);
     const { id } = Id.parse(request.params);
-    const photo = await findOwned(user.id, id);
-    await photos(db).delete({ id, owner_id: user.id });
-    await deletePhotoFiles(photo);
-    return { deleted: [id] };
+    const { recipe, label, baseRevision } = HistoryAppend.parse(request.body);
+    const normalized = normalizeEditParams(recipe);
+    await db.tx(async (tx) => {
+      const [current] = (await tx.query(sql`
+        SELECT v.history_end, v.revision FROM ${VERSIONS_FROM}
+        WHERE v.id = ${id} AND p.owner_id = ${user.id} FOR UPDATE OF v`)) as Pick<Versions, 'history_end' | 'revision'>[];
+      if (!current) throw notFound('Photo not found');
+      if (baseRevision !== undefined && baseRevision !== current.revision) {
+        throw conflict('This version changed elsewhere — reload');
+      }
+      const seq = current.history_end + 1;
+      await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq >= ${seq}`);
+      await historyEntries(tx).insert({ version_id: id, seq, label, recipe: normalized });
+      await versions(tx).update(
+        { id },
+        {
+          history_end: seq,
+          revision: current.revision + 1,
+          edited_at: new Date(),
+          render_status: 'pending',
+          updated_at: new Date(),
+        },
+      );
+    });
+    renderQueue.enqueue(id);
+    return versionDetail(user.id, id);
   });
 
-  /** Upload one or more RAW files (multipart/form-data, field name `files`). */
+  app.post('/api/versions/:id/rerender', async (request) => {
+    const user = currentUser(request);
+    const { id } = Id.parse(request.params);
+    await findVersion(user.id, id);
+    await versions(db).update({ id }, { render_status: 'pending', render_error: null });
+    renderQueue.enqueue(id);
+    return { ok: true };
+  });
+
+  app.get('/api/versions/:id/render/:size', async (request, reply) => {
+    const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(
+      request.params,
+    );
+    const version = await findVersion(currentUser(request).id, id);
+    const file = renderPath(version.id, size);
+    if (!(await fileExists(file))) throw notFound('Not rendered yet');
+    const versioned = (request.query as Record<string, string>).v === String(version.render_version);
+    return reply
+      .header('content-type', 'image/jpeg')
+      .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
+      .send(createReadStream(file));
+  });
+
+  // ── Photos (original files) ───────────────────────────────────────────────
+
+  /** Upload one or more RAW files (multipart/form-data, field name `files`). Each gets one version. */
   app.post('/api/photos', async (request, reply) => {
     const user = currentUser(request);
-    const created: ReturnType<typeof photoDto>[] = [];
+    const created: ReturnType<typeof versionDto>[] = [];
     const skipped: { filename: string; reason: string }[] = [];
 
     for await (const part of request.files()) {
@@ -216,71 +318,34 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
       const id = randomUUID();
       const storageKey = `${user.id}/${id}${ext}`;
       await commitUpload(upload, storageKey);
-      const [photo] = await photos(db).insert({
-        id,
-        owner_id: user.id,
-        original_filename: filename,
-        storage_key: storageKey,
-        file_size: upload.size,
-        sha256: upload.sha256,
+      const versionId = await db.tx(async (tx) => {
+        await photos(tx).insert({
+          id,
+          owner_id: user.id,
+          original_filename: filename,
+          storage_key: storageKey,
+          file_size: upload.size,
+          sha256: upload.sha256,
+        });
+        const [version] = await versions(tx).insert({ photo_id: id });
+        return version!.id;
       });
-      created.push(photoDto(photo!));
-      renderQueue.enqueue(id);
+      created.push(versionDto(await findVersion(user.id, versionId)));
+      renderQueue.enqueue(versionId);
     }
     return reply.code(created.length ? 201 : 200).send({ created, skipped });
   });
 
-  /** Save the development recipe; previews are re-rendered in the background. */
-  app.put('/api/photos/:id/edit', async (request) => {
-    const user = currentUser(request);
-    const { id } = Id.parse(request.params);
-    const { params } = z.object({ params: z.unknown() }).parse(request.body);
-    await findOwned(user.id, id);
-    const [updated] = await photos(db).update(
-      { id, owner_id: user.id },
-      {
-        edit_params: params === null ? null : normalizeEditParams(params),
-        edited_at: params === null ? null : new Date(),
-        render_status: 'pending',
-        updated_at: new Date(),
-      },
-    );
-    renderQueue.enqueue(id);
-    return photoDetailDto(updated!);
-  });
-
-  app.post('/api/photos/:id/rerender', async (request) => {
-    const user = currentUser(request);
-    const { id } = Id.parse(request.params);
-    await findOwned(user.id, id);
-    await photos(db).update({ id, owner_id: user.id }, { render_status: 'pending', render_error: null });
-    renderQueue.enqueue(id);
-    return { ok: true };
-  });
-
   app.get('/api/photos/:id/original', async (request, reply) => {
     const { id } = Id.parse(request.params);
-    const photo = await findOwned(currentUser(request).id, id);
+    const photo = await photos(db).findOne({ id, owner_id: currentUser(request).id });
+    if (!photo) throw notFound('Photo not found');
     return reply
       .header('content-type', 'application/octet-stream')
       .header('content-length', photo.file_size)
       .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(photo.original_filename)}`)
       .header('cache-control', 'private, max-age=31536000, immutable')
       .send(createReadStream(originalPath(photo.storage_key)));
-  });
-
-  app.get('/api/photos/:id/render/:size', async (request, reply) => {
-    const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(
-      request.params,
-    );
-    const photo = await findOwned(currentUser(request).id, id);
-    const file = renderPath(photo.id, size);
-    if (!(await fileExists(file))) throw notFound('Not rendered yet');
-    const versioned = (request.query as Record<string, string>).v === String(photo.render_version);
-    return reply
-      .header('content-type', 'image/jpeg')
-      .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
-      .send(createReadStream(file));
   });
 }
 

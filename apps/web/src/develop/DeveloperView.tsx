@@ -2,6 +2,7 @@ import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, S
 import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
 import { Check, Download, Frame, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
 import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
@@ -209,6 +210,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
     <Flex h="full" minH="0">
       <Flex direction="column" flex="1" minW="0">
         <HStack px="3" py="2" borderBottomWidth="1px" gap="2">
+          <AppMenu />
           <Stack gap="0" minW="0" flex="1">
             <Text fontWeight="semibold" truncate>
               {filename}
@@ -248,9 +250,6 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
           >
             <Frame />
           </IconButton>
-          <Button size="sm" variant="ghost" onClick={() => history.commit(structuredClone(defaultEditParams))}>
-            Reset all
-          </Button>
           <Menu.Root onSelect={(d) => void exportJpeg(Number(d.value))}>
             <Menu.Trigger asChild>
               <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…">

@@ -10,8 +10,17 @@ export type Flag = 'picked' | 'rejected';
 export const COLOR_LABELS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
 export type ColorLabel = (typeof COLOR_LABELS)[number];
 
+/**
+ * A library item: one version of a photo (darktable's "duplicate"). `id` is the
+ * version id; the file and its metadata belong to the photo and are shared by its versions.
+ */
 export interface Photo {
   id: string;
+  photoId: string;
+  /** Name of a duplicate; null for an unnamed version. */
+  versionName: string | null;
+  /** How many versions the photo has (a stack badge shows when there is more than one). */
+  versionCount: number;
   filename: string;
   fileSize: number;
   cameraMake: string | null;
@@ -45,9 +54,21 @@ export interface Photo {
   updatedAt: string;
 }
 
+export interface HistoryEntry {
+  seq: number;
+  label: string;
+  createdAt: string;
+}
+
 export interface PhotoDetail extends Photo {
   exif: PhotoMetadata | null;
+  /** The recipe at `historyEnd`, or null for the original. */
   editParams: EditParams | null;
+  /** History entries 1…historyEnd are applied; 0 means no edits. */
+  historyEnd: number;
+  /** Bumped on every history change (optimistic concurrency). */
+  revision: number;
+  history: HistoryEntry[];
 }
 
 export type PhotoPatch = Partial<

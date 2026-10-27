@@ -11,4 +11,10 @@ export const db = createConnectionPool({
   bigIntMode: 'number',
 });
 
-export const { users, sessions, photos } = tables<DatabaseSchema>({ databaseSchema });
+export const {
+  users,
+  sessions,
+  photos,
+  versions,
+  history_entries: historyEntries,
+} = tables<DatabaseSchema>({ databaseSchema });

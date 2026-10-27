@@ -142,18 +142,13 @@ impl Spline {
         let xmin = (black_display + margin - intercept) / contrast;
         let xmax = (white_display - margin - intercept) / contrast;
 
-        // Toe and shoulder nodes from latitude and balance.
-        let latitude = p.latitude.clamp(0.0, 100.0) / 100.0;
-        let balance = p.balance.clamp(-50.0, 50.0) / 100.0;
-        let mut toe_log = (1.0 - latitude) * grey_log + latitude * xmin;
-        let mut shoulder_log = (1.0 - latitude) * grey_log + latitude * xmax;
-        let correction = if balance > 0.0 {
-            2.0 * balance * (shoulder_log - grey_log)
-        } else {
-            2.0 * balance * (grey_log - toe_log)
-        };
-        toe_log = (toe_log - correction).max(xmin);
-        shoulder_log = (shoulder_log - correction).min(xmax);
+        // Toe and shoulder nodes. Deviation from Ansel: it places both from one latitude
+        // (linear width) shifted by a balance; here each side is sized independently.
+        // toe = shoulder = 100 % - latitude reproduces Ansel with balance 0.
+        let toe = p.toe.clamp(0.0, 100.0) / 100.0;
+        let shoulder = p.shoulder.clamp(0.0, 100.0) / 100.0;
+        let toe_log = grey_log - (1.0 - toe) * (grey_log - xmin);
+        let shoulder_log = grey_log + (1.0 - shoulder) * (xmax - grey_log);
         let toe_display = toe_log * contrast + intercept;
         let shoulder_display = shoulder_log * contrast + intercept;
 

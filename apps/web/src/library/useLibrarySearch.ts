@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 
 /**
  * Library filters live in the URL (shareable, survive reloads) and use the same
- * parameter names as `GET /api/photos`, so the query string is passed through as-is.
+ * parameter names as `GET /api/versions`, so the query string is passed through as-is.
  */
 export function useLibrarySearch() {
   const [params, setParams] = useSearchParams();

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useBulkUpdate, useDeletePhotos, usePhotos, useUpload } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
+import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
@@ -43,7 +44,7 @@ export function LibraryPage() {
   const search = useLibrarySearch();
   const navigate = useNavigate();
   const query = usePhotos(search.search);
-  const photos = useMemo(() => query.data?.pages.flatMap((p) => p.photos) ?? [], [query.data]);
+  const photos = useMemo(() => query.data?.pages.flatMap((p) => p.versions) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total ?? 0;
 
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -99,7 +100,7 @@ export function LibraryPage() {
     [photos, selectOne],
   );
 
-  const openDevelop = useCallback((photo: Photo) => navigate(`/photos/${photo.id}/develop`), [navigate]);
+  const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
 
   const applyToSelection = useCallback(
     (patch: BulkPatch) => {
@@ -141,7 +142,7 @@ export function LibraryPage() {
       else if (key === 'arrowleft') move(-1);
       else if (key === 'arrowdown') move(columns);
       else if (key === 'arrowup') move(-columns);
-      else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/photos/${focusedId}/develop`);
+      else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/versions/${focusedId}/develop`);
       else if ((key === 'delete' || key === 'backspace') && selection.size) setPendingDelete([...selection]);
       else if (key === 'escape') setSelection(new Set());
       else return;
@@ -212,6 +213,7 @@ export function LibraryPage() {
 
       <Flex direction="column" flex="1" minW="0">
         <HStack px="3" py="2" borderBottomWidth="1px" gap="3">
+          <AppMenu />
           <InputGroup startElement={<Search size={14} />} maxW="xs">
             <Input
               size="sm"

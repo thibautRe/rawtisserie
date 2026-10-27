@@ -170,8 +170,8 @@ export function ModulePanel({ params, onChange, onCommit, cropping, aspect, onAs
           {...bind('filmic', 'dynamicRangeScaling')}
         />
         <ParamSlider label="Contrast" min={0.5} max={3} step={0.01} format={fmt.fixed2} {...bind('filmic', 'contrast')} />
-        <ParamSlider label="Latitude" min={0.1} max={50} step={0.1} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'latitude')} />
-        <ParamSlider label="Shadows ↔ highlights balance" min={-50} max={50} step={0.5} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} %`} {...bind('filmic', 'balance')} />
+        <ParamSlider label="Toe" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'toe')} />
+        <ParamSlider label="Shoulder" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'shoulder')} />
         <ParamSlider label="Hue preservation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bind('filmic', 'huePreservation')} />
         <NativeSelect.Root size="xs">
           <NativeSelect.Field

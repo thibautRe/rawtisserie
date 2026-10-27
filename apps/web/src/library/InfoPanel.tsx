@@ -195,7 +195,7 @@ function SinglePanel({ photo: listPhoto, onDelete }: { photo: Photo; onDelete: (
       </Box>
 
       <HStack>
-        <Button size="sm" colorPalette="orange" flex="1" onClick={() => navigate(`/photos/${photo.id}/develop`)}>
+        <Button size="sm" colorPalette="orange" flex="1" onClick={() => navigate(`/versions/${photo.id}/develop`)}>
           <Aperture /> Develop
         </Button>
         <IconButton asChild size="sm" variant="outline" aria-label="Download original">

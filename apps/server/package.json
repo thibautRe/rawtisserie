@@ -35,11 +35,11 @@
       "primaryKeyTypeMode": "inline_no_brand",
       "domainTypeMode": "inline",
       "columnTypeOverrides": {
-        "photos.edit_params": "import('@rawtisserie/pipeline').EditParams",
         "photos.exif": "import('@rawtisserie/pipeline').PhotoMetadata",
-        "photos.flag": "'picked' | 'rejected'",
-        "photos.color_label": "'red' | 'yellow' | 'green' | 'blue' | 'purple'",
-        "photos.render_status": "'pending' | 'ready' | 'failed'"
+        "versions.flag": "'picked' | 'rejected'",
+        "versions.color_label": "'red' | 'yellow' | 'green' | 'blue' | 'purple'",
+        "versions.render_status": "'pending' | 'ready' | 'failed'",
+        "history_entries.recipe": "import('@rawtisserie/pipeline').EditParams"
       }
     }
   }

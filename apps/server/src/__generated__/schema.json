@@ -73,6 +73,46 @@
     ]
   },
   {
+    "name": "history_entries",
+    "columns": [
+      {
+        "name": "created_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "label",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "recipe",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 3802,
+        "typeName": "JSONB"
+      },
+      {
+        "name": "seq",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 23,
+        "typeName": "INTEGER"
+      },
+      {
+        "name": "version_id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
+      }
+    ]
+  },
+  {
     "name": "photos",
     "columns": [
       {
@@ -104,13 +144,6 @@
         "typeName": "TIMESTAMPTZ"
       },
       {
-        "name": "color_label",
-        "isNullable": true,
-        "hasDefault": false,
-        "typeId": 25,
-        "typeName": "TEXT"
-      },
-      {
         "name": "copyright",
         "isNullable": true,
         "hasDefault": false,
@@ -121,27 +154,6 @@
         "name": "created_at",
         "isNullable": false,
         "hasDefault": true,
-        "typeId": 1184,
-        "typeName": "TIMESTAMPTZ"
-      },
-      {
-        "name": "description",
-        "isNullable": true,
-        "hasDefault": false,
-        "typeId": 25,
-        "typeName": "TEXT"
-      },
-      {
-        "name": "edit_params",
-        "isNullable": true,
-        "hasDefault": false,
-        "typeId": 3802,
-        "typeName": "JSONB"
-      },
-      {
-        "name": "edited_at",
-        "isNullable": true,
-        "hasDefault": false,
         "typeId": 1184,
         "typeName": "TIMESTAMPTZ"
       },
@@ -179,13 +191,6 @@
         "hasDefault": false,
         "typeId": 20,
         "typeName": "BIGINT"
-      },
-      {
-        "name": "flag",
-        "isNullable": true,
-        "hasDefault": false,
-        "typeId": 25,
-        "typeName": "TEXT"
       },
       {
         "name": "focal_length",
@@ -251,34 +256,6 @@
         "typeName": "UUID"
       },
       {
-        "name": "rating",
-        "isNullable": false,
-        "hasDefault": true,
-        "typeId": 21,
-        "typeName": "SMALLINT"
-      },
-      {
-        "name": "render_error",
-        "isNullable": true,
-        "hasDefault": false,
-        "typeId": 25,
-        "typeName": "TEXT"
-      },
-      {
-        "name": "render_status",
-        "isNullable": false,
-        "hasDefault": true,
-        "typeId": 25,
-        "typeName": "TEXT"
-      },
-      {
-        "name": "render_version",
-        "isNullable": false,
-        "hasDefault": true,
-        "typeId": 23,
-        "typeName": "INTEGER"
-      },
-      {
         "name": "sha256",
         "isNullable": false,
         "hasDefault": false,
@@ -288,20 +265,6 @@
       {
         "name": "storage_key",
         "isNullable": false,
-        "hasDefault": false,
-        "typeId": 25,
-        "typeName": "TEXT"
-      },
-      {
-        "name": "tags",
-        "isNullable": false,
-        "hasDefault": true,
-        "typeId": 1009,
-        "typeName": "TEXT[]"
-      },
-      {
-        "name": "title",
-        "isNullable": true,
         "hasDefault": false,
         "typeId": 25,
         "typeName": "TEXT"
@@ -392,6 +355,137 @@
         "hasDefault": false,
         "typeId": 25,
         "typeName": "TEXT"
+      }
+    ]
+  },
+  {
+    "name": "versions",
+    "columns": [
+      {
+        "name": "color_label",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "created_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "description",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "edited_at",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "flag",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "history_end",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 23,
+        "typeName": "INTEGER"
+      },
+      {
+        "name": "id",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "name",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "photo_id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "position",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 23,
+        "typeName": "INTEGER"
+      },
+      {
+        "name": "rating",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 21,
+        "typeName": "SMALLINT"
+      },
+      {
+        "name": "render_error",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "render_status",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "render_version",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 23,
+        "typeName": "INTEGER"
+      },
+      {
+        "name": "revision",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 23,
+        "typeName": "INTEGER"
+      },
+      {
+        "name": "tags",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1009,
+        "typeName": "TEXT[]"
+      },
+      {
+        "name": "title",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "updated_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
       }
     ]
   }

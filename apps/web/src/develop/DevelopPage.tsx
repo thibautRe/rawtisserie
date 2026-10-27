@@ -1,10 +1,11 @@
 import { Box, Button, Center, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
 import { type EditParams, type PhotoMetadata, defaultEditParams, normalizeEditParams } from '@rawtisserie/pipeline';
-import { ArrowLeft, FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
+import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, fetchBytes } from '../api/client.ts';
 import { useMe, usePhoto, useSaveEdit, type UploadResult } from '../api/hooks.ts';
+import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
@@ -73,11 +74,11 @@ export function LocalDevelopPage() {
       const form = new FormData();
       form.append('files', loaded.file);
       const { created, skipped } = await api.post<UploadResult>('/api/photos', form);
-      const photo = created[0];
-      if (!photo) throw new Error(skipped[0]?.reason ?? 'Upload failed');
-      await api.put(`/api/photos/${photo.id}/edit`, { params });
+      const version = created[0];
+      if (!version) throw new Error(skipped[0]?.reason ?? 'Upload failed');
+      await api.post(`/api/versions/${version.id}/history`, { recipe: params });
       toaster.create({ type: 'success', title: 'Added to your library' });
-      navigate(`/photos/${photo.id}/develop`);
+      navigate(`/versions/${version.id}/develop`);
     } catch (err) {
       toaster.create({ type: 'error', title: 'Could not add to library', description: err instanceof Error ? err.message : undefined });
     } finally {
@@ -132,6 +133,7 @@ export function LocalDevelopPage() {
     <Center
       h="full"
       p="6"
+      position="relative"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -145,6 +147,9 @@ export function LocalDevelopPage() {
       }}
     >
       {picker}
+      <Box position="absolute" top="2" left="3">
+        <AppMenu />
+      </Box>
       <Stack
         align="center"
         gap="5"
@@ -230,15 +235,8 @@ export function LibraryDevelopPage() {
       filename={photo.filename}
       metadata={metadata}
       initialParams={photo.editParams ? normalizeEditParams(photo.editParams) : defaultEditParams}
-      onSave={(params) => saveEdit.mutateAsync({ id: photo.id, params })}
+      onSave={(params) => saveEdit.mutateAsync({ id: photo.id, params, baseRevision: photo.revision })}
       saving={saveEdit.isPending}
-      actions={() => (
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/">
-            <ArrowLeft /> Library
-          </Link>
-        </Button>
-      )}
     />
   );
 }

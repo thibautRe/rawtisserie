@@ -14,6 +14,10 @@ See README.md for the architecture overview and commands.
 - DB schema changes: add a new numbered SQL file in `apps/server/migrations/` (never edit
   applied ones), then `npm run db:schema -w @rawtisserie/server` to regenerate the types.
   The generated files are post-processed by `src/scripts/fix-generated-types.ts`.
+- Library data model: `photos` (the file, EXIF, metadata corrections) → `versions`
+  (curation, render state, `history_end`/`revision`) → `history_entries` (full recipe
+  snapshots). The library lists versions; a web `Photo` is a version (`id` = version id,
+  `photoId` = the file). Renders are keyed by version id.
 - Chakra UI v3: in semantic tokens, declare `_light` before `_dark`. Chakra emits the
   condition blocks in first-seen order, and the `.dark` block must come last to win.
 - The pipeline is scene-referred linear Rec.2020 until tone mapping; spatial parameters
@@ -27,7 +31,7 @@ See README.md for the architecture overview and commands.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
-- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 3).
+- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 4).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
 - A recipe (v3) is a list of module instances; pipeline order is fixed by `ModuleKind`

@@ -8,7 +8,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
 - **Library**: every photo you own, filterable by EXIF metadata (camera, lens, ISO,
   focal length, aperture, date), tags, rating, flags and colour labels. Cull with the
   keyboard (rate, pick/reject, label, delete) and correct metadata. Originals are never
-  modified; edits live in the database.
+  modified; edits live in the database. Each photo has one or more *versions* (like
+  darktable duplicates), each with its own rating, labels and edit history.
 - **Developer**: exposure, white balance, saturation and vibrance, shadows/highlights,
   filmic tone mapping (a port of Ansel's filmic rgb with its AgX colour science),
   sharpening, blur, rotation/flip, straightening and cropping. The image sits on a
@@ -116,7 +117,9 @@ by default: the v3 spline with "perceptual" sigmoid toe and shoulder, auto hardn
 and colour science v8 "AgX" with all five bleach variants. Highlight reconstruction,
 deprecated in Ansel, is left out. Defaults match Ansel's for RAW files (white +3.15 EV,
 black −8.85 EV, contrast 1.18, latitude 10 %, medium bleach) together with the +0.7 EV
-exposure default.
+exposure default. One deviation in the controls: Ansel's latitude and shadows/highlights
+balance are replaced by independent **toe** and **shoulder** sizes (the curved share of
+each side of middle grey); toe = shoulder = 90 % is Ansel's latitude 10 %, balance 0.
 
 **Auto-tune** follows Ansel's `autoset`. It measures filmic's input over the image as
 displayed (after crop): white relative exposure from the brightest max(R, G, B), black

@@ -1,6 +1,7 @@
 # 🍗 RAWtisserie roadmap
 
-Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`.
+Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
+and history).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -10,7 +11,7 @@ foundation, then builds features on top in milestones that each ship something u
 ```
 M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipping indicators)
                  ├─▶ M3 Image quality (lens correction, colour primaries, contrast equalizer)
-                 ├─▶ M4 Creative control (module instances, masks, presets)
+                 ├─▶ M4 Creative control (module instances, presets, shapes, retouch, masks)
                  └─▶ M5 Compare
 M6 Cloud processing ── independent; can start any time (native renderer first)
 ```
@@ -53,6 +54,7 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
   still compile into the single fused pass.
 - **Target order:**
   - base: demosaic → highlight clip → as-shot WB → vignetting (lens) → camera → working
+  - retouch (4.4): spot removal in the sensor frame, its own cached stage
   - geometry: distortion + TCA (lens) → orientation → straighten → crop → resample
   - spatial: contrast equalizer → sharpen → blur
   - point: exposure → colour calibration/WB → colour primaries → saturation/vibrance →
@@ -71,6 +73,15 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
   two copies by hand.
 
 ### 1.2 Library data model: photos, versions, history (M)
+
+> **Done** (migration `00003`). As built: migrated versions reuse their photo's id, so
+> existing render files and links keep working; new uploads get distinct ids. The API is
+> version-centric (`/api/versions…`); only uploads and originals stay under
+> `/api/photos`. Saving already goes through `POST /api/versions/:id/history` with
+> `baseRevision` (409 on mismatch) and truncates entries after `history_end`, which is
+> ready for 2.1/2.2. History labels are still a generic "Edit" until 2.1 sends real
+> ones. Deleting a version deletes its photo once no version is left. The dialog
+> wording assumes one version per photo until 2.3.
 
 Split "the file" from "an edit of the file", like darktable duplicates:
 
@@ -208,25 +219,9 @@ white balance and is the most common target for masked instances.
   its kind). The data model already supports it after 1.1.
 - **Allowed for:** exposure, colour calibration, colour primaries, colour (sat/vib),
   shadows/highlights, contrast equalizer, sharpen, blur.
-- **Not allowed for:** lens, geometry, filmic.
+- **Not allowed for:** lens, geometry, filmic, retouch.
 
-### 4.2 Masks (XL, after 4.1)
-
-- **Drawn masks:** ellipse, linear gradient, then polygon/path, then brush. Coordinates
-  are normalised to the **oriented, uncropped** frame, so re-cropping doesn't move them.
-- **Parametric masks:** ranges with feathered edges on luminance (EV), chroma and hue,
-  measured on the module's input.
-- Combining (union, intersection, difference, invert), feather radius (guided filter,
-  edge-aware), opacity, and a mask preview overlay (yellow, like Ansel).
-- **Evaluation:**
-  - Drawn and parametric masks are per-pixel functions, so masked point modules stay
-    in the fused pass, at the cost of more work per pixel.
-  - A feathered mask is spatial: cache its buffer, keyed by the mask spec and geometry.
-  - Masked spatial modules (sharpen, contrast equalizer) blend after their stage.
-- **Budget:** each masked instance costs roughly one extra point-module evaluation per
-  pixel. Track it with `examples/bench.rs`.
-
-### 4.3 Presets (M, after 1.1; better once M3 exists)
+### 4.2 Presets (M, after 1.1; better once M3 exists)
 
 - **Module presets:** named parameters for one module kind ("Filmic — high contrast").
   Built-in plus per-user.
@@ -237,6 +232,128 @@ white balance and is the most common target for masked instances.
   rule.
 - Table: `presets(id, owner_id, name, kind: module|style, module_kind, payload jsonb,
   auto_apply jsonb, position)`.
+- A style that includes masked instances or retouch spots carries the shapes they
+  reference (see 4.3).
+
+### 4.3 Shapes: one format for masks and retouch (M, after 1.1)
+
+Masks (4.5) and retouch (4.4) both need drawn shapes, so shapes are defined once, at the
+recipe level, and referenced by id. This is darktable's "forms" and mask manager.
+
+```jsonc
+{
+  "version": 3,
+  "shapes": {
+    "s1": { "type": "ellipse", "center": [0.42, 0.31], "radii": [0.08, 0.05], "rotation": 0.3,
+            "feather": 0.02, "opacity": 1 },
+    "s2": { "type": "gradient", "anchor": [0.5, 0.4], "angle": 1.57, "width": 0.1 },
+    "s3": { "type": "path", "points": [[0.1, 0.2, /* Bézier handles… */]], "feather": 0.01 },
+    "s4": { "type": "brush", "points": [[0.3, 0.3, 0.004 /* radius */, 0.8 /* hardness */]] }
+  },
+  "modules": [ /* masks and retouch spots reference "s1"… */ ]
+}
+```
+
+- **Types:** ellipse (and circle), linear gradient, path (closed Bézier), brush stroke
+  (points with radius and hardness). Each has feather and opacity.
+- **Coordinate frame: normalised sensor coordinates** (after the raw crop, before lens
+  correction, orientation, straighten and crop), as darktable does. Shapes then stay on
+  the image content when the crop, rotation or lens correction changes. A dust spot is
+  also fixed on the sensor, so retouch spots can be copied across a whole shoot.
+- **Transforms:** the geometry stage exposes `forward(point)` and `inverse(point)`
+  (lens distortion + affine). The UI overlay uses them to draw and edit shapes on the
+  displayed image. Radii are transformed with the local Jacobian, which is accurate
+  enough for small spots.
+- **UI:** one canvas overlay editor shared by masks and retouch: create, move, resize,
+  rotate, feather handles, delete; shapes listed per module.
+
+**Storage.** Shapes and masks are part of the recipe JSON. A recipe has to stay
+self-contained for duplicates, styles, copy/paste, compare and the history stack, and
+the pipeline receives it as one document. Most shapes are small: an ellipse is
+~100 bytes, a 50-node path ~2 KB, a simplified brush stroke 5–20 KB. Heavy skin
+retouching (a few hundred spots) is ~20–50 KB. The real cost is that 1.2 stores a full
+snapshot per history entry, so 200 entries of a 50 KB recipe would be 10 MB per
+version. In order of effort:
+
+1. Postgres already TOAST-compresses jsonb over ~2 KB, and repeated JSON compresses
+   well (switch the column to `lz4`). Coalescing in 2.1 makes one brush stroke one
+   entry, not one per mouse move.
+2. Brush strokes are simplified on commit (Ramer–Douglas–Peucker within ~0.5 px) and
+   points are stored at fixed precision.
+3. If it's still too big: **content-addressed objects in the DB only.** On write, the
+   server replaces each shape (or any subtree over a few KB) in the snapshot with
+   `{ "$ref": "<sha256>" }` and stores it once in `recipe_objects(hash, json)`. It
+   inflates the recipe on read. Unchanged shapes then cost nothing per history entry.
+   Clients and the Rust pipeline still only see full recipes.
+4. **Raster masks** (painted bitmaps, future AI segmentation) are never inline. They are
+   stored as files (8-bit PNG at reduced resolution) referenced by hash from the recipe,
+   fetched separately, and passed to wasm as a buffer next to the recipe.
+
+### 4.4 Retouch: spot removal (L, after 4.3; heal benefits from 3.3)
+
+For dust spots, sensor and lens marks, hot spots and skin blemishes. It follows Ansel's
+`retouch.c`.
+
+```jsonc
+{ "id": "m9", "kind": "retouch", "params": {
+    "spots": [
+      { "shape": "s5", "mode": "heal", "source": [0.03, -0.01], "opacity": 1 },
+      { "shape": "s6", "mode": "clone", "source": [-0.02, 0.0], "opacity": 0.8 },
+      { "shape": "s7", "mode": "fill", "color": [0.18, 0.18, 0.18] },
+      { "shape": "s8", "mode": "blur", "radius": 6 }
+    ],
+    "scales": null /* or [2, 5]: only these wavelet scales */ } }
+```
+
+- **Modes:** heal (copy the source, then match it to the target's surroundings), clone,
+  fill (colour), blur. The source is an offset from the target, in sensor coordinates.
+  The spot shape is any 4.3 shape (usually ellipse, path or brush).
+- **Heal:** a membrane / Poisson blend solved on the spot's bounding box (a few
+  multigrid iterations, or a convolution pyramid). Each spot only touches its bounding
+  box, so hundreds of spots stay cheap.
+- **Wavelet scales:** optionally apply the spots only to a range of à-trous scales,
+  reusing the 3.3 decomposition. This removes a blemish (coarse scales) but keeps the
+  skin texture (fine scales), as Ansel does.
+- **Pipeline:** its own cached stage **between base and geometry** (sensor frame), keyed
+  by the retouch params. Sources outside the final crop are usable, and lens correction
+  applies after the retouch. Previews work at binned resolution because the coordinates
+  are normalised; radii are scaled by the render scale like other spatial parameters.
+- **Single instance** (the spot list is the multiplicity). Not maskable.
+- **Tools:** auto source search (the nearby patch whose ring around the spot matches
+  best); a "visualise spots" display (high-pass + threshold, to reveal dust in skies);
+  copy spots to the selected photos in the library (meaningful because of the sensor
+  frame).
+
+### 4.5 Masks (XL, after 4.1 and 4.3)
+
+A module's mask combines drawn shapes (4.3) with parametric ranges:
+
+```jsonc
+"mask": {
+  "drawn": [{ "shape": "s1" }, { "shape": "s2", "op": "difference" }],   // union by default
+  "parametric": { "luminance": [-6, -4, 0, 2] /* EV, feathered trapezoid */, "chroma": null, "hue": null },
+  "combine": "intersection",       // drawn ∩ parametric
+  "invert": false,
+  "feather": { "radius": 8, "guided": true },   // full-resolution px, edge-aware
+  "opacity": 1
+}
+```
+
+- **Drawn:** shapes combined with union, intersection, difference or exclusion.
+- **Parametric:** feathered ranges on luminance (EV), chroma and hue, measured on the
+  module's input.
+- Feather radius (guided filter, edge-aware), opacity, invert, and a mask preview overlay
+  (yellow, like Ansel).
+- **Evaluation:**
+  - The drawn part is rasterised in the sensor frame and pushed through the same
+    geometry resample as the image. It is cached, keyed by the shapes and the geometry.
+  - The parametric part is a per-pixel function, so masked point modules stay in the
+    fused pass, reading the cached drawn mask, at the cost of more work per pixel.
+  - Edge-aware feathering needs the image, so the feathered mask is cached as well,
+    keyed by the mask spec and the upstream stages.
+  - Masked spatial modules (sharpen, contrast equalizer) blend after their stage.
+- **Budget:** each masked instance costs roughly one extra point-module evaluation per
+  pixel. Track it with `examples/bench.rs`.
 
 ---
 
@@ -309,7 +426,8 @@ small, even with only the local implementation.
    interface.
 3. M2.1 → M2.2 → M2.3: autosave, history, duplicates.
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
-5. M4.1 → M4.3 → M4.2: instances, presets, masks.
+5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
+   (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. M5 compare.
 7. M6 cloud processing. Move it earlier if slow-hardware users are a near-term priority;
    step 1 (the native renderer) is useful on its own.

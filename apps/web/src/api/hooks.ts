@@ -68,7 +68,7 @@ export function useLogout() {
 const PAGE_SIZE = 200;
 
 interface PhotoPage {
-  photos: Photo[];
+  versions: Photo[];
   total: number;
 }
 
@@ -81,15 +81,15 @@ export function usePhotos(search: string) {
       const params = new URLSearchParams(search);
       params.set('limit', String(PAGE_SIZE));
       params.set('offset', String(pageParam));
-      return api.get<PhotoPage>(`/api/photos?${params}`);
+      return api.get<PhotoPage>(`/api/versions?${params}`);
     },
     getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((n, p) => n + p.photos.length, 0);
+      const loaded = pages.reduce((n, p) => n + p.versions.length, 0);
       return loaded < last.total ? loaded : undefined;
     },
     // Keep polling while previews are being rendered.
     refetchInterval: (query) =>
-      query.state.data?.pages.some((p) => p.photos.some((ph) => ph.renderStatus === 'pending')) ? 2000 : false,
+      query.state.data?.pages.some((p) => p.versions.some((v) => v.renderStatus === 'pending')) ? 2000 : false,
   });
 }
 
@@ -98,7 +98,7 @@ export function useFacets(search: string) {
   params.delete('sort');
   return useQuery({
     queryKey: ['facets', params.toString()],
-    queryFn: () => api.get<Facets>(`/api/photos/facets?${params}`),
+    queryFn: () => api.get<Facets>(`/api/versions/facets?${params}`),
     placeholderData: (prev) => prev,
   });
 }
@@ -106,7 +106,7 @@ export function useFacets(search: string) {
 export function usePhoto(id: string | undefined) {
   return useQuery({
     queryKey: ['photo', id],
-    queryFn: () => api.get<PhotoDetail>(`/api/photos/${id}`),
+    queryFn: () => api.get<PhotoDetail>(`/api/versions/${id}`),
     enabled: !!id,
   });
 }
@@ -120,7 +120,7 @@ function updateCachedPhotos(qc: QueryClient, ids: string[], update: (p: Photo) =
           ...data,
           pages: data.pages.map((page) => ({
             ...page,
-            photos: page.photos.map((p) => (set.has(p.id) ? update(p) : p)),
+            versions: page.versions.map((p) => (set.has(p.id) ? update(p) : p)),
           })),
         }
       : data,
@@ -138,14 +138,14 @@ function refreshLibrary(qc: QueryClient) {
 export function useUpdatePhoto() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: PhotoPatch }) => api.patch<PhotoDetail>(`/api/photos/${id}`, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: PhotoPatch }) => api.patch<PhotoDetail>(`/api/versions/${id}`, patch),
     onMutate: ({ id, patch }) => updateCachedPhotos(qc, [id], (p) => ({ ...p, ...patch })),
     onSuccess: (photo) => {
       qc.setQueryData(['photo', photo.id], photo);
       updateCachedPhotos(qc, [photo.id], (p) => ({ ...p, ...photo }));
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: ['facets'] }),
-    onError: () => refreshLibrary(qc),
+    // Metadata belongs to the photo: other versions of it change too.
+    onSettled: () => refreshLibrary(qc),
   });
 }
 
@@ -153,7 +153,7 @@ export function useBulkUpdate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ ids, patch }: { ids: string[]; patch: BulkPatch }) =>
-      api.post<{ photos: Photo[] }>('/api/photos/bulk', { ids, patch }),
+      api.post<{ versions: Photo[] }>('/api/versions/bulk', { ids, patch }),
     onMutate: ({ ids, patch }) => {
       const { addTags, removeTags, ...simple } = patch;
       updateCachedPhotos(qc, ids, (p) => ({
@@ -169,7 +169,7 @@ export function useBulkUpdate() {
 export function useDeletePhotos() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) => api.post<{ deleted: string[] }>('/api/photos/delete', { ids }),
+    mutationFn: (ids: string[]) => api.post<{ deleted: string[] }>('/api/versions/delete', { ids }),
     onSuccess: ({ deleted }) => {
       const gone = new Set(deleted);
       qc.setQueriesData<InfiniteData<PhotoPage>>({ queryKey: ['photos'] }, (data) =>
@@ -178,7 +178,7 @@ export function useDeletePhotos() {
               ...data,
               pages: data.pages.map((page) => ({
                 total: page.total - deleted.length,
-                photos: page.photos.filter((p) => !gone.has(p.id)),
+                versions: page.versions.filter((p) => !gone.has(p.id)),
               })),
             }
           : data,
@@ -217,11 +217,12 @@ export function useUpload() {
   });
 }
 
+/** Record a recipe as the version's next history entry. */
 export function useSaveEdit() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, params }: { id: string; params: EditParams | null }) =>
-      api.put<PhotoDetail>(`/api/photos/${id}/edit`, { params }),
+    mutationFn: ({ id, params, baseRevision }: { id: string; params: EditParams; baseRevision?: number }) =>
+      api.post<PhotoDetail>(`/api/versions/${id}/history`, { recipe: params, baseRevision }),
     onSuccess: (photo) => {
       qc.setQueryData(['photo', photo.id], photo);
       refreshLibrary(qc);

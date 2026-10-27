@@ -1,13 +1,13 @@
 /**
- * Render queue: renders thumbnails/previews for photos whose `render_status` is
+ * Render queue: renders thumbnails/previews for versions whose `render_status` is
  * `pending`, on a small pool of worker threads. The database is the source of
  * truth, so pending work survives restarts.
  */
 import { Worker } from 'node:worker_threads';
 import type { FastifyBaseLogger } from 'fastify';
-import type { PhotoMetadata } from '@rawtisserie/pipeline';
+import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
-import { db, photos, sql } from '../db.ts';
+import { db, photos, sql, versions } from '../db.ts';
 import { RENDER_SIZES, originalPath, renderPath, type RenderSize } from '../photos/storage.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
@@ -19,7 +19,7 @@ interface PoolWorker {
 export class RenderQueue {
   private queue: string[] = [];
   private inFlight = new Set<string>();
-  /** Photos edited again while rendering: render once more when done. */
+  /** Versions edited again while rendering: render once more when done. */
   private dirty = new Set<string>();
   private pool: PoolWorker[] = [];
   private pending = new Map<number, (r: RenderResult) => void>();
@@ -39,17 +39,17 @@ export class RenderQueue {
     this.pool = [];
   }
 
-  /** Queue every photo still marked as pending (e.g. after a restart). */
+  /** Queue every version still marked as pending (e.g. after a restart). */
   async enqueuePending() {
-    const rows = await db.query(sql`SELECT id FROM photos WHERE render_status = 'pending' ORDER BY created_at`);
+    const rows = await db.query(sql`SELECT id FROM versions WHERE render_status = 'pending' ORDER BY created_at`);
     for (const row of rows) this.enqueue(row.id as string);
   }
 
-  enqueue(photoId: string) {
-    if (this.inFlight.has(photoId)) {
-      this.dirty.add(photoId);
-    } else if (!this.queue.includes(photoId)) {
-      this.queue.push(photoId);
+  enqueue(versionId: string) {
+    if (this.inFlight.has(versionId)) {
+      this.dirty.add(versionId);
+    } else if (!this.queue.includes(versionId)) {
+      this.queue.push(versionId);
     }
     this.pump();
   }
@@ -73,16 +73,16 @@ export class RenderQueue {
   private pump() {
     for (const entry of this.pool) {
       if (entry.busy) continue;
-      const photoId = this.queue.shift();
-      if (!photoId) return;
+      const versionId = this.queue.shift();
+      if (!versionId) return;
       entry.busy = true;
-      this.inFlight.add(photoId);
-      this.process(entry, photoId)
-        .catch((err) => this.log.error({ err, photoId }, 'render failed'))
+      this.inFlight.add(versionId);
+      this.process(entry, versionId)
+        .catch((err) => this.log.error({ err, versionId }, 'render failed'))
         .finally(() => {
           entry.busy = false;
-          this.inFlight.delete(photoId);
-          if (this.dirty.delete(photoId)) this.queue.push(photoId);
+          this.inFlight.delete(versionId);
+          if (this.dirty.delete(versionId)) this.queue.push(versionId);
           this.pump();
         });
     }
@@ -96,36 +96,43 @@ export class RenderQueue {
     });
   }
 
-  private async process(entry: PoolWorker, photoId: string) {
-    const photo = await photos(db).findOne({ id: photoId });
-    if (!photo) return;
+  private async process(entry: PoolWorker, versionId: string) {
+    const [job] = (await db.query(sql`
+      SELECT v.photo_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe
+      FROM versions v
+      JOIN photos p ON p.id = v.photo_id
+      LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
+      WHERE v.id = ${versionId}`)) as { photo_id: string; storage_key: string; needs_metadata: boolean; recipe: EditParams | null }[];
+    if (!job) return;
     const started = Date.now();
     const result = await this.run(entry, {
-      sourcePath: originalPath(photo.storage_key),
-      params: photo.edit_params,
-      extractMetadata: photo.exif === null,
+      sourcePath: originalPath(job.storage_key),
+      params: job.recipe,
+      extractMetadata: job.needs_metadata,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
-        path: renderPath(photo.id, size),
+        path: renderPath(versionId, size),
         maxSize,
         quality: size === 'thumb' ? 82 : 88,
       })),
     });
 
     if (!result.ok) {
-      this.log.warn({ photoId, error: result.error }, 'render failed');
-      await photos(db).update({ id: photoId }, { render_status: 'failed', render_error: result.error });
+      this.log.warn({ versionId, error: result.error }, 'render failed');
+      await versions(db).update({ id: versionId }, { render_status: 'failed', render_error: result.error });
       return;
     }
-    this.log.info({ photoId, ms: Date.now() - started }, 'rendered');
-    await photos(db).update(
-      { id: photoId },
-      {
-        render_status: 'ready',
-        render_error: null,
-        render_version: photo.render_version + 1,
-        ...(result.metadata ? metadataColumns(result.metadata) : {}),
-      },
-    );
+    this.log.info({ versionId, ms: Date.now() - started }, 'rendered');
+    await db.tx(async (tx) => {
+      await tx.query(sql`
+        UPDATE versions SET render_status = 'ready', render_error = NULL, render_version = render_version + 1
+        WHERE id = ${versionId}`);
+      if (result.metadata) {
+        await photos(tx).update({ id: job.photo_id }, metadataColumns(result.metadata));
+        // The in-camera rating seeds versions that haven't been rated yet.
+        const rating = Math.min(5, Math.max(0, result.metadata.rating ?? 0));
+        if (rating) await versions(tx).update({ photo_id: job.photo_id, rating: 0 }, { rating });
+      }
+    });
   }
 }
 
@@ -149,6 +156,5 @@ function metadataColumns(m: PhotoMetadata) {
     gps_longitude: m.gpsLongitude,
     artist: m.artist,
     copyright: m.copyright,
-    ...(m.rating ? { rating: Math.min(5, Math.max(0, m.rating)) } : {}),
   };
 }

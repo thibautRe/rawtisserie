@@ -17,7 +17,7 @@ export const router = createBrowserRouter([
         element: <RequireAuth />,
         children: [
           { path: '/', element: <LibraryPage /> },
-          { path: '/photos/:id/develop', element: <LibraryDevelopPage /> },
+          { path: '/versions/:id/develop', element: <LibraryDevelopPage /> },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

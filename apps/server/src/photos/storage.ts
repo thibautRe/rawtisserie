@@ -17,8 +17,9 @@ export const RENDER_SIZES: Record<RenderSize, number> = { thumb: 480, preview: 2
 
 export const originalPath = (storageKey: string) => path.join(config.storageDir, 'originals', storageKey);
 
-export const renderPath = (photoId: string, size: RenderSize) =>
-  path.join(config.storageDir, 'renders', photoId.slice(0, 2), `${photoId}-${size}.jpg`);
+/** Renders are per version (a version's first id may equal its photo's, see migration 00003). */
+export const renderPath = (versionId: string, size: RenderSize) =>
+  path.join(config.storageDir, 'renders', versionId.slice(0, 2), `${versionId}-${size}.jpg`);
 
 export interface StoredUpload {
   tempPath: string;
@@ -56,11 +57,14 @@ export async function discardUpload(upload: StoredUpload): Promise<void> {
   await rm(upload.tempPath, { force: true });
 }
 
-export async function deletePhotoFiles(photo: { id: string; storage_key: string }): Promise<void> {
-  await Promise.all([
-    rm(originalPath(photo.storage_key), { force: true }),
-    ...(Object.keys(RENDER_SIZES) as RenderSize[]).map((s) => rm(renderPath(photo.id, s), { force: true })),
-  ]);
+export async function deleteOriginal(storageKey: string): Promise<void> {
+  await rm(originalPath(storageKey), { force: true });
+}
+
+export async function deleteRenders(versionId: string): Promise<void> {
+  await Promise.all(
+    (Object.keys(RENDER_SIZES) as RenderSize[]).map((s) => rm(renderPath(versionId, s), { force: true })),
+  );
 }
 
 export async function fileExists(p: string): Promise<boolean> {
