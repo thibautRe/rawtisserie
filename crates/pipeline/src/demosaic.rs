@@ -12,7 +12,7 @@ use rawler::CFA;
 
 use crate::color;
 use crate::decode::{Layout, RawPhoto};
-use crate::image::Image;
+use crate::image::{Image, Mask};
 
 pub fn develop_base(photo: &RawPhoto, factor: usize) -> Image {
     let factor = factor.max(1);
@@ -36,6 +36,33 @@ pub fn develop_base(photo: &RawPhoto, factor: usize) -> Image {
         color::mul_vec(&matrix, balanced)
     });
     img
+}
+
+/// Normalised sample at or above which a photosite counts as saturated. Slightly
+/// below 1: the white level some cameras report is a little above where they clip.
+pub const SENSOR_CLIP: f32 = 0.99;
+
+/// The pixels of the base image for `factor` (same size as [`develop_base`]'s) that
+/// contain at least one saturated photosite.
+pub fn clipped_photosites(photo: &RawPhoto, factor: usize) -> Mask {
+    let factor = factor.max(1);
+    let channels = match photo.layout {
+        Layout::Rgb => 3,
+        _ => 1,
+    };
+    let (w, h) = ((photo.width / factor).max(1), (photo.height / factor).max(1));
+    let mut mask = Mask::new(w, h);
+    for oy in 0..h {
+        for ox in 0..w {
+            let clipped = (oy * factor..((oy + 1) * factor).min(photo.height)).any(|y| {
+                (ox * factor..((ox + 1) * factor).min(photo.width)).any(|x| (0..channels).any(|c| photo.sample(x, y, c) >= SENSOR_CLIP))
+            });
+            if clipped {
+                mask.set(ox, oy);
+            }
+        }
+    }
+    mask
 }
 
 fn bin_mosaic(photo: &RawPhoto, cfa: &CFA, factor: usize) -> Image {

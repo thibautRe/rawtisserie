@@ -2,7 +2,7 @@
 //! inverse-mapping pass from output pixels back into the base image.
 
 use crate::decode::Orient;
-use crate::image::Image;
+use crate::image::{Image, Mask};
 use crate::params::Crop;
 
 /// Everything needed to map the (sensor-oriented) base image into the output frame.
@@ -35,14 +35,63 @@ impl Transform {
     }
 }
 
+/// Output pixel → source pixel coordinates. The whole chain (crop, straighten,
+/// orientation) is affine, so it is stored as an origin and two steps.
+#[derive(Clone, Copy, Debug)]
+struct Mapping {
+    u0: f32,
+    v0: f32,
+    du_dx: f32,
+    dv_dx: f32,
+    du_dy: f32,
+    dv_dy: f32,
+}
+
+impl Mapping {
+    fn new(sw: f32, sh: f32, t: &Transform, out_w: usize, out_h: usize) -> Self {
+        let (ow, oh) = t.oriented_size(sw, sh);
+        let crop = t.crop.sanitized();
+        let scale = t.straighten_scale(ow, oh);
+        let (sin, cos) = (-t.angle.to_radians()).sin_cos();
+        let (cx, cy) = (ow / 2.0, oh / 2.0);
+
+        // Output pixel → base image, as a chain of maps that are each affine.
+        let map = |x: f32, y: f32| -> (f32, f32) {
+            let (fx, fy) = ((crop.x + x / out_w as f32 * crop.width) * ow, (crop.y + y / out_h as f32 * crop.height) * oh);
+            // Output frame → oriented frame (undo straighten: rotate back and shrink).
+            let (dx, dy) = ((fx - cx) / scale, (fy - cy) / scale);
+            let (u, v) = (dx * cos - dy * sin + cx, dx * sin + dy * cos + cy);
+            // Oriented frame → sensor frame (undo the quarter turns, then the flip).
+            let (mut u, mut v, mut w, mut h) = (u, v, ow, oh);
+            for _ in 0..t.orient.quarter_turns {
+                // inverse of a clockwise turn: (u, v) in a w×h frame came from (v, w - u) in h×w.
+                (u, v, w, h) = (v, w - u, h, w);
+            }
+            let _ = h;
+            if t.orient.flip {
+                u = w - u;
+            }
+            (u, v)
+        };
+        // …so the whole chain is affine: evaluate it once, then step through it.
+        let (u0, v0) = map(0.0, 0.0);
+        let (ux, vx) = map(1.0, 0.0);
+        let (uy, vy) = map(0.0, 1.0);
+        Self { u0, v0, du_dx: ux - u0, dv_dx: vx - v0, du_dy: uy - u0, dv_dy: vy - v0 }
+    }
+
+    #[inline]
+    fn at(&self, x: f32, y: f32) -> (f32, f32) {
+        (self.u0 + x * self.du_dx + y * self.du_dy, self.v0 + x * self.dv_dx + y * self.dv_dy)
+    }
+}
+
 /// Render `out_w × out_h` pixels of the transformed `src`.
 pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
     let (sw, sh) = (src.width as f32, src.height as f32);
     let (ow, oh) = t.oriented_size(sw, sh);
     let crop = t.crop.sanitized();
-    let scale = t.straighten_scale(ow, oh);
-    let (sin, cos) = (-t.angle.to_radians()).sin_cos();
-    let (cx, cy) = (ow / 2.0, oh / 2.0);
+    let m = Mapping::new(sw, sh, t, out_w, out_h);
 
     // Source pixels per output pixel. The base image is binned to within 2× of the
     // output, so plain bilinear is enough unless we shrink by more than 1.5×.
@@ -50,30 +99,6 @@ pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
     let ss = if ratio > 1.5 { (ratio.ceil() as usize).clamp(2, 4) } else { 1 };
     let inv_ss = 1.0 / ss as f32;
     let norm = 1.0 / (ss * ss) as f32;
-
-    // Output pixel → base image, as a chain of maps that are each affine.
-    let map = |x: f32, y: f32| -> (f32, f32) {
-        let (fx, fy) = ((crop.x + x / out_w as f32 * crop.width) * ow, (crop.y + y / out_h as f32 * crop.height) * oh);
-        // Output frame → oriented frame (undo straighten: rotate back and shrink).
-        let (dx, dy) = ((fx - cx) / scale, (fy - cy) / scale);
-        let (u, v) = (dx * cos - dy * sin + cx, dx * sin + dy * cos + cy);
-        // Oriented frame → sensor frame (undo the quarter turns, then the flip).
-        let (mut u, mut v, mut w, mut h) = (u, v, ow, oh);
-        for _ in 0..t.orient.quarter_turns {
-            // inverse of a clockwise turn: (u, v) in a w×h frame came from (v, w - u) in h×w.
-            (u, v, w, h) = (v, w - u, h, w);
-        }
-        let _ = h;
-        if t.orient.flip {
-            u = w - u;
-        }
-        (u, v)
-    };
-    // …so the whole chain is affine: evaluate it once, then step through it.
-    let (u0, v0) = map(0.0, 0.0);
-    let (ux, vx) = map(1.0, 0.0);
-    let (uy, vy) = map(0.0, 1.0);
-    let (du_dx, dv_dx, du_dy, dv_dy) = (ux - u0, vx - v0, uy - u0, vy - v0);
 
     let mut out = Image::new(out_w, out_h);
     for (y, row) in out.pixels.chunks_exact_mut(out_w).enumerate() {
@@ -83,13 +108,30 @@ pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
                 for sx in 0..ss {
                     let fx = x as f32 + (sx as f32 + 0.5) * inv_ss;
                     let fy = y as f32 + (sy as f32 + 0.5) * inv_ss;
-                    let s = src.sample_bilinear(u0 + fx * du_dx + fy * du_dy, v0 + fx * dv_dx + fy * dv_dy);
+                    let (u, v) = m.at(fx, fy);
+                    let s = src.sample_bilinear(u, v);
                     acc[0] += s[0];
                     acc[1] += s[1];
                     acc[2] += s[2];
                 }
             }
             *px = acc.map(|a| a * norm);
+        }
+    }
+    out
+}
+
+/// Render `out_w × out_h` pixels of the transformed `src` mask, by nearest sampling.
+pub fn apply_mask(src: &Mask, t: &Transform, out_w: usize, out_h: usize) -> Mask {
+    let m = Mapping::new(src.width as f32, src.height as f32, t, out_w, out_h);
+    let (max_x, max_y) = (src.width as f32 - 1.0, src.height as f32 - 1.0);
+    let mut out = Mask::new(out_w, out_h);
+    for y in 0..out_h {
+        for x in 0..out_w {
+            let (u, v) = m.at(x as f32 + 0.5, y as f32 + 0.5);
+            if src.get(u.clamp(0.0, max_x) as usize, v.clamp(0.0, max_y) as usize) {
+                out.set(x, y);
+            }
         }
     }
     out
@@ -157,6 +199,16 @@ mod tests {
         };
         let out = apply(&indexed(), &t, 2, 1);
         assert_eq!(reds(&out), [4., 5.]);
+    }
+
+    #[test]
+    fn mask_follows_the_image() {
+        // Mark source pixel 1 (top middle); rotated clockwise it lands at (1, 1).
+        let mut mask = Mask::new(3, 2);
+        mask.set(1, 0);
+        let out = apply_mask(&mask, &transform(false, 1), 2, 3);
+        let marked: Vec<bool> = (0..3).flat_map(|y| (0..2).map(move |x| (x, y))).map(|(x, y)| out.get(x, y)).collect();
+        assert_eq!(marked, [false, false, false, true, false, false]);
     }
 
     #[test]

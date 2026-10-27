@@ -2,11 +2,12 @@
 
 use crate::decode::{self, RawPhoto};
 use crate::demosaic;
-use crate::image::{Image, Rgba8};
+use crate::image::{Image, Mask, Rgba8};
 use crate::metadata::PhotoMetadata;
 use std::rc::Rc;
 
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
+use crate::ops::clipping::{self, Overlays};
 use crate::ops::{filmic, filters, geometry};
 use crate::params::{EditParams, Filmic, Geometry, Module};
 use crate::Result;
@@ -47,6 +48,10 @@ impl RenderSize {
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
 /// ```
 ///
+/// Clipping indicators are painted on the result when asked for. Sensor clipping
+/// needs a mask of saturated photosites, built on demand next to the base and
+/// resampled like the geometry stage (cached per slot).
+///
 /// Blur and sharpen run before exposure, white balance and saturation. Those are
 /// linear per-pixel operations, so the order makes no difference to the result,
 /// but it means the most-used sliders never invalidate the spatial stages.
@@ -58,6 +63,8 @@ pub struct Developer {
     slots: Vec<Slot>,
     /// Filmic, compiled for the last parameters used interactively.
     filmic: Option<(Filmic, Rc<FilmicStage>)>,
+    /// Saturated photosites at the base's resolution, built on demand.
+    sensor_clip: Option<(usize, Mask)>,
 }
 
 const MAX_SLOTS: usize = 2;
@@ -66,6 +73,8 @@ struct Slot {
     size: (usize, usize),
     geometry: Option<(GeometryKey, Image)>,
     detail: Option<(DetailKey, Image)>,
+    /// `sensor_clip` through the geometry stage.
+    sensor_clip: Option<(GeometryKey, Mask)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -96,7 +105,7 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None, slots: Vec::new(), filmic: None }
+        Self { photo, base: None, slots: Vec::new(), filmic: None, sensor_clip: None }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -112,6 +121,7 @@ impl Developer {
         self.base = None;
         self.slots.clear();
         self.filmic = None;
+        self.sensor_clip = None;
     }
 
     fn transform(&self, params: &EditParams) -> geometry::Transform {
@@ -146,6 +156,36 @@ impl Developer {
         ops.render(self.spatial_image(params, size))
     }
 
+    /// [`render`](Self::render), with clipping indicators painted on top.
+    pub fn render_with_overlays(&mut self, params: &EditParams, size: RenderSize, quality: Quality, overlays: &Overlays) -> Rgba8 {
+        let mut img = self.render(params, size, quality);
+        let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
+        clipping::paint(&mut img, overlays, sensor);
+        img
+    }
+
+    /// Output pixels that contain saturated photosites, from cache when possible.
+    pub fn sensor_clip_mask(&mut self, params: &EditParams, size: RenderSize) -> &Mask {
+        let (width, height, _) = self.output_size(params, size);
+        // Builds the base and selects this size's slot, as for a render.
+        self.spatial_image(params, size);
+        let base_factor = self.base.as_ref().expect("base was just built").0;
+        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
+
+        if self.sensor_clip.as_ref().map(|(f, _)| *f) != Some(base_factor) {
+            self.sensor_clip = Some((base_factor, demosaic::clipped_photosites(&self.photo, base_factor)));
+            for slot in &mut self.slots {
+                slot.sensor_clip = None;
+            }
+        }
+        let base_mask = &self.sensor_clip.as_ref().expect("mask was just built").1;
+        let slot = &mut self.slots[0];
+        if slot.sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
+            slot.sensor_clip = Some((gkey, geometry::apply_mask(base_mask, &gkey.transform, width, height)));
+        }
+        &slot.sensor_clip.as_ref().expect("mask was just built").1
+    }
+
     /// The output of the spatial stages (geometry, blur, sharpen), from cache when possible.
     pub fn spatial_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
         let (width, height, scale) = self.output_size(params, size);
@@ -158,7 +198,7 @@ impl Developer {
         // Pick (or create) the cache slot for this output size, and make it the most recent.
         let slot = match self.slots.iter().position(|s| s.size == (width, height)) {
             Some(i) => self.slots.remove(i),
-            None => Slot { size: (width, height), geometry: None, detail: None },
+            None => Slot { size: (width, height), geometry: None, detail: None, sensor_clip: None },
         };
         self.slots.insert(0, slot);
         self.slots.truncate(MAX_SLOTS);

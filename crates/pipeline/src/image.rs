@@ -51,6 +51,32 @@ impl Image {
     }
 }
 
+/// A 1-bit-per-pixel image, row-major, top-left origin.
+#[derive(Clone, Debug)]
+pub struct Mask {
+    pub width: usize,
+    pub height: usize,
+    bits: Vec<u64>,
+}
+
+impl Mask {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self { width, height, bits: vec![0; (width * height).div_ceil(64)] }
+    }
+
+    #[inline]
+    pub fn get(&self, x: usize, y: usize) -> bool {
+        let i = y * self.width + x;
+        self.bits[i / 64] >> (i % 64) & 1 != 0
+    }
+
+    #[inline]
+    pub fn set(&mut self, x: usize, y: usize) {
+        let i = y * self.width + x;
+        self.bits[i / 64] |= 1 << (i % 64);
+    }
+}
+
 /// An 8-bit, display-referred sRGB image with alpha (the layout of a canvas `ImageData`).
 #[derive(Clone, Debug)]
 pub struct Rgba8 {

@@ -4,6 +4,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{Color, EditParams, Exposure, Filmic, Geometry, ShadowsHighlights, Sharpen, WhiteBalance};
+use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, RenderSize};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,5 +48,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:<34} {:>7.1} ms  ({}×{})", if i == 0 { "drag (draft, first)" } else { "drag (draft)" }, t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     }
     time("release (full, cached)", &mut dev, &p);
+
+    let overlays = Overlays { display: Some(DisplayClipping::default()), sensor: true, stripes: 0.0 };
+    for label in ["clipping indicators (first)", "clipping indicators"] {
+        let t = Instant::now();
+        let img = dev.render_with_overlays(&p, fit, Quality::Interactive, &overlays);
+        println!("{label:<34} {:>7.1} ms  ({}×{})", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
     Ok(())
 }

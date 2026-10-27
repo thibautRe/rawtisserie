@@ -1,6 +1,6 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
 import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
-import { Check, Download, Frame, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
+import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
@@ -8,6 +8,7 @@ import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../l
 import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
 import type { PipelineClient } from './pipelineClient.ts';
+import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { useParamsHistory } from './useParamsHistory.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 
@@ -26,6 +27,8 @@ interface Props {
 const MAX_PREVIEW = 3200;
 const DRAFT_PIXELS = 1_000_000;
 const FULL_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
+/** Width of the zebra stripes, in CSS pixels. */
+const STRIPE_PX = 4;
 
 /**
  * Layout of the ISO 12646 assessment mode: the image shrinks, gets a white frame,
@@ -63,6 +66,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
   const [assessment, setAssessment] = useState(() => localStorage.getItem('developer.assessment') === '1');
   useEffect(() => localStorage.setItem('developer.assessment', assessment ? '1' : '0'), [assessment]);
+  const [clipping, setClipping] = useClippingSettings();
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
   const [aspect, setAspect] = useState('free');
   const [exporting, setExporting] = useState(false);
@@ -85,8 +89,13 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
     const width = Math.min(MAX_PREVIEW, Math.floor((size.width - inset) * dpr));
     const height = Math.min(MAX_PREVIEW, Math.floor((size.height - inset) * dpr));
     const scale = draft ? Math.min(1, Math.sqrt(DRAFT_PIXELS / Math.max(1, width * height))) : 1;
-    return { params: effective, width: Math.floor(width * scale), height: Math.floor(height * scale), scale };
-  }, [effective, size.width, size.height, dpr, draft, margin, frameWidth]);
+    const overlays = {
+      display: clipping.display ? { mode: clipping.mode } : null,
+      sensor: clipping.sensor,
+      stripes: clipping.zebra ? STRIPE_PX * dpr * scale : 0,
+    };
+    return { params: effective, width, height, scale, overlays };
+  }, [effective, size.width, size.height, dpr, draft, margin, frameWidth, clipping]);
   const { frame, error } = useRenderLoop(client, job);
 
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -99,7 +108,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   }, [frame]);
 
   // ── Crop ──
-  const frameAspect = frame ? frame.image.width / frame.image.height : 1;
+  const frameAspect = frame ? frame.fullWidth / frame.fullHeight : 1;
   const aspectRatio = (value: string) => {
     const a = ASPECTS.find((x) => x.value === value)?.ratio ?? null;
     return a === 'original' ? frameAspect : a;
@@ -152,7 +161,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   const autoTuneFilmic = async () => {
     setAutoTuning(true);
     try {
-      const result = await client.autoTuneFilmic(params, Math.round(job.width / job.scale), Math.round(job.height / job.scale));
+      const result = await client.autoTuneFilmic(params, job.width, job.height);
       if (!result) throw new Error('Nothing to measure');
       const round = (v: number) => Math.round(v * 100) / 100;
       history.commit(updateModule(params, 'filmic', { params: { whiteExposure: round(result.white), blackExposure: round(result.black) } }));
@@ -175,6 +184,8 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'c') startCrop();
       else if (mod && key === 'b') setAssessment((a) => !a);
+      else if (!mod && key === 'o' && e.shiftKey) setClipping({ sensor: !clipping.sensor });
+      else if (!mod && key === 'o') setClipping({ display: !clipping.display });
       else if (key === 'enter' && cropDraft) applyCrop();
       else if (key === 'escape' && cropDraft) setCropDraft(null);
       else return;
@@ -241,15 +252,6 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
           >
             <SplitSquareHorizontal /> Before
           </Button>
-          <IconButton
-            aria-label="Colour assessment frame (Ctrl/⌘+B)"
-            title="Colour assessment, ISO 12646 (Ctrl/⌘+B)"
-            size="sm"
-            variant={assessment ? 'solid' : 'ghost'}
-            onClick={() => setAssessment((a) => !a)}
-          >
-            <Frame />
-          </IconButton>
           <Menu.Root onSelect={(d) => void exportJpeg(Number(d.value))}>
             <Menu.Trigger asChild>
               <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…">
@@ -286,7 +288,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
             >
               <canvas
                 ref={canvas}
-                style={{ width: frame.image.width / dpr / frame.scale, height: frame.image.height / dpr / frame.scale, display: 'block' }}
+                style={{ width: frame.fullWidth / dpr, height: frame.fullHeight / dpr, display: 'block' }}
               />
               {cropDraft && !comparing && (
                 <CropOverlay rect={cropDraft} aspect={aspectRatio(aspect)} frameAspect={frameAspect} onChange={setCropDraft} />
@@ -316,12 +318,14 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
               </Button>
             </HStack>
           )}
-          {frame && (
-            <Text position="absolute" bottom="2" left="3" textStyle="2xs" color="fg.subtle" fontVariantNumeric="tabular-nums">
-              {Math.round(frame.ms)} ms
-            </Text>
-          )}
         </Center>
+        <StatusBar
+          ms={frame?.ms ?? null}
+          clipping={clipping}
+          onClippingChange={setClipping}
+          assessment={assessment}
+          onAssessmentChange={setAssessment}
+        />
       </Flex>
 
       <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg.panel" overflowY="auto">

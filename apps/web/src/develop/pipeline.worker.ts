@@ -29,13 +29,25 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     if (!developer) throw new Error('No RAW file loaded');
     const params = JSON.stringify(msg.params);
     if (msg.type === 'render') {
-      const img = developer.render(params, msg.maxWidth, msg.maxHeight);
+      const img = developer.render(params, msg.maxWidth, msg.maxHeight, JSON.stringify(msg.overlays));
       const { width, height } = img;
       const data = img.takeData();
       img.free();
-      post({ type: 'rendered', id: msg.id, width, height, data: data.buffer as ArrayBuffer, ms: performance.now() - started }, [
-        data.buffer as ArrayBuffer,
-      ]);
+      const isDraft = msg.fullWidth !== msg.maxWidth || msg.fullHeight !== msg.maxHeight;
+      const [fullWidth, fullHeight] = isDraft ? developer.outputSize(params, msg.fullWidth, msg.fullHeight) : [width, height];
+      post(
+        {
+          type: 'rendered',
+          id: msg.id,
+          width,
+          height,
+          fullWidth: fullWidth!,
+          fullHeight: fullHeight!,
+          data: data.buffer as ArrayBuffer,
+          ms: performance.now() - started,
+        },
+        [data.buffer as ArrayBuffer],
+      );
     } else if (msg.type === 'autoTuneFilmic') {
       const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
       post({ type: 'autoTunedFilmic', id: msg.id, white: white ?? null, black: black ?? null, ms: performance.now() - started });

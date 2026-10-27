@@ -4,6 +4,7 @@
 //! and by the Node server to render thumbnails headlessly. Edit parameters and
 //! metadata cross the boundary as JSON strings; pixels as byte arrays.
 
+use rawtisserie_pipeline::ops::clipping::Overlays;
 use rawtisserie_pipeline::{self as pipeline, EditParams, Quality, RenderSize};
 use wasm_bindgen::prelude::*;
 
@@ -93,9 +94,11 @@ impl Developer {
 
     /// Interactive render to RGBA8, fitted within `max_width × max_height` (0 = unbounded).
     /// May use approximations that are invisible in practice; see `Quality`.
-    pub fn render(&mut self, params_json: &str, max_width: u32, max_height: u32) -> Result<RenderedImage, JsError> {
+    /// `overlays_json` selects clipping indicators (`Overlays`; `"{}"` for none).
+    pub fn render(&mut self, params_json: &str, max_width: u32, max_height: u32, overlays_json: &str) -> Result<RenderedImage, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        let img = self.inner.render(&params, RenderSize::fit(max_width, max_height), Quality::Interactive);
+        let overlays: Overlays = serde_json::from_str(overlays_json).map_err(js_err)?;
+        let img = self.inner.render_with_overlays(&params, RenderSize::fit(max_width, max_height), Quality::Interactive, &overlays);
         Ok(RenderedImage {
             width: img.width as u32,
             height: img.height as u32,

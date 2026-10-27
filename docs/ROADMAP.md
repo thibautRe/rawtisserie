@@ -1,7 +1,7 @@
 # 🍗 RAWtisserie roadmap
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
-and history).
+and history); 2.4 (clipping indicators).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -132,6 +132,14 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 - Developer: a version switcher next to the file name.
 
 ### 2.4 Over/under-exposure indicators (S–M, independent)
+
+> **Done.** As built: both are painted by `ops/clipping.rs` as a pass after the render
+> (nothing runs when they're off), measured on the 8-bit output, so the defaults mean
+> "rounds to 0 / 255". Over is red, under blue, sensor magenta (zebra stripes cross
+> the other way). The sensor mask is built on demand (any photosite ≥ 0.99 in the
+> binned block, ~270 ms once for 24 MP) and cached per slot after geometry. The
+> toggles live in a status bar under the image (O, Shift+O) next to the assessment
+> frame; thresholds are API-only for now. Exports never include them.
 
 Two toggles, like Ansel's `overexposed.c` and `rawoverexposed.c`:
 

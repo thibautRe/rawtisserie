@@ -1,11 +1,14 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
-import type { WorkerRequest, WorkerResponse } from './protocol.ts';
+import type { Overlays, WorkerRequest, WorkerResponse } from './protocol.ts';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
 export interface Frame {
   image: ImageData;
+  /** Size of the full-size render, in device pixels; drafts are stretched to it. */
+  fullWidth: number;
+  fullHeight: number;
   ms: number;
 }
 
@@ -43,9 +46,29 @@ export class PipelineClient {
     return r.metadata;
   }
 
-  async render(params: EditParams, maxWidth: number, maxHeight: number): Promise<Frame> {
-    const r = await this.call<Extract<WorkerResponse, { type: 'rendered' }>>({ type: 'render', params, maxWidth, maxHeight });
-    return { image: new ImageData(new Uint8ClampedArray(r.data), r.width, r.height), ms: r.ms };
+  /** Render within `maxWidth × maxHeight`, as a draft of the render within `full` if given. */
+  async render(
+    params: EditParams,
+    maxWidth: number,
+    maxHeight: number,
+    overlays: Overlays = {},
+    full = { width: maxWidth, height: maxHeight },
+  ): Promise<Frame> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'rendered' }>>({
+      type: 'render',
+      params,
+      maxWidth,
+      maxHeight,
+      fullWidth: full.width,
+      fullHeight: full.height,
+      overlays,
+    });
+    return {
+      image: new ImageData(new Uint8ClampedArray(r.data), r.width, r.height),
+      fullWidth: r.fullWidth,
+      fullHeight: r.fullHeight,
+      ms: r.ms,
+    };
   }
 
   async exportJpeg(params: EditParams, maxSize: number, quality = 92): Promise<Blob> {
