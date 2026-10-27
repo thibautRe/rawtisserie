@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::{filmic, filters, geometry};
-use crate::params::{EditParams, Filmic};
+use crate::params::{EditParams, Filmic, Geometry, Module};
 use crate::Result;
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
@@ -43,7 +43,7 @@ impl RenderSize {
 /// ```text
 ///  base        demosaic/bin, white balance, camera → working     keyed by binning factor
 ///   └ geometry  orientation, straighten, crop, resample          keyed by geometry + output size (2 sizes kept)
-///      └ detail blur, sharpen                                     keyed by the above + blur/sharpen
+///      └ detail blur, sharpen instances                           keyed by the above + their scaled radii
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
 /// ```
 ///
@@ -76,12 +76,18 @@ struct GeometryKey {
     height: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct DetailKey {
     geometry: GeometryKey,
-    blur_sigma: f32,
-    sharpen_amount: f32,
-    sharpen_sigma: f32,
+    /// The active blur and sharpen instances, in pipeline order.
+    steps: Vec<DetailStep>,
+}
+
+/// A blur or sharpen instance, with its radius scaled to the output size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DetailStep {
+    Blur { sigma: f32 },
+    Sharpen { amount: f32, sigma: f32 },
 }
 
 impl Developer {
@@ -109,7 +115,8 @@ impl Developer {
     }
 
     fn transform(&self, params: &EditParams) -> geometry::Transform {
-        let g = &params.geometry;
+        let identity = Geometry::default();
+        let g = params.get::<Geometry>().unwrap_or(&identity);
         geometry::Transform {
             orient: self.photo.orientation.then(g.rotation % 4, g.flip_horizontal),
             angle: g.angle.clamp(-45.0, 45.0),
@@ -134,7 +141,7 @@ impl Developer {
     }
 
     pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
-        let filmic = params.filmic.enabled.then(|| self.filmic_stage(&params.filmic, quality));
+        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, quality));
         let ops = PointOps::with_filmic(params, filmic);
         ops.render(self.spatial_image(params, size))
     }
@@ -165,33 +172,47 @@ impl Developer {
         }
 
         // Spatial parameters are expressed in full-resolution pixels.
-        let dkey = DetailKey {
-            geometry: gkey,
-            blur_sigma: params.blur.radius * scale,
-            sharpen_amount: params.sharpen.amount,
-            sharpen_sigma: params.sharpen.radius * scale,
-        };
-        let no_detail = !filters::blur_active(dkey.blur_sigma) && !filters::sharpen_active(dkey.sharpen_amount, dkey.sharpen_sigma);
+        let steps: Vec<DetailStep> = params
+            .modules
+            .iter()
+            .filter(|m| m.enabled)
+            .filter_map(|m| match &m.module {
+                Module::Blur(b) => Some(DetailStep::Blur { sigma: b.radius * scale }),
+                Module::Sharpen(s) => Some(DetailStep::Sharpen { amount: s.amount, sigma: s.radius * scale }),
+                _ => None,
+            })
+            .filter(|step| match *step {
+                DetailStep::Blur { sigma } => filters::blur_active(sigma),
+                DetailStep::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
+            })
+            .collect();
         let geometry_img = &slot.geometry.as_ref().expect("geometry was just built").1;
-        if no_detail {
+        if steps.is_empty() {
             slot.detail = None;
             return geometry_img;
         }
+        let dkey = DetailKey { geometry: gkey, steps };
         if slot.detail.as_ref().map(|(k, _)| k) != Some(&dkey) {
             let mut img = geometry_img.clone();
-            filters::blur(&mut img, dkey.blur_sigma);
-            filters::sharpen(&mut img, dkey.sharpen_amount, dkey.sharpen_sigma);
+            for step in &dkey.steps {
+                match *step {
+                    DetailStep::Blur { sigma } => filters::blur(&mut img, sigma),
+                    DetailStep::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
+                }
+            }
             slot.detail = Some((dkey, img));
         }
         &slot.detail.as_ref().expect("detail was just built").1
     }
 
     /// Filmic auto-tune on the current image (after crop and the adjustments that
-    /// precede filmic). Returns `(white_exposure, black_exposure)`.
+    /// precede filmic). Returns `(white_exposure, black_exposure)`, or `None` without
+    /// an enabled filmic instance or anything to measure.
     pub fn auto_tune_filmic(&mut self, params: &EditParams, size: RenderSize) -> Option<(f32, f32)> {
+        let scaling = params.get::<Filmic>()?.dynamic_range_scaling;
         let ops = PointOps::with_filmic(params, None);
         let img = self.spatial_image(params, size);
-        filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), params.filmic.dynamic_range_scaling)
+        filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), scaling)
     }
 
     /// Filmic for interactive renders: computed exactly right after its parameters

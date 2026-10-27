@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { initSync } from '../wasm/pipeline.js';
 
-export { Developer, readMetadata, defaultParams } from '../wasm/pipeline.js';
+export { Developer, readMetadata, defaultParams, normalizeParams } from '../wasm/pipeline.js';
 
 let initialized = false;
 

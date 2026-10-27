@@ -1,6 +1,6 @@
 # 🍗 RAWtisserie roadmap
 
-Status: plan, nothing below is built yet. Written 2026-10-27.
+Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -22,6 +22,12 @@ Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or mo
 ## M1 — Foundations
 
 ### 1.1 Recipe v3: a list of module instances (L)
+
+> **Done.** As built: `mask` and `opacity` are left out until M4 (adding them later is
+> backward compatible). Spatial order stays blur → sharpen, as before. A missing kind
+> means "off"; the default recipe is exposure + filmic. Unknown kinds are an error in
+> Rust and dropped in TS. Types are still mirrored by hand, cross-checked by tests.
+> `default_recipe(metadata)` is deferred until it has something to decide (3.1).
 
 Today `EditParams` is a struct with one section per module. v3 becomes:
 

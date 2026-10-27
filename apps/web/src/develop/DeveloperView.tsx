@@ -1,5 +1,5 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
-import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams } from '@rawtisserie/pipeline';
+import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
 import { Check, Download, Frame, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toaster } from '../components/toaster.tsx';
@@ -72,7 +72,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   const dpr = window.devicePixelRatio || 1;
   const effective = useMemo(() => {
     if (comparing) return defaultEditParams;
-    if (cropDraft) return { ...params, geometry: { ...params.geometry, crop: FULL_CROP } };
+    if (cropDraft) return updateModule(params, 'geometry', { params: { crop: FULL_CROP } });
     return params;
   }, [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
   // While a slider is being dragged, render a ~1 MP draft (the pipeline keeps its
@@ -103,20 +103,21 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
     const a = ASPECTS.find((x) => x.value === value)?.ratio ?? null;
     return a === 'original' ? frameAspect : a;
   };
+  const crop = findModule(params, 'geometry')?.params.crop ?? FULL_CROP;
   const startCrop = () => {
     if (cropDraft) return applyCrop();
-    setCropDraft(params.geometry.crop);
+    setCropDraft(crop);
   };
   const applyCrop = () => {
     if (!cropDraft) return;
-    history.commit({ ...params, geometry: { ...params.geometry, crop: cropDraft } });
+    history.commit(updateModule(params, 'geometry', { enabled: true, params: { crop: cropDraft } }));
     setCropDraft(null);
   };
   const changeAspect = (value: string) => {
     setAspect(value);
     const ratio = aspectRatio(value);
     if (cropDraft) setCropDraft(constrainAspect(cropDraft, ratio, frameAspect));
-    else if (ratio) setCropDraft(constrainAspect(params.geometry.crop, ratio, frameAspect));
+    else if (ratio) setCropDraft(constrainAspect(crop, ratio, frameAspect));
   };
 
   // ── Actions ──
@@ -153,7 +154,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
       const result = await client.autoTuneFilmic(params, Math.round(job.width / job.scale), Math.round(job.height / job.scale));
       if (!result) throw new Error('Nothing to measure');
       const round = (v: number) => Math.round(v * 100) / 100;
-      history.commit({ ...params, filmic: { ...params.filmic, whiteExposure: round(result.white), blackExposure: round(result.black) } });
+      history.commit(updateModule(params, 'filmic', { params: { whiteExposure: round(result.white), blackExposure: round(result.black) } }));
     } catch (err) {
       toaster.create({ type: 'error', title: 'Auto-tune failed', description: err instanceof Error ? err.message : undefined });
     } finally {

@@ -1,3 +1,4 @@
+import { normalizeEditParams } from '@rawtisserie/pipeline';
 import type Photos from '../__generated__/photos.ts';
 
 /** The JSON shape of a photo in the API. */
@@ -40,5 +41,6 @@ export function photoDto(p: Photos) {
 }
 
 export function photoDetailDto(p: Photos) {
-  return { ...photoDto(p), exif: p.exif, editParams: p.edit_params };
+  // Stored recipes may predate the current version; they are migrated on read.
+  return { ...photoDto(p), exif: p.exif, editParams: p.edit_params && normalizeEditParams(p.edit_params) };
 }

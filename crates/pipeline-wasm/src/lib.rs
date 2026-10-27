@@ -29,6 +29,13 @@ pub fn default_params() -> String {
     serde_json::to_string(&EditParams::default()).expect("params serialise")
 }
 
+/// A recipe of any version, migrated to the current one and normalised, as JSON.
+#[wasm_bindgen(js_name = normalizeParams)]
+pub fn normalize_params(params_json: &str) -> Result<String, JsError> {
+    let params = EditParams::from_json(params_json).map_err(js_err)?;
+    serde_json::to_string(&params).map_err(js_err)
+}
+
 #[wasm_bindgen]
 pub struct RenderedImage {
     width: u32,

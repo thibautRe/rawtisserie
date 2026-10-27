@@ -24,3 +24,15 @@ See README.md for the architecture overview and commands.
   operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep
   it cheap: precompute in `PointOps::new` and use lookup tables, not `powf`/`exp` per pixel.
 - Measure with `cargo run --release --example bench -- photo.ARW 2400`.
+- `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
+  it, compare against upstream rather than reasoning from scratch, and check the 3D
+  LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
+- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 3).
+  Breaking look changes add a migration that sets `render_status = 'pending'` so
+  library previews are re-rendered.
+- A recipe (v3) is a list of module instances; pipeline order is fixed by `ModuleKind`
+  (same order as `MODULE_KINDS` in TS), and a kind without an enabled instance is
+  skipped. A new module kind goes into the `modules!` macro in `params.rs`, the TS
+  `ModuleParams`/`MODULE_KINDS`/`defaultModuleParams`, and the matching pipeline stage.
+  Older recipes are migrated on load (`params/v2.rs` ↔ `migrateV2`); the TS tests
+  check that both normalise sample recipes identically.
