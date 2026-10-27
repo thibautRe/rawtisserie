@@ -9,16 +9,16 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
-import { PipelineClient } from './pipelineClient.ts';
+import { LocalRenderBackend } from './localRenderBackend.ts';
 
-function usePipelineClient() {
-  const [client, setClient] = useState<PipelineClient | null>(null);
+function useLocalBackend() {
+  const [backend, setBackend] = useState<LocalRenderBackend | null>(null);
   useEffect(() => {
-    const c = new PipelineClient();
-    setClient(c);
-    return () => c.dispose();
+    const b = new LocalRenderBackend();
+    setBackend(b);
+    return () => b.dispose();
   }, []);
-  return client;
+  return backend;
 }
 
 function Loading({ label, progress }: { label: string; progress?: number }) {
@@ -42,7 +42,7 @@ function Loading({ label, progress }: { label: string; progress?: number }) {
 // ── Public developer: local files, processed entirely in the browser ──────────
 
 export function LocalDevelopPage() {
-  const client = usePipelineClient();
+  const backend = useLocalBackend();
   const { data: me } = useMe();
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
@@ -53,19 +53,19 @@ export function LocalDevelopPage() {
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!client || !file) return;
+    if (!backend || !file) return;
     let cancelled = false;
     setLoaded(null);
     setError(null);
     file
       .arrayBuffer()
-      .then((bytes) => client.load(bytes))
+      .then((bytes) => backend.load(bytes))
       .then((metadata) => !cancelled && setLoaded({ file, metadata }))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       cancelled = true;
     };
-  }, [client, file]);
+  }, [backend, file]);
 
   const saveToLibrary = async (params: EditParams) => {
     if (!loaded) return;
@@ -100,13 +100,13 @@ export function LocalDevelopPage() {
     />
   );
 
-  if (client && loaded) {
+  if (backend && loaded) {
     return (
       <>
         {picker}
         <DeveloperView
           key={loaded.file.name + loaded.file.lastModified}
-          client={client}
+          backend={backend}
           filename={loaded.file.name}
           metadata={loaded.metadata}
           initialParams={defaultEditParams}
@@ -170,7 +170,7 @@ export function LocalDevelopPage() {
           Drop a RAW file here (ARW, CR2, CR3, NEF, DNG, RAF, ORF, RW2…) to develop it: exposure, white balance,
           tone mapping, colour, sharpening, crop & straighten. Export the result as a JPEG.
         </Text>
-        <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!client}>
+        <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!backend}>
           <FolderOpen /> Open a RAW file
         </Button>
         <Text textStyle="sm" color="fg.muted" display="flex" alignItems="center" gap="1.5">
@@ -190,7 +190,7 @@ export function LocalDevelopPage() {
 
 export function LibraryDevelopPage() {
   const { id } = useParams();
-  const client = usePipelineClient();
+  const backend = useLocalBackend();
   const { data: photo, error: photoError } = usePhoto(id);
   const saveEdit = useSaveEdit();
   const [progress, setProgress] = useState(0);
@@ -199,18 +199,18 @@ export function LibraryDevelopPage() {
   const originalUrl = photo?.originalUrl;
 
   useEffect(() => {
-    if (!client || !originalUrl) return;
+    if (!backend || !originalUrl) return;
     let cancelled = false;
     setMetadata(null);
     setError(null);
     fetchBytes(originalUrl, setProgress)
-      .then((bytes) => client.load(bytes))
+      .then((bytes) => backend.load(bytes))
       .then((m) => !cancelled && setMetadata(m))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
     return () => {
       cancelled = true;
     };
-  }, [client, originalUrl]);
+  }, [backend, originalUrl]);
 
   const err = error ?? (photoError instanceof Error ? photoError.message : null);
   if (err) {
@@ -225,13 +225,13 @@ export function LibraryDevelopPage() {
       </Center>
     );
   }
-  if (!photo || !client) return <Loading label="Loading…" />;
+  if (!photo || !backend) return <Loading label="Loading…" />;
   if (!metadata) return <Loading label={progress < 1 ? `Downloading ${photo.filename}…` : `Decoding ${photo.filename}…`} progress={progress} />;
 
   return (
     <DeveloperView
       key={photo.id}
-      client={client}
+      backend={backend}
       filename={photo.filename}
       metadata={metadata}
       initialParams={photo.editParams ? normalizeEditParams(photo.editParams) : defaultEditParams}

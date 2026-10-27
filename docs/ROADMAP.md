@@ -1,7 +1,8 @@
 # 🍗 RAWtisserie roadmap
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
-and history); 2.4 (clipping indicators).
+and history); 2.4 (clipping indicators);
+the `RenderBackend` interface (M6 prerequisite).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -396,7 +397,7 @@ A module's mask combines drawn shapes (4.3) with parametric ranges:
    - Sessions are sticky to one worker (it holds the decoded image), use about
      0.5–1.5 GB each for 40–60 MP, and are evicted after a few idle minutes.
 3. **Same UI.** A `RenderBackend` interface with two implementations: the local wasm
-   worker (today's `PipelineClient`) and remote. `DeveloperView` doesn't know which is
+   worker (`LocalRenderBackend`) and remote. `DeveloperView` doesn't know which is
    in use.
 4. **Choosing a backend.** Time the first render on the device; if it's slow, suggest
    cloud processing. Also a per-user setting: auto / local / cloud.
@@ -408,6 +409,10 @@ A module's mask combines drawn shapes (4.3) with parametric ranges:
 
 Prerequisite worth doing early: introduce `RenderBackend` while the developer is still
 small, even with only the local implementation.
+
+> **Done** (`develop/renderBackend.ts`). As built: the interface covers `render`,
+> `exportJpeg`, `autoTuneFilmic` and `dispose`. Loading stays on `LocalRenderBackend`
+> (`load(bytes)`), since a remote backend would open a session by version id instead.
 
 ---
 

@@ -7,13 +7,13 @@ import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
 import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
-import type { PipelineClient } from './pipelineClient.ts';
+import type { RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { useParamsHistory } from './useParamsHistory.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 
 interface Props {
-  client: PipelineClient;
+  backend: RenderBackend;
   filename: string;
   metadata: PhotoMetadata;
   initialParams: EditParams;
@@ -56,7 +56,7 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-export function DeveloperView({ client, filename, metadata, initialParams, onSave, saving, actions }: Props) {
+export function DeveloperView({ backend, filename, metadata, initialParams, onSave, saving, actions }: Props) {
   const history = useParamsHistory(initialParams);
   const { params } = history;
   const [saved, setSaved] = useState(initialParams);
@@ -96,7 +96,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
     };
     return { params: effective, width, height, scale, overlays };
   }, [effective, size.width, size.height, dpr, draft, margin, frameWidth, clipping]);
-  const { frame, error } = useRenderLoop(client, job);
+  const { frame, error } = useRenderLoop(backend, job);
 
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -145,7 +145,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   const exportJpeg = async (maxSize: number) => {
     setExporting(true);
     try {
-      const blob = await client.exportJpeg(params, maxSize);
+      const blob = await backend.exportJpeg(params, maxSize);
       const url = URL.createObjectURL(blob);
       const a = Object.assign(document.createElement('a'), { href: url, download: `${filename.replace(/\.[^.]+$/, '')}.jpg` });
       a.click();
@@ -161,7 +161,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   const autoTuneFilmic = async () => {
     setAutoTuning(true);
     try {
-      const result = await client.autoTuneFilmic(params, job.width, job.height);
+      const result = await backend.autoTuneFilmic(params, job.width, job.height);
       if (!result) throw new Error('Nothing to measure');
       const round = (v: number) => Math.round(v * 100) / 100;
       history.commit(updateModule(params, 'filmic', { params: { whiteExposure: round(result.white), blackExposure: round(result.black) } }));

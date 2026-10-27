@@ -1,19 +1,12 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
 import type { Overlays, WorkerRequest, WorkerResponse } from './protocol.ts';
+import type { Frame, RenderBackend } from './renderBackend.ts';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 
-export interface Frame {
-  image: ImageData;
-  /** Size of the full-size render, in device pixels; drafts are stretched to it. */
-  fullWidth: number;
-  fullHeight: number;
-  ms: number;
-}
-
-/** Promise-based RPC to the pipeline worker. */
-export class PipelineClient {
+/** Renders in the browser: promise-based RPC to the pipeline worker. */
+export class LocalRenderBackend implements RenderBackend {
   private worker = new Worker(new URL('./pipeline.worker.ts', import.meta.url), { type: 'module' });
   private pending = new Map<number, Pending>();
   private nextId = 1;
@@ -46,7 +39,6 @@ export class PipelineClient {
     return r.metadata;
   }
 
-  /** Render within `maxWidth × maxHeight`, as a draft of the render within `full` if given. */
   async render(
     params: EditParams,
     maxWidth: number,
@@ -76,7 +68,6 @@ export class PipelineClient {
     return new Blob([r.jpeg], { type: 'image/jpeg' });
   }
 
-  /** Filmic white/black relative exposures measured on the image, or null. */
   async autoTuneFilmic(params: EditParams, maxWidth: number, maxHeight: number): Promise<{ white: number; black: number } | null> {
     const r = await this.call<Extract<WorkerResponse, { type: 'autoTunedFilmic' }>>({
       type: 'autoTuneFilmic',
