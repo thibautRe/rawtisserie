@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::EditParams;
-use rawtisserie_pipeline::{Developer, RenderSize};
+use rawtisserie_pipeline::{Developer, Quality, RenderSize};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -16,19 +16,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     p.white_balance.warmth = 0.2;
     p.color.saturation = 0.2;
     p.color.vibrance = 0.2;
-    p.tone_map.shadows = 0.3;
+    p.shadows_highlights.shadows = 0.3;
     p.sharpen.amount = 0.5;
 
     let time = |label: &str, dev: &mut Developer, p: &EditParams| {
         let t = Instant::now();
-        let img = dev.render(p, fit);
+        let img = dev.render(p, fit, Quality::Interactive);
         println!("{label:<34} {:>7.1} ms  ({}×{})", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     };
 
     time("cold (decode excluded)", &mut dev, &p);
     for i in 0..3 {
         p.exposure.ev += 0.1;
-        p.tone_map.contrast += 0.05 * i as f32;
+        p.filmic.contrast += 0.05 * i as f32;
         time("exposure/tone slider", &mut dev, &p);
     }
     p.sharpen.amount += 0.1;
@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..3 {
         p.exposure.ev += 0.1;
         let t = Instant::now();
-        let img = dev.render(&p, draft);
+        let img = dev.render(&p, draft, Quality::Interactive);
         println!("{:<34} {:>7.1} ms  ({}×{})", if i == 0 { "drag (draft, first)" } else { "drag (draft)" }, t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     }
     time("release (full, cached)", &mut dev, &p);

@@ -181,7 +181,7 @@ function SinglePanel({ photo: listPhoto, onDelete }: { photo: Photo; onDelete: (
   return (
     <Stack {...PANEL_PROPS}>
       {photo.previewUrl && (
-        <Image src={photo.previewUrl} alt="" borderRadius="sm" maxH="56" objectFit="contain" bg="canvas" />
+        <Image src={photo.previewUrl} alt="" borderRadius="sm" maxH="56" objectFit="contain" bg="bg.muted" />
       )}
       <Box>
         <Text fontWeight="semibold" truncate title={photo.filename}>

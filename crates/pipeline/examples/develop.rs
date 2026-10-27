@@ -6,7 +6,7 @@
 
 use std::time::Instant;
 
-use rawtisserie_pipeline::{Developer, EditParams, RenderSize, encode};
+use rawtisserie_pipeline::{Developer, EditParams, Quality, RenderSize, encode};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{}", serde_json::to_string_pretty(dev.metadata())?);
 
     let t = Instant::now();
-    let img = dev.render(&params, RenderSize::fit(max, max));
+    let img = dev.render(&params, RenderSize::fit(max, max), Quality::Final);
     eprintln!("rendered {}×{} in {:?}", img.width, img.height, t.elapsed());
 
     std::fs::write(&args[2], encode::jpeg(&img, 90)?)?;

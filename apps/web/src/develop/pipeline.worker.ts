@@ -36,6 +36,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       post({ type: 'rendered', id: msg.id, width, height, data: data.buffer as ArrayBuffer, ms: performance.now() - started }, [
         data.buffer as ArrayBuffer,
       ]);
+    } else if (msg.type === 'autoTuneFilmic') {
+      const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
+      post({ type: 'autoTunedFilmic', id: msg.id, white: white ?? null, black: black ?? null, ms: performance.now() - started });
     } else if (msg.type === 'export') {
       const jpeg = developer.renderJpeg(params, msg.maxSize, msg.maxSize, msg.quality);
       // Full-resolution renders are large: drop the cache so the next preview rebuilds a small one.

@@ -1,6 +1,6 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
 import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams } from '@rawtisserie/pipeline';
-import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
+import { Check, Download, Frame, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
@@ -26,6 +26,16 @@ const MAX_PREVIEW = 3200;
 const DRAFT_PIXELS = 1_000_000;
 const FULL_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
 
+/**
+ * Layout of the ISO 12646 assessment mode: the image shrinks, gets a white frame,
+ * and is surrounded by a wide neutral grey margin.
+ */
+function assessmentLayout(size: { width: number; height: number }, on: boolean) {
+  const short = Math.min(size.width, size.height);
+  if (!on) return { margin: 16, frameWidth: 0 };
+  return { margin: Math.max(32, Math.round(short * 0.06)), frameWidth: Math.max(12, Math.round(short * 0.03)) };
+}
+
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -49,9 +59,13 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   const dirty = !!onSave && JSON.stringify(params) !== JSON.stringify(saved);
 
   const [comparing, setComparing] = useState(false);
+  // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
+  const [assessment, setAssessment] = useState(() => localStorage.getItem('developer.assessment') === '1');
+  useEffect(() => localStorage.setItem('developer.assessment', assessment ? '1' : '0'), [assessment]);
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
   const [aspect, setAspect] = useState('free');
   const [exporting, setExporting] = useState(false);
+  const [autoTuning, setAutoTuning] = useState(false);
 
   // ── Rendering ──
   const [viewport, size] = useElementSize<HTMLDivElement>();
@@ -64,12 +78,14 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
   // While a slider is being dragged, render a ~1 MP draft (the pipeline keeps its
   // caches for both sizes); the full-resolution render follows on release.
   const draft = history.live && !cropDraft;
+  const { margin, frameWidth } = assessmentLayout(size, assessment);
   const job = useMemo(() => {
-    const width = Math.min(MAX_PREVIEW, Math.floor((size.width - 32) * dpr));
-    const height = Math.min(MAX_PREVIEW, Math.floor((size.height - 32) * dpr));
+    const inset = 2 * (margin + frameWidth);
+    const width = Math.min(MAX_PREVIEW, Math.floor((size.width - inset) * dpr));
+    const height = Math.min(MAX_PREVIEW, Math.floor((size.height - inset) * dpr));
     const scale = draft ? Math.min(1, Math.sqrt(DRAFT_PIXELS / Math.max(1, width * height))) : 1;
     return { params: effective, width: Math.floor(width * scale), height: Math.floor(height * scale), scale };
-  }, [effective, size.width, size.height, dpr, draft]);
+  }, [effective, size.width, size.height, dpr, draft, margin, frameWidth]);
   const { frame, error } = useRenderLoop(client, job);
 
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -130,6 +146,21 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
     }
   };
 
+  // Filmic auto-tune, measured on the full-size preview (with the current crop).
+  const autoTuneFilmic = async () => {
+    setAutoTuning(true);
+    try {
+      const result = await client.autoTuneFilmic(params, Math.round(job.width / job.scale), Math.round(job.height / job.scale));
+      if (!result) throw new Error('Nothing to measure');
+      const round = (v: number) => Math.round(v * 100) / 100;
+      history.commit({ ...params, filmic: { ...params.filmic, whiteExposure: round(result.white), blackExposure: round(result.black) } });
+    } catch (err) {
+      toaster.create({ type: 'error', title: 'Auto-tune failed', description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setAutoTuning(false);
+    }
+  };
+
   // Keyboard shortcuts.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -141,6 +172,7 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
       else if (mod && key === 's') void save();
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'c') startCrop();
+      else if (mod && key === 'b') setAssessment((a) => !a);
       else if (key === 'enter' && cropDraft) applyCrop();
       else if (key === 'escape' && cropDraft) setCropDraft(null);
       else return;
@@ -206,6 +238,15 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
           >
             <SplitSquareHorizontal /> Before
           </Button>
+          <IconButton
+            aria-label="Colour assessment frame (Ctrl/⌘+B)"
+            title="Colour assessment, ISO 12646 (Ctrl/⌘+B)"
+            size="sm"
+            variant={assessment ? 'solid' : 'ghost'}
+            onClick={() => setAssessment((a) => !a)}
+          >
+            <Frame />
+          </IconButton>
           <Button size="sm" variant="ghost" onClick={() => history.commit(structuredClone(defaultEditParams))}>
             Reset all
           </Button>
@@ -236,7 +277,13 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
 
         <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
           {frame ? (
-            <Box position="relative" lineHeight="0" boxShadow="2xl">
+            <Box
+              position="relative"
+              lineHeight="0"
+              borderWidth={`${frameWidth}px`}
+              borderStyle="solid"
+              borderColor={frameWidth ? 'white' : 'transparent'}
+            >
               <canvas
                 ref={canvas}
                 style={{ width: frame.image.width / dpr / frame.scale, height: frame.image.height / dpr / frame.scale, display: 'block' }}
@@ -286,6 +333,8 @@ export function DeveloperView({ client, filename, metadata, initialParams, onSav
           aspect={aspect}
           onAspectChange={changeAspect}
           onStartCrop={startCrop}
+          onAutoTuneFilmic={() => void autoTuneFilmic()}
+          autoTuning={autoTuning}
         />
       </Box>
     </Flex>

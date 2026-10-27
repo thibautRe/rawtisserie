@@ -53,6 +53,17 @@ export class PipelineClient {
     return new Blob([r.jpeg], { type: 'image/jpeg' });
   }
 
+  /** Filmic white/black relative exposures measured on the image, or null. */
+  async autoTuneFilmic(params: EditParams, maxWidth: number, maxHeight: number): Promise<{ white: number; black: number } | null> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'autoTunedFilmic' }>>({
+      type: 'autoTuneFilmic',
+      params,
+      maxWidth,
+      maxHeight,
+    });
+    return r.white === null || r.black === null ? null : { white: r.white, black: r.black };
+  }
+
   dispose() {
     this.worker.terminate();
     for (const p of this.pending.values()) p.reject(new Error('Pipeline disposed'));

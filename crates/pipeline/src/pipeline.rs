@@ -4,10 +4,21 @@ use crate::decode::{self, RawPhoto};
 use crate::demosaic;
 use crate::image::{Image, Rgba8};
 use crate::metadata::PhotoMetadata;
-use crate::ops::point::PointOps;
-use crate::ops::{filters, geometry};
-use crate::params::EditParams;
+use std::rc::Rc;
+
+use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
+use crate::ops::{filmic, filters, geometry};
+use crate::params::{EditParams, Filmic};
 use crate::Result;
+
+/// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
+/// for 99.9 % of pixels); final renders (exports, thumbnails) are exact.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Quality {
+    Interactive,
+    #[default]
+    Final,
+}
 
 /// Bounding box for a render; the image is fitted inside it, never upscaled.
 /// `0` means unbounded on that axis.
@@ -45,6 +56,8 @@ pub struct Developer {
     /// Spatial-stage caches per output size, most recently used first. Two sizes cover
     /// the interactive case: a reduced "draft" size while dragging, full size after.
     slots: Vec<Slot>,
+    /// Filmic, compiled for the last parameters used interactively.
+    filmic: Option<(Filmic, Rc<FilmicStage>)>,
 }
 
 const MAX_SLOTS: usize = 2;
@@ -77,7 +90,7 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None, slots: Vec::new() }
+        Self { photo, base: None, slots: Vec::new(), filmic: None }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -92,6 +105,7 @@ impl Developer {
     pub fn release_cache(&mut self) {
         self.base = None;
         self.slots.clear();
+        self.filmic = None;
     }
 
     fn transform(&self, params: &EditParams) -> geometry::Transform {
@@ -119,13 +133,14 @@ impl Developer {
         (w, h, scale)
     }
 
-    pub fn render(&mut self, params: &EditParams, size: RenderSize) -> Rgba8 {
-        let ops = PointOps::new(params);
-        ops.render(self.detail_image(params, size))
+    pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
+        let filmic = params.filmic.enabled.then(|| self.filmic_stage(&params.filmic, quality));
+        let ops = PointOps::with_filmic(params, filmic);
+        ops.render(self.spatial_image(params, size))
     }
 
     /// The output of the spatial stages (geometry, blur, sharpen), from cache when possible.
-    fn detail_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
+    pub fn spatial_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
         let (width, height, scale) = self.output_size(params, size);
         // Bin as much as possible while keeping the base at least as large as the output.
         let factor = ((1.0 / scale).floor() as usize).clamp(1, 64);
@@ -169,6 +184,36 @@ impl Developer {
             slot.detail = Some((dkey, img));
         }
         &slot.detail.as_ref().expect("detail was just built").1
+    }
+
+    /// Filmic auto-tune on the current image (after crop and the adjustments that
+    /// precede filmic). Returns `(white_exposure, black_exposure)`.
+    pub fn auto_tune_filmic(&mut self, params: &EditParams, size: RenderSize) -> Option<(f32, f32)> {
+        let ops = PointOps::with_filmic(params, None);
+        let img = self.spatial_image(params, size);
+        filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), params.filmic.dynamic_range_scaling)
+    }
+
+    /// Filmic for interactive renders: computed exactly right after its parameters
+    /// change (e.g. while one of its sliders is dragged), then baked into a 3D lookup
+    /// table once the same parameters are rendered again (other sliders, full-size
+    /// render after a draft…).
+    fn filmic_stage(&mut self, p: &Filmic, quality: Quality) -> Rc<FilmicStage> {
+        if quality == Quality::Final {
+            return Rc::new(FilmicStage::new(p, None));
+        }
+        let lut = match &self.filmic {
+            Some((cached, stage)) if cached == p => {
+                if stage.has_lut() {
+                    return stage.clone();
+                }
+                Some(FILMIC_LUT_SIZE)
+            }
+            _ => None,
+        };
+        let stage = Rc::new(FilmicStage::new(p, lut));
+        self.filmic = Some((p.clone(), stage.clone()));
+        stage
     }
 
     /// Make sure a base image suitable for `factor` is cached; returns its actual factor.

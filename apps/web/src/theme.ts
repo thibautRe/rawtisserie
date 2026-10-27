@@ -19,7 +19,8 @@ const config = defineConfig({
         bg: { value: { _light: '#f7f5f2', _dark: '#1b1a19' } },
         'bg.panel': { value: { _light: '#ffffff', _dark: '#232120' } },
         'bg.muted': { value: { _light: '#eeebe6', _dark: '#2c2a28' } },
-        canvas: { value: { _light: '#dcd8d2', _dark: '#121110' } },
+        // Developer surround: neutral middle grey (sRGB 119 ≈ L* 50) to judge exposure and colour.
+        canvas: { value: { _light: '#777777', _dark: '#777777' } },
       },
     },
   },

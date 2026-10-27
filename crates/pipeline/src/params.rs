@@ -6,7 +6,8 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const CURRENT_VERSION: u32 = 1;
+/// v2: the sigmoid tone mapper was replaced by filmic; shadows/highlights got their own section.
+pub const CURRENT_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -15,7 +16,8 @@ pub struct EditParams {
     pub exposure: Exposure,
     pub white_balance: WhiteBalance,
     pub color: Color,
-    pub tone_map: ToneMap,
+    pub shadows_highlights: ShadowsHighlights,
+    pub filmic: Filmic,
     pub sharpen: Sharpen,
     pub blur: Blur,
     pub geometry: Geometry,
@@ -28,7 +30,8 @@ impl Default for EditParams {
             exposure: Exposure::default(),
             white_balance: WhiteBalance::default(),
             color: Color::default(),
-            tone_map: ToneMap::default(),
+            shadows_highlights: ShadowsHighlights::default(),
+            filmic: Filmic::default(),
             sharpen: Sharpen::default(),
             blur: Blur::default(),
             geometry: Geometry::default(),
@@ -80,28 +83,66 @@ pub struct Color {
     pub vibrance: f32,
 }
 
-/// Sigmoid tone mapper (scene-referred → display-referred).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Global shadows/highlights: exposure gains driven by each pixel's luminance.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct ToneMap {
-    pub enabled: bool,
-    /// Slope of the curve around middle grey, typically 1.0 … 3.0.
-    pub contrast: f32,
+pub struct ShadowsHighlights {
     /// Lifts (+) or crushes (-) shadows, -1 … +1.
     pub shadows: f32,
     /// Recovers (-) or boosts (+) highlights, -1 … +1.
     pub highlights: f32,
 }
 
-impl Default for ToneMap {
+/// Filmic RGB tone mapping (scene-referred → display-referred), after Ansel.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Filmic {
+    pub enabled: bool,
+    /// Scene exposure mapped to display white, in EV relative to middle grey.
+    pub white_exposure: f32,
+    /// Scene exposure mapped to display black, in EV relative to middle grey (negative).
+    pub black_exposure: f32,
+    /// Slope of the curve's linear part, 0 … 5.
+    pub contrast: f32,
+    /// Width of the linear part, in % of the room available around middle grey.
+    pub latitude: f32,
+    /// Shifts the linear part toward shadows (-) or highlights (+), -50 … +50 %.
+    pub balance: f32,
+    /// AgX hue recovery, -100 (keep the film-like hue drift) … +100 (original hues).
+    pub hue_preservation: f32,
+    /// How strongly bright saturated colours bleach toward white.
+    pub bleach: Bleach,
+    /// Widens (+) or narrows (-) the range found by auto-tune, in %, -50 … +200.
+    pub dynamic_range_scaling: f32,
+}
+
+impl Default for Filmic {
     fn default() -> Self {
+        // Ansel's defaults for RAW files, paired with its +0.7 EV exposure default.
         Self {
             enabled: true,
-            contrast: 1.5,
-            shadows: 0.0,
-            highlights: 0.0,
+            white_exposure: 3.15,
+            black_exposure: -8.85,
+            contrast: 1.18,
+            latitude: 10.0,
+            balance: 0.0,
+            hue_preservation: 0.0,
+            bleach: Bleach::Medium,
+            dynamic_range_scaling: 0.0,
         }
     }
+}
+
+/// The five Ansel v8 "AgX" colour science variants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Bleach {
+    None,
+    Low,
+    #[default]
+    Medium,
+    High,
+    Extra,
 }
 
 /// Unsharp mask on luminance.
@@ -199,7 +240,21 @@ mod tests {
         assert_eq!(p.exposure.black, 0.0);
         assert_eq!(p.geometry.rotation, 1);
         assert_eq!(p.geometry.crop, Crop::default());
-        assert!(p.tone_map.enabled);
+        assert!(p.filmic.enabled);
+        assert_eq!(p.filmic.bleach, Bleach::Medium);
+    }
+
+    #[test]
+    fn version_1_recipes_still_load() {
+        let p = EditParams::from_json(r#"{"version":1,"exposure":{"ev":1.0},"toneMap":{"contrast":2}}"#).unwrap();
+        assert_eq!(p.exposure.ev, 1.0);
+        assert_eq!(p.filmic, Filmic::default());
+    }
+
+    #[test]
+    fn bleach_is_camel_case() {
+        let p = EditParams::from_json(r#"{"filmic":{"bleach":"extra"}}"#).unwrap();
+        assert_eq!(p.filmic.bleach, Bleach::Extra);
     }
 
     #[test]

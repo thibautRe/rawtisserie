@@ -6,49 +6,14 @@
 //! This is the part that re-runs on every slider move, so it has to be cheap.
 //!
 //! Order: exposure → warmth/tint → saturation/vibrance → shadows/highlights (all in
-//! linear Rec.2020) → Rec.709 primaries → per-channel sigmoid tone mapping → sRGB.
+//! linear Rec.2020) → filmic (to display-linear sRGB primaries) → sRGB encoding.
 
 use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, REC709_FROM_REC2020, luminance, mul_vec, srgb_oetf};
 use crate::image::{Image, Rgb, Rgba8};
+use crate::ops::filmic::Filmic;
+use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
+use std::rc::Rc;
 use crate::params::EditParams;
-
-/// A lookup table indexed by the top bits of an `f32`: sign-less exponent plus the
-/// leading mantissa bits. That is (piecewise linearly) log-spaced, with
-/// `2^(23 - shift)` buckets per stop, and costs no float math to index.
-struct BitsLut<T> {
-    shift: u32,
-    min: f32,
-    min_key: u32,
-    table: Vec<T>,
-}
-
-impl<T: Copy> BitsLut<T> {
-    fn new(min: f32, max: f32, shift: u32, f: impl Fn(f32) -> T) -> Self {
-        let (min_key, max_key) = (min.to_bits() >> shift, max.to_bits() >> shift);
-        let half_bucket = 1u32 << (shift - 1);
-        Self {
-            shift,
-            min,
-            min_key,
-            // Sample each bucket at its midpoint.
-            table: (min_key..=max_key).map(|k| f(f32::from_bits((k << shift) | half_bucket))).collect(),
-        }
-    }
-
-    #[inline]
-    fn eval(&self, x: f32) -> T {
-        // `max` also maps negatives and NaN to the first bucket.
-        let key = (x.max(self.min).to_bits() >> self.shift) - self.min_key;
-        self.table[(key as usize).min(self.table.len() - 1)]
-    }
-}
-
-/// 256 buckets per stop.
-const FINE: u32 = 15;
-/// Darkest value the curves distinguish from black (2⁻²⁴).
-const FLOOR: f32 = 5.960_464_5e-8;
-/// Brightest value the curves distinguish (2¹⁶ — way past any highlight).
-const CEILING: f32 = 65536.0;
 
 /// Shadows/highlights gain as a function of luminance: smooth bells centred in the
 /// shadows (-3 EV from middle grey) and highlights (+2 EV).
@@ -58,12 +23,54 @@ fn shadows_highlights_gain(y: f32, shadows: f32, highlights: f32) -> f32 {
     (shadows * 1.5 * bell(-3.0, 1.5) + highlights * 1.5 * bell(2.0, 1.5)).exp2()
 }
 
-/// Sigmoid `xᶜ / (xᶜ + kᶜ)`, anchored so that middle grey maps to itself.
-/// Asymptotically approaches 1 (display white).
-pub fn sigmoid(x: f32, contrast: f32) -> f32 {
-    let kc = MIDDLE_GREY.powf(contrast) * (1.0 / MIDDLE_GREY - 1.0);
-    let xc = x.max(0.0).powf(contrast);
-    xc / (xc + kc)
+/// Grid size of filmic's 3D lookup table. 65³ keeps 99.9 % of pixels within 1–2
+/// levels (8-bit) of the exact computation; smaller grids show visible errors.
+pub const FILMIC_LUT_SIZE: usize = 65;
+
+/// Filmic, with its per-channel curve as a 1D table and (optionally) the whole
+/// colour transform baked into a 3D table over log-encoded RGB.
+pub struct FilmicStage {
+    filmic: Filmic,
+    curve: BitsLut<f32>,
+    lut: Option<Lut3d>,
+    lut_max: f32,
+}
+
+impl FilmicStage {
+    pub fn new(p: &crate::params::Filmic, lut_size: Option<usize>) -> Self {
+        let filmic = Filmic::new(p);
+        let curve = BitsLut::new(FLOOR, CEILING, FINE, |v| filmic.spline.tone_map(v));
+        // From 2 EV below the black point (displayed as black anyway) to 4 EV above
+        // the white point; brighter pixels take the exact path.
+        let grey = MIDDLE_GREY.log2();
+        let lut = lut_size.map(|n| {
+            // Stored sRGB-encoded: interpolation error is then perceptually uniform.
+            Lut3d::new(n, grey + p.black_exposure - 2.0, grey + p.white_exposure + 4.0, |c| {
+                filmic.apply_compressed(c, |v| curve.eval(v)).map(srgb_oetf)
+            })
+        });
+        let lut_max = lut.as_ref().map_or(0.0, Lut3d::max_input);
+        Self { filmic, curve, lut, lut_max }
+    }
+
+    pub fn has_lut(&self) -> bool {
+        self.lut.is_some()
+    }
+
+    /// Display-linear output.
+    fn apply(&self, px: Rgb) -> Rgb {
+        self.filmic.apply_compressed(self.filmic.prepare(px), |v| self.curve.eval(v))
+    }
+
+    /// 8-bit sRGB output, through the 3D table when possible.
+    #[inline]
+    fn apply_u8(&self, px: Rgb, encode: &BitsLut<u8>) -> [u8; 3] {
+        let c = self.filmic.prepare(px);
+        match &self.lut {
+            Some(lut) if c[0].max(c[1]).max(c[2]) <= self.lut_max => lut.eval(c).map(|v| (v * 255.0 + 0.5) as u8),
+            _ => self.filmic.apply_compressed(c, |v| self.curve.eval(v)).map(|v| encode.eval(v)),
+        }
+    }
 }
 
 pub struct PointOps {
@@ -74,13 +81,27 @@ pub struct PointOps {
     vibrance: f32,
     /// Gain indexed by luminance.
     shadows_highlights: Option<BitsLut<f32>>,
+    filmic: Option<Rc<FilmicStage>>,
+    /// Used when filmic is off: clip in Rec.709.
     to_rec709: Mat3,
-    /// Tone curve (or clip) followed by the sRGB transfer function, to 8 bits.
-    display: BitsLut<u8>,
+    /// Display-linear → 8-bit sRGB.
+    encode: BitsLut<u8>,
 }
 
 impl PointOps {
+    /// Point operations with exact filmic.
     pub fn new(p: &EditParams) -> Self {
+        Self::with_filmic_lut(p, None)
+    }
+
+    /// `lut_size: None` evaluates filmic exactly for every pixel.
+    pub fn with_filmic_lut(p: &EditParams, lut_size: Option<usize>) -> Self {
+        let filmic = p.filmic.enabled.then(|| Rc::new(FilmicStage::new(&p.filmic, lut_size)));
+        Self::with_filmic(p, filmic)
+    }
+
+    /// Use a prepared (typically cached) filmic stage; `None` disables filmic.
+    pub fn with_filmic(p: &EditParams, filmic: Option<Rc<FilmicStage>>) -> Self {
         let ev_gain = p.exposure.ev.exp2();
         let warmth = p.white_balance.warmth.clamp(-1.0, 1.0) * 0.5;
         let tint = p.white_balance.tint.clamp(-1.0, 1.0) * 0.35;
@@ -88,15 +109,10 @@ impl PointOps {
         // Normalise so that warmth/tint preserve luminance.
         let wb_y = luminance(wb);
 
-        let t = &p.tone_map;
-        let (shadows, highlights) = (t.shadows.clamp(-1.0, 1.0), t.highlights.clamp(-1.0, 1.0));
+        let sh = &p.shadows_highlights;
+        let (shadows, highlights) = (sh.shadows.clamp(-1.0, 1.0), sh.highlights.clamp(-1.0, 1.0));
         let shadows_highlights = (shadows != 0.0 || highlights != 0.0)
             .then(|| BitsLut::new(FLOOR, CEILING, FINE + 1, |y| shadows_highlights_gain(y, shadows, highlights)));
-        let (enabled, contrast) = (t.enabled, t.contrast.clamp(0.5, 4.0));
-        let display = BitsLut::new(FLOOR, CEILING, FINE, |v| {
-            let toned = if enabled { sigmoid(v, contrast) } else { v.min(1.0) };
-            (srgb_oetf(toned) * 255.0 + 0.5) as u8
-        });
 
         Self {
             black: p.exposure.black,
@@ -104,14 +120,15 @@ impl PointOps {
             saturation: 1.0 + p.color.saturation.clamp(-1.0, 1.0),
             vibrance: p.color.vibrance.clamp(-1.0, 1.0),
             shadows_highlights,
+            filmic,
             to_rec709: REC709_FROM_REC2020,
-            display,
+            encode: BitsLut::new(FLOOR, 1.0, FINE, |v| (srgb_oetf(v) * 255.0 + 0.5) as u8),
         }
     }
 
     /// Scene-referred adjustments, in the working space (linear Rec.2020).
     #[inline]
-    fn adjust(&self, px: Rgb) -> Rgb {
+    pub fn adjust(&self, px: Rgb) -> Rgb {
         let mut c = [
             (px[0] - self.black) * self.gain[0],
             (px[1] - self.black) * self.gain[1],
@@ -138,11 +155,23 @@ impl PointOps {
         c
     }
 
-    /// One pixel, all the way to 8-bit sRGB. The tone curve is applied per channel
-    /// on display (Rec.709) primaries, merged with the sRGB encoding into one table.
+    /// One pixel: scene-linear Rec.2020 → display-linear sRGB primaries.
+    #[inline]
+    pub fn display(&self, px: Rgb) -> Rgb {
+        let c = self.adjust(px);
+        match &self.filmic {
+            Some(f) => f.apply(c),
+            None => mul_vec(&self.to_rec709, c).map(|v| v.clamp(0.0, 1.0)),
+        }
+    }
+
+    /// One pixel, all the way to 8-bit sRGB.
     #[inline]
     pub fn apply(&self, px: Rgb) -> [u8; 3] {
-        mul_vec(&self.to_rec709, self.adjust(px)).map(|v| self.display.eval(v))
+        match &self.filmic {
+            Some(f) => f.apply_u8(self.adjust(px), &self.encode),
+            None => self.display(px).map(|v| self.encode.eval(v)),
+        }
     }
 
     /// Apply to a whole image and encode as 8-bit sRGB.
@@ -163,25 +192,13 @@ mod tests {
     fn ops(f: impl FnOnce(&mut EditParams)) -> PointOps {
         let mut p = EditParams::default();
         p.exposure.ev = 0.0;
-        p.tone_map.enabled = false;
+        p.filmic.enabled = false;
         f(&mut p);
         PointOps::new(&p)
     }
 
     fn approx(a: Rgb, b: Rgb, tol: f32) -> bool {
         a.iter().zip(b).all(|(x, y)| (x - y).abs() <= tol)
-    }
-
-    #[test]
-    fn bits_lut_is_log_spaced_and_safe() {
-        let lut = BitsLut::new(FLOOR, CEILING, FINE, |x| x);
-        assert_eq!(lut.table.len(), 40 * 256 + 1);
-        for x in [1e-6f32, 0.001, 0.18, 1.0, 3.3, 1000.0] {
-            assert!((lut.eval(x) / x - 1.0).abs() < 0.003, "{x}");
-        }
-        assert_eq!(lut.eval(-1.0), lut.table[0]);
-        assert_eq!(lut.eval(f32::NAN), lut.table[0]);
-        assert_eq!(lut.eval(1e30), *lut.table.last().unwrap());
     }
 
     #[test]
@@ -208,26 +225,23 @@ mod tests {
 
     #[test]
     fn shadows_lift_darks_more_than_brights() {
-        let o = ops(|p| p.tone_map.shadows = 1.0);
+        let o = ops(|p| p.shadows_highlights.shadows = 1.0);
         let dark = o.adjust([0.02; 3])[0] / 0.02;
         let bright = o.adjust([1.0; 3])[0];
         assert!(dark > 1.5 && (bright - 1.0).abs() < 0.05, "{dark} {bright}");
     }
 
     #[test]
-    fn display_matches_exact_formula() {
-        for contrast in [0.7, 1.5, 3.0] {
-            let o = ops(|p| {
-                p.tone_map.enabled = true;
-                p.tone_map.contrast = contrast;
-            });
-            for x in [0.0f32, 1e-4, 0.01, MIDDLE_GREY, 0.5, 1.0, 4.0, 100.0] {
-                let exact = (srgb_oetf(sigmoid(x, contrast)) * 255.0).round() as i32;
-                let got = o.apply(mul_vec(&REC2020_FROM_REC709, [x; 3]))[0] as i32;
-                assert!((got - exact).abs() <= 1, "contrast {contrast}, x {x}: {got} vs {exact}");
-            }
+    fn filmic_lut_matches_exact_curve() {
+        let mut p = EditParams::default();
+        p.exposure.ev = 0.0;
+        let o = PointOps::new(&p);
+        let exact = Filmic::new(&p.filmic);
+        for v in [1e-4f32, 0.01, MIDDLE_GREY, 0.5, 1.0, 4.0, 100.0] {
+            let got = o.display(mul_vec(&REC2020_FROM_REC709, [v; 3]));
+            let want = exact.apply(mul_vec(&REC2020_FROM_REC709, [v; 3]), |x| exact.spline.tone_map(x));
+            assert!(approx(got, want, 3e-3), "{v}: {got:?} vs {want:?}");
         }
-        assert!((sigmoid(MIDDLE_GREY, 2.0) - MIDDLE_GREY).abs() < 1e-6);
     }
 
     #[test]

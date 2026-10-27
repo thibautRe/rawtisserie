@@ -16,7 +16,7 @@ interface Props {
 const signed = (digits: number) => (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(digits)}`;
 export const fmt = { ev: (v: number) => `${signed(2)(v)} EV`, signed2: signed(2), fixed2: (v: number) => v.toFixed(2) };
 
-/** A labelled slider; double-click resets it to its default. */
+/** A compact labelled slider; double-click resets it to its default. */
 export function ParamSlider({ label, value, min, max, step, defaultValue, format = fmt.signed2, disabled, onChange, onCommit }: Props) {
   return (
     <Slider.Root
@@ -27,14 +27,15 @@ export function ParamSlider({ label, value, min, max, step, defaultValue, format
       value={[value]}
       disabled={disabled}
       colorPalette="orange"
-      // Bipolar parameters fill from their neutral point.
-      origin={min < 0 && max > 0 ? 'center' : 'start'}
+      // Symmetric bipolar parameters fill from their neutral (middle) point.
+      origin={min === -max ? 'center' : 'start'}
       onValueChange={(e) => onChange(e.value[0]!)}
       onValueChangeEnd={(e) => onCommit(e.value[0]!)}
       onDoubleClick={() => onCommit(defaultValue)}
       title="Double-click to reset"
+      gap="0"
     >
-      <HStack justify="space-between">
+      <HStack justify="space-between" lineHeight="1.2">
         <Slider.Label textStyle="xs" color="fg.muted" fontWeight="normal">
           {label}
         </Slider.Label>
@@ -42,11 +43,13 @@ export function ParamSlider({ label, value, min, max, step, defaultValue, format
           {format(value)}
         </Text>
       </HStack>
-      <Slider.Control>
-        <Slider.Track>
-          <Slider.Range />
+      <Slider.Control minH="3.5">
+        <Slider.Track h="2px" bg="bg.emphasized">
+          <Slider.Range bg="orange.solid/70" />
         </Slider.Track>
-        <Slider.Thumbs />
+        <Slider.Thumb index={0} boxSize="2.5" bg="fg.muted" borderWidth="0" boxShadow="xs" _hover={{ bg: 'fg' }} _focusVisible={{ bg: 'fg', outline: '2px solid', outlineColor: 'orange.solid' }}>
+          <Slider.HiddenInput />
+        </Slider.Thumb>
       </Slider.Control>
     </Slider.Root>
   );
