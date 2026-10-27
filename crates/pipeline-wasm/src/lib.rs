@@ -30,6 +30,13 @@ pub fn default_params() -> String {
     serde_json::to_string(&EditParams::default()).expect("params serialise")
 }
 
+/// The recipe a new image starts with, given its metadata (JSON), as JSON.
+#[wasm_bindgen(js_name = defaultRecipe)]
+pub fn default_recipe(metadata_json: &str) -> Result<String, JsError> {
+    let metadata: pipeline::PhotoMetadata = serde_json::from_str(metadata_json).map_err(js_err)?;
+    serde_json::to_string(&EditParams::default_for(&metadata)).map_err(js_err)
+}
+
 /// A recipe of any version, migrated to the current one and normalised, as JSON.
 #[wasm_bindgen(js_name = normalizeParams)]
 pub fn normalize_params(params_json: &str) -> Result<String, JsError> {

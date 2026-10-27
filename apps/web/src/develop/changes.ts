@@ -1,6 +1,7 @@
 import { type EditParams, type ModuleInstance, type ModuleKind, defaultModuleParams } from '@rawtisserie/pipeline';
 
 export const MODULE_TITLES: Record<ModuleKind, string> = {
+  lens: 'Lens correction',
   geometry: 'Geometry',
   blur: 'Blur',
   sharpen: 'Sharpen',

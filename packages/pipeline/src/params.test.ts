@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   defaultEditParams,
+  defaultRecipe,
   defaultModuleParams,
   findModule,
   isDefaultEdit,
@@ -11,11 +12,19 @@ import {
   resetModule,
   updateModule,
 } from './params.ts';
-import { initPipeline, defaultParams, normalizeParams } from './node.ts';
+import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
 
 test('TypeScript defaults match the Rust defaults', () => {
   initPipeline();
   assert.deepEqual(JSON.parse(defaultParams()), defaultEditParams);
+});
+
+test('defaultRecipe matches Rust', () => {
+  initPipeline();
+  for (const metadata of [{}, { lensCorrection: null }, { lensCorrection: 'sony' }]) {
+    assert.deepEqual(defaultRecipe(metadata), JSON.parse(defaultRecipeWasm(JSON.stringify(metadata))), JSON.stringify(metadata));
+  }
+  assert.equal(defaultRecipe({ lensCorrection: null }), defaultEditParams);
 });
 
 /** Recipes on which TypeScript and Rust must agree. */
@@ -49,6 +58,7 @@ const samples: unknown[] = [
       { kind: 'geometry', params: { crop: { width: 0.5 } } },
     ],
   },
+  { version: 5, modules: [{ kind: 'filmic' }, { kind: 'lens', params: { tca: 0 } }, { kind: 'lens', params: { tca: 2 } }] },
 ];
 
 test('normalizeEditParams matches Rust', () => {

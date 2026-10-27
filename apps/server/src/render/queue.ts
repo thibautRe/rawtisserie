@@ -4,6 +4,7 @@
  * truth, so pending work survives restarts.
  */
 import { Worker } from 'node:worker_threads';
+import type { Queryable } from '@databases/pg';
 import type { FastifyBaseLogger } from 'fastify';
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
@@ -98,16 +99,24 @@ export class RenderQueue {
 
   private async process(entry: PoolWorker, versionId: string) {
     const [job] = (await db.query(sql`
-      SELECT v.photo_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe
+      SELECT v.photo_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
+        NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
       FROM versions v
       JOIN photos p ON p.id = v.photo_id
       LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
-      WHERE v.id = ${versionId}`)) as { photo_id: string; storage_key: string; needs_metadata: boolean; recipe: EditParams | null }[];
+      WHERE v.id = ${versionId}`)) as {
+      photo_id: string;
+      storage_key: string;
+      needs_metadata: boolean;
+      recipe: EditParams | null;
+      no_history: boolean;
+    }[];
     if (!job) return;
     const started = Date.now();
     const result = await this.run(entry, {
       sourcePath: originalPath(job.storage_key),
       params: job.recipe,
+      autoDefaults: job.no_history,
       extractMetadata: job.needs_metadata,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
         path: renderPath(versionId, size),
@@ -126,6 +135,7 @@ export class RenderQueue {
       await tx.query(sql`
         UPDATE versions SET render_status = 'ready', render_error = NULL, render_version = render_version + 1
         WHERE id = ${versionId}`);
+      if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
       if (result.metadata) {
         await photos(tx).update({ id: job.photo_id }, metadataColumns(result.metadata));
         // The in-camera rating seeds versions that haven't been rated yet.
@@ -134,6 +144,20 @@ export class RenderQueue {
       }
     });
   }
+}
+
+/**
+ * Record the recipe a new image starts with (lens correction) as its first history
+ * entry, if the version still has no history. The revision isn't bumped: a developer
+ * opened before this ran saves over it instead of getting a conflict.
+ */
+async function addDefaultRecipe(tx: Queryable, versionId: string, recipe: EditParams) {
+  const inserted = await tx.query(sql`
+    INSERT INTO history_entries (version_id, seq, label, recipe)
+    SELECT ${versionId}, 1, 'Lens correction (auto)', ${JSON.stringify(recipe)}::jsonb
+    WHERE NOT EXISTS (SELECT 1 FROM history_entries WHERE version_id = ${versionId})
+    RETURNING seq`);
+  if (inserted.length) await versions(tx).update({ id: versionId, history_end: 0 }, { history_end: 1 });
 }
 
 /** Map extracted metadata onto the indexed (and user-editable) columns. */

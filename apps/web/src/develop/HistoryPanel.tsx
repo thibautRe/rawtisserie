@@ -1,6 +1,7 @@
 import { Box, HStack, Heading, IconButton, Stack, Text } from '@chakra-ui/react';
 import type { EditParams, ModuleKind } from '@rawtisserie/pipeline';
 import {
+  Aperture,
   Contrast,
   Crop,
   Droplet,
@@ -19,6 +20,7 @@ import { describeChange } from './changes.ts';
 import type { HistoryEntry } from './history.ts';
 
 const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
+  lens: Aperture,
   geometry: Crop,
   blur: Droplet,
   sharpen: Triangle,

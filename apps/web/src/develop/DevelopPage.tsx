@@ -1,5 +1,5 @@
 import { Box, Button, Center, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
-import { type PhotoMetadata, defaultEditParams, normalizeEditParams } from '@rawtisserie/pipeline';
+import { type PhotoMetadata, defaultEditParams, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -116,7 +116,7 @@ export function LocalDevelopPage() {
           filename={loaded.file.name}
           metadata={loaded.metadata}
           original={defaultEditParams}
-          initialHistory={{ entries: [], end: 0 }}
+          initialHistory={autoApplied(loaded.metadata)}
           actions={(_params, history) => (
             <>
               <Button size="sm" variant="ghost" onClick={() => input.current?.click()}>
@@ -191,6 +191,16 @@ export function LocalDevelopPage() {
       </Stack>
     </Center>
   );
+}
+
+/**
+ * The history a local file starts with: what the server records for a new upload
+ * (`addDefaultRecipe` in the render queue), i.e. lens correction when the file has data.
+ */
+function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
+  const recipe = defaultRecipe(metadata);
+  if (recipe === defaultEditParams) return { entries: [], end: 0 };
+  return { entries: [{ label: 'Lens correction (auto)', recipe, createdAt: new Date().toISOString() }], end: 1 };
 }
 
 // ── Library developer: originals fetched from the server, recipes saved back ──

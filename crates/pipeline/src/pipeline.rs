@@ -9,7 +9,7 @@ use std::rc::Rc;
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::clipping::{self, Overlays};
 use crate::ops::{filmic, filters, geometry};
-use crate::params::{EditParams, Filmic, Geometry, Module};
+use crate::params::{EditParams, Filmic, Geometry, Lens, Module};
 use crate::Result;
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
@@ -43,7 +43,7 @@ impl RenderSize {
 ///
 /// ```text
 ///  base        demosaic/bin, white balance, camera → working     keyed by binning factor
-///   └ geometry  orientation, straighten, crop, resample          keyed by geometry + output size (2 sizes kept)
+///   └ geometry  lens, orientation, straighten, crop, resample    keyed by lens + geometry + output size (2 sizes kept)
 ///      └ detail blur, sharpen instances                           keyed by the above + their scaled radii
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
 /// ```
@@ -128,6 +128,7 @@ impl Developer {
         let identity = Geometry::default();
         let g = params.get::<Geometry>().unwrap_or(&identity);
         geometry::Transform {
+            lens: self.photo.lens.as_ref().and(params.get::<Lens>().copied()),
             orient: self.photo.orientation.then(g.rotation % 4, g.flip_horizontal),
             angle: g.angle.clamp(-45.0, 45.0),
             crop: g.crop.sanitized(),
@@ -181,7 +182,7 @@ impl Developer {
         let base_mask = &self.sensor_clip.as_ref().expect("mask was just built").1;
         let slot = &mut self.slots[0];
         if slot.sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
-            slot.sensor_clip = Some((gkey, geometry::apply_mask(base_mask, &gkey.transform, width, height)));
+            slot.sensor_clip = Some((gkey, geometry::apply_mask(base_mask, &gkey.transform, self.photo.lens.as_ref(), width, height)));
         }
         &slot.sensor_clip.as_ref().expect("mask was just built").1
     }
@@ -208,7 +209,7 @@ impl Developer {
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             slot.detail = None;
             slot.geometry = None; // free before allocating
-            slot.geometry = Some((gkey, geometry::apply(base, &gkey.transform, width, height)));
+            slot.geometry = Some((gkey, geometry::apply(base, &gkey.transform, self.photo.lens.as_ref(), width, height)));
         }
 
         // Spatial parameters are expressed in full-resolution pixels.

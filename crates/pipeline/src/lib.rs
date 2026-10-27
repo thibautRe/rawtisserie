@@ -19,6 +19,7 @@ pub mod decode;
 pub mod demosaic;
 pub mod encode;
 pub mod image;
+pub mod lens;
 pub mod metadata;
 pub mod ops;
 pub mod params;

@@ -27,6 +27,8 @@ export interface PhotoMetadata {
   gpsLatitude: number | null;
   gpsLongitude: number | null;
   gpsAltitude: number | null;
+  /** Where the lens correction data embedded in the file comes from (`"sony"`), if it has any. */
+  lensCorrection?: string | null;
 }
 
 /** `0.004` → `"1/250"`, `2.5` → `"2.5″"`. */

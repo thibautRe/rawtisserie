@@ -359,6 +359,7 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
       <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg.panel" overflowY="auto">
         <ModulePanel
           params={params}
+          lensCorrection={metadata.lensCorrection ?? null}
           onChange={(p) => store.setLive(p)}
           onCommit={commit}
           cropping={!!cropDraft}

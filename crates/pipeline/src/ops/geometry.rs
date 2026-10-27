@@ -1,13 +1,19 @@
-//! Orientation, straightening, cropping and resampling — done in a single
-//! inverse-mapping pass from output pixels back into the base image.
+//! Lens correction, orientation, straightening, cropping and resampling — done in a
+//! single inverse-mapping pass from output pixels back into the base image.
+//!
+//! Output pixel → (crop, straighten, orientation: affine) → lens-corrected sensor
+//! frame → (lens correction: radial, per channel) → base image.
 
 use crate::decode::Orient;
 use crate::image::{Image, Mask};
-use crate::params::Crop;
+use crate::lens::{Correction, LensProfile};
+use crate::params::{Crop, Lens};
 
 /// Everything needed to map the (sensor-oriented) base image into the output frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
+    /// Strengths of the lens correction, if the file has a profile and it is enabled.
+    pub lens: Option<Lens>,
     pub orient: Orient,
     /// Straighten angle, degrees, clockwise positive.
     pub angle: f32,
@@ -86,8 +92,13 @@ impl Mapping {
     }
 }
 
-/// Render `out_w × out_h` pixels of the transformed `src`.
-pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
+fn correction(t: &Transform, profile: Option<&LensProfile>, sw: f32, sh: f32) -> Option<Correction> {
+    Correction::new(profile?, t.lens.as_ref()?, sw, sh)
+}
+
+/// Render `out_w × out_h` pixels of the transformed `src`, corrected with `profile`
+/// when `t.lens` asks for it.
+pub fn apply(src: &Image, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Image {
     let (sw, sh) = (src.width as f32, src.height as f32);
     let (ow, oh) = t.oriented_size(sw, sh);
     let crop = t.crop.sanitized();
@@ -101,6 +112,10 @@ pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
     let norm = 1.0 / (ss * ss) as f32;
 
     let mut out = Image::new(out_w, out_h);
+    if let Some(lens) = correction(t, profile, sw, sh) {
+        apply_lens(src, &m, &lens, ss, &mut out);
+        return out;
+    }
     for (y, row) in out.pixels.chunks_exact_mut(out_w).enumerate() {
         for (x, px) in row.iter_mut().enumerate() {
             let mut acc = [0.0f32; 3];
@@ -121,14 +136,53 @@ pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
     out
 }
 
+/// [`apply`]'s loop with lens correction: each channel is read at its own position
+/// (unless there's no TCA), and scaled by the vignetting gain. The correction is
+/// evaluated once per output pixel, at its centre, and shared by its subsamples.
+fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, out: &mut Image) {
+    let inv_ss = 1.0 / ss as f32;
+    let norm = 1.0 / (ss * ss) as f32;
+    let out_w = out.width;
+    let (cx, cy) = lens.centre();
+    for (y, row) in out.pixels.chunks_exact_mut(out_w).enumerate() {
+        for (x, px) in row.iter_mut().enumerate() {
+            let (u, v) = m.at(x as f32 + 0.5, y as f32 + 0.5);
+            let (scales, gain) = lens.local(u, v);
+            let mut acc = [0.0f32; 3];
+            for sy in 0..ss {
+                for sx in 0..ss {
+                    let fx = x as f32 + (sx as f32 + 0.5) * inv_ss;
+                    let fy = y as f32 + (sy as f32 + 0.5) * inv_ss;
+                    let (u, v) = m.at(fx, fy);
+                    let (dx, dy) = (u - cx, v - cy);
+                    if lens.tca {
+                        for (c, s) in scales.iter().enumerate() {
+                            acc[c] += src.sample_bilinear_channel(cx + dx * s, cy + dy * s, c);
+                        }
+                    } else {
+                        let s = src.sample_bilinear(cx + dx * scales[1], cy + dy * scales[1]);
+                        acc[0] += s[0];
+                        acc[1] += s[1];
+                        acc[2] += s[2];
+                    }
+                }
+            }
+            *px = acc.map(|a| a * norm * gain);
+        }
+    }
+}
+
 /// Render `out_w × out_h` pixels of the transformed `src` mask, by nearest sampling.
-pub fn apply_mask(src: &Mask, t: &Transform, out_w: usize, out_h: usize) -> Mask {
-    let m = Mapping::new(src.width as f32, src.height as f32, t, out_w, out_h);
+pub fn apply_mask(src: &Mask, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Mask {
+    let (sw, sh) = (src.width as f32, src.height as f32);
+    let m = Mapping::new(sw, sh, t, out_w, out_h);
+    let lens = correction(t, profile, sw, sh);
     let (max_x, max_y) = (src.width as f32 - 1.0, src.height as f32 - 1.0);
     let mut out = Mask::new(out_w, out_h);
     for y in 0..out_h {
         for x in 0..out_w {
             let (u, v) = m.at(x as f32 + 0.5, y as f32 + 0.5);
+            let (u, v) = lens.as_ref().map_or((u, v), |l| l.map_green(u, v));
             if src.get(u.clamp(0.0, max_x) as usize, v.clamp(0.0, max_y) as usize) {
                 out.set(x, y);
             }
@@ -156,6 +210,7 @@ mod tests {
 
     fn transform(flip: bool, quarter_turns: u8) -> Transform {
         Transform {
+            lens: None,
             orient: Orient { flip, quarter_turns },
             angle: 0.0,
             crop: Crop::default(),
@@ -166,7 +221,7 @@ mod tests {
     //          3 4 5
     #[test]
     fn identity() {
-        let out = apply(&indexed(), &transform(false, 0), 3, 2);
+        let out = apply(&indexed(), &transform(false, 0), None, 3, 2);
         assert_eq!(reds(&out), [0., 1., 2., 3., 4., 5.]);
     }
 
@@ -175,14 +230,14 @@ mod tests {
         // 3 0
         // 4 1
         // 5 2
-        let out = apply(&indexed(), &transform(false, 1), 2, 3);
+        let out = apply(&indexed(), &transform(false, 1), None, 2, 3);
         assert_eq!(reds(&out), [3., 0., 4., 1., 5., 2.]);
     }
 
     #[test]
     fn flip_then_rotate_is_transpose() {
         // EXIF 5 (transpose): 0 3 / 1 4 / 2 5
-        let out = apply(&indexed(), &transform(true, 3), 2, 3);
+        let out = apply(&indexed(), &transform(true, 3), None, 2, 3);
         assert_eq!(reds(&out), [0., 3., 1., 4., 2., 5.]);
     }
 
@@ -197,7 +252,7 @@ mod tests {
             },
             ..transform(false, 0)
         };
-        let out = apply(&indexed(), &t, 2, 1);
+        let out = apply(&indexed(), &t, None, 2, 1);
         assert_eq!(reds(&out), [4., 5.]);
     }
 
@@ -206,7 +261,7 @@ mod tests {
         // Mark source pixel 1 (top middle); rotated clockwise it lands at (1, 1).
         let mut mask = Mask::new(3, 2);
         mask.set(1, 0);
-        let out = apply_mask(&mask, &transform(false, 1), 2, 3);
+        let out = apply_mask(&mask, &transform(false, 1), None, 2, 3);
         let marked: Vec<bool> = (0..3).flat_map(|y| (0..2).map(move |x| (x, y))).map(|(x, y)| out.get(x, y)).collect();
         assert_eq!(marked, [false, false, false, true, false, false]);
     }
@@ -218,7 +273,7 @@ mod tests {
         // Rotate 90° CW then mirror == transpose (EXIF 5).
         assert_eq!(Orient::default().then(1, true), Orient::from_exif(5));
         assert_eq!(
-            reds(&apply(&indexed(), &Transform { orient: Orient::default().then(1, true), ..transform(false, 0) }, 2, 3)),
+            reds(&apply(&indexed(), &Transform { orient: Orient::default().then(1, true), ..transform(false, 0) }, None, 2, 3)),
             [0., 3., 1., 4., 2., 5.]
         );
     }

@@ -7,6 +7,7 @@ use rawler::formats::tiff::{Rational, SRational};
 use rawler::rawsource::RawSource;
 use serde::{Deserialize, Serialize};
 
+use crate::lens::LensProfile;
 use crate::{Error, Result};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -41,13 +42,16 @@ pub struct PhotoMetadata {
     pub gps_latitude: Option<f64>,
     pub gps_longitude: Option<f64>,
     pub gps_altitude: Option<f64>,
+    /// Where the lens correction data embedded in the file comes from (`"sony"`), if
+    /// it has any. See [`crate::lens`].
+    pub lens_correction: Option<String>,
 }
 
 /// Read metadata without decoding (decompressing) the sensor data.
 pub fn read(bytes: &[u8]) -> Result<PhotoMetadata> {
     let source = RawSource::new_from_slice(bytes);
     let raw = rawler::decode_dummy(&source).map_err(|e| Error::Decode(e.to_string()))?;
-    Ok(extract(&source, &raw))
+    Ok(extract_with_lens(&source, &raw).0)
 }
 
 pub(crate) fn extract(source: &RawSource, raw: &RawImage) -> PhotoMetadata {
@@ -82,6 +86,14 @@ pub(crate) fn extract(source: &RawSource, raw: &RawImage) -> PhotoMetadata {
         meta.model = meta.model.or_else(|| non_empty(&rm.model));
     }
     meta
+}
+
+/// [`extract`], plus the lens correction data embedded in the file.
+pub(crate) fn extract_with_lens(source: &RawSource, raw: &RawImage) -> (PhotoMetadata, Option<LensProfile>) {
+    let mut meta = extract(source, raw);
+    let profile = meta.make.as_deref().and_then(|make| LensProfile::embedded(source.buf(), make));
+    meta.lens_correction = profile.as_ref().map(|p| p.source.name().to_string());
+    (meta, profile)
 }
 
 fn apply_exif(meta: &mut PhotoMetadata, exif: &Exif) {

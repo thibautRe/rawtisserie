@@ -6,7 +6,16 @@
  * kind run in list order. A kind with no enabled instance is skipped.
  */
 
+import type { PhotoMetadata } from './metadata.ts';
+
 export interface ModuleParams {
+  /** Lens correction from the data embedded in the file. Strengths scale it: 0 = off, 1 = as specified, up to 2. */
+  lens: {
+    distortion: number;
+    /** Transverse chromatic aberration. */
+    tca: number;
+    vignetting: number;
+  };
   geometry: {
     /** Clockwise quarter turns on top of the camera orientation, 0…3. */
     rotation: number;
@@ -74,6 +83,7 @@ export type ModuleKind = keyof ModuleParams;
 
 /** Module kinds, in pipeline order. */
 export const MODULE_KINDS = [
+  'lens',
   'geometry',
   'blur',
   'sharpen',
@@ -85,7 +95,7 @@ export const MODULE_KINDS = [
 ] as const satisfies readonly ModuleKind[];
 
 /** Kinds whose extra instances are dropped on load. */
-export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['geometry', 'filmic'];
+export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry', 'filmic'];
 
 export type ModuleInstance<K extends ModuleKind = ModuleKind> = {
   [P in K]: {
@@ -124,6 +134,7 @@ export const EDIT_PARAMS_VERSION = 5;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
+  lens: { distortion: 1, tca: 1, vignetting: 1 },
   geometry: { rotation: 0, flipHorizontal: false, angle: 0, crop: { x: 0, y: 0, width: 1, height: 1 } },
   blur: { radius: 0 },
   sharpen: { amount: 0, radius: 1 },
@@ -154,6 +165,16 @@ export const defaultEditParams: EditParams = Object.freeze({
   version: EDIT_PARAMS_VERSION,
   modules: [instance('exposure', 'exposure'), instance('filmic', 'filmic')],
 });
+
+/**
+ * The recipe a new image starts with, given what its file contains: the default
+ * recipe, plus lens correction when the file embeds correction data. Mirrors
+ * `EditParams::default_for`.
+ */
+export function defaultRecipe(metadata: Pick<PhotoMetadata, 'lensCorrection'>): EditParams {
+  if (!metadata.lensCorrection) return defaultEditParams;
+  return { ...defaultEditParams, modules: [instance('lens', 'lens'), ...structuredClone(defaultEditParams.modules)] };
+}
 
 const rank = (kind: ModuleKind) => MODULE_KINDS.indexOf(kind);
 const isKind = (kind: unknown): kind is ModuleKind => MODULE_KINDS.includes(kind as ModuleKind);

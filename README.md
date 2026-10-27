@@ -10,7 +10,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   keyboard (rate, pick/reject, label, delete) and correct metadata. Originals are never
   modified; edits live in the database. Each photo has one or more *versions* (like
   darktable duplicates), each with its own rating, labels and edit history.
-- **Developer**: exposure, white balance, saturation and vibrance, shadows/highlights,
+- **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
+  new imports), exposure, white balance, saturation and vibrance, shadows/highlights,
   filmic tone mapping (a port of Ansel's filmic rgb with its AgX colour science),
   sharpening, blur, rotation/flip, straightening and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
@@ -42,7 +43,7 @@ at the end.
 
 ```
 RAW ─▶ decode ─▶ demosaic/bin ─▶ white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
-    ─▶ geometry (orientation, straighten, crop, resample)               cached: per output size
+    ─▶ geometry (lens, orientation, straighten, crop, resample)         cached: per output size
     ─▶ blur ─▶ sharpen                                                  cached: per output size
     ─▶ exposure ─▶ warmth/tint ─▶ saturation/vibrance ─▶ shadows/highlights
     ─▶ filmic (AgX) ─▶ sRGB                                            one fused pass, always re-run
@@ -164,12 +165,13 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
   build the gains and lookup tables, and the GPU would only apply them.
 - Shadows/highlights is global; a guided-filter tone equalizer would preserve local contrast.
 - Filmic is the costliest per-pixel stage (~45 ns/pixel interactively, ~80 ns exact).
-- No histogram, lens correction, denoise, masks or XMP sidecar import/export yet.
+- Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise, masks or XMP sidecar import/export yet.
 - Storage is local disk; the storage module is small enough to swap for S3-compatible storage.
 
 ## Credits
 
 The filmic module is a port of [Ansel](https://ansel.photos)'s `filmicrgb` by
-Aurélien Pierre and contributors, licensed GPL-3.0-or-later. RAW decoding uses
+Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
+embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). RAW decoding uses
 [rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
 [raw.pixls.us](https://raw.pixls.us) (CC0).

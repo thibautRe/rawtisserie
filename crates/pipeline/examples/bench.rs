@@ -13,7 +13,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut dev = Developer::from_bytes(&std::fs::read(&args[1])?)?;
     let fit = RenderSize::fit(size, size);
 
-    let mut p = EditParams::default();
+    // What a new import of this file starts with (lens correction when available).
+    let mut p = EditParams::default_for(dev.metadata());
     p.get_mut::<WhiteBalance>().warmth = 0.2;
     p.get_mut::<Color>().saturation = 0.2;
     p.get_mut::<Color>().vibrance = 0.2;

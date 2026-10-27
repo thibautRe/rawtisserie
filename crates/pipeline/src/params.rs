@@ -15,6 +15,8 @@ mod v2;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::metadata::PhotoMetadata;
+
 /// v2: the sigmoid tone mapper was replaced by filmic; shadows/highlights got their own section.
 /// v3: a list of module instances instead of one section per module.
 /// v4: filmic's latitude/balance became independent toe/shoulder sizes.
@@ -124,6 +126,8 @@ macro_rules! modules {
 }
 
 modules! {
+    /// Lens correction (distortion, TCA, vignetting), in the geometry stage. Single instance.
+    Lens,
     /// Geometry stage: orientation, straighten, crop, resample. Single instance.
     Geometry,
     /// Spatial stage.
@@ -141,7 +145,7 @@ modules! {
 impl ModuleKind {
     /// Kinds whose extra instances are dropped on load.
     pub fn single_instance(self) -> bool {
-        matches!(self, ModuleKind::Geometry | ModuleKind::Filmic)
+        matches!(self, ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
     }
 
     /// The camelCase name used in JSON, also the id of the first instance.
@@ -165,6 +169,17 @@ impl Default for EditParams {
 }
 
 impl EditParams {
+    /// The recipe a new image starts with, given what its file contains: the default
+    /// recipe, plus lens correction when the file embeds correction data. Must match
+    /// `defaultRecipe` in TS.
+    pub fn default_for(metadata: &PhotoMetadata) -> Self {
+        let mut params = Self::default();
+        if metadata.lens_correction.is_some() {
+            params.add(Lens::default());
+        }
+        params
+    }
+
     pub fn from_json(json: &str) -> crate::Result<Self> {
         if json.trim().is_empty() {
             return Ok(Self::default());
@@ -314,6 +329,23 @@ fn migrate_filmic(json: &mut Value) {
         }
     } else if let Some(filmic) = json.get_mut("filmic") {
         fix(filmic);
+    }
+}
+
+/// Lens correction from the data embedded in the file (see [`crate::lens`]). Each
+/// strength scales the camera's correction: 0 is off, 1 as specified, up to 2.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Lens {
+    pub distortion: f32,
+    /// Transverse chromatic aberration.
+    pub tca: f32,
+    pub vignetting: f32,
+}
+
+impl Default for Lens {
+    fn default() -> Self {
+        Self { distortion: 1.0, tca: 1.0, vignetting: 1.0 }
     }
 }
 
@@ -514,6 +546,16 @@ mod tests {
         assert_eq!(p.modules[0].id, "exposure");
         assert_eq!(p.get::<Exposure>().unwrap().ev, 0.7);
         assert_eq!(p.get::<Filmic>(), Some(&Filmic::default()));
+    }
+
+    #[test]
+    fn default_for_adds_lens_correction_when_available() {
+        let plain = PhotoMetadata::default();
+        assert_eq!(EditParams::default_for(&plain), EditParams::default());
+        let sony = PhotoMetadata { lens_correction: Some("sony".into()), ..Default::default() };
+        let p = EditParams::default_for(&sony);
+        assert_eq!(kinds(&p), [ModuleKind::Lens, ModuleKind::Exposure, ModuleKind::Filmic]);
+        assert_eq!(p.modules[0].id, "lens");
     }
 
     #[test]

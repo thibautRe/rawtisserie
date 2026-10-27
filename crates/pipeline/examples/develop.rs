@@ -3,6 +3,8 @@
 //! ```sh
 //! cargo run --release --example develop -- photo.ARW out.jpg [max-size] [params.json]
 //! ```
+//!
+//! Without `params.json`, the image gets the recipe of a new import.
 
 use std::time::Instant;
 
@@ -15,16 +17,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
     let max: u32 = args.get(3).map(|s| s.parse()).transpose()?.unwrap_or(2048);
-    let params = match args.get(4) {
-        Some(path) => EditParams::from_json(&std::fs::read_to_string(path)?)?,
-        None => EditParams::default(),
-    };
-
     let bytes = std::fs::read(&args[1])?;
     let t = Instant::now();
     let mut dev = Developer::from_bytes(&bytes)?;
     eprintln!("decoded in {:?}", t.elapsed());
     eprintln!("{}", serde_json::to_string_pretty(dev.metadata())?);
+
+    let params = match args.get(4) {
+        Some(path) => EditParams::from_json(&std::fs::read_to_string(path)?)?,
+        None => EditParams::default_for(dev.metadata()),
+    };
 
     let t = Instant::now();
     let img = dev.render(&params, RenderSize::fit(max, max), Quality::Final);

@@ -2,7 +2,8 @@
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
 and history); 2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators);
-the `RenderBackend` interface (M6 prerequisite); golden-image tests (before M3).
+the `RenderBackend` interface (M6 prerequisite); golden-image tests (before M3); 3.1 with
+Sony's embedded data (lensfun and other makers still to do).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -29,7 +30,7 @@ Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or mo
 > backward compatible). Spatial order stays blur → sharpen, as before. A missing kind
 > means "off"; the default recipe is exposure + filmic. Unknown kinds are an error in
 > Rust and dropped in TS. Types are still mirrored by hand, cross-checked by tests.
-> `default_recipe(metadata)` is deferred until it has something to decide (3.1).
+> `default_recipe(metadata)` came with 3.1 (`EditParams::default_for`).
 
 Today `EditParams` is a struct with one section per module. v3 becomes:
 
@@ -226,6 +227,24 @@ These ports read the Ansel sources directly (GPL-3.0, see Licensing). They need 
 tests** first: small reference renders of a handful of RAWs, compared within a tolerance.
 
 ### 3.1 Lens correction, auto-applied to new images (L)
+
+> **Partly done: Sony embedded data** (`lens.rs`). As built, following darktable's
+> `lens.cc` (embedded metadata v2): the 16-knot distortion, R/B CA and vignetting
+> arrays are read from the ARW and stored in `PhotoMetadata.lensCorrection` (`"sony"`)
+> and `RawPhoto::lens`. A single-instance `lens` module (first in pipeline order) has
+> three strengths (0–200 %). Vignetting is applied **in the geometry resample** at each
+> sample's source position, not in the base stage, so the base cache and sensor-clip
+> mask don't depend on the lens. The image is always zoomed to the largest frame with
+> no empty borders. The correction comes from lookup tables over r², evaluated once per
+> output pixel and shared by its subsamples. Cost (61 MP, 2400 px, native): +117 ms
+> when geometry re-runs (TCA reads each channel separately), nothing on cached
+> renders. `EditParams::default_for(metadata)` / TS `defaultRecipe` add the module
+> when the file has data. The render worker uses it for versions with no history
+> (new uploads, duplicates from original), and the queue records it as entry 1
+> "Lens correction (auto)" without bumping the revision. The public developer starts
+> with the same entry. Never-edited versions that existed before also get it when
+> they're next rendered; edited ones are untouched. Still to do: lensfun, DNG
+> opcodes, other makers' embedded data, a manual lens override.
 
 - **Sources, in priority order:**
   1. The manufacturer correction profile embedded in the RAW. Sony ARW comes first

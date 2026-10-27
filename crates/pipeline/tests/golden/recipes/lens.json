@@ -1,0 +1,12 @@
+{
+  "size": 0,
+  "recipe": {
+    "version": 5,
+    "modules": [
+      { "kind": "lens" },
+      { "kind": "geometry", "params": { "angle": 1.5, "crop": { "x": 0.85, "y": 0.78, "width": 0.12, "height": 0.15 } } },
+      { "kind": "exposure" },
+      { "kind": "filmic" }
+    ]
+  }
+}

@@ -7,6 +7,7 @@ use rawler::rawsource::RawSource;
 use rawler::{CFA, RawImage, RawImageData};
 
 use crate::color::{self, Mat3};
+use crate::lens::LensProfile;
 use crate::metadata::{self, PhotoMetadata};
 use crate::{Error, Result};
 
@@ -85,14 +86,18 @@ pub struct RawPhoto {
     pub working_from_camera: Mat3,
     pub orientation: Orient,
     pub metadata: PhotoMetadata,
+    /// Lens correction data embedded in the file.
+    pub lens: Option<LensProfile>,
 }
 
 pub fn decode(bytes: &[u8]) -> Result<RawPhoto> {
     let source = RawSource::new_from_slice(bytes);
     let params = RawDecodeParams::default();
     let raw = rawler::decode(&source, &params).map_err(|e| Error::Decode(e.to_string()))?;
-    let metadata = metadata::extract(&source, &raw);
-    RawPhoto::new(raw, metadata)
+    let (metadata, lens) = metadata::extract_with_lens(&source, &raw);
+    let mut photo = RawPhoto::new(raw, metadata)?;
+    photo.lens = lens;
+    Ok(photo)
 }
 
 impl RawPhoto {
@@ -154,6 +159,7 @@ impl RawPhoto {
             working_from_camera,
             orientation,
             metadata,
+            lens: None,
         })
     }
 

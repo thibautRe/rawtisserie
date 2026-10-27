@@ -16,6 +16,8 @@ import { ParamSlider, fmt } from './ParamSlider.tsx';
 
 interface Props {
   params: EditParams;
+  /** Source of the file's embedded lens correction data (`PhotoMetadata.lensCorrection`). */
+  lensCorrection: string | null;
   onChange: (p: EditParams) => void;
   onCommit: (p: EditParams) => void;
   cropping: boolean;
@@ -90,7 +92,7 @@ const BLEACH_LABELS: Record<Bleach, string> = {
   extra: 'Extra bleach',
 };
 
-export function ModulePanel({ params, onChange, onCommit, cropping, aspect, onAspectChange, onStartCrop, onAutoTuneFilmic, autoTuning }: Props) {
+export function ModulePanel({ params, lensCorrection, onChange, onCommit, cropping, aspect, onAspectChange, onStartCrop, onAutoTuneFilmic, autoTuning }: Props) {
   // One instance per kind for now: the panel edits the first one.
   const values = <K extends ModuleKind>(kind: K): ModuleParams[K] => findModule(params, kind)?.params ?? defaultModuleParams[kind];
   const enabled = (kind: ModuleKind) => findModule(params, kind)?.enabled ?? false;
@@ -116,6 +118,9 @@ export function ModulePanel({ params, onChange, onCommit, cropping, aspect, onAs
       onCommit: (v: number) => onCommit(with_(v)),
     };
   }
+
+  // Lens correction strengths: 0 … 200 % of the camera's correction.
+  const percent = { min: 0, max: 2, step: 0.01, format: (v: number) => `${Math.round(v * 100)} %` };
 
   const fm = values('filmic');
   const g = values('geometry');
@@ -196,6 +201,17 @@ export function ModulePanel({ params, onChange, onCommit, cropping, aspect, onAs
 
       <Module title="Blur" {...module('blur')}>
         <ParamSlider label="Radius" min={0} max={50} step={0.1} format={(v) => `${v.toFixed(1)} px`} {...bind('blur', 'radius')} />
+      </Module>
+
+      <Module title="Lens correction" {...module('lens')}>
+        {!lensCorrection && (
+          <Text textStyle="2xs" color="fg.subtle">
+            This file has no lens correction data
+          </Text>
+        )}
+        <ParamSlider label="Distortion" disabled={!lensCorrection} {...percent} {...bind('lens', 'distortion')} />
+        <ParamSlider label="Chromatic aberration" disabled={!lensCorrection} {...percent} {...bind('lens', 'tca')} />
+        <ParamSlider label="Vignetting" disabled={!lensCorrection} {...percent} {...bind('lens', 'vignetting')} />
       </Module>
 
       <Module title="Geometry" {...module('geometry')}>

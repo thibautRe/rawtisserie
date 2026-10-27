@@ -44,6 +44,25 @@ impl Image {
         out
     }
 
+    /// [`sample_bilinear`](Self::sample_bilinear) for one channel.
+    #[inline]
+    pub fn sample_bilinear_channel(&self, x: f32, y: f32, c: usize) -> f32 {
+        let fx = (x - 0.5).clamp(0.0, (self.width - 1) as f32);
+        let fy = (y - 0.5).clamp(0.0, (self.height - 1) as f32);
+        let x0 = fx as usize;
+        let y0 = fy as usize;
+        let x1 = (x0 + 1).min(self.width - 1);
+        let y1 = (y0 + 1).min(self.height - 1);
+        let tx = fx - x0 as f32;
+        let ty = fy - y0 as f32;
+        let (row0, row1) = (y0 * self.width, y1 * self.width);
+        let (a, b) = (self.pixels[row0 + x0][c], self.pixels[row0 + x1][c]);
+        let (d0, d1) = (self.pixels[row1 + x0][c], self.pixels[row1 + x1][c]);
+        let top = a + (b - a) * tx;
+        let bottom = d0 + (d1 - d0) * tx;
+        top + (bottom - top) * ty
+    }
+
     pub fn map_in_place(&mut self, f: impl Fn(Rgb) -> Rgb) {
         for p in &mut self.pixels {
             *p = f(*p);
