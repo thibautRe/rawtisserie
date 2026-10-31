@@ -133,11 +133,13 @@ modules! {
     /// Spatial stage.
     Blur,
     Sharpen,
+    ContrastEqualizer,
     /// Point stage (one fused pass), in linear Rec.2020.
     Exposure,
     WhiteBalance,
     Color,
     ShadowsHighlights,
+    ColorPrimaries,
     /// Scene-referred → display-referred. Single instance.
     Filmic,
 }
@@ -392,6 +394,123 @@ pub struct ShadowsHighlights {
     pub shadows: f32,
     /// Recovers (-) or boosts (+) highlights, -1 … +1.
     pub highlights: f32,
+}
+
+/// Colour primaries, after Ansel's `colorprimaries.c`: moves the six primary and
+/// secondary colours of a recessed Rec.2020 gamut, and spreads those edits smoothly
+/// over all colours. Units are Ansel's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ColorPrimaries {
+    pub red: Primary,
+    pub yellow: Primary,
+    pub green: Primary,
+    pub cyan: Primary,
+    pub blue: Primary,
+    pub magenta: Primary,
+    /// Scene exposure of the brightest colour the edits reach, in EV, -2 … 16. Brighter
+    /// pixels keep the edit at the gamut boundary.
+    pub white_level: f32,
+    /// How saturated the control colours are, 0 … 100 % of the Rec.2020 gamut.
+    pub gamut_coverage: f32,
+    /// Reach of each edit along brightness, 1 … 100 %.
+    pub brightness_smoothing: f32,
+    /// Reach of each edit along saturation, 0.01 … 2.
+    pub saturation_smoothing: f32,
+    /// Reach of each edit around the hue circle, in radians, 0.01 … 2π.
+    pub hue_smoothing: f32,
+    /// Saturation below which edits fade out, so greys stay grey; 0 … 2 (0 = off).
+    pub neutral_protection: f32,
+}
+
+impl Default for ColorPrimaries {
+    fn default() -> Self {
+        Self {
+            red: Primary::default(),
+            yellow: Primary::default(),
+            green: Primary::default(),
+            cyan: Primary::default(),
+            blue: Primary::default(),
+            magenta: Primary::default(),
+            white_level: 1.0,
+            gamut_coverage: 67.0,
+            brightness_smoothing: 100.0,
+            // Ansel's 1/√2.
+            saturation_smoothing: 0.7071,
+            hue_smoothing: 0.7071,
+            neutral_protection: 0.0,
+        }
+    }
+}
+
+impl ColorPrimaries {
+    /// Red, yellow, green, cyan, blue, magenta.
+    pub fn nodes(&self) -> [&Primary; 6] {
+        [&self.red, &self.yellow, &self.green, &self.cyan, &self.blue, &self.magenta]
+    }
+
+    /// Whether any colour is moved; otherwise the module does nothing.
+    pub fn is_identity(&self) -> bool {
+        self.nodes().iter().all(|n| **n == Primary::default())
+    }
+}
+
+/// The edit of one colour primary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Primary {
+    /// Hue rotation in degrees, -180 … 180.
+    pub hue: f32,
+    /// Saturation shift in %, -100 … 100.
+    pub saturation: f32,
+    /// Brightness shift, -0.25 … 0.25.
+    pub brightness: f32,
+}
+
+/// Number of control nodes of each contrast equalizer curve.
+pub const EQUALIZER_NODES: usize = 6;
+
+/// Contrast equalizer, after Ansel's `atrous.c`: local contrast and denoising per
+/// detail size, from coarse (first node, about a fifth of the image) to fine (last
+/// node, a few full-resolution pixels). Each curve passes through its six nodes,
+/// evenly spaced; values are 0 … 1, as in Ansel.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContrastEqualizer {
+    /// Luminance detail gain, `(2y)²`: 0.5 leaves the image alone, 1 is ×4.
+    pub luma: [f32; EQUALIZER_NODES],
+    /// Colour detail gain, like `luma`.
+    pub chroma: [f32; EQUALIZER_NODES],
+    /// Edge awareness: higher values keep strong edges out of the coarser sizes, which
+    /// avoids halos. 0.5 by default.
+    pub edges: [f32; EQUALIZER_NODES],
+    /// Luminance noise threshold: detail weaker than this is removed. 0 = off.
+    pub luma_denoise: [f32; EQUALIZER_NODES],
+    /// Colour noise threshold, like `luma_denoise`.
+    pub chroma_denoise: [f32; EQUALIZER_NODES],
+    /// Strength of the curves relative to their defaults, -2 … 2 (1 = as drawn).
+    pub mix: f32,
+}
+
+impl Default for ContrastEqualizer {
+    fn default() -> Self {
+        Self {
+            luma: [0.5; EQUALIZER_NODES],
+            chroma: [0.5; EQUALIZER_NODES],
+            edges: [0.5; EQUALIZER_NODES],
+            luma_denoise: [0.0; EQUALIZER_NODES],
+            chroma_denoise: [0.0; EQUALIZER_NODES],
+            mix: 1.0,
+        }
+    }
+}
+
+impl ContrastEqualizer {
+    /// Whether the curves change the image (the edges curve alone doesn't).
+    pub fn is_identity(&self) -> bool {
+        let d = Self::default();
+        self.mix == 0.0 || (self.luma == d.luma && self.chroma == d.chroma && self.luma_denoise == d.luma_denoise && self.chroma_denoise == d.chroma_denoise)
+    }
 }
 
 /// Filmic RGB tone mapping (scene-referred → display-referred), after Ansel.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
+  MODULE_KINDS,
   defaultEditParams,
   defaultRecipe,
   defaultModuleParams,
@@ -59,6 +60,16 @@ const samples: unknown[] = [
     ],
   },
   { version: 5, modules: [{ kind: 'filmic' }, { kind: 'lens', params: { tca: 0 } }, { kind: 'lens', params: { tca: 2 } }] },
+  // Every kind with its defaults.
+  { version: 5, modules: MODULE_KINDS.map((kind) => ({ kind })) },
+  {
+    version: 5,
+    modules: [
+      { kind: 'colorPrimaries', params: { red: { hue: 12.5 }, blue: { saturation: -20, brightness: 0.05 }, whiteLevel: 2 } },
+      { kind: 'contrastEqualizer', params: { luma: [0.5, 0.6, 0.7, 0.6, 0.5, 0.5], lumaDenoise: [0, 0, 0, 0, 0.2, 0.4], mix: 0.5 } },
+      { kind: 'contrastEqualizer', label: 'fine', params: { edges: [1, 1, 1, 0.5, 0.5, 0.5] } },
+    ],
+  },
 ];
 
 test('normalizeEditParams matches Rust', () => {
@@ -80,6 +91,18 @@ test('normalizeEditParams fills gaps and ignores junk', () => {
   assert.deepEqual(findModule(p, 'exposure')!.params, { ev: 2, black: 0 });
   assert.deepEqual(findModule(p, 'color')!.params, defaultModuleParams.color);
   assert.equal(findModule(p, 'filmic')!.params.bleach, 'medium');
+});
+
+test('curves must be whole', () => {
+  const p = normalizeEditParams({
+    version: 5,
+    modules: [{ kind: 'contrastEqualizer', params: { luma: [0.7, 0.7], chroma: [1, 1, 1, 1, 1, 'x'], edges: [1, 1, 1, 1, 1, 1] } }],
+  });
+  const eq = findModule(p, 'contrastEqualizer')!.params;
+  assert.deepEqual(eq.luma, defaultModuleParams.contrastEqualizer.luma);
+  assert.deepEqual(eq.chroma, defaultModuleParams.contrastEqualizer.chroma);
+  assert.deepEqual(eq.edges, [1, 1, 1, 1, 1, 1]);
+  assert.notEqual(eq.lumaDenoise, defaultModuleParams.contrastEqualizer.lumaDenoise, 'defaults are copied');
 });
 
 test('v2 recipes become one instance per section', () => {

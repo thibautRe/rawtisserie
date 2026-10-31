@@ -35,6 +35,25 @@ export interface ModuleParams {
     /** Gaussian sigma in full-resolution pixels. */
     radius: number;
   };
+  /**
+   * Contrast equalizer, after Ansel's: local contrast and denoising per detail size.
+   * Each curve has `EQUALIZER_NODES` evenly spaced nodes, from coarse (first, about
+   * a fifth of the image) to fine (last, a few pixels), each 0 … 1.
+   */
+  contrastEqualizer: {
+    /** Luminance detail gain, (2y)²: 0.5 leaves the image alone, 1 is ×4. */
+    luma: number[];
+    /** Colour detail gain, like `luma`. */
+    chroma: number[];
+    /** Edge awareness: higher keeps strong edges out of coarse sizes (fewer halos). */
+    edges: number[];
+    /** Luminance noise threshold; 0 = off. */
+    lumaDenoise: number[];
+    /** Colour noise threshold; 0 = off. */
+    chromaDenoise: number[];
+    /** Strength of the curves relative to their defaults, -2 … 2. */
+    mix: number;
+  };
   exposure: {
     /** Exposure compensation, EV. */
     ev: number;
@@ -59,6 +78,27 @@ export interface ModuleParams {
     /** -1 … +1. */
     highlights: number;
   };
+  /** Colour primaries, after Ansel's: moves six control colours. Units are Ansel's. */
+  colorPrimaries: {
+    red: Primary;
+    yellow: Primary;
+    green: Primary;
+    cyan: Primary;
+    blue: Primary;
+    magenta: Primary;
+    /** Scene exposure of the brightest colour the edits reach, EV, -2 … 16. */
+    whiteLevel: number;
+    /** Saturation of the control colours, 0 … 100 % of Rec.2020. */
+    gamutCoverage: number;
+    /** Reach of each edit along brightness, 1 … 100 %. */
+    brightnessSmoothing: number;
+    /** Reach of each edit along saturation, 0.01 … 2. */
+    saturationSmoothing: number;
+    /** Reach of each edit around the hue circle, radians, 0.01 … 2π. */
+    hueSmoothing: number;
+    /** Saturation below which edits fade out (greys stay grey), 0 … 2; 0 = off. */
+    neutralProtection: number;
+  };
   /** Filmic RGB tone mapping, after Ansel (spline v3, colour science v8 "AgX"). */
   filmic: {
     /** Scene exposure mapped to display white, EV relative to middle grey. */
@@ -81,16 +121,36 @@ export interface ModuleParams {
 
 export type ModuleKind = keyof ModuleParams;
 
+/** The edit of one colour primary. */
+export interface Primary {
+  /** Hue rotation, degrees, -180 … 180. */
+  hue: number;
+  /** Saturation shift, %, -100 … 100. */
+  saturation: number;
+  /** Brightness shift, -0.25 … 0.25. */
+  brightness: number;
+}
+
+export const PRIMARIES = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'] as const;
+export type PrimaryName = (typeof PRIMARIES)[number];
+
+/** Number of nodes of each contrast equalizer curve. */
+export const EQUALIZER_NODES = 6;
+export const EQUALIZER_CURVES = ['luma', 'chroma', 'edges', 'lumaDenoise', 'chromaDenoise'] as const;
+export type EqualizerCurve = (typeof EQUALIZER_CURVES)[number];
+
 /** Module kinds, in pipeline order. */
 export const MODULE_KINDS = [
   'lens',
   'geometry',
   'blur',
   'sharpen',
+  'contrastEqualizer',
   'exposure',
   'whiteBalance',
   'color',
   'shadowsHighlights',
+  'colorPrimaries',
   'filmic',
 ] as const satisfies readonly ModuleKind[];
 
@@ -138,11 +198,29 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
   geometry: { rotation: 0, flipHorizontal: false, angle: 0, crop: { x: 0, y: 0, width: 1, height: 1 } },
   blur: { radius: 0 },
   sharpen: { amount: 0, radius: 1 },
+  contrastEqualizer: {
+    luma: Array<number>(EQUALIZER_NODES).fill(0.5),
+    chroma: Array<number>(EQUALIZER_NODES).fill(0.5),
+    edges: Array<number>(EQUALIZER_NODES).fill(0.5),
+    lumaDenoise: Array<number>(EQUALIZER_NODES).fill(0),
+    chromaDenoise: Array<number>(EQUALIZER_NODES).fill(0),
+    mix: 1,
+  },
   // Ansel's default push for RAW files.
   exposure: { ev: 0.7, black: 0 },
   whiteBalance: { warmth: 0, tint: 0 },
   color: { saturation: 0, vibrance: 0 },
   shadowsHighlights: { shadows: 0, highlights: 0 },
+  colorPrimaries: {
+    ...(Object.fromEntries(PRIMARIES.map((p) => [p, { hue: 0, saturation: 0, brightness: 0 }])) as Record<PrimaryName, Primary>),
+    whiteLevel: 1,
+    gamutCoverage: 67,
+    brightnessSmoothing: 100,
+    // Ansel's 1/√2.
+    saturationSmoothing: 0.7071,
+    hueSmoothing: 0.7071,
+    neutralProtection: 0,
+  },
   // Ansel's defaults for RAW files, paired with the +0.7 EV exposure default.
   filmic: {
     whiteExposure: 3.15,
@@ -289,8 +367,12 @@ function migrateFilmic(raw: Record<string, unknown>) {
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
 
-/** `base` with the fields of `patch` that have the right type. */
+/** `base` with the fields of `patch` that have the right type (arrays: whole, same length). */
 function merge<T>(base: T, patch: DeepPartial<T> | undefined): T {
+  if (Array.isArray(base)) {
+    const ok = Array.isArray(patch) && patch.length === base.length && patch.every((v, i) => typeof v === typeof base[i]);
+    return (ok ? [...patch] : [...base]) as T;
+  }
   if (patch === undefined || patch === null || typeof base !== 'object' || base === null) {
     return (patch ?? base) as T;
   }

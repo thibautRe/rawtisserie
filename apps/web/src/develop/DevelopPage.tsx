@@ -210,6 +210,7 @@ export function LibraryDevelopPage() {
   const backend = useLocalBackend();
   const { data: photo, error: photoError } = usePhoto(id);
   const save = useSaveHistory(id!);
+  const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
   const [loaded, setLoaded] = useState<{ url: string; metadata: PhotoMetadata } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -267,6 +268,7 @@ export function LibraryDevelopPage() {
       save={save}
       revision={photo.revision}
       versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
+      onBack={() => navigate('/')}
     />
   );
 }

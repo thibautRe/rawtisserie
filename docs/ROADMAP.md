@@ -1,9 +1,10 @@
 # 🍗 RAWtisserie roadmap
 
-Status: plan, written 2026-10-27. Done: 1.1 (recipe v3), except `default_recipe(metadata)`; 1.2 (versions
-and history); 2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators);
-the `RenderBackend` interface (M6 prerequisite); golden-image tests (before M3); 3.1 with
-Sony's embedded data (lensfun and other makers still to do).
+Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and history);
+2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators); the
+`RenderBackend` interface (M6 prerequisite); golden-image tests (before M3); 3.1 with
+Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
+3.3 (contrast equalizer).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -268,6 +269,17 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
 
 ### 3.2 Colour primaries (M–L, after 1.1)
 
+> **Done** (`ops/primaries.rs`). As built: a faithful port, including the anchors from
+> `colorequal_shared.c` and the HLG Rec.2020 table space. It runs in the point pass,
+> after shadows/highlights and before filmic, and does nothing until a colour is moved.
+> The 64³ table stores linear changes rather than HLG output (no decode per pixel; as
+> accurate as Ansel's). The anchors sit at fixed colours, so their weight on every table
+> node is cached (19 MB, ~100 ms to build, redone only for gamut coverage and smoothing)
+> and moving a colour rebuilds the 64³ table in ~17 ms. A 33³ draft table was tried
+> and was visibly off (up to 27 levels). Ansel's interpolation choice is left out (tetrahedral). UI:
+> six swatches select a colour with three sliders; gamut and smoothing settings are
+> folded away.
+
 - Port Ansel's `colorprimaries.c`: six hue nodes (R, Y, G, C, B, M) × hue / saturation /
   brightness, plus gamut coverage, white level, smoothing (brightness, saturation, hue)
   and neutral protection, baked into a 3D colour LUT.
@@ -279,6 +291,16 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
   version.
 
 ### 3.3 Contrast equalizer (L)
+
+> **Done** (`ops/equalizer.rs`, `CurveEditor.tsx`). As built: Ansel's five curves (luma,
+> chroma, edges, luma/chroma denoise; six fixed nodes each, Catmull-Rom) and mix, with
+> its band sizes and gain/threshold formulas. Colour is `(RGB − Y) / (Y + ε)`, which
+> fades near black instead of amplifying shadow noise. The 5×5 edge-aware filter is
+> separable (rows then columns), and luminance and colour are decomposed separately,
+> skipping a neutral one. The bands are **not cached**: ~60 MB per megapixel was too
+> much next to the other caches. A curve edit re-runs the module, ~75 ms per megapixel
+> for luminance (native). wasm SIMD would be the next speed-up. The curve editor has
+> fixed node positions (vertical drag, double-click reset, arrow keys).
 
 - À-trous wavelet decomposition (B-spline, edge-aware option) into 6–8 frequency bands
   in full-resolution pixel units. A curve over frequency sets per-band detail boost,

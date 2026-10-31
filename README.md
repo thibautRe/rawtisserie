@@ -12,8 +12,9 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   darktable duplicates), each with its own rating, labels and edit history.
 - **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
   new imports), exposure, white balance, saturation and vibrance, shadows/highlights,
-  filmic tone mapping (a port of Ansel's filmic rgb with its AgX colour science),
-  sharpening, blur, rotation/flip, straightening and cropping. The image sits on a
+  colour primaries and a contrast equalizer (ports of Ansel's), filmic tone mapping (a
+  port of Ansel's filmic rgb with its AgX colour science), sharpening, blur,
+  rotation/flip, straightening and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
   display (O) and sensor (Shift+O) clipping indicators.
   It runs **in your browser** on a WebAssembly build of the pixel pipeline.
@@ -44,9 +45,9 @@ at the end.
 ```
 RAW ─▶ decode ─▶ demosaic/bin ─▶ white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
     ─▶ geometry (lens, orientation, straighten, crop, resample)         cached: per output size
-    ─▶ blur ─▶ sharpen                                                  cached: per output size
+    ─▶ blur ─▶ sharpen ─▶ contrast equalizer                            cached: per output size
     ─▶ exposure ─▶ warmth/tint ─▶ saturation/vibrance ─▶ shadows/highlights
-    ─▶ filmic (AgX) ─▶ sRGB                                            one fused pass, always re-run
+    ─▶ colour primaries ─▶ filmic (AgX) ─▶ sRGB                         one fused pass, always re-run
 ```
 
 Each cached stage is keyed by the parameters it depends on, so a slider only re-runs
@@ -55,9 +56,11 @@ fused per-pixel pass. Its curves are baked into lookup tables indexed by the top
 of the `f32` value (log-spaced, no `log`/`pow` per pixel). For interactive renders,
 filmic's whole colour transform is also baked into a 65³ 3D table over log-encoded RGB,
 built once the filmic settings stop changing. It stays within 1 level (8-bit) of the
-exact computation for 99.9 % of pixels. Exports and thumbnails always use the exact path. Blur and sharpen come before the per-pixel stages:
+exact computation for 99.9 % of pixels. Exports and thumbnails always use the exact path.
+Colour primaries uses a 64³ table too. Moving a colour rebuilds it from cached anchor
+weights in ~17 ms; gamut coverage and smoothing rebuild the weights (~100 ms, 19 MB). Blur and sharpen come before the per-pixel stages:
 exposure, white balance and saturation are linear, so the order doesn't change the
-result. Two output sizes are cached, because while a slider is being dragged the UI
+result. The contrast equalizer works on log luminance, so exposure doesn't affect it either. Two output sizes are cached, because while a slider is being dragged the UI
 renders a ~1 MP draft and renders full size on release.
 
 Previews bin photosites ("superpixel") down to roughly the output size instead of
@@ -140,6 +143,23 @@ from the darkest luminance, both scaled by *dynamic range scaling*. The one devi
 is that the extreme 0.01 % at each end is ignored, so a few noisy or hot pixels can't
 decide the range.
 
+### Colour primaries and contrast equalizer
+
+`ops/primaries.rs` ports Ansel's `colorprimaries` (and the parts of `colorequal_shared`
+it uses): six control colours edited in dt UCS hue/saturation/brightness, spread over
+all colours by a local field around the grey axis of HLG-encoded Rec.2020, baked into
+a 3D table. The one deviation: the table stores each colour's linear change, which
+skips the HLG decode per pixel and leaves colours outside the edits' reach untouched.
+It is as close to the exact field as Ansel's table.
+
+`ops/equalizer.rs` follows Ansel's `atrous` (contrast equalizer): an edge-aware à-trous
+wavelet decomposition with per-band gain and denoise curves over detail size, from 5 px
+to a fifth of the image. It deviates for speed: it decomposes log₂ luminance and colour
+relative to luminance instead of Lab, so exposure only shifts the residual, and each
+5×5 edge-aware filter is applied as a row pass then a column pass. Luminance and colour
+are decomposed separately, and a neutral one is skipped. Thresholds and edge weights
+are converted from Lab units at about 12 L* per EV and 50 a*b* per unit of colour.
+
 ## Keyboard shortcuts
 
 **Library**: `0`–`5` rate · `P` pick · `X` reject · `U` unflag · `6`–`9` colour labels ·
@@ -149,7 +169,8 @@ the original) · Delete deletes · Esc clears.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
 colour-assessment frame · hold `\` to compare with the unedited image · `C` crop
-(Enter applies, Esc cancels) · double-click a slider to reset it.
+(Enter applies, Esc cancels) · Esc closes an open menu, otherwise goes back to the
+library · double-click a slider to reset it.
 
 ## Known limitations and next steps
 
@@ -165,13 +186,18 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
   build the gains and lookup tables, and the GPU would only apply them.
 - Shadows/highlights is global; a guided-filter tone equalizer would preserve local contrast.
 - Filmic is the costliest per-pixel stage (~45 ns/pixel interactively, ~80 ns exact).
+- The contrast equalizer is the costliest spatial stage: ~75 ms per megapixel when only
+  luminance is edited, about twice that with colour. It re-runs on curve edits; caching
+  the bands would make those cheap but costs ~60 MB per megapixel. Building the wasm
+  module with SIMD (`+simd128`) would speed it up.
 - Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise, masks or XMP sidecar import/export yet.
 - Storage is local disk; the storage module is small enough to swap for S3-compatible storage.
 
 ## Credits
 
-The filmic module is a port of [Ansel](https://ansel.photos)'s `filmicrgb` by
-Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
+The filmic, colour primaries and contrast equalizer modules are ports of
+[Ansel](https://ansel.photos)'s `filmicrgb`, `colorprimaries` and `atrous` by Aurélien
+Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
 embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). RAW decoding uses
 [rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
 [raw.pixls.us](https://raw.pixls.us) (CC0).

@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use rawtisserie_pipeline::params::{Color, EditParams, Exposure, Filmic, Geometry, ShadowsHighlights, Sharpen, WhiteBalance};
+use rawtisserie_pipeline::params::{Color, ColorPrimaries, ContrastEqualizer, EditParams, Exposure, Filmic, Geometry, ShadowsHighlights, Sharpen, WhiteBalance};
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, RenderSize};
 
@@ -49,6 +49,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:<34} {:>7.1} ms  ({}×{})", if i == 0 { "drag (draft, first)" } else { "drag (draft)" }, t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     }
     time("release (full, cached)", &mut dev, &p);
+
+    // Colour primaries: drag a slider, release, then other sliders.
+    for i in 0..3 {
+        p.get_mut::<ColorPrimaries>().red.hue += 5.0;
+        let t = Instant::now();
+        let img = dev.render(&p, draft, Quality::Interactive);
+        println!("{:<34} {:>7.1} ms  ({}×{})", if i == 0 { "primaries drag (draft, first)" } else { "primaries drag (draft)" }, t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
+    time("primaries release", &mut dev, &p);
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider with primaries", &mut dev, &p);
+
+    // Contrast equalizer: drag a curve node at draft size, release.
+    for i in 0..3 {
+        p.get_mut::<ContrastEqualizer>().luma[3] = 0.6 + 0.02 * i as f32;
+        let t = Instant::now();
+        let img = dev.render(&p, draft, Quality::Interactive);
+        println!("{:<34} {:>7.1} ms  ({}×{})", "equalizer drag (draft)", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
+    time("equalizer release (full)", &mut dev, &p);
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider with equalizer", &mut dev, &p);
 
     let overlays = Overlays { display: Some(DisplayClipping::default()), sensor: true, stripes: 0.0 };
     for label in ["clipping indicators (first)", "clipping indicators"] {

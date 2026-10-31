@@ -1,0 +1,16 @@
+{
+  "size": 400,
+  "recipe": {
+    "version": 5,
+    "modules": [
+      { "kind": "exposure" },
+      { "kind": "colorPrimaries", "params": {
+          "red": { "hue": 10, "saturation": 20, "brightness": -0.05 },
+          "green": { "hue": -15, "saturation": -30 },
+          "blue": { "saturation": 25, "brightness": 0.08 },
+          "yellow": { "hue": -8 },
+          "neutralProtection": 0.1 } },
+      { "kind": "filmic" }
+    ]
+  }
+}

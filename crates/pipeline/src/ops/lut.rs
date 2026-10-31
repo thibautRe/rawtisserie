@@ -55,6 +55,16 @@ pub fn log2_fast(x: f32) -> f32 {
     exponent as f32 + poly
 }
 
+/// 2^x: exponent bits + quintic on the fraction (relative error < 1e-6), for -126 … 127.
+#[inline]
+pub fn exp2_fast(x: f32) -> f32 {
+    let x = x.clamp(-126.0, 127.0);
+    let i = x.floor();
+    let f = x - i;
+    let poly = 1.0 + f * (0.693_151_3 + f * (0.240_164_4 + f * (0.055_799_9 + f * (0.009_017_03 + f * 0.001_867_13))));
+    poly * f32::from_bits(((i as i32 + 127) as u32) << 23)
+}
+
 /// A 3D lookup table over log-encoded RGB, tetrahedrally interpolated. Outputs
 /// must lie in [0, 1]; they are stored as 16-bit integers (1.6 MB for 65³).
 pub struct Lut3d {
@@ -128,6 +138,13 @@ mod tests {
     fn log2_fast_is_accurate() {
         for x in [1e-7f32, 0.001, 0.18, 0.5, 1.0, 1.7, 3.0, 1000.0] {
             assert!((log2_fast(x) - x.log2()).abs() < 5e-5, "{x}");
+        }
+    }
+
+    #[test]
+    fn exp2_fast_is_accurate() {
+        for x in [-30.0f32, -7.3, -1.0, -0.5, 0.0, 0.25, 1.0, 3.7, 20.0] {
+            assert!((exp2_fast(x) / x.exp2() - 1.0).abs() < 1e-5, "{x}");
         }
     }
 

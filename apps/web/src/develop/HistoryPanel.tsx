@@ -2,6 +2,7 @@ import { Box, HStack, Heading, IconButton, Stack, Text } from '@chakra-ui/react'
 import type { EditParams, ModuleKind } from '@rawtisserie/pipeline';
 import {
   Aperture,
+  AudioWaveform,
   Contrast,
   Crop,
   Droplet,
@@ -11,6 +12,7 @@ import {
   Layers,
   type LucideIcon,
   Palette,
+  Rainbow,
   Sun,
   Thermometer,
   Triangle,
@@ -24,10 +26,12 @@ const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   geometry: Crop,
   blur: Droplet,
   sharpen: Triangle,
+  contrastEqualizer: AudioWaveform,
   exposure: Sun,
   whiteBalance: Thermometer,
   color: Palette,
   shadowsHighlights: Contrast,
+  colorPrimaries: Rainbow,
   filmic: Film,
 };
 

@@ -3,15 +3,22 @@ import {
   BLEACH_LEVELS,
   type Bleach,
   type EditParams,
+  EQUALIZER_CURVES,
+  type EqualizerCurve,
   type ModuleKind,
   type ModuleParams,
+  PRIMARIES,
+  type Primary,
+  type PrimaryName,
   defaultModuleParams,
   findModule,
   isModuleModified,
   resetModule,
   updateModule,
 } from '@rawtisserie/pipeline';
-import { Crop, FlipHorizontal2, RotateCcw, RotateCcwSquare, RotateCwSquare, WandSparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Crop, FlipHorizontal2, RotateCcw, RotateCcwSquare, RotateCwSquare, WandSparkles } from 'lucide-react';
+import { useState } from 'react';
+import { CurveEditor } from './CurveEditor.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 
 interface Props {
@@ -84,6 +91,23 @@ function Module({
   );
 }
 
+const EQUALIZER_LABELS: Record<EqualizerCurve, string> = {
+  luma: 'Luminance contrast',
+  chroma: 'Color contrast',
+  edges: 'Edge awareness',
+  lumaDenoise: 'Luminance denoise',
+  chromaDenoise: 'Color denoise',
+};
+
+const PRIMARY_SWATCHES: Record<PrimaryName, string> = {
+  red: 'red.solid',
+  yellow: 'yellow.solid',
+  green: 'green.solid',
+  cyan: 'cyan.solid',
+  blue: 'blue.solid',
+  magenta: 'pink.solid',
+};
+
 const BLEACH_LABELS: Record<Bleach, string> = {
   none: 'No bleach',
   low: 'Low bleach',
@@ -93,6 +117,10 @@ const BLEACH_LABELS: Record<Bleach, string> = {
 };
 
 export function ModulePanel({ params, lensCorrection, onChange, onCommit, cropping, aspect, onAspectChange, onStartCrop, onAutoTuneFilmic, autoTuning }: Props) {
+  const [curve, setCurve] = useState<EqualizerCurve>('luma');
+  const [primary, setPrimary] = useState<PrimaryName>('red');
+  const [primariesAdvanced, setPrimariesAdvanced] = useState(false);
+
   // One instance per kind for now: the panel edits the first one.
   const values = <K extends ModuleKind>(kind: K): ModuleParams[K] => findModule(params, kind)?.params ?? defaultModuleParams[kind];
   const enabled = (kind: ModuleKind) => findModule(params, kind)?.enabled ?? false;
@@ -122,6 +150,18 @@ export function ModulePanel({ params, lensCorrection, onChange, onCommit, croppi
   // Lens correction strengths: 0 … 200 % of the camera's correction.
   const percent = { min: 0, max: 2, step: 0.01, format: (v: number) => `${Math.round(v * 100)} %` };
 
+  /** Props for a slider bound to one field of a colour primary. */
+  function bindPrimary(name: PrimaryName, key: keyof Primary) {
+    const with_ = (v: number) => edit('colorPrimaries', { [name]: { ...values('colorPrimaries')[name], [key]: v } });
+    return {
+      value: values('colorPrimaries')[name][key],
+      defaultValue: defaultModuleParams.colorPrimaries[name][key],
+      onChange: (v: number) => onChange(with_(v)),
+      onCommit: (v: number) => onCommit(with_(v)),
+    };
+  }
+
+  const eq = values('contrastEqualizer');
   const fm = values('filmic');
   const g = values('geometry');
   const cropped = g.crop.x !== 0 || g.crop.y !== 0 || g.crop.width !== 1 || g.crop.height !== 1;
@@ -146,6 +186,77 @@ export function ModulePanel({ params, lensCorrection, onChange, onCommit, croppi
       <Module title="Shadows & highlights" {...module('shadowsHighlights')}>
         <ParamSlider label="Shadows" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'shadows')} />
         <ParamSlider label="Highlights" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'highlights')} />
+      </Module>
+
+      <Module title="Color primaries" {...module('colorPrimaries')}>
+        <HStack gap="1" justify="space-between" role="radiogroup" aria-label="Primary">
+          {PRIMARIES.map((name) => {
+            const p = values('colorPrimaries')[name];
+            const edited = p.hue !== 0 || p.saturation !== 0 || p.brightness !== 0;
+            return (
+              <Box
+                key={name}
+                as="button"
+                role="radio"
+                aria-checked={primary === name}
+                aria-label={name}
+                title={name}
+                flex="1"
+                h="5"
+                borderRadius="sm"
+                bg={PRIMARY_SWATCHES[name]}
+                cursor="pointer"
+                position="relative"
+                outline={primary === name ? '2px solid' : 'none'}
+                outlineColor="fg"
+                outlineOffset="1px"
+                onClick={() => setPrimary(name)}
+              >
+                {edited && <Box position="absolute" top="1" right="1" boxSize="1.5" borderRadius="full" bg="white" boxShadow="xs" />}
+              </Box>
+            );
+          })}
+        </HStack>
+        <ParamSlider label="Hue" min={-180} max={180} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`} {...bindPrimary(primary, 'hue')} />
+        <ParamSlider label="Saturation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bindPrimary(primary, 'saturation')} />
+        <ParamSlider label="Brightness" min={-0.25} max={0.25} step={0.005} format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`} {...bindPrimary(primary, 'brightness')} />
+        <Button size="2xs" variant="ghost" alignSelf="start" px="0" onClick={() => setPrimariesAdvanced(!primariesAdvanced)}>
+          {primariesAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut and smoothing
+        </Button>
+        {primariesAdvanced && (
+          <>
+            <ParamSlider label="White level" min={-2} max={16} step={0.05} format={fmt.ev} {...bind('colorPrimaries', 'whiteLevel')} />
+            <ParamSlider label="Gamut coverage" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'gamutCoverage')} />
+            <ParamSlider label="Neutral protection" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'neutralProtection')} />
+            <ParamSlider label="Brightness smoothing" min={1} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'brightnessSmoothing')} />
+            <ParamSlider label="Saturation smoothing" min={0.01} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'saturationSmoothing')} />
+            <ParamSlider label="Hue smoothing" min={0.01} max={6.28} step={0.01} format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`} {...bind('colorPrimaries', 'hueSmoothing')} />
+          </>
+        )}
+      </Module>
+
+      <Module title="Contrast equalizer" {...module('contrastEqualizer')}>
+        <NativeSelect.Root size="xs">
+          <NativeSelect.Field value={curve} onChange={(e) => setCurve(e.target.value as EqualizerCurve)} aria-label="Curve">
+            {EQUALIZER_CURVES.map((c) => (
+              <option key={c} value={c}>
+                {EQUALIZER_LABELS[c]}
+              </option>
+            ))}
+          </NativeSelect.Field>
+          <NativeSelect.Indicator />
+        </NativeSelect.Root>
+        <CurveEditor
+          label={EQUALIZER_LABELS[curve]}
+          values={eq[curve]}
+          defaults={defaultModuleParams.contrastEqualizer[curve]}
+          neutral={defaultModuleParams.contrastEqualizer[curve][0]!}
+          left="coarse"
+          right="fine"
+          onChange={(v) => onChange(edit('contrastEqualizer', { [curve]: v }))}
+          onCommit={(v) => onCommit(edit('contrastEqualizer', { [curve]: v }))}
+        />
+        <ParamSlider label="Mix" min={-2} max={2} step={0.01} format={fmt.fixed2} {...bind('contrastEqualizer', 'mix')} />
       </Module>
 
       <Module title="Filmic" {...module('filmic')}>

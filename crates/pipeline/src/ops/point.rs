@@ -5,14 +5,15 @@
 //! into lookup tables) and applied in one loop that also encodes to 8-bit sRGB.
 //! This is the part that re-runs on every slider move, so it has to be cheap.
 //!
-//! Order: exposure → warmth/tint → saturation/vibrance → shadows/highlights (all in
-//! linear Rec.2020, each kind possibly several times) → filmic (to display-linear
-//! sRGB primaries) → sRGB encoding.
+//! Order: exposure → warmth/tint → saturation/vibrance → shadows/highlights → colour
+//! primaries (all in linear Rec.2020, each kind possibly several times) → filmic (to
+//! display-linear sRGB primaries) → sRGB encoding.
 
 use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, REC709_FROM_REC2020, luminance, mul_vec, srgb_oetf};
 use crate::image::{Image, Rgb, Rgba8};
 use crate::ops::filmic::Filmic;
 use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
+use crate::ops::primaries::ColorPrimariesStage;
 use std::rc::Rc;
 use crate::params::{self, EditParams, Module};
 
@@ -82,6 +83,7 @@ enum Step {
     Saturation { saturation: f32, vibrance: f32 },
     /// Gain indexed by luminance.
     ShadowsHighlights(BitsLut<f32>),
+    ColorPrimaries(Rc<ColorPrimariesStage>),
 }
 
 impl Step {
@@ -116,6 +118,7 @@ impl Step {
             Step::Affine { offset, gain } => affine(c, offset, gain),
             &Step::Saturation { saturation, vibrance } => saturate(c, saturation, vibrance),
             Step::ShadowsHighlights(lut) => shadows_highlights(c, lut),
+            Step::ColorPrimaries(stage) => stage.apply(c),
         }
     }
 
@@ -125,6 +128,7 @@ impl Step {
             Step::Affine { .. } => 0,
             Step::Saturation { .. } => 1,
             Step::ShadowsHighlights(_) => 2,
+            Step::ColorPrimaries(_) => 3,
         }
     }
 }
@@ -167,6 +171,7 @@ enum Chain {
         affine: (Rgb, Rgb),
         saturation: Option<(f32, f32)>,
         shadows_highlights: Option<BitsLut<f32>>,
+        primaries: Option<Rc<ColorPrimariesStage>>,
     },
     Steps(Vec<Step>),
 }
@@ -176,15 +181,16 @@ impl Chain {
         if !steps.windows(2).all(|w| w[0].rank() < w[1].rank()) {
             return Chain::Steps(steps);
         }
-        let (mut affine, mut saturation, mut shadows_highlights) = (([0.0; 3], [1.0; 3]), None, None);
+        let (mut affine, mut saturation, mut shadows_highlights, mut primaries) = (([0.0; 3], [1.0; 3]), None, None, None);
         for step in steps {
             match step {
                 Step::Affine { offset, gain } => affine = (offset, gain),
                 Step::Saturation { saturation: s, vibrance } => saturation = Some((s, vibrance)),
                 Step::ShadowsHighlights(lut) => shadows_highlights = Some(lut),
+                Step::ColorPrimaries(stage) => primaries = Some(stage),
             }
         }
-        Chain::Fixed { affine, saturation, shadows_highlights }
+        Chain::Fixed { affine, saturation, shadows_highlights, primaries }
     }
 }
 
@@ -212,6 +218,16 @@ impl PointOps {
 
     /// Use a prepared (typically cached) filmic stage; `None` disables filmic.
     pub fn with_filmic(p: &EditParams, filmic: Option<Rc<FilmicStage>>) -> Self {
+        Self::with_stages(p, filmic, &mut |cp| Rc::new(ColorPrimariesStage::build(cp)))
+    }
+
+    /// Like [`with_filmic`](Self::with_filmic), with colour primaries tables from `primaries`
+    /// (typically a cache), called for each instance that changes anything.
+    pub fn with_stages(
+        p: &EditParams,
+        filmic: Option<Rc<FilmicStage>>,
+        primaries: &mut dyn FnMut(&params::ColorPrimaries) -> Rc<ColorPrimariesStage>,
+    ) -> Self {
         let mut steps: Vec<Step> = Vec::new();
         for instance in p.modules.iter().filter(|m| m.enabled) {
             let step = match &instance.module {
@@ -225,6 +241,7 @@ impl PointOps {
                     Some(step) => step,
                     None => continue,
                 },
+                Module::ColorPrimaries(cp) if !cp.is_identity() => Step::ColorPrimaries(primaries(cp)),
                 _ => continue,
             };
             // (x - o1)·g1 then (y - o2)·g2  =  (x - (o1 + o2/g1))·g1·g2
@@ -250,7 +267,7 @@ impl PointOps {
     #[inline(always)]
     pub fn adjust(&self, px: Rgb) -> Rgb {
         match &self.chain {
-            Chain::Fixed { affine, saturation, shadows_highlights } => fixed_chain(px, affine, saturation, shadows_highlights),
+            Chain::Fixed { affine, saturation, shadows_highlights, primaries } => fixed_chain(px, affine, saturation, shadows_highlights, primaries),
             Chain::Steps(steps) => apply_steps(steps, px),
         }
     }
@@ -285,13 +302,22 @@ impl PointOps {
 }
 
 #[inline(always)]
-fn fixed_chain(px: Rgb, (offset, gain): &(Rgb, Rgb), saturation: &Option<(f32, f32)>, sh: &Option<BitsLut<f32>>) -> Rgb {
+fn fixed_chain(
+    px: Rgb,
+    (offset, gain): &(Rgb, Rgb),
+    saturation: &Option<(f32, f32)>,
+    sh: &Option<BitsLut<f32>>,
+    primaries: &Option<Rc<ColorPrimariesStage>>,
+) -> Rgb {
     let mut c = affine(px, offset, gain);
     if let &Some((saturation, vibrance)) = saturation {
         c = saturate(c, saturation, vibrance);
     }
     if let Some(lut) = sh {
         c = shadows_highlights(c, lut);
+    }
+    if let Some(stage) = primaries {
+        c = stage.apply(c);
     }
     c
 }
@@ -326,7 +352,7 @@ mod tests {
             p.add(params::Exposure { ev: 3.0, black: 0.0 });
             p.modules.last_mut().unwrap().enabled = false;
         });
-        assert!(matches!(o.chain, Chain::Fixed { saturation: None, shadows_highlights: None, .. }));
+        assert!(matches!(o.chain, Chain::Fixed { saturation: None, shadows_highlights: None, primaries: None, .. }));
         // ((0.1 - 0.01) - 0.02) · 2
         assert!(approx(o.adjust([0.1; 3]), [0.14; 3], 1e-6));
     }

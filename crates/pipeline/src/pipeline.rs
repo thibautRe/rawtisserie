@@ -8,8 +8,9 @@ use std::rc::Rc;
 
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::clipping::{self, Overlays};
-use crate::ops::{filmic, filters, geometry};
-use crate::params::{EditParams, Filmic, Geometry, Lens, Module};
+use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
+use crate::ops::{equalizer, filmic, filters, geometry};
+use crate::params::{ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module};
 use crate::Result;
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
@@ -44,7 +45,7 @@ impl RenderSize {
 /// ```text
 ///  base        demosaic/bin, white balance, camera → working     keyed by binning factor
 ///   └ geometry  lens, orientation, straighten, crop, resample    keyed by lens + geometry + output size (2 sizes kept)
-///      └ detail blur, sharpen instances                           keyed by the above + their scaled radii
+///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters at this scale
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
 /// ```
 ///
@@ -54,7 +55,8 @@ impl RenderSize {
 ///
 /// Blur and sharpen run before exposure, white balance and saturation. Those are
 /// linear per-pixel operations, so the order makes no difference to the result,
-/// but it means the most-used sliders never invalidate the spatial stages.
+/// but it means the most-used sliders never invalidate the spatial stages. The
+/// contrast equalizer works on log luminance, so exposure doesn't affect it either.
 pub struct Developer {
     photo: RawPhoto,
     base: Option<(usize, Image)>,
@@ -63,6 +65,10 @@ pub struct Developer {
     slots: Vec<Slot>,
     /// Filmic, compiled for the last parameters used interactively.
     filmic: Option<(Filmic, Rc<FilmicStage>)>,
+    /// Colour primaries tables used by the last render.
+    primaries: Vec<(ColorPrimaries, Rc<ColorPrimariesStage>)>,
+    /// What those tables are built from besides the edits, for the last settings used.
+    primaries_weights: Option<Rc<FieldWeights>>,
     /// Saturated photosites at the base's resolution, built on demand.
     sensor_clip: Option<(usize, Mask)>,
 }
@@ -92,11 +98,13 @@ struct DetailKey {
     steps: Vec<DetailStep>,
 }
 
-/// A blur or sharpen instance, with its radius scaled to the output size.
+/// A spatial instance, with its parameters at the output size.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DetailStep {
     Blur { sigma: f32 },
     Sharpen { amount: f32, sigma: f32 },
+    /// `scale`: output pixels per full-resolution pixel.
+    Equalizer { params: ContrastEqualizer, scale: f32 },
 }
 
 impl Developer {
@@ -105,7 +113,7 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None, slots: Vec::new(), filmic: None, sensor_clip: None }
+        Self { photo, base: None, slots: Vec::new(), filmic: None, primaries: Vec::new(), primaries_weights: None, sensor_clip: None }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -121,6 +129,8 @@ impl Developer {
         self.base = None;
         self.slots.clear();
         self.filmic = None;
+        self.primaries.clear();
+        self.primaries_weights = None;
         self.sensor_clip = None;
     }
 
@@ -153,8 +163,36 @@ impl Developer {
 
     pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
         let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, quality));
-        let ops = PointOps::with_filmic(params, filmic);
+        let ops = self.point_ops(params, filmic);
         ops.render(self.spatial_image(params, size))
+    }
+
+    /// The point operations, with colour primaries tables from cache when possible.
+    fn point_ops(&mut self, params: &EditParams, filmic: Option<Rc<FilmicStage>>) -> PointOps {
+        let cache = std::mem::take(&mut self.primaries);
+        let mut weights = self.primaries_weights.take();
+        let mut used = Vec::new();
+        let ops = PointOps::with_stages(params, filmic, &mut |p| {
+            let stage = match cache.iter().find(|(q, _)| q == p) {
+                Some((_, stage)) => stage.clone(),
+                None => {
+                    // Moving a primary keeps the weights; only gamut coverage and
+                    // smoothing rebuild them (~10× the cost of a table).
+                    let w = match &weights {
+                        Some(w) if w.key() == WeightsKey::of(p) => w.clone(),
+                        _ => Rc::new(FieldWeights::new(p)),
+                    };
+                    let stage = Rc::new(ColorPrimariesStage::new(p, &w));
+                    weights = Some(w);
+                    stage
+                }
+            };
+            used.push((p.clone(), stage.clone()));
+            stage
+        });
+        self.primaries = used;
+        self.primaries_weights = weights;
+        ops
     }
 
     /// [`render`](Self::render), with clipping indicators painted on top.
@@ -220,11 +258,13 @@ impl Developer {
             .filter_map(|m| match &m.module {
                 Module::Blur(b) => Some(DetailStep::Blur { sigma: b.radius * scale }),
                 Module::Sharpen(s) => Some(DetailStep::Sharpen { amount: s.amount, sigma: s.radius * scale }),
+                Module::ContrastEqualizer(e) => Some(DetailStep::Equalizer { params: *e, scale }),
                 _ => None,
             })
             .filter(|step| match *step {
                 DetailStep::Blur { sigma } => filters::blur_active(sigma),
                 DetailStep::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
+                DetailStep::Equalizer { params, .. } => !params.is_identity(),
             })
             .collect();
         let geometry_img = &slot.geometry.as_ref().expect("geometry was just built").1;
@@ -239,6 +279,7 @@ impl Developer {
                 match *step {
                     DetailStep::Blur { sigma } => filters::blur(&mut img, sigma),
                     DetailStep::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
+                    DetailStep::Equalizer { params, scale } => equalizer::apply(&mut img, &params, scale),
                 }
             }
             slot.detail = Some((dkey, img));
@@ -251,7 +292,7 @@ impl Developer {
     /// an enabled filmic instance or anything to measure.
     pub fn auto_tune_filmic(&mut self, params: &EditParams, size: RenderSize) -> Option<(f32, f32)> {
         let scaling = params.get::<Filmic>()?.dynamic_range_scaling;
-        let ops = PointOps::with_filmic(params, None);
+        let ops = self.point_ops(params, None);
         let img = self.spatial_image(params, size);
         filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), scaling)
     }

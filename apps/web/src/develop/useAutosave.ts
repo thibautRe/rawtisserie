@@ -54,6 +54,8 @@ export function useAutosave(store: HistoryStore, initialRevision: number, save: 
     request: null as Promise<void> | null,
     timer: 0,
     conflict: false,
+    /** The developer was closed: saves carry on, but only a toast can report a failure. */
+    left: false,
   }).current;
 
   const flush = useCallback(
@@ -94,6 +96,7 @@ export function useAutosave(store: HistoryStore, initialRevision: number, save: 
               type: 'error',
               title: 'Could not save your last change',
               description: err instanceof Error ? err.message : undefined,
+              duration: s.left ? Infinity : undefined,
               action: { label: 'Retry', onClick: () => flush() },
             });
           }
@@ -121,6 +124,7 @@ export function useAutosave(store: HistoryStore, initialRevision: number, save: 
   // Flush when leaving: hidden tab, page unload, or navigating away in the app.
   useEffect(() => {
     if (!save) return;
+    s.left = false;
     const hidden = () => document.visibilityState === 'hidden' && flush(true);
     const unload = () => {
       if (s.conflict || !s.inFlight) return flush(true);
@@ -133,6 +137,7 @@ export function useAutosave(store: HistoryStore, initialRevision: number, save: 
     return () => {
       document.removeEventListener('visibilitychange', hidden);
       window.removeEventListener('pagehide', unload);
+      s.left = true;
       flush();
     };
   }, [s, save, flush]);

@@ -5,10 +5,12 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   geometry: 'Geometry',
   blur: 'Blur',
   sharpen: 'Sharpen',
+  contrastEqualizer: 'Contrast equalizer',
   exposure: 'Exposure',
   whiteBalance: 'White balance',
   color: 'Color',
   shadowsHighlights: 'Shadows & highlights',
+  colorPrimaries: 'Color primaries',
   filmic: 'Filmic',
 };
 

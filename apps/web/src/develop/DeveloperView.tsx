@@ -29,6 +29,8 @@ interface Props {
   actions?: (params: EditParams, history: HistorySnapshot) => React.ReactNode;
   /** Shown next to the file name (the version switcher), given a way to wait for pending saves. */
   versions?: (whenSaved: () => Promise<void>) => React.ReactNode;
+  /** Go back to where the photo was opened from (Esc). */
+  onBack?: () => void;
 }
 
 const MAX_PREVIEW = 3200;
@@ -65,7 +67,7 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-export function DeveloperView({ backend, filename, metadata, original, initialHistory, save, revision = 0, actions, versions }: Props) {
+export function DeveloperView({ backend, filename, metadata, original, initialHistory, save, revision = 0, actions, versions, onBack }: Props) {
   const [store] = useState(() => new HistoryStore(original, initialHistory));
   const history = useSyncExternalStore(store.subscribe, store.getState);
   const params = history.live;
@@ -215,7 +217,16 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   // Keyboard shortcuts.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      // An open menu or dialog closes on Esc (in the capture phase): that's all this press does.
+      if (e.key === 'Escape' && e.defaultPrevented) return;
+      const field = e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ? e.target : null;
+      // Esc leaves a field first (it may also be closing a native dropdown), except a
+      // module's switch: it keeps the focus after a click, with nothing to show for it.
+      const toggle = field instanceof HTMLInputElement && field.type === 'checkbox';
+      if (field && !(toggle && e.key === 'Escape')) {
+        if (e.key === 'Escape') field.blur();
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
       if (mod && key === 'z' && !e.shiftKey) goto(history.end - 1);
@@ -228,7 +239,14 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
       else if (!mod && key === 'o') setClipping({ display: !clipping.display });
       else if (key === 'enter' && cropDraft) applyCrop();
       else if (key === 'escape' && cropDraft) setCropDraft(null);
-      else return;
+      // Not on key repeat, so that holding Esc doesn't go past a menu it closes, and not
+      // during an export or auto-tune, which leaving would abort.
+      else if (key === 'escape' && onBack && !e.repeat && !exporting && !autoTuning) {
+        // Its undo would have nothing to apply to anymore.
+        dismissUndo();
+        store.commit();
+        onBack();
+      } else return;
       e.preventDefault();
     };
     const up = (e: KeyboardEvent) => e.key === '\\' && setComparing(false);
