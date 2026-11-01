@@ -403,16 +403,68 @@ export function updateModule<K extends ModuleKind>(
   kind: K,
   patch: { enabled?: boolean; params?: Partial<ModuleParams[K]> },
 ): EditParams {
-  const existing = findModule(params, kind);
-  const base = existing ?? instance(kind, freshId(kind, (id) => params.modules.some((m) => m.id === id)));
+  const id = findModule(params, kind)?.id ?? freshId(kind, (id) => params.modules.some((m) => m.id === id));
+  return updateInstance(params, kind, id, patch);
+}
+
+/** Update one instance immutably, adding it (enabled, with default parameters) after its kind if it isn't there. */
+export function updateInstance<K extends ModuleKind>(
+  params: EditParams,
+  kind: K,
+  id: string,
+  patch: { enabled?: boolean; label?: string | null; params?: Partial<ModuleParams[K]> },
+): EditParams {
+  const existing = params.modules.find((m) => m.id === id) as ModuleInstance<K> | undefined;
+  const base = existing ?? instance(kind, id);
   const updated = {
     ...base,
     enabled: patch.enabled ?? base.enabled,
+    label: patch.label === undefined ? base.label : patch.label,
     params: { ...base.params, ...patch.params },
   } as ModuleInstance;
   if (existing) return { ...params, modules: params.modules.map((m) => (m === existing ? updated : m)) };
   const at = params.modules.findLastIndex((m) => rank(m.kind) <= rank(kind)) + 1;
   return { ...params, modules: params.modules.toSpliced(at, 0, updated) };
+}
+
+/**
+ * Default parameters of the instance at `position` among its kind. Only the first
+ * exposure carries the +0.7 EV push: another one starts neutral, so that adding it
+ * doesn't change the image.
+ */
+export function instanceDefaults<K extends ModuleKind>(kind: K, position: number): ModuleParams[K] {
+  const defaults = structuredClone(defaultModuleParams[kind]);
+  return position > 0 && kind === 'exposure' ? { ...defaults, ev: 0 } : defaults;
+}
+
+const positionOf = (params: EditParams, kind: ModuleKind, id: string) => params.modules.filter((m) => m.kind === kind).findIndex((m) => m.id === id);
+
+/** Add a new instance with default parameters right after this one. Not for single-instance kinds. */
+export function addInstance(params: EditParams, id: string): EditParams {
+  const at = params.modules.findIndex((m) => m.id === id);
+  const source = params.modules[at];
+  if (!source || SINGLE_INSTANCE_KINDS.includes(source.kind)) return params;
+  const added = {
+    ...instance(source.kind, freshId(source.kind, (id) => params.modules.some((m) => m.id === id))),
+    params: instanceDefaults(source.kind, 1),
+  } as ModuleInstance;
+  return { ...params, modules: params.modules.toSpliced(at + 1, 0, added) };
+}
+
+export function removeInstance(params: EditParams, id: string): EditParams {
+  return { ...params, modules: params.modules.filter((m) => m.id !== id) };
+}
+
+/** Swap an instance with the previous (-1) or next (+1) one of its kind, if there is one. */
+export function moveInstance(params: EditParams, id: string, delta: -1 | 1): EditParams {
+  const at = params.modules.findIndex((m) => m.id === id);
+  const source = params.modules[at];
+  const other = params.modules[at + delta];
+  if (!source || other?.kind !== source.kind) return params;
+  const modules = [...params.modules];
+  modules[at] = other;
+  modules[at + delta] = source;
+  return { ...params, modules };
 }
 
 /** Put the instances of a kind back as in the default recipe (removing them if it has none). */
@@ -425,6 +477,22 @@ export function resetModule(params: EditParams, kind: ModuleKind): EditParams {
 export function isModuleModified(params: EditParams, kind: ModuleKind): boolean {
   const strip = (p: EditParams) => JSON.stringify(p.modules.filter((m) => m.kind === kind).map(({ id: _, ...m }) => m));
   return strip(params) !== strip(defaultEditParams);
+}
+
+/**
+ * Reset one instance. The only instance of its kind goes back to the default recipe
+ * (`resetModule`); with several, it keeps its place and label and gets default parameters.
+ */
+export function resetInstance(params: EditParams, kind: ModuleKind, id: string): EditParams {
+  if (params.modules.filter((m) => m.kind === kind).length <= 1) return resetModule(params, kind);
+  return updateInstance(params, kind, id, { enabled: true, params: instanceDefaults(kind, positionOf(params, kind, id)) });
+}
+
+/** Whether `resetInstance` would change anything. */
+export function isInstanceModified(params: EditParams, kind: ModuleKind, id: string): boolean {
+  if (params.modules.filter((m) => m.kind === kind).length <= 1) return isModuleModified(params, kind);
+  const m = params.modules.find((m) => m.id === id);
+  return !!m && (!m.enabled || JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id))));
 }
 
 export function isDefaultEdit(params: EditParams): boolean {

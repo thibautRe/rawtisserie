@@ -1,10 +1,11 @@
-import { Box, Button, CloseButton, Dialog, HStack, Image, Input, Menu, Portal, Text } from '@chakra-ui/react';
+import { Box, Button, Image, Menu, Portal, Text } from '@chakra-ui/react';
 import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, CopyPlus, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useDeletePhotos, useDuplicateVersion, useMoveVersion, useUpdatePhoto } from '../api/hooks.ts';
 import type { PhotoDetail } from '../api/types.ts';
 import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVersionsDialog.tsx';
+import { RenameDialog } from '../components/RenameDialog.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { versionLabel } from '../lib/format.ts';
 
@@ -106,7 +107,7 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
                 <ArrowDown /> Move later
               </Menu.Item>
               <Menu.Separator />
-              <Menu.Item value="delete" color="fg.error" _hover={{ bg: 'bg.error', color: 'fg.error' }}>
+              <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
                 <Trash2 /> Delete version…
               </Menu.Item>
             </Menu.Content>
@@ -115,6 +116,9 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
       </Menu.Root>
 
       <RenameDialog
+        title="Rename version"
+        hint="Leave empty to number it automatically."
+        maxLength={200}
         open={renaming}
         name={photo.versionName}
         placeholder={`Version ${photo.versionIndex}`}
@@ -127,62 +131,5 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
         onClose={() => setDeleting(false)}
       />
     </>
-  );
-}
-
-function RenameDialog({
-  open,
-  name,
-  placeholder,
-  onClose,
-  onRename,
-}: {
-  open: boolean;
-  name: string | null;
-  placeholder: string;
-  onClose: () => void;
-  onRename: (name: string | null) => void;
-}) {
-  return (
-    <Dialog.Root open={open} onOpenChange={(e) => !e.open && onClose()} size="sm">
-      <Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content asChild>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const value = String(new FormData(e.currentTarget).get('name') ?? '').trim();
-                onRename(value || null);
-                onClose();
-              }}
-            >
-              <Dialog.Header>
-                <Dialog.Title>Rename version</Dialog.Title>
-              </Dialog.Header>
-              <Dialog.Body>
-                <Input name="name" defaultValue={name ?? ''} placeholder={placeholder} maxLength={200} autoFocus />
-                <Text textStyle="xs" color="fg.muted" mt="2">
-                  Leave empty to number it automatically.
-                </Text>
-              </Dialog.Body>
-              <Dialog.Footer>
-                <HStack>
-                  <Dialog.ActionTrigger asChild>
-                    <Button variant="outline">Cancel</Button>
-                  </Dialog.ActionTrigger>
-                  <Button type="submit" colorPalette="orange">
-                    Rename
-                  </Button>
-                </HStack>
-              </Dialog.Footer>
-              <Dialog.CloseTrigger asChild>
-                <CloseButton size="sm" />
-              </Dialog.CloseTrigger>
-            </form>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Portal>
-    </Dialog.Root>
   );
 }

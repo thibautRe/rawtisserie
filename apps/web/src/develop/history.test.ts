@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type EditParams, defaultEditParams, defaultModuleParams, updateModule } from '@rawtisserie/pipeline';
+import { type EditParams, addInstance, defaultEditParams, defaultModuleParams, moveInstance, removeInstance, updateInstance, updateModule } from '@rawtisserie/pipeline';
 import { type HistoryOp, HistoryStore, compressHistory } from './history.ts';
 
 const exposure = (p: EditParams, ev: number) => updateModule(p, 'exposure', { params: { ev } });
@@ -77,4 +77,38 @@ test('compress keeps one entry per changed instance, in order of last change', (
   );
   assert.deepEqual(out.at(-1)!.recipe, r6);
   assert.deepEqual(compressHistory(defaultEditParams, [at(r1), at(defaultEditParams)]), []);
+});
+
+test('adding, removing, renaming and moving instances are entries of their own', () => {
+  const { s } = store();
+  s.commit(exposure(defaultEditParams, 1), 0);
+  s.commit(addInstance(s.committed, 'exposure'), 1);
+  s.commit(updateInstance(s.committed, 'exposure', 'exposure-2', { params: { ev: 2 } }), 2);
+  s.commit(updateInstance(s.committed, 'exposure', 'exposure-2', { params: { ev: 3 } }), 3);
+  s.commit(updateInstance(s.committed, 'exposure', 'exposure-2', { label: 'sky' }), 4);
+  s.commit(moveInstance(s.committed, 'exposure-2', -1), 5);
+  s.commit(removeInstance(s.committed, 'exposure-2'), 6);
+  // The id is free again: this isn't a change to the instance just removed.
+  s.commit(addInstance(s.committed, 'exposure'), 7);
+  assert.deepEqual(
+    s.getState().entries.map((e) => e.label),
+    [
+      'Exposure: ev 1',
+      'Exposure 2: added',
+      'Exposure 2: ev 3',
+      'Exposure (sky): renamed',
+      'Exposure: reordered',
+      'Exposure (sky): removed',
+      'Exposure 2: added',
+    ],
+  );
+});
+
+test('compress keeps a change of order', () => {
+  const at = (recipe: EditParams) => ({ label: 'x', recipe, createdAt: '2026-01-01T00:00:00Z' });
+  const original = addInstance(defaultEditParams, 'exposure');
+  const moved = moveInstance(original, 'exposure-2', -1);
+  const out = compressHistory(original, [at(moved)]);
+  assert.deepEqual(out.map((e) => e.label), ['Exposure: reordered']);
+  assert.deepEqual(out.at(-1)!.recipe, moved);
 });

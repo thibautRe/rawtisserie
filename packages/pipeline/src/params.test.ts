@@ -5,12 +5,18 @@ import {
   MODULE_KINDS,
   defaultEditParams,
   defaultRecipe,
+  addInstance,
   defaultModuleParams,
   findModule,
   isDefaultEdit,
+  isInstanceModified,
   isModuleModified,
+  moveInstance,
   normalizeEditParams,
+  removeInstance,
+  resetInstance,
   resetModule,
+  updateInstance,
   updateModule,
 } from './params.ts';
 import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
@@ -145,6 +151,42 @@ test('resetModule and isModuleModified compare with the default recipe', () => {
   p = resetModule(resetModule(p, 'sharpen'), 'filmic');
   assert.deepEqual(p, defaultEditParams);
   assert.ok(isDefaultEdit(p));
+});
+
+test('instances can be duplicated, moved, renamed, reset and removed', () => {
+  const base = updateModule(defaultEditParams, 'exposure', { params: { ev: 1 } });
+  const two = addInstance(base, 'exposure');
+  assert.deepEqual(two.modules.map((m) => m.id), ['exposure', 'exposure-2', 'filmic']);
+  // Starts from scratch, and a new exposure doesn't change the image.
+  assert.deepEqual(two.modules[1]!.params, { ev: 0, black: 0 });
+  assert.ok(!isInstanceModified(two, 'exposure', 'exposure-2'));
+  assert.equal(findModule(two, 'exposure')!.params.ev, 1);
+  // The id of a removed instance can be reused.
+  assert.deepEqual(addInstance(removeInstance(two, 'exposure-2'), 'exposure'), two);
+  // Single-instance kinds get no others.
+  assert.equal(addInstance(two, 'filmic'), two);
+  // Other kinds start from their defaults.
+  const color = updateInstance(defaultEditParams, 'color', 'color', { params: { saturation: 0.5 } });
+  assert.deepEqual(addInstance(color, 'color').modules[2]!.params, defaultModuleParams.color);
+
+  const moved = moveInstance(two, 'exposure-2', -1);
+  assert.deepEqual(moved.modules.map((m) => m.id), ['exposure-2', 'exposure', 'filmic']);
+  // Only within its kind.
+  assert.equal(moveInstance(two, 'exposure-2', 1), two);
+  assert.equal(moveInstance(two, 'exposure', -1), two);
+  assert.deepEqual(normalizeEditParams(moved), moved);
+
+  const named = updateInstance(two, 'exposure', 'exposure-2', { label: 'sky', params: { ev: 2 } });
+  assert.equal(named.modules[1]!.label, 'sky');
+  assert.ok(isInstanceModified(named, 'exposure', 'exposure-2'));
+  const reset = resetInstance(named, 'exposure', 'exposure-2');
+  assert.deepEqual(reset.modules[1], { ...named.modules[1], params: { ev: 0, black: 0 } });
+  assert.ok(!isInstanceModified(reset, 'exposure', 'exposure-2'));
+  // The only instance goes back to the default recipe.
+  assert.deepEqual(resetInstance(base, 'exposure', 'exposure'), defaultEditParams);
+  // An instance that doesn't exist yet is added after its kind.
+  const added = updateInstance(defaultEditParams, 'color', 'color', { enabled: true, params: { saturation: 0.5 } });
+  assert.deepEqual(added.modules.map((m) => m.id), ['exposure', 'color', 'filmic']);
 });
 
 test('develops a RAW file when RAWTISSERIE_SAMPLE is set', { skip: !process.env.RAWTISSERIE_SAMPLE }, async () => {

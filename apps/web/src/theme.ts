@@ -1,4 +1,5 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react';
+import { menuAnatomy } from '@chakra-ui/react/anatomy';
 
 const config = defineConfig({
   globalCss: {
@@ -16,11 +17,36 @@ const config = defineConfig({
       colors: {
         // A neutral, slightly warm darkroom grey: photos should be the only colourful thing on screen.
         // (Keep `_light` before `_dark`: Chakra emits condition blocks in first-seen order.)
-        bg: { value: { _light: '#f7f5f2', _dark: '#1b1a19' } },
-        'bg.panel': { value: { _light: '#ffffff', _dark: '#232120' } },
-        'bg.muted': { value: { _light: '#eeebe6', _dark: '#2c2a28' } },
+        // (Nested under `DEFAULT`: a `value` directly on `bg` would drop Chakra's other bg.* tokens.)
+        bg: {
+          DEFAULT: { value: { _light: '#f7f5f2', _dark: '#1b1a19' } },
+          panel: { value: { _light: '#ffffff', _dark: '#232120' } },
+          muted: { value: { _light: '#eeebe6', _dark: '#2c2a28' } },
+          emphasized: { value: { _light: '#e2ded8', _dark: '#3b3836' } },
+        },
         // Developer surround: neutral middle grey (sRGB 119 ≈ L* 50) to judge exposure and colour.
         canvas: { value: { _light: '#777777', _dark: '#777777' } },
+      },
+    },
+    slotRecipes: {
+      menu: {
+        slots: menuAnatomy.keys(),
+        base: {
+          // Opens at once (entry animations feel slow); closing keeps its animation.
+          content: { _open: { animationDuration: '0s' } },
+          item: { _disabled: { cursor: 'default' } },
+        },
+        variants: {
+          variant: {
+            subtle: { item: { _highlighted: { bg: 'bg.emphasized' } } },
+          },
+          size: {
+            md: {
+              content: { padding: '1', scrollPadding: '1' },
+              item: { fontSize: '13px', py: '1', '& svg': { boxSize: '3.5' } },
+            },
+          },
+        },
       },
     },
   },

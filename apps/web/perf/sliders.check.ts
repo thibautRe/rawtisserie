@@ -183,3 +183,111 @@ test('Esc cancels typing, and tells the developer not to leave', async () => {
   assert.equal(await value(exposure), start);
   assert.equal(await page.evaluate(() => (window as never as { __escTaken: boolean }).__escTaken), true);
 });
+
+test('sliders stay bound to their instance through adding, moving and deleting', async () => {
+  const menu = (title: string) => page.getByRole('button', { name: `${title} instances`, exact: true });
+  const pick = async (title: string, item: RegExp) => {
+    await menu(title).scrollIntoViewIfNeeded();
+    await menu(title).click();
+    await page.getByRole('menuitem', { name: item }).click();
+    await settle();
+  };
+  const module = (title: string) => page.locator('div').filter({ has: page.getByRole('heading', { name: title, exact: true }) }).filter({ has: page.locator('[data-scope="slider"]') }).last();
+  const radius = (title: string) => module(title).locator('[data-scope="slider"][data-part="root"]').filter({ hasText: /^Radius/ }).locator('button');
+  const set = async (title: string, v: string) => {
+    await radius(title).click();
+    await page.keyboard.type(`${v}\n`);
+    await settle();
+  };
+  const read = async (title: string) => Number.parseFloat((await radius(title).textContent())!);
+
+  // A kind without an instance has no menu yet; editing adds the instance.
+  assert.ok(await menu('Blur').isDisabled());
+  await set('Blur', '1');
+  await pick('Blur', /New instance/);
+  assert.equal(await read('Blur 1'), 1);
+  assert.equal(await read('Blur 2'), 0);
+
+  await set('Blur 2', '2');
+  assert.equal(await read('Blur 1'), 1);
+  assert.equal(await read('Blur 2'), 2);
+
+  // Each slider follows its instance when the order changes.
+  await pick('Blur 2', /Move up/);
+  assert.equal(await read('Blur 1'), 2);
+  assert.equal(await read('Blur 2'), 1);
+  await set('Blur 2', '3');
+  assert.equal(await read('Blur 1'), 2);
+  assert.equal(await read('Blur 2'), 3);
+
+  await pick('Blur 1', /Rename/);
+  await page.keyboard.type('soft\n');
+  await settle();
+  assert.equal(await read('Blur (soft)'), 2);
+
+  await pick('Blur (soft)', /Delete/);
+  assert.equal(await read('Blur'), 3);
+  assert.equal(await page.getByRole('heading', { name: 'Blur (soft)' }).count(), 0);
+  await page.keyboard.press('Control+z');
+  await settle();
+  assert.equal(await read('Blur (soft)'), 2);
+});
+
+test('instances of a module do not affect each other', async () => {
+  const section = (title: string) => page.locator('div').filter({ has: page.getByRole('heading', { name: title, exact: true }) }).filter({ has: page.locator('[data-scope="slider"]') }).last();
+  const addSecond = async (kind: string) => {
+    const toggle = section(kind).getByRole('checkbox', { name: `Enable ${kind}` });
+    if (!(await toggle.isChecked())) await section(kind).locator('[data-scope="switch"][data-part="control"]').click();
+    await settle();
+    await page.getByRole('button', { name: `${kind} instances`, exact: true }).click();
+    await page.getByRole('menuitem', { name: /New instance/ }).click();
+    await settle();
+  };
+  const sliders = (title: string) => section(title).locator('[data-scope="slider"][data-part="root"]');
+
+  // Every slider of the second instance moves it and leaves the first alone.
+  for (const kind of ['Exposure', 'White balance', 'Color', 'Shadows & highlights', 'Sharpen', 'Contrast equalizer', 'Color primaries']) {
+    await addSecond(kind);
+    const count = await sliders(`${kind} 2`).count();
+    assert.ok(count > 0, kind);
+    for (let i = 0; i < count; i++) {
+      const first = await section(`${kind} 1`).textContent();
+      const slider = sliders(`${kind} 2`).nth(i);
+      const before = await slider.textContent();
+      await slider.scrollIntoViewIfNeeded();
+      const box = (await slider.locator('[data-part="control"]').boundingBox())!;
+      await page.mouse.click(box.x + box.width * 0.8, box.y + box.height / 2);
+      await settle();
+      assert.notEqual(await slider.textContent(), before, `${kind} slider ${i}`);
+      assert.equal(await section(`${kind} 1`).textContent(), first, `${kind} slider ${i}`);
+    }
+  }
+
+  // Neither does what they show.
+  const swatch = (title: string, name: string) => section(title).getByRole('radio', { name });
+  await swatch('Color primaries 2', 'yellow').click();
+  await settle();
+  assert.equal(await swatch('Color primaries 1', 'red').getAttribute('aria-checked'), 'true');
+  assert.equal(await swatch('Color primaries 2', 'yellow').getAttribute('aria-checked'), 'true');
+  await section('Color primaries 2').getByRole('button', { name: /Gamut and smoothing/ }).click();
+  await settle();
+  assert.equal(await sliders('Color primaries 1').filter({ hasText: /^White level/ }).count(), 0);
+  assert.equal(await sliders('Color primaries 2').filter({ hasText: /^White level/ }).count(), 1);
+  const curve = (title: string) => section(title).getByRole('combobox', { name: 'Curve' });
+  await curve('Contrast equalizer 2').selectOption('edges');
+  await settle();
+  assert.equal(await curve('Contrast equalizer 1').inputValue(), 'luma');
+  assert.equal(await curve('Contrast equalizer 2').inputValue(), 'edges');
+
+  // A curve edit stays in its instance too (both showing the same curve).
+  await curve('Contrast equalizer 2').selectOption('luma');
+  await settle();
+  const graph = (title: string) => section(title).getByRole('group', { name: 'Luminance contrast' });
+  const [first, second] = [await graph('Contrast equalizer 1').innerHTML(), await graph('Contrast equalizer 2').innerHTML()];
+  await graph('Contrast equalizer 2').scrollIntoViewIfNeeded();
+  const box = (await graph('Contrast equalizer 2').boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.2);
+  await settle();
+  assert.notEqual(await graph('Contrast equalizer 2').innerHTML(), second);
+  assert.equal(await graph('Contrast equalizer 1').innerHTML(), first);
+});

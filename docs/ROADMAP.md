@@ -5,7 +5,7 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 (slider feel); the `RenderBackend` interface (M6 prerequisite); golden-image tests
 (before M3); 3.1 with
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
-3.3 (contrast equalizer).
+3.3 (contrast equalizer); 4.1 (multiple instances).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -344,6 +344,16 @@ white balance and is the most common target for masked instances.
 ## M4 — Creative control
 
 ### 4.1 Multiple instances of a module (S–M, after 1.1)
+
+> **Done** (`ModulePanel.tsx`, `updateInstance` and friends in `params.ts`). As built: a
+> menu in the module header, with a section per instance in list order. White balance can
+> have instances too (until 3.4 replaces it). "New instance" starts from defaults rather
+> than copying, and only the first exposure has the +0.7 EV push, so adding one doesn't
+> change the image. Delete needs a second instance: the only one has reset and its switch. Reset with
+> several instances gives that one default parameters and keeps its name. Unnamed
+> siblings show as "Exposure 2". Structural changes (add, remove, rename, move) never
+> coalesce in the history. Two primaries instances with different gamut or smoothing settings share
+> one weights cache, so dragging one can rebuild the weights on each render (~100 ms).
 
 - A module header menu with: duplicate instance, rename, delete, move up/down (within
   its kind). The data model already supports it after 1.1.

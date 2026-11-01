@@ -91,6 +91,7 @@ export class HistoryStore {
     const last = this.#last;
     const previous = entries[end - 1];
     const replace =
+      !change.structural &&
       !!last &&
       !!previous &&
       last.seq === end &&
@@ -100,7 +101,7 @@ export class HistoryStore {
       ? { label: describeChange(last.before, recipe).label, recipe, createdAt: previous.createdAt }
       : { label: change.label, recipe, createdAt: new Date(now).toISOString() };
     const from = replace ? end : end + 1;
-    if (!replace) this.#last = change.moduleId ? { seq: from, moduleId: change.moduleId, before: base } : null;
+    if (!replace) this.#last = change.moduleId && !change.structural ? { seq: from, moduleId: change.moduleId, before: base } : null;
     this.#set(
       { entries: [...entries.slice(0, from - 1), entry], end: from, live: recipe },
       { type: 'splice', from, entries: [entry], end: from },
@@ -190,5 +191,7 @@ export function compressHistory(original: EditParams, entries: readonly HistoryE
     out.push({ label: describeChange(before, recipe).label, recipe, createdAt: entries[i]!.createdAt });
   }
   if (out.length) out[out.length - 1]!.recipe = final;
+  // Only the order of instances changed: no instance differs, but the result does.
+  else if (!same(original, final)) out.push({ label: describeChange(original, final).label, recipe: final, createdAt: entries.at(-1)!.createdAt });
   return out;
 }
