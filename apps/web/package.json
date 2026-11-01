@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p .",
     "test": "node --test 'src/**/*.test.ts'",
-    "test:perf": "node perf/sliders.perf.ts"
+    "test:perf": "node perf/sliders.perf.ts",
+    "test:sliders": "node --test perf/sliders.check.ts"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.37.0",

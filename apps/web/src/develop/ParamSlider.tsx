@@ -1,14 +1,25 @@
-import { HStack, Slider, Text } from '@chakra-ui/react';
-import { memo } from 'react';
+import { HStack, Input, Slider, Text } from '@chakra-ui/react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { type DragAnchor, type Extent, type SliderRange, dragTo, fineStep, growExtent, modifierFactor, nudge, parseTyped, snapTo, typedText } from './slider.ts';
 
 interface Props {
   label: string;
   value: number;
+  /** The useful range, which drags and arrow keys stay in. */
   min: number;
   max: number;
+  /** What the module accepts, which typing can reach. Defaults to the useful range. */
+  hardMin?: number;
+  hardMax?: number;
   step: number;
   defaultValue: number;
   format?: (v: number) => string;
+  /** Typed values are in display units: `value × scale`, when `format` shows that. */
+  scale?: number;
+  /** A CSS gradient for the track, instead of a filled range. */
+  track?: string;
+  /** Steps through an enumeration: shows a tick per value, with no typing or modifiers. */
+  detents?: boolean;
   disabled?: boolean;
   onChange: (v: number) => void;
   onCommit: (v: number) => void;
@@ -17,28 +28,127 @@ interface Props {
 const signed = (digits: number) => (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(digits)}`;
 export const fmt = { ev: (v: number) => `${signed(2)(v)} EV`, signed2: signed(2), fixed2: (v: number) => v.toFixed(2) };
 
+const KEY_STEPS: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 };
+
+/** The part of the track outside the useful range. */
+const PAST_RANGE = 'var(--chakra-colors-yellow-solid)';
+
 /**
- * A compact labelled slider; double-click resets it to its default.
+ * A compact labelled slider; double-click resets it to its default. Click (or right-click)
+ * the number to type a value. Shift ×10 and Ctrl ×0.1 apply to drags and arrow keys.
+ *
+ * Drags and arrows stay on the track. Typing and values set from elsewhere (auto-tune) can
+ * go past the useful range, up to the hard range: the track then grows to contain the
+ * value, showing that part in another colour, and stays that way until it unmounts.
+ *
+ * Plain drags use the slider's own pointer handling. It ignores presses on the track with
+ * Ctrl held and only reports positions on the track, so modifier drags measure the pointer
+ * themselves, which lets them start anywhere on the track without a jump.
  *
  * Memoised on its value and range, ignoring `format`, `onChange` and `onCommit`: callers
  * write those inline, so they must not depend on render state (read the latest recipe at
  * call time), and a slider that gets rebound to something else needs a new `key`.
  */
-export const ParamSlider = memo(function ParamSlider({ label, value, min, max, step, defaultValue, format = fmt.signed2, disabled, onChange, onCommit }: Props) {
+export const ParamSlider = memo(function ParamSlider({ label, value, min, max, hardMin = min, hardMax = max, step, defaultValue, format = fmt.signed2, scale = 1, track, detents, disabled, onChange, onCommit }: Props) {
+  const range: SliderRange = { min, max, step, fine: step };
+  const [typing, setTyping] = useState(false);
+  const [extent, setExtent] = useState<Extent>(() => growExtent([min, max], value, range));
+  const grown = growExtent(extent, value, range);
+  if (grown !== extent) setExtent(grown);
+  const [lo, hi] = grown;
+  const drag = useRef<{ anchor: DragAnchor; value: number } | null>(null);
+  const stopTracking = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopTracking.current?.(), []);
+
+  const fine = (): SliderRange => ({ ...range, fine: fineStep(step, format, scale) });
+
+  const step_ = (steps: number, factor: number) => {
+    const next = nudge(value, steps, detents ? 1 : factor, fine(), grown);
+    if (next !== value) onCommit(next);
+  };
+
+  const onPointerDownCapture = (e: React.PointerEvent) => {
+    const control = e.target instanceof Element ? e.target.closest('[data-part="control"]') : null;
+    if (disabled || !control || e.button !== 0) return;
+    drag.current = { anchor: null, value };
+    const unitsPerPixel = (hi - lo) / control.getBoundingClientRect().width;
+    const follow = (ev: PointerEvent) => {
+      const current = drag.current;
+      const factor = modifierFactor(ev);
+      if (detents || !current || (!current.anchor && factor === 1)) return;
+      const next = dragTo(current.anchor, ev.clientX * unitsPerPixel, factor, current.value, fine(), grown);
+      drag.current = next;
+      if (next.value !== current.value) onChange(next.value);
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', follow, true);
+      window.removeEventListener('pointerup', finish, true);
+      window.removeEventListener('pointercancel', finish, true);
+      stopTracking.current = null;
+    };
+    // Not the slider's end event: it ignores presses on the track with Ctrl held.
+    const finish = () => {
+      stop();
+      if (drag.current) onCommit(drag.current.value);
+      drag.current = null;
+    };
+    stopTracking.current?.();
+    // Capturing runs this before the slider's handling of the same event.
+    window.addEventListener('pointermove', follow, true);
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', finish, true);
+    stopTracking.current = stop;
+    follow(e.nativeEvent);
+  };
+
+  const onKeyDownCapture = (e: React.KeyboardEvent) => {
+    if (disabled || typing) return;
+    const steps = KEY_STEPS[e.key];
+    if (steps) step_(steps, modifierFactor(e));
+    else if (e.key === 'Home' && value !== lo) onCommit(lo);
+    else if (e.key === 'End' && value !== hi) onCommit(hi);
+    else if (e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const finishTyping = (text: string | null) => {
+    setTyping(false);
+    const v = text === null ? null : parseTyped(text, scale, hardMin, hardMax);
+    if (v !== null && v !== value) onCommit(v);
+  };
+  const startTyping = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    setTyping(true);
+  };
+
+  const percent = (v: number) => `${((v - lo) / (hi - lo)) * 100}%`;
+  const segment: React.CSSProperties = { position: 'absolute', top: 0, bottom: 0 };
+
   return (
     <Slider.Root
       size="sm"
-      min={min}
-      max={max}
-      step={step}
+      min={lo}
+      max={hi}
+      // Ten times finer than the values: `snapTo` does that.
+      step={detents ? step : step / 10}
       value={[value]}
       disabled={disabled}
       colorPalette="orange"
       // Symmetric bipolar parameters fill from their neutral (middle) point.
       origin={min === -max ? 'center' : 'start'}
-      onValueChange={(e) => onChange(e.value[0]!)}
-      onValueChangeEnd={(e) => onCommit(e.value[0]!)}
-      onDoubleClick={() => onCommit(defaultValue)}
+      getAriaValueText={() => format(value)}
+      onPointerDownCapture={onPointerDownCapture}
+      onValueChange={(e) => {
+        // Only a plain drag: `onPointerDownCapture` handles the rest.
+        const current = drag.current;
+        if (!current || current.anchor) return;
+        const next = snapTo(e.value[0]!, grown, range);
+        drag.current = { anchor: null, value: next };
+        if (next !== current.value) onChange(next);
+      }}
+      onKeyDownCapture={onKeyDownCapture}
+      onDoubleClick={() => typing || onCommit(defaultValue)}
       title="Double-click to reset"
       gap="0"
     >
@@ -46,17 +156,61 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, s
         <Slider.Label textStyle="xs" color="fg.muted" fontWeight="normal">
           {label}
         </Slider.Label>
-        <Text textStyle="xs" fontVariantNumeric="tabular-nums" color={value === defaultValue ? 'fg.subtle' : 'fg'}>
-          {format(value)}
-        </Text>
+        {typing ? (
+          <Input
+            size="2xs"
+            h="3.5"
+            minH="0"
+            w="16"
+            px="1"
+            textStyle="xs"
+            textAlign="right"
+            aria-label={label}
+            autoFocus
+            defaultValue={typedText(value, scale)}
+            onFocus={(e) => e.target.select()}
+            onBlur={(e) => finishTyping(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') finishTyping(e.currentTarget.value);
+              else if (e.key === 'Escape') {
+                // Tells the developer's shortcuts this press is taken.
+                e.preventDefault();
+                finishTyping(null);
+              }
+            }}
+          />
+        ) : detents ? (
+          <Text textStyle="xs" color={value === defaultValue ? 'fg.subtle' : 'fg'}>
+            {format(value)}
+          </Text>
+        ) : (
+          <Text
+            as="button"
+            textStyle="xs"
+            fontVariantNumeric="tabular-nums"
+            color={value === defaultValue ? 'fg.subtle' : 'fg'}
+            cursor={disabled ? undefined : 'text'}
+            title="Click to type a value"
+            aria-label={`${label}: ${format(value)}, type a value`}
+            {...{ type: 'button', disabled }}
+            onClick={startTyping}
+            onContextMenu={startTyping}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            {format(value)}
+          </Text>
+        )}
       </HStack>
       <Slider.Control minH="3.5">
         <Slider.Track h="2px" bg="bg.emphasized">
-          <Slider.Range bg="orange.solid/70" />
+          {track ? <div style={{ ...segment, left: percent(min), right: `calc(100% - ${percent(max)})`, background: track }} /> : <Slider.Range bg="orange.solid/70" />}
+          {lo < min && <div style={{ ...segment, left: 0, width: percent(min), background: PAST_RANGE }} />}
+          {hi > max && <div style={{ ...segment, left: percent(max), right: 0, background: PAST_RANGE }} />}
         </Slider.Track>
         <Slider.Thumb index={0} boxSize="2.5" bg="fg.muted" borderWidth="0" boxShadow="xs" _hover={{ bg: 'fg' }} _focusVisible={{ bg: 'fg', outline: '2px solid', outlineColor: 'orange.solid' }}>
           <Slider.HiddenInput />
         </Slider.Thumb>
+        {detents && <Slider.Marks marks={Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => min + i * step)} />}
       </Slider.Control>
     </Slider.Root>
   );
@@ -65,7 +219,12 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, s
   a.label === b.label &&
   a.min === b.min &&
   a.max === b.max &&
+  a.hardMin === b.hardMin &&
+  a.hardMax === b.hardMax &&
   a.step === b.step &&
   a.defaultValue === b.defaultValue &&
+  a.scale === b.scale &&
+  a.track === b.track &&
+  a.detents === b.detents &&
   a.disabled === b.disabled,
 );

@@ -1,8 +1,9 @@
 # 🍗 RAWtisserie roadmap
 
 Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and history);
-2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators); the
-`RenderBackend` interface (M6 prerequisite); golden-image tests (before M3); 3.1 with
+2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators); 2.5
+(slider feel); the `RenderBackend` interface (M6 prerequisite); golden-image tests
+(before M3); 3.1 with
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
 3.3 (contrast equalizer).
 
@@ -186,6 +187,22 @@ Two toggles, like Ansel's `overexposed.c` and `rawoverexposed.c`:
 Toolbar toggle plus a shortcut. Both apply to drafts too.
 
 ### 2.5 Slider feel (M, independent)
+
+> **Done** (`develop/ParamSlider.tsx`, `develop/slider.ts`). As built: `min`/`max` are the
+> useful range and `hardMin`/`hardMax` what the module takes. Those are its clamp where it
+> has one (filmic contrast 0–5, white 0.1–16, black −16 to −0.1); where it has none, a
+> chosen limit (exposure ±10, black level ≤ 1, primaries brightness ±1, sharpen ≤ 5).
+> Only typing (click or right-click the number, in display units via `scale`) and values
+> set from elsewhere (auto-tune) go past the useful range. **Deviation:** the track then
+> grows to contain the value instead of pinning it, both ways for bipolar sliders so
+> neutral stays centred, with the extra part in yellow. It stays grown until the slider
+> unmounts (the developer is keyed by version), so the layout doesn't jump and nudging
+> can't lose a value. Drags and arrows take Shift ×10 and Ctrl ×0.1 but stay on the track;
+> Ctrl's step stops at the digits the number shows (exposure 0.01). Modifier drags are
+> relative to the pointer, so they start anywhere without a jump. **Deviation:** no wheel,
+> so scrolling the panel can never change a value. Gradient tracks replace the filled
+> range where they say something (white balance, exposure-like values, the primaries'
+> three sliders). AgX bleach is a five-detent slider.
 
 Rework `ParamSlider` into the one control used by every module:
 

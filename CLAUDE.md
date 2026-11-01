@@ -34,6 +34,8 @@ See README.md for the architecture overview and commands.
   through `latest`/`useStableCallback` so they never see an old recipe. `ParamSlider`
   ignores its handlers when comparing props: give it a new `key` if it gets rebound. Check with
   `npm run test:perf -w @rawtisserie/web` (slider drags in a real browser, with budgets).
+  `npm run test:sliders -w @rawtisserie/web` checks `ParamSlider`'s pointer handling and
+  commits against the slider library, in a browser too. Run it after changing either.
 - Golden-image tests (`crates/pipeline/tests/golden.rs`) need `./scripts/fetch-golden-raws.sh`
   once. A change that moves the output fails them; if it's intended, re-bless with
   `GOLDEN_UPDATE=1 cargo test --release -p rawtisserie-pipeline --test golden` and say

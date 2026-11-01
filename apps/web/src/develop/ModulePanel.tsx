@@ -20,6 +20,7 @@ import { ChevronDown, ChevronRight, Crop, FlipHorizontal2, RotateCcw, RotateCcwS
 import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { CurveEditor } from './CurveEditor.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
+import { tracks } from './slider.ts';
 
 interface Props {
   params: EditParams;
@@ -118,12 +119,15 @@ const PRIMARY_SWATCHES: Record<PrimaryName, string> = {
   magenta: 'pink.solid',
 };
 
+/** CSS hue of each primary, for its gradient tracks. */
+const PRIMARY_HUES: Record<PrimaryName, number> = { red: 0, yellow: 60, green: 120, cyan: 180, blue: 240, magenta: 300 };
+
 const BLEACH_LABELS: Record<Bleach, string> = {
-  none: 'No bleach',
-  low: 'Low bleach',
-  medium: 'Medium bleach',
-  high: 'High bleach',
-  extra: 'Extra bleach',
+  none: 'None',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  extra: 'Extra',
 };
 
 export function ModulePanel(props: Props) {
@@ -165,7 +169,7 @@ export function ModulePanel(props: Props) {
   }
 
   // Lens correction strengths: 0 … 200 % of the camera's correction.
-  const percent = { min: 0, max: 2, step: 0.01, format: (v: number) => `${Math.round(v * 100)} %` };
+  const percent = { min: 0, max: 2, step: 0.01, scale: 100, format: (v: number) => `${Math.round(v * 100)} %` };
 
   /** Props for a slider bound to one field of a colour primary. */
   function bindPrimary(name: PrimaryName, key: keyof Primary) {
@@ -178,6 +182,17 @@ export function ModulePanel(props: Props) {
     };
   }
 
+  /** Props for the slider that steps through filmic's bleach levels. */
+  const bindBleach = () => {
+    const with_ = (i: number) => edit('filmic', { bleach: BLEACH_LEVELS[i]! });
+    return {
+      value: BLEACH_LEVELS.indexOf(values('filmic').bleach),
+      defaultValue: BLEACH_LEVELS.indexOf(defaultModuleParams.filmic.bleach),
+      onChange: (i: number) => latest.current.onChange(with_(i)),
+      onCommit: (i: number) => latest.current.onCommit(with_(i)),
+    };
+  };
+
   const eq = values('contrastEqualizer');
   const fm = values('filmic');
   const g = values('geometry');
@@ -189,8 +204,8 @@ export function ModulePanel(props: Props) {
         deps={[...instances('exposure')]}
         render={() => (
           <Module title="Exposure" {...module('exposure')}>
-            <ParamSlider label="Exposure" min={-4} max={4} step={0.05} format={fmt.ev} {...bind('exposure', 'ev')} />
-            <ParamSlider label="Black level" min={0} max={0.1} step={0.001} format={(v) => v.toFixed(3)} {...bind('exposure', 'black')} />
+            <ParamSlider label="Exposure" min={-4} max={4} hardMin={-10} hardMax={10} step={0.05} format={fmt.ev} track={tracks.grey} {...bind('exposure', 'ev')} />
+            <ParamSlider label="Black level" min={0} max={0.1} hardMax={1} step={0.001} format={(v) => v.toFixed(3)} {...bind('exposure', 'black')} />
           </Module>
         )}
       />
@@ -199,8 +214,8 @@ export function ModulePanel(props: Props) {
         deps={[...instances('whiteBalance')]}
         render={() => (
           <Module title="White balance" {...module('whiteBalance')}>
-            <ParamSlider label="Warmth" min={-1} max={1} step={0.01} {...bind('whiteBalance', 'warmth')} />
-            <ParamSlider label="Tint" min={-1} max={1} step={0.01} {...bind('whiteBalance', 'tint')} />
+            <ParamSlider label="Warmth" min={-1} max={1} step={0.01} track={tracks.warmth} {...bind('whiteBalance', 'warmth')} />
+            <ParamSlider label="Tint" min={-1} max={1} step={0.01} track={tracks.tint} {...bind('whiteBalance', 'tint')} />
           </Module>
         )}
       />
@@ -219,8 +234,8 @@ export function ModulePanel(props: Props) {
         deps={[...instances('shadowsHighlights')]}
         render={() => (
           <Module title="Shadows & highlights" {...module('shadowsHighlights')}>
-            <ParamSlider label="Shadows" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'shadows')} />
-            <ParamSlider label="Highlights" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'highlights')} />
+            <ParamSlider label="Shadows" min={-1} max={1} step={0.01} track={tracks.grey} {...bind('shadowsHighlights', 'shadows')} />
+            <ParamSlider label="Highlights" min={-1} max={1} step={0.01} track={tracks.grey} {...bind('shadowsHighlights', 'highlights')} />
           </Module>
         )}
       />
@@ -257,9 +272,9 @@ export function ModulePanel(props: Props) {
                 );
               })}
             </HStack>
-            <ParamSlider key={`${primary}-hue`} label="Hue" min={-180} max={180} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`} {...bindPrimary(primary, 'hue')} />
-            <ParamSlider key={`${primary}-saturation`} label="Saturation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bindPrimary(primary, 'saturation')} />
-            <ParamSlider key={`${primary}-brightness`} label="Brightness" min={-0.25} max={0.25} step={0.005} format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`} {...bindPrimary(primary, 'brightness')} />
+            <ParamSlider key={`${primary}-hue`} label="Hue" min={-180} max={180} step={1} track={tracks.hue(PRIMARY_HUES[primary])} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`} {...bindPrimary(primary, 'hue')} />
+            <ParamSlider key={`${primary}-saturation`} label="Saturation" min={-100} max={100} step={1} track={tracks.saturation(PRIMARY_HUES[primary])} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bindPrimary(primary, 'saturation')} />
+            <ParamSlider key={`${primary}-brightness`} label="Brightness" min={-0.25} max={0.25} hardMin={-1} hardMax={1} step={0.005} scale={100} track={tracks.brightness(PRIMARY_HUES[primary])} format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`} {...bindPrimary(primary, 'brightness')} />
             <Button size="2xs" variant="ghost" alignSelf="start" px="0" onClick={() => setPrimariesAdvanced(!primariesAdvanced)}>
               {primariesAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut and smoothing
             </Button>
@@ -270,7 +285,7 @@ export function ModulePanel(props: Props) {
                 <ParamSlider label="Neutral protection" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'neutralProtection')} />
                 <ParamSlider label="Brightness smoothing" min={1} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'brightnessSmoothing')} />
                 <ParamSlider label="Saturation smoothing" min={0.01} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'saturationSmoothing')} />
-                <ParamSlider label="Hue smoothing" min={0.01} max={6.28} step={0.01} format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`} {...bind('colorPrimaries', 'hueSmoothing')} />
+                <ParamSlider label="Hue smoothing" min={0.01} max={6.28} step={0.01} scale={180 / Math.PI} format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`} {...bind('colorPrimaries', 'hueSmoothing')} />
               </>
             )}
           </Module>
@@ -310,8 +325,8 @@ export function ModulePanel(props: Props) {
         deps={[...instances('filmic'), autoTuning]}
         render={() => (
           <Module title="Filmic" {...module('filmic')}>
-            <ParamSlider label="White relative exposure" min={1} max={10} step={0.05} format={fmt.ev} {...bind('filmic', 'whiteExposure')} />
-            <ParamSlider label="Black relative exposure" min={-14} max={-3} step={0.05} format={fmt.ev} {...bind('filmic', 'blackExposure')} />
+            <ParamSlider label="White relative exposure" min={1} max={10} hardMin={0.1} hardMax={16} step={0.05} format={fmt.ev} track={tracks.grey} {...bind('filmic', 'whiteExposure')} />
+            <ParamSlider label="Black relative exposure" min={-14} max={-3} hardMin={-16} hardMax={-0.1} step={0.05} format={fmt.ev} track={tracks.grey} {...bind('filmic', 'blackExposure')} />
             <HStack justify="space-between">
               <Button
                 size="2xs"
@@ -335,24 +350,11 @@ export function ModulePanel(props: Props) {
               format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
               {...bind('filmic', 'dynamicRangeScaling')}
             />
-            <ParamSlider label="Contrast" min={0.5} max={3} step={0.01} format={fmt.fixed2} {...bind('filmic', 'contrast')} />
+            <ParamSlider label="Contrast" min={0.5} max={3} hardMin={0} hardMax={5} step={0.01} format={fmt.fixed2} {...bind('filmic', 'contrast')} />
             <ParamSlider label="Toe" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'toe')} />
             <ParamSlider label="Shoulder" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'shoulder')} />
             <ParamSlider label="Hue preservation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bind('filmic', 'huePreservation')} />
-            <NativeSelect.Root size="xs">
-              <NativeSelect.Field
-                value={fm.bleach}
-                onChange={(e) => set('filmic', { bleach: e.target.value as Bleach })}
-                aria-label="Colour science"
-              >
-                {BLEACH_LEVELS.map((b) => (
-                  <option key={b} value={b}>
-                    AgX, {BLEACH_LABELS[b].toLowerCase()}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
+            <ParamSlider label="AgX bleach" min={0} max={BLEACH_LEVELS.length - 1} step={1} detents format={(i) => BLEACH_LABELS[BLEACH_LEVELS[i]!]} {...bindBleach()} />
           </Module>
         )}
       />
@@ -361,7 +363,7 @@ export function ModulePanel(props: Props) {
         deps={[...instances('sharpen')]}
         render={() => (
           <Module title="Sharpen" {...module('sharpen')}>
-            <ParamSlider label="Amount" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('sharpen', 'amount')} />
+            <ParamSlider label="Amount" min={0} max={2} hardMax={5} step={0.01} format={fmt.fixed2} {...bind('sharpen', 'amount')} />
             <ParamSlider label="Radius" min={0.3} max={5} step={0.05} format={(v) => `${v.toFixed(2)} px`} {...bind('sharpen', 'radius')} />
           </Module>
         )}

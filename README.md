@@ -173,7 +173,8 @@ the original) · Delete deletes · Esc clears.
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
 colour-assessment frame · hold `\` to compare with the unedited image · `C` crop
 (Enter applies, Esc cancels) · Esc closes an open menu, otherwise goes back to the
-library · double-click a slider to reset it.
+library · double-click a slider to reset it · click its number to type a value · typed
+values can go past a slider's usual range · drags and arrows take Shift ×10 and Ctrl/⌘ ×0.1.
 
 ## Known limitations and next steps
 
