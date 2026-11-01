@@ -61,14 +61,17 @@ Colour primaries uses a 64³ table too. Moving a colour rebuilds it from cached 
 weights in ~17 ms; gamut coverage and smoothing rebuild the weights (~100 ms, 19 MB). Blur and sharpen come before the per-pixel stages:
 exposure, white balance and saturation are linear, so the order doesn't change the
 result. The contrast equalizer works on log luminance, so exposure doesn't affect it either. Two output sizes are cached, because while a slider is being dragged the UI
-renders a ~1 MP draft and renders full size on release.
+renders a ~0.5 MP draft and renders full size on release.
 
 Previews bin photosites ("superpixel") down to roughly the output size instead of
 demosaicing at full resolution. Spatial parameters (blur and sharpen radii) are
 expressed in full-resolution pixels, so previews match full-size exports.
 
 `cargo run --release --example bench -- photo.ARW 2400` prints timings for typical
-interactions.
+interactions. `npm run test:perf -w @rawtisserie/web` measures slider drags in a real
+browser on the production build (UI frame rate, main-thread load, input latency, image
+updates per second) and fails over budget. It needs `npm run build:wasm`,
+`./scripts/fetch-golden-raws.sh` and `npx playwright install chromium`.
 
 Edit parameters are a versioned JSON recipe (`crates/pipeline/src/params.rs`, mirrored
 in `packages/pipeline/src/params.ts`): a list of module instances

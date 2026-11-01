@@ -17,7 +17,7 @@ import {
   Thermometer,
   Triangle,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { describeChange } from './changes.ts';
 import type { HistoryEntry } from './history.ts';
 
@@ -100,7 +100,7 @@ function Row({
 }
 
 /** The history stack, newest first: click an entry to go back to it. */
-export function HistoryPanel({ original, entries, end, onSelect, onCompress }: Props) {
+export const HistoryPanel = memo(function HistoryPanel({ original, entries, end, onSelect, onCompress }: Props) {
   const icons = useMemo(
     () => entries.map((e, i) => entryIcon(entries[i - 1]?.recipe ?? original, e.recipe)),
     [original, entries],
@@ -141,4 +141,4 @@ export function HistoryPanel({ original, entries, end, onSelect, onCompress }: P
       </Stack>
     </Stack>
   );
-}
+});

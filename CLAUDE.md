@@ -28,6 +28,12 @@ See README.md for the architecture overview and commands.
   operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep
   it cheap: precompute in `PointOps::new` and use lookup tables, not `powf`/`exp` per pixel.
 - Measure with `cargo run --release --example bench -- photo.ARW 2400`.
+- The developer's main thread must stay idle during a drag: Chakra's style resolution is
+  what's expensive, not the pixels. Sections of `ModulePanel` and the other panels are
+  memoised, so `Section` deps must list everything its content reads, and handlers go
+  through `latest`/`useStableCallback` so they never see an old recipe. `ParamSlider`
+  ignores its handlers when comparing props: give it a new `key` if it gets rebound. Check with
+  `npm run test:perf -w @rawtisserie/web` (slider drags in a real browser, with budgets).
 - Golden-image tests (`crates/pipeline/tests/golden.rs`) need `./scripts/fetch-golden-raws.sh`
   once. A change that moves the output fails them; if it's intended, re-bless with
   `GOLDEN_UPDATE=1 cargo test --release -p rawtisserie-pipeline --test golden` and say

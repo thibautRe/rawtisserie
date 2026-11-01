@@ -1,4 +1,5 @@
 import { HStack, Slider, Text } from '@chakra-ui/react';
+import { memo } from 'react';
 
 interface Props {
   label: string;
@@ -16,8 +17,14 @@ interface Props {
 const signed = (digits: number) => (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(digits)}`;
 export const fmt = { ev: (v: number) => `${signed(2)(v)} EV`, signed2: signed(2), fixed2: (v: number) => v.toFixed(2) };
 
-/** A compact labelled slider; double-click resets it to its default. */
-export function ParamSlider({ label, value, min, max, step, defaultValue, format = fmt.signed2, disabled, onChange, onCommit }: Props) {
+/**
+ * A compact labelled slider; double-click resets it to its default.
+ *
+ * Memoised on its value and range, ignoring `format`, `onChange` and `onCommit`: callers
+ * write those inline, so they must not depend on render state (read the latest recipe at
+ * call time), and a slider that gets rebound to something else needs a new `key`.
+ */
+export const ParamSlider = memo(function ParamSlider({ label, value, min, max, step, defaultValue, format = fmt.signed2, disabled, onChange, onCommit }: Props) {
   return (
     <Slider.Root
       size="sm"
@@ -53,4 +60,12 @@ export function ParamSlider({ label, value, min, max, step, defaultValue, format
       </Slider.Control>
     </Slider.Root>
   );
-}
+}, (a, b) =>
+  a.value === b.value &&
+  a.label === b.label &&
+  a.min === b.min &&
+  a.max === b.max &&
+  a.step === b.step &&
+  a.defaultValue === b.defaultValue &&
+  a.disabled === b.disabled,
+);

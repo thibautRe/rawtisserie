@@ -117,7 +117,7 @@ export function LocalDevelopPage() {
           metadata={loaded.metadata}
           original={defaultEditParams}
           initialHistory={autoApplied(loaded.metadata)}
-          actions={(_params, history) => (
+          actions={(history) => (
             <>
               <Button size="sm" variant="ghost" onClick={() => input.current?.click()}>
                 <FolderOpen /> Open…

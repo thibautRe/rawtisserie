@@ -1,6 +1,6 @@
 import { Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
 import { ChevronDown, CloudAlert, CloudCheck, Frame, SunMoon, Zap } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
 
@@ -30,7 +30,7 @@ export function useClippingSettings() {
     }
   });
   useEffect(() => localStorage.setItem('developer.clipping', JSON.stringify(settings)), [settings]);
-  const update = (patch: Partial<ClippingSettings>) => setSettings((s) => ({ ...s, ...patch }));
+  const update = useCallback((patch: Partial<ClippingSettings>) => setSettings((s) => ({ ...s, ...patch })), []);
   return [settings, update] as const;
 }
 
@@ -53,7 +53,15 @@ export function StatusBar({ save, ms, clipping, onClippingChange, assessment, on
       <Text textStyle="2xs" color="fg.subtle" fontVariantNumeric="tabular-nums" px="1" flex="1">
         {ms !== null && `${Math.round(ms)} ms`}
       </Text>
+      <ViewToggles clipping={clipping} onClippingChange={onClippingChange} assessment={assessment} onAssessmentChange={onAssessmentChange} />
+    </HStack>
+  );
+}
 
+/** Memoised: the bar around it updates with every frame. */
+const ViewToggles = memo(function ViewToggles({ clipping, onClippingChange, assessment, onAssessmentChange }: Omit<Props, 'save' | 'ms'>) {
+  return (
+    <>
       <HStack gap="0">
         <Button
           size="2xs"
@@ -123,9 +131,9 @@ export function StatusBar({ save, ms, clipping, onClippingChange, assessment, on
       >
         <Frame /> Assessment
       </Button>
-    </HStack>
+    </>
   );
-}
+});
 
 /** Only show the saving state once a save has taken this long. */
 const SAVING_DELAY_MS = 1000;

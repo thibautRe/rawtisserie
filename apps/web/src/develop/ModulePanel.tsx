@@ -17,7 +17,7 @@ import {
   updateModule,
 } from '@rawtisserie/pipeline';
 import { ChevronDown, ChevronRight, Crop, FlipHorizontal2, RotateCcw, RotateCcwSquare, RotateCwSquare, WandSparkles } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { CurveEditor } from './CurveEditor.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 
@@ -91,6 +91,16 @@ function Module({
   );
 }
 
+/**
+ * A part of the panel that only re-renders when `deps` change. Restyling every module
+ * on every pointer move would take up the main thread during a drag, so `render` must
+ * depend on nothing else (event handlers go through `latest` in `ModulePanel`).
+ */
+const Section = memo(
+  ({ render }: { deps: readonly unknown[]; render: () => React.ReactNode }) => render(),
+  (a, b) => a.deps.length === b.deps.length && a.deps.every((d, i) => d === b.deps[i]),
+);
+
 const EQUALIZER_LABELS: Record<EqualizerCurve, string> = {
   luma: 'Luminance contrast',
   chroma: 'Color contrast',
@@ -116,24 +126,31 @@ const BLEACH_LABELS: Record<Bleach, string> = {
   extra: 'Extra bleach',
 };
 
-export function ModulePanel({ params, lensCorrection, onChange, onCommit, cropping, aspect, onAspectChange, onStartCrop, onAutoTuneFilmic, autoTuning }: Props) {
+export function ModulePanel(props: Props) {
+  const { params, lensCorrection, cropping, aspect, autoTuning } = props;
+  // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
+  const latest = useRef(props);
+  useLayoutEffect(() => {
+    latest.current = props;
+  });
   const [curve, setCurve] = useState<EqualizerCurve>('luma');
   const [primary, setPrimary] = useState<PrimaryName>('red');
   const [primariesAdvanced, setPrimariesAdvanced] = useState(false);
 
   // One instance per kind for now: the panel edits the first one.
-  const values = <K extends ModuleKind>(kind: K): ModuleParams[K] => findModule(params, kind)?.params ?? defaultModuleParams[kind];
+  const values = <K extends ModuleKind>(kind: K, from = params): ModuleParams[K] => findModule(from, kind)?.params ?? defaultModuleParams[kind];
+  const instances = (kind: ModuleKind) => params.modules.filter((m) => m.kind === kind);
   const enabled = (kind: ModuleKind) => findModule(params, kind)?.enabled ?? false;
   // Editing a module switches it on, as in Ansel.
-  const edit = <K extends ModuleKind>(kind: K, patch: Partial<ModuleParams[K]>) => updateModule(params, kind, { enabled: true, params: patch });
-  const set = <K extends ModuleKind>(kind: K, patch: Partial<ModuleParams[K]>) => onCommit(edit(kind, patch));
+  const edit = <K extends ModuleKind>(kind: K, patch: Partial<ModuleParams[K]>) => updateModule(latest.current.params, kind, { enabled: true, params: patch });
+  const set = <K extends ModuleKind>(kind: K, patch: Partial<ModuleParams[K]>) => latest.current.onCommit(edit(kind, patch));
 
   /** Header props for a module kind. */
   const module = (kind: ModuleKind) => ({
     enabled: enabled(kind),
     modified: isModuleModified(params, kind),
-    onToggle: (on: boolean) => onCommit(updateModule(params, kind, { enabled: on })),
-    onReset: () => onCommit(resetModule(params, kind)),
+    onToggle: (on: boolean) => latest.current.onCommit(updateModule(latest.current.params, kind, { enabled: on })),
+    onReset: () => latest.current.onCommit(resetModule(latest.current.params, kind)),
   });
 
   /** Props for a slider bound to a numeric parameter of a module kind. */
@@ -142,8 +159,8 @@ export function ModulePanel({ params, lensCorrection, onChange, onCommit, croppi
     return {
       value: values(kind)[key] as number,
       defaultValue: defaultModuleParams[kind][key] as number,
-      onChange: (v: number) => onChange(with_(v)),
-      onCommit: (v: number) => onCommit(with_(v)),
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
     };
   }
 
@@ -152,12 +169,12 @@ export function ModulePanel({ params, lensCorrection, onChange, onCommit, croppi
 
   /** Props for a slider bound to one field of a colour primary. */
   function bindPrimary(name: PrimaryName, key: keyof Primary) {
-    const with_ = (v: number) => edit('colorPrimaries', { [name]: { ...values('colorPrimaries')[name], [key]: v } });
+    const with_ = (v: number) => edit('colorPrimaries', { [name]: { ...values('colorPrimaries', latest.current.params)[name], [key]: v } });
     return {
       value: values('colorPrimaries')[name][key],
       defaultValue: defaultModuleParams.colorPrimaries[name][key],
-      onChange: (v: number) => onChange(with_(v)),
-      onCommit: (v: number) => onCommit(with_(v)),
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
     };
   }
 
@@ -168,201 +185,256 @@ export function ModulePanel({ params, lensCorrection, onChange, onCommit, croppi
 
   return (
     <Box px="3">
-      <Module title="Exposure" {...module('exposure')}>
-        <ParamSlider label="Exposure" min={-4} max={4} step={0.05} format={fmt.ev} {...bind('exposure', 'ev')} />
-        <ParamSlider label="Black level" min={0} max={0.1} step={0.001} format={(v) => v.toFixed(3)} {...bind('exposure', 'black')} />
-      </Module>
+      <Section
+        deps={[...instances('exposure')]}
+        render={() => (
+          <Module title="Exposure" {...module('exposure')}>
+            <ParamSlider label="Exposure" min={-4} max={4} step={0.05} format={fmt.ev} {...bind('exposure', 'ev')} />
+            <ParamSlider label="Black level" min={0} max={0.1} step={0.001} format={(v) => v.toFixed(3)} {...bind('exposure', 'black')} />
+          </Module>
+        )}
+      />
 
-      <Module title="White balance" {...module('whiteBalance')}>
-        <ParamSlider label="Warmth" min={-1} max={1} step={0.01} {...bind('whiteBalance', 'warmth')} />
-        <ParamSlider label="Tint" min={-1} max={1} step={0.01} {...bind('whiteBalance', 'tint')} />
-      </Module>
+      <Section
+        deps={[...instances('whiteBalance')]}
+        render={() => (
+          <Module title="White balance" {...module('whiteBalance')}>
+            <ParamSlider label="Warmth" min={-1} max={1} step={0.01} {...bind('whiteBalance', 'warmth')} />
+            <ParamSlider label="Tint" min={-1} max={1} step={0.01} {...bind('whiteBalance', 'tint')} />
+          </Module>
+        )}
+      />
 
-      <Module title="Color" {...module('color')}>
-        <ParamSlider label="Saturation" min={-1} max={1} step={0.01} {...bind('color', 'saturation')} />
-        <ParamSlider label="Vibrance" min={-1} max={1} step={0.01} {...bind('color', 'vibrance')} />
-      </Module>
+      <Section
+        deps={[...instances('color')]}
+        render={() => (
+          <Module title="Color" {...module('color')}>
+            <ParamSlider label="Saturation" min={-1} max={1} step={0.01} {...bind('color', 'saturation')} />
+            <ParamSlider label="Vibrance" min={-1} max={1} step={0.01} {...bind('color', 'vibrance')} />
+          </Module>
+        )}
+      />
 
-      <Module title="Shadows & highlights" {...module('shadowsHighlights')}>
-        <ParamSlider label="Shadows" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'shadows')} />
-        <ParamSlider label="Highlights" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'highlights')} />
-      </Module>
+      <Section
+        deps={[...instances('shadowsHighlights')]}
+        render={() => (
+          <Module title="Shadows & highlights" {...module('shadowsHighlights')}>
+            <ParamSlider label="Shadows" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'shadows')} />
+            <ParamSlider label="Highlights" min={-1} max={1} step={0.01} {...bind('shadowsHighlights', 'highlights')} />
+          </Module>
+        )}
+      />
 
-      <Module title="Color primaries" {...module('colorPrimaries')}>
-        <HStack gap="1" justify="space-between" role="radiogroup" aria-label="Primary">
-          {PRIMARIES.map((name) => {
-            const p = values('colorPrimaries')[name];
-            const edited = p.hue !== 0 || p.saturation !== 0 || p.brightness !== 0;
-            return (
-              <Box
-                key={name}
-                as="button"
-                role="radio"
-                aria-checked={primary === name}
-                aria-label={name}
-                title={name}
-                flex="1"
-                h="5"
-                borderRadius="sm"
-                bg={PRIMARY_SWATCHES[name]}
-                cursor="pointer"
-                position="relative"
-                outline={primary === name ? '2px solid' : 'none'}
-                outlineColor="fg"
-                outlineOffset="1px"
-                onClick={() => setPrimary(name)}
+      <Section
+        deps={[...instances('colorPrimaries'), primary, primariesAdvanced]}
+        render={() => (
+          <Module title="Color primaries" {...module('colorPrimaries')}>
+            <HStack gap="1" justify="space-between" role="radiogroup" aria-label="Primary">
+              {PRIMARIES.map((name) => {
+                const p = values('colorPrimaries')[name];
+                const edited = p.hue !== 0 || p.saturation !== 0 || p.brightness !== 0;
+                return (
+                  <Box
+                    key={name}
+                    as="button"
+                    role="radio"
+                    aria-checked={primary === name}
+                    aria-label={name}
+                    title={name}
+                    flex="1"
+                    h="5"
+                    borderRadius="sm"
+                    bg={PRIMARY_SWATCHES[name]}
+                    cursor="pointer"
+                    position="relative"
+                    outline={primary === name ? '2px solid' : 'none'}
+                    outlineColor="fg"
+                    outlineOffset="1px"
+                    onClick={() => setPrimary(name)}
+                  >
+                    {edited && <Box position="absolute" top="1" right="1" boxSize="1.5" borderRadius="full" bg="white" boxShadow="xs" />}
+                  </Box>
+                );
+              })}
+            </HStack>
+            <ParamSlider key={`${primary}-hue`} label="Hue" min={-180} max={180} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`} {...bindPrimary(primary, 'hue')} />
+            <ParamSlider key={`${primary}-saturation`} label="Saturation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bindPrimary(primary, 'saturation')} />
+            <ParamSlider key={`${primary}-brightness`} label="Brightness" min={-0.25} max={0.25} step={0.005} format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`} {...bindPrimary(primary, 'brightness')} />
+            <Button size="2xs" variant="ghost" alignSelf="start" px="0" onClick={() => setPrimariesAdvanced(!primariesAdvanced)}>
+              {primariesAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut and smoothing
+            </Button>
+            {primariesAdvanced && (
+              <>
+                <ParamSlider label="White level" min={-2} max={16} step={0.05} format={fmt.ev} {...bind('colorPrimaries', 'whiteLevel')} />
+                <ParamSlider label="Gamut coverage" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'gamutCoverage')} />
+                <ParamSlider label="Neutral protection" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'neutralProtection')} />
+                <ParamSlider label="Brightness smoothing" min={1} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'brightnessSmoothing')} />
+                <ParamSlider label="Saturation smoothing" min={0.01} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'saturationSmoothing')} />
+                <ParamSlider label="Hue smoothing" min={0.01} max={6.28} step={0.01} format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`} {...bind('colorPrimaries', 'hueSmoothing')} />
+              </>
+            )}
+          </Module>
+        )}
+      />
+
+      <Section
+        deps={[...instances('contrastEqualizer'), curve]}
+        render={() => (
+          <Module title="Contrast equalizer" {...module('contrastEqualizer')}>
+            <NativeSelect.Root size="xs">
+              <NativeSelect.Field value={curve} onChange={(e) => setCurve(e.target.value as EqualizerCurve)} aria-label="Curve">
+                {EQUALIZER_CURVES.map((c) => (
+                  <option key={c} value={c}>
+                    {EQUALIZER_LABELS[c]}
+                  </option>
+                ))}
+              </NativeSelect.Field>
+              <NativeSelect.Indicator />
+            </NativeSelect.Root>
+            <CurveEditor
+              label={EQUALIZER_LABELS[curve]}
+              values={eq[curve]}
+              defaults={defaultModuleParams.contrastEqualizer[curve]}
+              neutral={defaultModuleParams.contrastEqualizer[curve][0]!}
+              left="coarse"
+              right="fine"
+              onChange={(v) => latest.current.onChange(edit('contrastEqualizer', { [curve]: v }))}
+              onCommit={(v) => latest.current.onCommit(edit('contrastEqualizer', { [curve]: v }))}
+            />
+            <ParamSlider label="Mix" min={-2} max={2} step={0.01} format={fmt.fixed2} {...bind('contrastEqualizer', 'mix')} />
+          </Module>
+        )}
+      />
+
+      <Section
+        deps={[...instances('filmic'), autoTuning]}
+        render={() => (
+          <Module title="Filmic" {...module('filmic')}>
+            <ParamSlider label="White relative exposure" min={1} max={10} step={0.05} format={fmt.ev} {...bind('filmic', 'whiteExposure')} />
+            <ParamSlider label="Black relative exposure" min={-14} max={-3} step={0.05} format={fmt.ev} {...bind('filmic', 'blackExposure')} />
+            <HStack justify="space-between">
+              <Button
+                size="2xs"
+                variant="outline"
+                disabled={!enabled('filmic')}
+                loading={autoTuning}
+                onClick={() => latest.current.onAutoTuneFilmic()}
+                title="Set white and black relative exposure from the image (like Ansel's auto-tune)"
               >
-                {edited && <Box position="absolute" top="1" right="1" boxSize="1.5" borderRadius="full" bg="white" boxShadow="xs" />}
-              </Box>
-            );
-          })}
-        </HStack>
-        <ParamSlider label="Hue" min={-180} max={180} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`} {...bindPrimary(primary, 'hue')} />
-        <ParamSlider label="Saturation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bindPrimary(primary, 'saturation')} />
-        <ParamSlider label="Brightness" min={-0.25} max={0.25} step={0.005} format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`} {...bindPrimary(primary, 'brightness')} />
-        <Button size="2xs" variant="ghost" alignSelf="start" px="0" onClick={() => setPrimariesAdvanced(!primariesAdvanced)}>
-          {primariesAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut and smoothing
-        </Button>
-        {primariesAdvanced && (
-          <>
-            <ParamSlider label="White level" min={-2} max={16} step={0.05} format={fmt.ev} {...bind('colorPrimaries', 'whiteLevel')} />
-            <ParamSlider label="Gamut coverage" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'gamutCoverage')} />
-            <ParamSlider label="Neutral protection" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'neutralProtection')} />
-            <ParamSlider label="Brightness smoothing" min={1} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('colorPrimaries', 'brightnessSmoothing')} />
-            <ParamSlider label="Saturation smoothing" min={0.01} max={2} step={0.01} format={fmt.fixed2} {...bind('colorPrimaries', 'saturationSmoothing')} />
-            <ParamSlider label="Hue smoothing" min={0.01} max={6.28} step={0.01} format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`} {...bind('colorPrimaries', 'hueSmoothing')} />
-          </>
+                <WandSparkles /> Auto-tune
+              </Button>
+              <Text textStyle="2xs" color="fg.subtle">
+                dynamic range {(fm.whiteExposure - fm.blackExposure).toFixed(2)} EV
+              </Text>
+            </HStack>
+            <ParamSlider
+              label="Dynamic range scaling (auto-tune)"
+              min={-50}
+              max={200}
+              step={1}
+              format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
+              {...bind('filmic', 'dynamicRangeScaling')}
+            />
+            <ParamSlider label="Contrast" min={0.5} max={3} step={0.01} format={fmt.fixed2} {...bind('filmic', 'contrast')} />
+            <ParamSlider label="Toe" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'toe')} />
+            <ParamSlider label="Shoulder" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'shoulder')} />
+            <ParamSlider label="Hue preservation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bind('filmic', 'huePreservation')} />
+            <NativeSelect.Root size="xs">
+              <NativeSelect.Field
+                value={fm.bleach}
+                onChange={(e) => set('filmic', { bleach: e.target.value as Bleach })}
+                aria-label="Colour science"
+              >
+                {BLEACH_LEVELS.map((b) => (
+                  <option key={b} value={b}>
+                    AgX, {BLEACH_LABELS[b].toLowerCase()}
+                  </option>
+                ))}
+              </NativeSelect.Field>
+              <NativeSelect.Indicator />
+            </NativeSelect.Root>
+          </Module>
         )}
-      </Module>
+      />
 
-      <Module title="Contrast equalizer" {...module('contrastEqualizer')}>
-        <NativeSelect.Root size="xs">
-          <NativeSelect.Field value={curve} onChange={(e) => setCurve(e.target.value as EqualizerCurve)} aria-label="Curve">
-            {EQUALIZER_CURVES.map((c) => (
-              <option key={c} value={c}>
-                {EQUALIZER_LABELS[c]}
-              </option>
-            ))}
-          </NativeSelect.Field>
-          <NativeSelect.Indicator />
-        </NativeSelect.Root>
-        <CurveEditor
-          label={EQUALIZER_LABELS[curve]}
-          values={eq[curve]}
-          defaults={defaultModuleParams.contrastEqualizer[curve]}
-          neutral={defaultModuleParams.contrastEqualizer[curve][0]!}
-          left="coarse"
-          right="fine"
-          onChange={(v) => onChange(edit('contrastEqualizer', { [curve]: v }))}
-          onCommit={(v) => onCommit(edit('contrastEqualizer', { [curve]: v }))}
-        />
-        <ParamSlider label="Mix" min={-2} max={2} step={0.01} format={fmt.fixed2} {...bind('contrastEqualizer', 'mix')} />
-      </Module>
-
-      <Module title="Filmic" {...module('filmic')}>
-        <ParamSlider label="White relative exposure" min={1} max={10} step={0.05} format={fmt.ev} {...bind('filmic', 'whiteExposure')} />
-        <ParamSlider label="Black relative exposure" min={-14} max={-3} step={0.05} format={fmt.ev} {...bind('filmic', 'blackExposure')} />
-        <HStack justify="space-between">
-          <Button
-            size="2xs"
-            variant="outline"
-            disabled={!enabled('filmic')}
-            loading={autoTuning}
-            onClick={onAutoTuneFilmic}
-            title="Set white and black relative exposure from the image (like Ansel's auto-tune)"
-          >
-            <WandSparkles /> Auto-tune
-          </Button>
-          <Text textStyle="2xs" color="fg.subtle">
-            dynamic range {(fm.whiteExposure - fm.blackExposure).toFixed(2)} EV
-          </Text>
-        </HStack>
-        <ParamSlider
-          label="Dynamic range scaling (auto-tune)"
-          min={-50}
-          max={200}
-          step={1}
-          format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
-          {...bind('filmic', 'dynamicRangeScaling')}
-        />
-        <ParamSlider label="Contrast" min={0.5} max={3} step={0.01} format={fmt.fixed2} {...bind('filmic', 'contrast')} />
-        <ParamSlider label="Toe" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'toe')} />
-        <ParamSlider label="Shoulder" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...bind('filmic', 'shoulder')} />
-        <ParamSlider label="Hue preservation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bind('filmic', 'huePreservation')} />
-        <NativeSelect.Root size="xs">
-          <NativeSelect.Field
-            value={fm.bleach}
-            onChange={(e) => set('filmic', { bleach: e.target.value as Bleach })}
-            aria-label="Colour science"
-          >
-            {BLEACH_LEVELS.map((b) => (
-              <option key={b} value={b}>
-                AgX, {BLEACH_LABELS[b].toLowerCase()}
-              </option>
-            ))}
-          </NativeSelect.Field>
-          <NativeSelect.Indicator />
-        </NativeSelect.Root>
-      </Module>
-
-      <Module title="Sharpen" {...module('sharpen')}>
-        <ParamSlider label="Amount" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('sharpen', 'amount')} />
-        <ParamSlider label="Radius" min={0.3} max={5} step={0.05} format={(v) => `${v.toFixed(2)} px`} {...bind('sharpen', 'radius')} />
-      </Module>
-
-      <Module title="Blur" {...module('blur')}>
-        <ParamSlider label="Radius" min={0} max={50} step={0.1} format={(v) => `${v.toFixed(1)} px`} {...bind('blur', 'radius')} />
-      </Module>
-
-      <Module title="Lens correction" {...module('lens')}>
-        {!lensCorrection && (
-          <Text textStyle="2xs" color="fg.subtle">
-            This file has no lens correction data
-          </Text>
+      <Section
+        deps={[...instances('sharpen')]}
+        render={() => (
+          <Module title="Sharpen" {...module('sharpen')}>
+            <ParamSlider label="Amount" min={0} max={2} step={0.01} format={fmt.fixed2} {...bind('sharpen', 'amount')} />
+            <ParamSlider label="Radius" min={0.3} max={5} step={0.05} format={(v) => `${v.toFixed(2)} px`} {...bind('sharpen', 'radius')} />
+          </Module>
         )}
-        <ParamSlider label="Distortion" disabled={!lensCorrection} {...percent} {...bind('lens', 'distortion')} />
-        <ParamSlider label="Chromatic aberration" disabled={!lensCorrection} {...percent} {...bind('lens', 'tca')} />
-        <ParamSlider label="Vignetting" disabled={!lensCorrection} {...percent} {...bind('lens', 'vignetting')} />
-      </Module>
+      />
 
-      <Module title="Geometry" {...module('geometry')}>
-        <HStack justify="space-between">
-          <ButtonGroup size="xs" variant="outline" attached>
-            <IconButton aria-label="Rotate left" onClick={() => set('geometry', { rotation: (g.rotation + 3) % 4 })}>
-              <RotateCcwSquare />
-            </IconButton>
-            <IconButton aria-label="Rotate right" onClick={() => set('geometry', { rotation: (g.rotation + 1) % 4 })}>
-              <RotateCwSquare />
-            </IconButton>
-            <IconButton
-              aria-label="Flip horizontally"
-              variant={g.flipHorizontal ? 'solid' : 'outline'}
-              onClick={() => set('geometry', { flipHorizontal: !g.flipHorizontal })}
-            >
-              <FlipHorizontal2 />
-            </IconButton>
-          </ButtonGroup>
-          <Button size="xs" variant={cropping ? 'solid' : 'outline'} colorPalette={cropping ? 'orange' : 'gray'} onClick={onStartCrop}>
-            <Crop /> {cropping ? 'Cropping…' : 'Crop'}
-          </Button>
-        </HStack>
-        <ParamSlider label="Straighten" min={-45} max={45} step={0.1} format={(v) => `${v.toFixed(1)}°`} {...bind('geometry', 'angle')} />
-        <HStack>
-          <NativeSelect.Root size="xs" flex="1">
-            <NativeSelect.Field value={aspect} onChange={(e) => onAspectChange(e.target.value)} aria-label="Crop aspect ratio">
-              {ASPECTS.map((a) => (
-                <option key={a.value} value={a.value}>
-                  Aspect: {a.label}
-                </option>
-              ))}
-            </NativeSelect.Field>
-            <NativeSelect.Indicator />
-          </NativeSelect.Root>
-          <Button size="xs" variant="ghost" disabled={!cropped} onClick={() => set('geometry', { crop: { ...defaultModuleParams.geometry.crop } })}>
-            Uncrop
-          </Button>
-        </HStack>
-      </Module>
+      <Section
+        deps={[...instances('blur')]}
+        render={() => (
+          <Module title="Blur" {...module('blur')}>
+            <ParamSlider label="Radius" min={0} max={50} step={0.1} format={(v) => `${v.toFixed(1)} px`} {...bind('blur', 'radius')} />
+          </Module>
+        )}
+      />
+
+      <Section
+        deps={[...instances('lens'), lensCorrection]}
+        render={() => (
+          <Module title="Lens correction" {...module('lens')}>
+            {!lensCorrection && (
+              <Text textStyle="2xs" color="fg.subtle">
+                This file has no lens correction data
+              </Text>
+            )}
+            <ParamSlider label="Distortion" disabled={!lensCorrection} {...percent} {...bind('lens', 'distortion')} />
+            <ParamSlider label="Chromatic aberration" disabled={!lensCorrection} {...percent} {...bind('lens', 'tca')} />
+            <ParamSlider label="Vignetting" disabled={!lensCorrection} {...percent} {...bind('lens', 'vignetting')} />
+          </Module>
+        )}
+      />
+
+      <Section
+        deps={[...instances('geometry'), cropping, aspect]}
+        render={() => (
+          <Module title="Geometry" {...module('geometry')}>
+            <HStack justify="space-between">
+              <ButtonGroup size="xs" variant="outline" attached>
+                <IconButton aria-label="Rotate left" onClick={() => set('geometry', { rotation: (g.rotation + 3) % 4 })}>
+                  <RotateCcwSquare />
+                </IconButton>
+                <IconButton aria-label="Rotate right" onClick={() => set('geometry', { rotation: (g.rotation + 1) % 4 })}>
+                  <RotateCwSquare />
+                </IconButton>
+                <IconButton
+                  aria-label="Flip horizontally"
+                  variant={g.flipHorizontal ? 'solid' : 'outline'}
+                  onClick={() => set('geometry', { flipHorizontal: !g.flipHorizontal })}
+                >
+                  <FlipHorizontal2 />
+                </IconButton>
+              </ButtonGroup>
+              <Button size="xs" variant={cropping ? 'solid' : 'outline'} colorPalette={cropping ? 'orange' : 'gray'} onClick={() => latest.current.onStartCrop()}>
+                <Crop /> {cropping ? 'Cropping…' : 'Crop'}
+              </Button>
+            </HStack>
+            <ParamSlider label="Straighten" min={-45} max={45} step={0.1} format={(v) => `${v.toFixed(1)}°`} {...bind('geometry', 'angle')} />
+            <HStack>
+              <NativeSelect.Root size="xs" flex="1">
+                <NativeSelect.Field value={aspect} onChange={(e) => latest.current.onAspectChange(e.target.value)} aria-label="Crop aspect ratio">
+                  {ASPECTS.map((a) => (
+                    <option key={a.value} value={a.value}>
+                      Aspect: {a.label}
+                    </option>
+                  ))}
+                </NativeSelect.Field>
+                <NativeSelect.Indicator />
+              </NativeSelect.Root>
+              <Button size="xs" variant="ghost" disabled={!cropped} onClick={() => set('geometry', { crop: { ...defaultModuleParams.geometry.crop } })}>
+                Uncrop
+              </Button>
+            </HStack>
+          </Module>
+        )}
+      />
     </Box>
   );
 }

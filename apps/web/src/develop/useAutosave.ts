@@ -158,5 +158,6 @@ export function useAutosave(store: HistoryStore, initialRevision: number, save: 
     if (s.conflict || s.queue.length) throw new Error('Your last changes could not be saved');
   }, [s, flush]);
 
-  return { status, flush: () => flush(), whenSaved };
+  const flushNow = useCallback(() => flush(), [flush]);
+  return { status, flush: flushNow, whenSaved };
 }

@@ -1,7 +1,7 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
 import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
@@ -13,6 +13,7 @@ import type { RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
+import { useStableCallback } from './useStableCallback.ts';
 
 interface Props {
   backend: RenderBackend;
@@ -25,8 +26,8 @@ interface Props {
   save?: SaveFn;
   /** The version's `revision` that `initialHistory` comes from. */
   revision?: number;
-  /** Extra toolbar actions, given the current parameters and history. */
-  actions?: (params: EditParams, history: HistorySnapshot) => React.ReactNode;
+  /** Extra toolbar actions, given the current history. */
+  actions?: (history: HistorySnapshot) => React.ReactNode;
   /** Shown next to the file name (the version switcher), given a way to wait for pending saves. */
   versions?: (whenSaved: () => Promise<void>) => React.ReactNode;
   /** Go back to where the photo was opened from (Esc). */
@@ -34,7 +35,8 @@ interface Props {
 }
 
 const MAX_PREVIEW = 3200;
-const DRAFT_PIXELS = 1_000_000;
+/** Rendering takes ~70 ns per pixel, so this allows ~25 image updates per second during a drag. */
+const DRAFT_PIXELS = 500_000;
 const FULL_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
 /** Width of the zebra stripes, in CSS pixels. */
 const STRIPE_PX = 4;
@@ -67,6 +69,95 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
+/** Memoised, like the panels: a slider drag or a new frame leaves it alone. */
+const Toolbar = memo(function Toolbar({
+  filename,
+  metadata,
+  versions,
+  canUndo,
+  canRedo,
+  comparing,
+  exporting,
+  actions,
+  onUndo,
+  onRedo,
+  onCompare,
+  onExport,
+}: {
+  filename: string;
+  metadata: PhotoMetadata;
+  versions: React.ReactNode;
+  canUndo: boolean;
+  canRedo: boolean;
+  comparing: boolean;
+  exporting: boolean;
+  actions: React.ReactNode;
+  onUndo: () => void;
+  onRedo: () => void;
+  onCompare: (on: boolean) => void;
+  onExport: (maxSize: number) => void;
+}) {
+  const exif = [
+    [metadata.make, metadata.model].filter(Boolean).join(' '),
+    metadata.lensModel,
+    formatFocal(metadata.focalLength),
+    formatExposureTime(metadata.exposureTime),
+    formatAperture(metadata.fNumber),
+    formatIso(metadata.iso),
+  ].filter(Boolean);
+
+  return (
+    <HStack px="3" py="2" borderBottomWidth="1px" gap="2">
+      <AppMenu />
+      <Stack gap="0" minW="0" flex="1">
+        <HStack gap="1" minW="0">
+          <Text fontWeight="semibold" truncate>
+            {filename}
+          </Text>
+          {versions}
+        </HStack>
+        <Text textStyle="xs" color="fg.muted" truncate>
+          {exif.join(' · ')}
+        </Text>
+      </Stack>
+      <IconButton aria-label="Undo (Ctrl+Z)" size="sm" variant="ghost" disabled={!canUndo} onClick={onUndo}>
+        <Undo2 />
+      </IconButton>
+      <IconButton aria-label="Redo (Ctrl+Shift+Z)" size="sm" variant="ghost" disabled={!canRedo} onClick={onRedo}>
+        <Redo2 />
+      </IconButton>
+      <Button
+        size="sm"
+        variant={comparing ? 'solid' : 'ghost'}
+        title="Hold to see the unedited image (or hold \)"
+        onPointerDown={() => onCompare(true)}
+        onPointerUp={() => onCompare(false)}
+        onPointerLeave={() => onCompare(false)}
+      >
+        <SplitSquareHorizontal /> Before
+      </Button>
+      <Menu.Root onSelect={(d) => onExport(Number(d.value))}>
+        <Menu.Trigger asChild>
+          <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…">
+            <Download /> Export JPEG
+          </Button>
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content>
+              <Menu.Item value="0">Full resolution</Menu.Item>
+              <Menu.Item value="3840">Long edge 3840 px</Menu.Item>
+              <Menu.Item value="2048">Long edge 2048 px</Menu.Item>
+              <Menu.Item value="1080">Long edge 1080 px</Menu.Item>
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu.Root>
+      {actions}
+    </HStack>
+  );
+});
+
 export function DeveloperView({ backend, filename, metadata, original, initialHistory, save, revision = 0, actions, versions, onBack }: Props) {
   const [store] = useState(() => new HistoryStore(original, initialHistory));
   const history = useSyncExternalStore(store.subscribe, store.getState);
@@ -93,7 +184,7 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
     if (cropDraft) return updateModule(params, 'geometry', { params: { crop: FULL_CROP } });
     return params;
   }, [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
-  // While a slider is being dragged, render a ~1 MP draft (the pipeline keeps its
+  // While a slider is being dragged, render a ~0.5 MP draft (the pipeline keeps its
   // caches for both sizes); the full-resolution render follows on release.
   const draft = live && !cropDraft;
   const { margin, frameWidth } = assessmentLayout(size, assessment);
@@ -115,8 +206,9 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   useEffect(() => {
     const c = canvas.current;
     if (!c || !frame) return;
-    c.width = frame.image.width;
-    c.height = frame.image.height;
+    // Assigning a canvas's size reallocates it, even to the same size.
+    if (c.width !== frame.image.width) c.width = frame.image.width;
+    if (c.height !== frame.image.height) c.height = frame.image.height;
     c.getContext('2d')!.putImageData(frame.image, 0, 0);
   }, [frame]);
 
@@ -159,6 +251,10 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   };
   const canUndo = history.end > 0;
   const canRedo = history.end < history.entries.length;
+  const onSelectEntry = useStableCallback(goto);
+  const onCompress = useStableCallback(compress);
+  const onUndo = useStableCallback(() => goto(history.end - 1));
+  const onRedo = useStableCallback(() => goto(history.end + 1));
 
   // ── Crop ──
   const frameAspect = frame ? frame.fullWidth / frame.fullHeight : 1;
@@ -198,6 +294,8 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
       setExporting(false);
     }
   };
+
+  const onExport = useStableCallback((maxSize: number) => void exportJpeg(maxSize));
 
   // Filmic auto-tune, measured on the full-size preview (with the current crop).
   const autoTuneFilmic = async () => {
@@ -258,69 +356,31 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
     };
   });
 
-  const exif = [
-    [metadata.make, metadata.model].filter(Boolean).join(' '),
-    metadata.lensModel,
-    formatFocal(metadata.focalLength),
-    formatExposureTime(metadata.exposureTime),
-    formatAperture(metadata.fNumber),
-    formatIso(metadata.iso),
-  ].filter(Boolean);
+  const { entries, end } = history;
+  const versionsNode = useMemo(() => versions?.(autosave.whenSaved), [versions, autosave.whenSaved]);
+  const actionsNode = useMemo(() => actions?.({ entries, end }), [actions, entries, end]);
+  const saveState = useMemo(() => save && { status: autosave.status, retry: autosave.flush }, [!!save, autosave.status, autosave.flush]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Flex h="full" minH="0">
       <Box as="aside" w="56" flexShrink={0} borderRightWidth="1px" bg="bg.panel" minH="0">
-        <HistoryPanel original={original} entries={history.entries} end={history.end} onSelect={goto} onCompress={compress} />
+        <HistoryPanel original={original} entries={history.entries} end={history.end} onSelect={onSelectEntry} onCompress={onCompress} />
       </Box>
       <Flex direction="column" flex="1" minW="0">
-        <HStack px="3" py="2" borderBottomWidth="1px" gap="2">
-          <AppMenu />
-          <Stack gap="0" minW="0" flex="1">
-            <HStack gap="1" minW="0">
-              <Text fontWeight="semibold" truncate>
-                {filename}
-              </Text>
-              {versions?.(autosave.whenSaved)}
-            </HStack>
-            <Text textStyle="xs" color="fg.muted" truncate>
-              {exif.join(' · ')}
-            </Text>
-          </Stack>
-          <IconButton aria-label="Undo (Ctrl+Z)" size="sm" variant="ghost" disabled={!canUndo} onClick={() => goto(history.end - 1)}>
-            <Undo2 />
-          </IconButton>
-          <IconButton aria-label="Redo (Ctrl+Shift+Z)" size="sm" variant="ghost" disabled={!canRedo} onClick={() => goto(history.end + 1)}>
-            <Redo2 />
-          </IconButton>
-          <Button
-            size="sm"
-            variant={comparing ? 'solid' : 'ghost'}
-            title="Hold to see the unedited image (or hold \)"
-            onPointerDown={() => setComparing(true)}
-            onPointerUp={() => setComparing(false)}
-            onPointerLeave={() => setComparing(false)}
-          >
-            <SplitSquareHorizontal /> Before
-          </Button>
-          <Menu.Root onSelect={(d) => void exportJpeg(Number(d.value))}>
-            <Menu.Trigger asChild>
-              <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…">
-                <Download /> Export JPEG
-              </Button>
-            </Menu.Trigger>
-            <Portal>
-              <Menu.Positioner>
-                <Menu.Content>
-                  <Menu.Item value="0">Full resolution</Menu.Item>
-                  <Menu.Item value="3840">Long edge 3840 px</Menu.Item>
-                  <Menu.Item value="2048">Long edge 2048 px</Menu.Item>
-                  <Menu.Item value="1080">Long edge 1080 px</Menu.Item>
-                </Menu.Content>
-              </Menu.Positioner>
-            </Portal>
-          </Menu.Root>
-          {actions?.(params, history)}
-        </HStack>
+        <Toolbar
+          filename={filename}
+          metadata={metadata}
+          versions={versionsNode}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          comparing={comparing}
+          exporting={exporting}
+          actions={actionsNode}
+          onUndo={onUndo}
+          onRedo={onRedo}
+          onCompare={setComparing}
+          onExport={onExport}
+        />
 
         <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
           {frame ? (
@@ -365,7 +425,7 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
           )}
         </Center>
         <StatusBar
-          save={save && { status: autosave.status, retry: autosave.flush }}
+          save={saveState}
           ms={frame?.ms ?? null}
           clipping={clipping}
           onClippingChange={setClipping}
