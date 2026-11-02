@@ -5,8 +5,9 @@
 //!   binned into one pixel by averaging the samples of each colour ("superpixel").
 //!   This is fast, alias-free and exactly what previews and thumbnails need.
 //!
-//! The base image is then white balanced (as shot), highlight-clipped so that
-//! saturated photosites stay neutral, and converted to linear Rec.2020.
+//! The base image is then white balanced with the camera reference multipliers (D65
+//! light is neutral; colour calibration adapts to the scene's light), highlight-clipped
+//! so that saturated photosites take the as-shot white, and converted to linear Rec.2020.
 
 use rawler::CFA;
 
@@ -23,16 +24,18 @@ pub fn develop_base(photo: &RawPhoto, factor: usize) -> Image {
         Layout::Mono => bin_plain(photo, factor, 1),
     };
 
-    let (wb, matrix) = match photo.layout {
-        Layout::Mono => ([1.0; 3], color::IDENTITY),
-        _ => (photo.wb, photo.working_from_camera),
+    let (wb, as_shot, matrix) = match photo.layout {
+        Layout::Mono => ([1.0; 3], [1.0; 3], color::IDENTITY),
+        _ => (photo.wb_reference, photo.wb, photo.working_from_camera),
     };
     // A photosite at saturation reads 1.0; after white balance that becomes wb[c].
-    // Clipping every channel at the smallest multiplier keeps blown highlights white
-    // rather than magenta.
-    let clip = wb.iter().copied().fold(f32::INFINITY, f32::min);
+    // Clipping every channel where the smallest as-shot multiplier would put it keeps
+    // blown highlights the colour of the as-shot white (rather than magenta), which
+    // colour calibration's default "as shot" illuminant turns white.
+    let min = as_shot.iter().copied().fold(f32::INFINITY, f32::min);
+    let clip = [0, 1, 2].map(|c| min * wb[c] / as_shot[c]);
     img.map_in_place(|p| {
-        let balanced = [(p[0] * wb[0]).min(clip), (p[1] * wb[1]).min(clip), (p[2] * wb[2]).min(clip)];
+        let balanced = [(p[0] * wb[0]).min(clip[0]), (p[1] * wb[1]).min(clip[1]), (p[2] * wb[2]).min(clip[2])];
         color::mul_vec(&matrix, balanced)
     });
     img

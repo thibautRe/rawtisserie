@@ -28,7 +28,7 @@ const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   sharpen: Triangle,
   contrastEqualizer: AudioWaveform,
   exposure: Sun,
-  whiteBalance: Thermometer,
+  colorCalibration: Thermometer,
   color: Palette,
   shadowsHighlights: Contrast,
   colorPrimaries: Rainbow,

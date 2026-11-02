@@ -13,12 +13,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let params = EditParams::default();
         // Bypass point ops: render once to get the cached spatial stages, then compare.
         let img = dev.spatial_image(&params, RenderSize::fit(1600, 1600)).clone();
+        let as_shot = dev.photo().as_shot_illuminant;
         let t = Instant::now();
-        let exact = PointOps::with_filmic_lut(&params, None).render(&img);
+        let exact = PointOps::with_filmic_lut(&params, as_shot, None).render(&img);
         println!("{path}\n  exact     {:>6.1} ms", t.elapsed().as_secs_f64() * 1e3);
         for size in [17, 33, 49, 65] {
             let t = Instant::now();
-            let ops = PointOps::with_filmic_lut(&params, Some(size));
+            let ops = PointOps::with_filmic_lut(&params, as_shot, Some(size));
             let built = t.elapsed();
             let t = Instant::now();
             let out = ops.render(&img);

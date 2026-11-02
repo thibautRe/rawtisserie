@@ -29,6 +29,8 @@ export interface PhotoMetadata {
   gpsAltitude: number | null;
   /** Where the lens correction data embedded in the file comes from (`"sony"`), if it has any. */
   lensCorrection?: string | null;
+  /** CIE 1931 xy chromaticity of the light the camera's white balance was set for (colour calibration's "as shot"). */
+  asShotIlluminant?: [number, number] | null;
 }
 
 /** `0.004` → `"1/250"`, `2.5` → `"2.5″"`. */

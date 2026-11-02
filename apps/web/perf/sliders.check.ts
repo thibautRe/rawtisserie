@@ -246,7 +246,7 @@ test('instances of a module do not affect each other', async () => {
   const sliders = (title: string) => section(title).locator('[data-scope="slider"][data-part="root"]');
 
   // Every slider of the second instance moves it and leaves the first alone.
-  for (const kind of ['Exposure', 'White balance', 'Color', 'Shadows & highlights', 'Sharpen', 'Contrast equalizer', 'Color primaries']) {
+  for (const kind of ['Exposure', 'Color calibration', 'Color', 'Shadows & highlights', 'Sharpen', 'Contrast equalizer', 'Color primaries']) {
     await addSecond(kind);
     const count = await sliders(`${kind} 2`).count();
     assert.ok(count > 0, kind);
@@ -278,6 +278,12 @@ test('instances of a module do not affect each other', async () => {
   await settle();
   assert.equal(await curve('Contrast equalizer 1').inputValue(), 'luma');
   assert.equal(await curve('Contrast equalizer 2').inputValue(), 'edges');
+  const calibrationTab = (title: string, name: string) => section(title).getByRole('tab', { name });
+  await calibrationTab('Color calibration 2', 'Output').click();
+  await settle();
+  assert.equal(await calibrationTab('Color calibration 1', 'CAT').getAttribute('aria-selected'), 'true');
+  assert.equal(await sliders('Color calibration 2').filter({ hasText: /^Green/ }).count(), 3);
+  assert.equal(await sliders('Color calibration 1').filter({ hasText: /^Green/ }).count(), 0);
 
   // A curve edit stays in its instance too (both showing the same curve).
   await curve('Contrast equalizer 2').selectOption('luma');

@@ -45,6 +45,9 @@ pub struct PhotoMetadata {
     /// Where the lens correction data embedded in the file comes from (`"sony"`), if
     /// it has any. See [`crate::lens`].
     pub lens_correction: Option<String>,
+    /// CIE 1931 xy chromaticity of the light the camera's white balance was set for
+    /// (colour calibration's "as shot" illuminant), if the file has colour.
+    pub as_shot_illuminant: Option<[f64; 2]>,
 }
 
 /// Read metadata without decoding (decompressing) the sensor data.
@@ -85,6 +88,8 @@ pub(crate) fn extract(source: &RawSource, raw: &RawImage) -> PhotoMetadata {
         meta.make = meta.make.or_else(|| non_empty(&rm.make));
         meta.model = meta.model.or_else(|| non_empty(&rm.model));
     }
+    let round = |v: f32| (v as f64 * 1e6).round() / 1e6;
+    meta.as_shot_illuminant = crate::decode::as_shot_illuminant(raw).map(|xy| xy.map(round));
     meta
 }
 

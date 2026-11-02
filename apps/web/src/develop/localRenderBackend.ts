@@ -1,5 +1,5 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
-import type { Overlays, WorkerRequest, WorkerResponse } from './protocol.ts';
+import type { IlluminantDetection, Overlays, WorkerRequest, WorkerResponse } from './protocol.ts';
 import type { Frame, RenderBackend } from './renderBackend.ts';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
@@ -76,6 +76,11 @@ export class LocalRenderBackend implements RenderBackend {
       maxHeight,
     });
     return r.white === null || r.black === null ? null : { white: r.white, black: r.black };
+  }
+
+  async detectIlluminant(params: EditParams, instance: string, method: IlluminantDetection, maxWidth: number, maxHeight: number): Promise<[number, number] | null> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'detectedIlluminant' }>>({ type: 'detectIlluminant', params, instance, method, maxWidth, maxHeight });
+    return r.xy;
   }
 
   dispose() {

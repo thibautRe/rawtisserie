@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use rawtisserie_pipeline::params::{Color, ColorPrimaries, ContrastEqualizer, EditParams, Exposure, Filmic, Geometry, ShadowsHighlights, Sharpen, WhiteBalance};
+use rawtisserie_pipeline::params::{Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, EditParams, Exposure, Filmic, Geometry, Illuminant, ShadowsHighlights, Sharpen};
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, RenderSize};
 
@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // What a new import of this file starts with (lens correction when available).
     let mut p = EditParams::default_for(dev.metadata());
-    p.get_mut::<WhiteBalance>().warmth = 0.2;
+    p.get_mut::<ColorCalibration>().colorfulness = [0.1; 3];
     p.get_mut::<Color>().saturation = 0.2;
     p.get_mut::<Color>().vibrance = 0.2;
     p.get_mut::<ShadowsHighlights>().shadows = 0.3;
@@ -49,6 +49,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:<34} {:>7.1} ms  ({}×{})", if i == 0 { "drag (draft, first)" } else { "drag (draft)" }, t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     }
     time("release (full, cached)", &mut dev, &p);
+
+    // Colour calibration: drag the temperature.
+    p.get_mut::<ColorCalibration>().illuminant = Illuminant::Daylight;
+    for _ in 0..3 {
+        p.get_mut::<ColorCalibration>().temperature += 100.0;
+        let t = Instant::now();
+        let img = dev.render(&p, draft, Quality::Interactive);
+        println!("{:<34} {:>7.1} ms  ({}×{})", "temperature drag (draft)", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
 
     // Colour primaries: drag a slider, release, then other sliders.
     for i in 0..3 {

@@ -60,11 +60,44 @@ export interface ModuleParams {
     /** Scene-linear black offset. */
     black: number;
   };
-  whiteBalance: {
-    /** -1 (cooler) … +1 (warmer), relative to as-shot. */
-    warmth: number;
-    /** -1 (green) … +1 (magenta), relative to as-shot. */
-    tint: number;
+  /**
+   * Colour calibration, after Ansel's: chromatic adaptation from the scene's light to
+   * the working space's white (D65), gamut compression, then mixing in the adaptation's
+   * space. Units are Ansel's.
+   */
+  colorCalibration: {
+    /** The light to adapt from. */
+    illuminant: Illuminant;
+    /** Correlated colour temperature of the daylight and black body illuminants, K, 1667 … 25000. */
+    temperature: number;
+    fluorescent: Fluorescent;
+    led: Led;
+    /** Chromaticity of the custom illuminant (CIE 1931 xy). */
+    x: number;
+    y: number;
+    /** Where the light is adapted and colours mixed. "As shot" always uses CAT16. */
+    adaptation: Adaptation;
+    /** Gamut compression, 0 … 12 (0 = off). */
+    gamut: number;
+    /** Clip negative values at each step. */
+    clip: boolean;
+    /** Output channels as a mix of the input ones, -2 … 2 each. */
+    red: number[];
+    green: number[];
+    blue: number[];
+    /** Scale each mix so that its coefficients add up to 1. */
+    normalizeRed: boolean;
+    normalizeGreen: boolean;
+    normalizeBlue: boolean;
+    /** Colourfulness along each channel, -1 … 1. */
+    colorfulness: number[];
+    normalizeColorfulness: boolean;
+    /** Brightness along each channel, -1 … 1. */
+    brightness: number[];
+    normalizeBrightness: boolean;
+    /** Monochrome mix of the channels, used when any is non-zero; -2 … 2. */
+    grey: number[];
+    normalizeGrey: boolean;
   };
   color: {
     /** -1 (monochrome) … +1. */
@@ -139,6 +172,16 @@ export const EQUALIZER_NODES = 6;
 export const EQUALIZER_CURVES = ['luma', 'chroma', 'edges', 'lumaDenoise', 'chromaDenoise'] as const;
 export type EqualizerCurve = (typeof EQUALIZER_CURVES)[number];
 
+export const ILLUMINANTS = ['asShot', 'pipeline', 'daylight', 'blackBody', 'a', 'e', 'fluorescent', 'led', 'custom'] as const;
+export type Illuminant = (typeof ILLUMINANTS)[number];
+export const FLUORESCENTS = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12'] as const;
+export type Fluorescent = (typeof FLUORESCENTS)[number];
+export const LEDS = ['b1', 'b2', 'b3', 'b4', 'b5', 'bh1', 'rgb1', 'v1', 'v2'] as const;
+export type Led = (typeof LEDS)[number];
+/** Chromatic adaptation transforms (Ansel's, without non-linear Bradford). */
+export const ADAPTATIONS = ['cat16', 'linearBradford', 'xyz', 'none'] as const;
+export type Adaptation = (typeof ADAPTATIONS)[number];
+
 /** Module kinds, in pipeline order. */
 export const MODULE_KINDS = [
   'lens',
@@ -147,7 +190,7 @@ export const MODULE_KINDS = [
   'sharpen',
   'contrastEqualizer',
   'exposure',
-  'whiteBalance',
+  'colorCalibration',
   'color',
   'shadowsHighlights',
   'colorPrimaries',
@@ -189,8 +232,9 @@ export type Bleach = (typeof BLEACH_LEVELS)[number];
  * v2: the sigmoid tone mapper was replaced by filmic. v3: a list of module instances.
  * v4: filmic's latitude/balance became independent toe/shoulder sizes.
  * v5: filmic's toe/shoulder measure the linear share instead of the curved one.
+ * v6: colour calibration replaces warmth/tint, and does the white balance.
  */
-export const EDIT_PARAMS_VERSION = 5;
+export const EDIT_PARAMS_VERSION = 6;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
@@ -208,7 +252,30 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
   },
   // Ansel's default push for RAW files.
   exposure: { ev: 0.7, black: 0 },
-  whiteBalance: { warmth: 0, tint: 0 },
+  colorCalibration: {
+    illuminant: 'asShot',
+    // The working space's white, D65 (Ansel's 5003 K is its D50).
+    temperature: 6504,
+    fluorescent: 'f3',
+    led: 'b5',
+    x: 0.3127,
+    y: 0.329,
+    adaptation: 'cat16',
+    gamut: 1,
+    clip: true,
+    red: [1, 0, 0],
+    green: [0, 1, 0],
+    blue: [0, 0, 1],
+    normalizeRed: true,
+    normalizeGreen: true,
+    normalizeBlue: true,
+    colorfulness: [0, 0, 0],
+    normalizeColorfulness: false,
+    brightness: [0, 0, 0],
+    normalizeBrightness: false,
+    grey: [0, 0, 0],
+    normalizeGrey: false,
+  },
   color: { saturation: 0, vibrance: 0 },
   shadowsHighlights: { shadows: 0, highlights: 0 },
   colorPrimaries: {
@@ -238,10 +305,10 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
 const instance = <K extends ModuleKind>(kind: K, id = ''): ModuleInstance<K> =>
   ({ id, label: null, enabled: true, kind, params: structuredClone(defaultModuleParams[kind]) }) as ModuleInstance<K>;
 
-/** The recipe a new image starts with: exposure and filmic. */
+/** The recipe a new image starts with: exposure, white balance as shot (colour calibration) and filmic. */
 export const defaultEditParams: EditParams = Object.freeze({
   version: EDIT_PARAMS_VERSION,
-  modules: [instance('exposure', 'exposure'), instance('filmic', 'filmic')],
+  modules: [instance('exposure', 'exposure'), instance('colorCalibration', 'colorCalibration'), instance('filmic', 'filmic')],
 });
 
 /**
@@ -267,8 +334,14 @@ export function normalizeEditParams(input: unknown): EditParams {
   const raw = isObject(input) ? structuredClone(input) : {};
   migrateFilmic(raw);
   const version = typeof raw.version === 'number' ? raw.version : 0;
-  if (version < 3 && !('modules' in raw)) return migrateV2(raw);
+  const whiteBalance = version < 6 ? takeWhiteBalance(raw) : [];
+  const modules = version < 3 && !('modules' in raw) ? migrateV2(raw) : v3Modules(raw);
+  // The base image used to be balanced as shot; now colour calibration does it.
+  if (version < 6) modules.push({ ...instance('colorCalibration'), params: fromWhiteBalance(whiteBalance) });
+  return normalize(modules);
+}
 
+function v3Modules(raw: Record<string, unknown>): ModuleInstance[] {
   const modules: ModuleInstance[] = [];
   for (const m of Array.isArray(raw.modules) ? raw.modules : []) {
     if (!isObject(m) || !isKind(m.kind)) continue;
@@ -280,7 +353,107 @@ export function normalizeEditParams(input: unknown): EditParams {
       params: moduleParams(m.kind, m.params),
     } as ModuleInstance);
   }
-  return normalize(modules);
+  return modules;
+}
+
+/**
+ * Remove the warmth/tint white balance of a v1–v5 recipe; returns the enabled ones'
+ * `[warmth, tint]`, in pipeline order. Mirrors `take_white_balance`.
+ */
+function takeWhiteBalance(raw: Record<string, unknown>): [number, number][] {
+  const read = (p: unknown): [number, number] => {
+    const get = (key: string) => (isObject(p) && typeof p[key] === 'number' ? p[key] : 0);
+    return [get('warmth'), get('tint')];
+  };
+  if (Array.isArray(raw.modules)) {
+    const isWb = (m: unknown): m is Record<string, unknown> => isObject(m) && m.kind === 'whiteBalance';
+    const found = raw.modules.filter(isWb).filter((m) => m.enabled !== false).map((m) => read(m.params));
+    raw.modules = raw.modules.filter((m) => !isWb(m));
+    return found;
+  }
+  if (!('whiteBalance' in raw)) return [];
+  const wb = raw.whiteBalance;
+  delete raw.whiteBalance;
+  return [read(wb)];
+}
+
+/**
+ * The default colour calibration, with the gains of v1–v5 warmth/tint instances
+ * (applied after the white balance) folded into its channel mix. Mirrors
+ * `ColorCalibration::from_white_balance`; computed the same way, in f64 from the same
+ * f32 constants, and rounded, so that both give the same numbers.
+ */
+export function fromWhiteBalance(instances: [number, number][]): ModuleParams['colorCalibration'] {
+  const p = structuredClone(defaultModuleParams.colorCalibration);
+  const f = Math.fround;
+  const clamp = (v: number) => Math.min(1, Math.max(-1, v));
+  let gains = [1, 1, 1];
+  for (const [warmth, tint] of instances) {
+    const w = clamp(f(warmth)) * 0.5;
+    const t = clamp(f(tint)) * 0.35;
+    const wb = [2 ** w, 2 ** -t, 2 ** -w];
+    const luma = LUMA_REC2020.map(f);
+    const y = wb[0]! * luma[0]! + wb[1]! * luma[1]! + wb[2]! * luma[2]!;
+    gains = gains.map((g, c) => g * (wb[c]! / y));
+  }
+  if (gains.some((g) => g !== 1)) {
+    const round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
+    const [red, green, blue] = mixForRgbGains(gains).map((row) => row.map(round));
+    Object.assign(p, { red, green, blue, normalizeRed: false, normalizeGreen: false, normalizeBlue: false });
+  }
+  return p;
+}
+
+type Mat3 = number[][];
+const LUMA_REC2020 = [0.2627, 0.678, 0.0593];
+export const XYZ_FROM_REC709 = [
+  [0.4124564, 0.3575761, 0.1804375],
+  [0.2126729, 0.7151522, 0.072175],
+  [0.0193339, 0.119192, 0.9503041],
+];
+const REC709_FROM_XYZ = [
+  [3.2404542, -1.5371385, -0.4985314],
+  [-0.969266, 1.8760108, 0.041556],
+  [0.0556434, -0.2040259, 1.0572252],
+];
+const REC2020_FROM_REC709 = [
+  [0.6274039, 0.329283, 0.0433131],
+  [0.0690973, 0.9195404, 0.0113623],
+  [0.0163914, 0.0880133, 0.8955953],
+];
+const REC709_FROM_REC2020 = [
+  [1.660491, -0.5876411, -0.0728499],
+  [-0.1245505, 1.1328999, -0.0083494],
+  [-0.0181508, -0.1005789, 1.1187297],
+];
+export const XYZ_TO_CAT16 = [
+  [0.401288, 0.650173, -0.051461],
+  [-0.250268, 1.204414, 0.045854],
+  [-0.002079, 0.048952, 0.953127],
+];
+const CAT16_TO_XYZ = [
+  [1.862068, -1.011255, 0.149187],
+  [0.38752, 0.621447, -0.008974],
+  [-0.015841, -0.034123, 1.049964],
+];
+
+function mul(a: Mat3, b: Mat3): Mat3 {
+  return [0, 1, 2].map((i) =>
+    [0, 1, 2].map((j) => {
+      let s = 0;
+      for (let k = 0; k < 3; k++) s += a[i]![k]! * b[k]![j]!;
+      return s;
+    }),
+  );
+}
+
+/** The CAT16 mix equal to per-channel gains in linear Rec.2020. Mirrors `mix_for_rgb_gains`. */
+function mixForRgbGains(gains: number[]): Mat3 {
+  const f = (m: Mat3) => m.map((row) => row.map(Math.fround));
+  const lmsFromRgb = mul(f(XYZ_TO_CAT16), mul(f(XYZ_FROM_REC709), f(REC709_FROM_REC2020)));
+  const rgbFromLms = mul(f(REC2020_FROM_REC709), mul(f(REC709_FROM_XYZ), f(CAT16_TO_XYZ)));
+  const diag = [0, 1, 2].map((i) => [0, 1, 2].map((j) => (i === j ? gains[i]! : 0)));
+  return mul(lmsFromRgb, mul(diag, rgbFromLms));
 }
 
 function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModuleParams[K] {
@@ -288,6 +461,14 @@ function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModulePara
   if (kind === 'filmic') {
     const f = params as ModuleParams['filmic'];
     if (!BLEACH_LEVELS.includes(f.bleach)) f.bleach = defaultModuleParams.filmic.bleach;
+  }
+  if (kind === 'colorCalibration') {
+    const c = params as ModuleParams['colorCalibration'];
+    const d = defaultModuleParams.colorCalibration;
+    if (!ILLUMINANTS.includes(c.illuminant)) c.illuminant = d.illuminant;
+    if (!FLUORESCENTS.includes(c.fluorescent)) c.fluorescent = d.fluorescent;
+    if (!LEDS.includes(c.led)) c.led = d.led;
+    if (!ADAPTATIONS.includes(c.adaptation)) c.adaptation = d.adaptation;
   }
   return params;
 }
@@ -319,10 +500,12 @@ function freshId(kind: ModuleKind, taken: (id: string) => boolean): string {
 /**
  * v1/v2 (one section per module) → v3. Exposure and filmic always become instances;
  * the other sections only when they differ from their defaults. Mirrors `params/v2.rs`.
+ * (White balance is taken out beforehand: `takeWhiteBalance`.)
  */
-export function migrateV2(input: Record<string, unknown>): EditParams {
+function migrateV2(input: Record<string, unknown>): ModuleInstance[] {
   const modules: ModuleInstance[] = [];
   for (const kind of MODULE_KINDS) {
+    if (kind === 'colorCalibration') continue;
     const section = isObject(input[kind]) ? input[kind] : undefined;
     const params = moduleParams(kind, section);
     const always = kind === 'exposure' || kind === 'filmic';
@@ -331,7 +514,7 @@ export function migrateV2(input: Record<string, unknown>): EditParams {
     const enabled = kind === 'filmic' && typeof section?.enabled === 'boolean' ? section.enabled : true;
     modules.push({ ...instance(kind), enabled, params } as ModuleInstance);
   }
-  return normalize(modules);
+  return modules;
 }
 
 /**
@@ -429,12 +612,15 @@ export function updateInstance<K extends ModuleKind>(
 
 /**
  * Default parameters of the instance at `position` among its kind. Only the first
- * exposure carries the +0.7 EV push: another one starts neutral, so that adding it
- * doesn't change the image.
+ * exposure carries the +0.7 EV push and only the first colour calibration does the
+ * white balance: other ones start neutral, so that adding them doesn't change the image.
  */
 export function instanceDefaults<K extends ModuleKind>(kind: K, position: number): ModuleParams[K] {
   const defaults = structuredClone(defaultModuleParams[kind]);
-  return position > 0 && kind === 'exposure' ? { ...defaults, ev: 0 } : defaults;
+  if (position === 0) return defaults;
+  if (kind === 'exposure') return { ...defaults, ev: 0 };
+  if (kind === 'colorCalibration') return { ...defaults, adaptation: 'none', gamut: 0, clip: false };
+  return defaults;
 }
 
 const positionOf = (params: EditParams, kind: ModuleKind, id: string) => params.modules.filter((m) => m.kind === kind).findIndex((m) => m.id === id);

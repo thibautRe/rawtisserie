@@ -43,10 +43,14 @@ See README.md for the architecture overview and commands.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
-- `ops/primaries.rs` and `ops/equalizer.rs` follow Ansel's `colorprimaries.c` and `atrous.c`
-  (same license; deviations are listed in the module docs). Upstream sources:
+- `ops/primaries.rs`, `ops/equalizer.rs` and `ops/calibration.rs` follow Ansel's
+  `colorprimaries.c`, `atrous.c` and `channelmixerrgb.c` (same license; deviations are
+  listed in the module docs). Upstream sources:
   github.com/aurelienpierreeng/ansel, `src/iop/` and `src/pixel/colorequal_shared.c`.
-- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 5).
+- White balance is colour calibration's job: the base image is balanced for D65 light
+  (camera reference multipliers), and every recipe has a `colorCalibration` instance
+  adapting from the as-shot light. A recipe without it renders D65-balanced colours.
+- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 6).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
 - A recipe (v3) is a list of module instances; pipeline order is fixed by `ModuleKind`

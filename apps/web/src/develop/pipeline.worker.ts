@@ -51,6 +51,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     } else if (msg.type === 'autoTuneFilmic') {
       const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
       post({ type: 'autoTunedFilmic', id: msg.id, white: white ?? null, black: black ?? null, ms: performance.now() - started });
+    } else if (msg.type === 'detectIlluminant') {
+      const [x, y] = developer.detectIlluminant(params, msg.instance, msg.maxWidth, msg.maxHeight, msg.method);
+      const xy: [number, number] | null = x === undefined || y === undefined ? null : [x, y];
+      post({ type: 'detectedIlluminant', id: msg.id, xy, ms: performance.now() - started });
     } else if (msg.type === 'export') {
       const jpeg = developer.renderJpeg(params, msg.maxSize, msg.maxSize, msg.quality);
       // Full-resolution renders are large: drop the cache so the next preview rebuilds a small one.

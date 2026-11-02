@@ -87,11 +87,13 @@ const ramp = (...stops: string[]) => `linear-gradient(to right, ${stops.join(', 
 
 /** Gradient tracks, showing what a value does. */
 export const tracks = {
-  warmth: ramp('#4f8fdc', '#b9b9b9', '#e0a030'),
-  tint: ramp('#4cae5a', '#b9b9b9', '#c95cc0'),
   grey: ramp('#1c1c1c', '#e6e6e6'),
+  /** Less (left) or more (right) of a channel. */
+  channel: (color: string) => ramp('#4a4a4a', '#b9b9b9', color),
   /** Colour primaries, for a CSS hue. A positive hue shift goes up the CSS hue circle. */
   hue: (hue: number) => ramp(...[-180, -120, -60, 0, 60, 120, 180].map((d) => `hsl(${hue + d} 70% 55%)`)),
+  /** Like `hue`, for a slider spanning ±90°. */
+  hueQuarter: (hue: number) => ramp(...[-90, -45, 0, 45, 90].map((d) => `hsl(${hue + d} 70% 55%)`)),
   saturation: (hue: number) => ramp('#8a8a8a', `hsl(${hue} 85% 50%)`),
   brightness: (hue: number) => ramp(`hsl(${hue} 70% 18%)`, `hsl(${hue} 70% 72%)`),
 };

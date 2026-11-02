@@ -7,7 +7,7 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   sharpen: 'Sharpen',
   contrastEqualizer: 'Contrast equalizer',
   exposure: 'Exposure',
-  whiteBalance: 'White balance',
+  colorCalibration: 'Color calibration',
   color: 'Color',
   shadowsHighlights: 'Shadows & highlights',
   colorPrimaries: 'Color primaries',

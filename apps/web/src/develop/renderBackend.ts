@@ -1,5 +1,5 @@
 import type { EditParams } from '@rawtisserie/pipeline';
-import type { Overlays } from './protocol.ts';
+import type { IlluminantDetection, Overlays } from './protocol.ts';
 
 export interface Frame {
   image: ImageData;
@@ -20,5 +20,7 @@ export interface RenderBackend {
   exportJpeg(params: EditParams, maxSize: number, quality?: number): Promise<Blob>;
   /** Filmic white/black relative exposures measured on the image, or null. */
   autoTuneFilmic(params: EditParams, maxWidth: number, maxHeight: number): Promise<{ white: number; black: number } | null>;
+  /** The scene's light (xy) measured on the input of colour calibration instance `instance`, or null. */
+  detectIlluminant(params: EditParams, instance: string, method: IlluminantDetection, maxWidth: number, maxHeight: number): Promise<[number, number] | null>;
   dispose(): void;
 }
