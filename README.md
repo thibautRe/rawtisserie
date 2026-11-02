@@ -60,10 +60,17 @@ filmic's whole colour transform is also baked into a 65³ 3D table over log-enco
 built once the filmic settings stop changing. It stays within 1 level (8-bit) of the
 exact computation for 99.9 % of pixels. Exports and thumbnails always use the exact path.
 Colour primaries uses a 64³ table too. Moving a colour rebuilds it from cached anchor
-weights in ~17 ms; gamut coverage and smoothing rebuild the weights (~100 ms, 19 MB). Blur and sharpen come before the per-pixel stages:
+weights, and only the nodes the changed anchors reach (~9 ms native); gamut coverage and
+smoothing rebuild the weights (~100 ms, 19 MB). Blur and sharpen come before the per-pixel stages:
 exposure, white balance and saturation are linear, so the order doesn't change the
-result. The contrast equalizer works on log luminance, so exposure doesn't affect it either. Two output sizes are cached, because while a slider is being dragged the UI
-renders a ~0.5 MP draft and renders full size on release.
+result. The contrast equalizer works on log luminance, so exposure doesn't affect it either. Two output sizes are cached: a ~0.5 MP draft and the full preview size.
+
+While a slider is being dragged, the UI asks for a draft. If the full-size spatial
+stages are already cached (any colour or tone slider), the pipeline worker renders full
+size instead and splits the per-pixel stages across a pool of workers
+(`develop/pointPool.ts`), each holding a strip of the cached image. Only spatial edits
+(geometry, blur, sharpen, equalizer curves) fall back to the draft. See
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) for measurements and what didn't work.
 
 Previews bin photosites ("superpixel") down to roughly the output size instead of
 demosaicing at full resolution. Spatial parameters (blur and sharpen radii) are

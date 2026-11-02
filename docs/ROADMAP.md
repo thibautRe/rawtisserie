@@ -5,7 +5,8 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 (slider feel); the `RenderBackend` interface (M6 prerequisite); golden-image tests
 (before M3); 3.1 with
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
-3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances).
+3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); full-size
+colour drags on a worker pool (see Performance).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -564,6 +565,45 @@ small, even with only the local implementation.
 
 ---
 
+## Performance
+
+> **Done** (2026-11-03): colour/tone drags render at full preview size on a pool of
+> workers instead of a blurry draft. The primaries table updates incrementally, and
+> frames reach the canvas as `ImageBitmap`s. Measurements, the pool-size trade-off and
+> rejected ideas are in [PERFORMANCE.md](PERFORMANCE.md).
+
+Ideas, roughly by value for effort:
+
+- **P.1 Adaptive draft size (S).** Spatial drags (sharpen, equalizer curves, geometry)
+  still use a fixed ~0.5 MP draft. Pick the size from the last render's time against a
+  frame budget (~40–50 ms), so faster machines get sharper drafts.
+- **P.2 wasm SIMD (S–M).** Build with `+simd128` and measure. The per-module loops in
+  `PointOps::adjust_all` and the equalizer's separable filters may autovectorise; LUT
+  lookups won't. Golden tests must pass unchanged.
+- **P.3 Adaptive pool size (S).** The pool is capped at 4 workers because more starve
+  the main thread on an 8-core hyperthreaded laptop, and that cap fits one machine.
+  Options: grow or shrink it from the measured frame rate or input latency, or let
+  users choose.
+- **P.4 Cheaper slider re-renders (M).** The ~30 % main-thread floor during any drag is
+  React and Chakra re-rendering on each pointer move. Leaner primitives inside
+  `ParamSlider`, or updating the dragged slider's DOM imperatively until release, would
+  leave more room for the image (and the pool).
+- **P.5 Real wasm threads (L).** Shared memory + rayon in the browser. That would drop
+  the strip copies and per-worker table builds, and parallelise the spatial stages,
+  which the pool can't (each worker would need the whole base image). The same
+  row-parallel code as M6 step 1. Costs: nightly Rust with `-Z build-std` (atomics), a
+  browser-only threaded build next to the Node one, and COOP/COEP headers on every page
+  that loads the developer.
+- **P.6 Faster primaries `finish()` (S).** After the incremental update, the remaining
+  ~9 ms is real work on ~100k nodes (sin/cos, cube projection, HLG decodes). A fast
+  sincos would cut it but changes output slightly: it needs a golden re-bless and a
+  reason in the commit.
+- **P.7 GPU final stage (L).** Upload the cached spatial image as a texture and run the
+  point operations in a shader: full size at display rate. But it's a third copy of the
+  colour maths (Rust, TS, shader) to keep in parity. Only if P.2–P.5 aren't enough.
+
+---
+
 ## Cross-cutting
 
 - **Golden-image tests** (before M3): about five reference RAWs from different brands
@@ -581,7 +621,8 @@ small, even with only the local implementation.
   > bit-identical between runs and between debug and release builds, and +0.02 EV on
   > one recipe already gives a mean of about 0.5. New modules should add a recipe that
   > uses them (for 3.1, one with lens correction on).
-- **Performance budget:** extend `bench.rs` per module and record numbers in PRs.
+- **Performance budget:** extend `bench.rs` per module and record numbers in PRs
+  (findings so far: [PERFORMANCE.md](PERFORMANCE.md)).
   Point modules must not use transcendental functions per pixel; anything nontrivial
   gets baked into a lookup table.
 - **Ansel parity:** for each port, record the upstream commit it follows (as

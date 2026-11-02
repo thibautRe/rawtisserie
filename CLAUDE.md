@@ -28,6 +28,14 @@ See README.md for the architecture overview and commands.
   operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep
   it cheap: precompute in `PointOps::new` and use lookup tables, not `powf`/`exp` per pixel.
 - Measure with `cargo run --release --example bench -- photo.ARW 2400`.
+- Interactive renders of colour/tone edits run on a worker pool (`develop/pointPool.ts`):
+  the pipeline worker checks `Developer::is_spatial_cached` and sends each pool worker a
+  strip of the spatial image, re-sent when its id (`spatial_image_id`) changes. So the
+  spatial cache keys must be complete (see above), or the pool renders a stale image.
+  `PointRenderer` must give exactly what `Developer::render` does (`tests/point_strips.rs`).
+  Point-op caches live in `PointOpsCache`, shared by both. Pool size is capped at 4: more
+  workers starve the main thread on hyperthreaded laptops. Findings and dead ends are in
+  `docs/PERFORMANCE.md`; read it before another performance pass.
 - The developer's main thread must stay idle during a drag: Chakra's style resolution is
   what's expensive, not the pixels. Sections of `ModulePanel` and the other panels are
   memoised, so `Section` deps must list everything its content reads, and handlers go
