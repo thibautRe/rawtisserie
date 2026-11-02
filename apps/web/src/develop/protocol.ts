@@ -30,13 +30,23 @@ export type WorkerResponse =
       /** Size of the full-size render: what a draft stands in for. */
       fullWidth: number;
       fullHeight: number;
-      data: ArrayBuffer;
+      /** Ready to hand to the canvas without touching the pixels on the main thread. */
+      bitmap: ImageBitmap;
       ms: number;
     }
   | { type: 'exported'; id: number; jpeg: ArrayBuffer; ms: number }
   | { type: 'autoTunedFilmic'; id: number; white: number | null; black: number | null; ms: number }
   | { type: 'detectedIlluminant'; id: number; xy: [number, number] | null; ms: number }
   | { type: 'error'; id: number; message: string };
+
+/** From the pipeline worker to a worker of its pool (`pointPool.ts`). */
+export type PointRequest =
+  /** Rows of the spatial image (interleaved linear RGB f32); `asShot`: xy, or empty. */
+  | { type: 'strip'; width: number; height: number; pixels: ArrayBuffer; asShot: number[] }
+  /** Render the strip; `params` is the recipe as JSON. */
+  | { type: 'render'; id: number; params: string };
+
+export type PointResponse = { type: 'rendered'; id: number; data: ArrayBuffer } | { type: 'error'; id: number; message: string };
 
 /** Clipping indicators painted over interactive renders (`ops/clipping.rs`). */
 export interface Overlays {

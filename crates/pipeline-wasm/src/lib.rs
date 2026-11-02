@@ -113,6 +113,50 @@ impl Developer {
         })
     }
 
+    /// Whether a render of these parameters within these bounds would only re-run the
+    /// point operations (the spatial stages' output is cached).
+    #[wasm_bindgen(js_name = isSpatialCached)]
+    pub fn is_spatial_cached(&self, params_json: &str, max_width: u32, max_height: u32) -> Result<bool, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        Ok(self.inner.is_spatial_cached(&params, RenderSize::fit(max_width, max_height)))
+    }
+
+    /// Build (or reuse) the spatial stages' output: `[id, width, height]`. The id
+    /// changes whenever the image does.
+    #[wasm_bindgen(js_name = spatialInfo)]
+    pub fn spatial_info(&mut self, params_json: &str, max_width: u32, max_height: u32) -> Result<Vec<f64>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let (id, img) = self.inner.spatial_image_id(&params, RenderSize::fit(max_width, max_height));
+        Ok(vec![id as f64, img.width as f64, img.height as f64])
+    }
+
+    /// Rows `y0..y1` of the spatial stages' output, as interleaved linear RGB.
+    #[wasm_bindgen(js_name = spatialRows)]
+    pub fn spatial_rows(&mut self, params_json: &str, max_width: u32, max_height: u32, y0: u32, y1: u32) -> Result<Vec<f32>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let img = self.inner.spatial_image(&params, RenderSize::fit(max_width, max_height));
+        let (y0, y1) = ((y0 as usize).min(img.height), (y1 as usize).min(img.height));
+        Ok(img.pixels[y0 * img.width..y1.max(y0) * img.width].iter().flatten().copied().collect())
+    }
+
+    /// The xy chromaticity of the as-shot light, or an empty array if unknown.
+    #[wasm_bindgen(js_name = asShotIlluminant)]
+    pub fn as_shot_illuminant(&self) -> Vec<f32> {
+        self.inner.photo().as_shot_illuminant.map(Vec::from).unwrap_or_default()
+    }
+
+    /// Paint clipping indicators (`Overlays` JSON) on an RGBA8 render of these
+    /// parameters within these bounds, in place.
+    #[wasm_bindgen(js_name = paintOverlays)]
+    pub fn paint_overlays(&mut self, params_json: &str, max_width: u32, max_height: u32, data: &mut [u8], width: u32, height: u32, overlays_json: &str) -> Result<(), JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let overlays: Overlays = serde_json::from_str(overlays_json).map_err(js_err)?;
+        let mut img = pipeline::Rgba8 { width: width as usize, height: height as usize, data: data.to_vec() };
+        self.inner.paint_overlays(&params, RenderSize::fit(max_width, max_height), &mut img, &overlays);
+        data.copy_from_slice(&img.data);
+        Ok(())
+    }
+
     /// Final-quality render, encoded as a JPEG file.
     #[wasm_bindgen(js_name = renderJpeg)]
     pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8) -> Result<Vec<u8>, JsError> {
@@ -145,5 +189,34 @@ impl Developer {
     #[wasm_bindgen(js_name = releaseCache)]
     pub fn release_cache(&mut self) {
         self.inner.release_cache();
+    }
+}
+
+/// The point operations over a fixed strip of a spatial image (`Developer.spatialRows`),
+/// for a pool of workers that share a render.
+#[wasm_bindgen]
+pub struct PointRenderer {
+    inner: pipeline::pipeline::PointRenderer,
+}
+
+#[wasm_bindgen]
+impl PointRenderer {
+    /// `pixels`: interleaved linear RGB, `width × height`; `as_shot`: `[x, y]` or empty.
+    #[wasm_bindgen(constructor)]
+    pub fn new(width: u32, height: u32, pixels: &[f32], as_shot: &[f32]) -> Result<PointRenderer, JsError> {
+        let (width, height) = (width as usize, height as usize);
+        if pixels.len() != width * height * 3 {
+            return Err(JsError::new("pixel count doesn't match the size"));
+        }
+        let image = pipeline::Image { width, height, pixels: pixels.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect() };
+        let as_shot = <[f32; 2]>::try_from(as_shot).ok();
+        Ok(Self { inner: pipeline::pipeline::PointRenderer::new(image, as_shot) })
+    }
+
+    /// Interactive render of the strip to RGBA8.
+    pub fn render(&mut self, params_json: &str) -> Result<RenderedImage, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let img = self.inner.render(&params, Quality::Interactive);
+        Ok(RenderedImage { width: img.width as u32, height: img.height as u32, data: img.data })
     }
 }

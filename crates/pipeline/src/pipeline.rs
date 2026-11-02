@@ -64,20 +64,51 @@ pub struct Developer {
     /// Spatial-stage caches per output size, most recently used first. Two sizes cover
     /// the interactive case: a reduced "draft" size while dragging, full size after.
     slots: Vec<Slot>,
+    /// Last id given to a spatial image (see [`spatial_image_id`](Self::spatial_image_id)).
+    last_id: u64,
+    point_ops: PointOpsCache,
+    /// Saturated photosites at the base's resolution, built on demand.
+    sensor_clip: Option<(usize, Mask)>,
+}
+
+/// Point-operation stages compiled for recent parameters, so that dragging one slider
+/// doesn't rebuild the tables of the others.
+#[derive(Default)]
+pub struct PointOpsCache {
     /// Filmic, compiled for the last parameters used interactively.
     filmic: Option<(Filmic, Rc<FilmicStage>)>,
     /// Colour primaries tables used by the last render.
     primaries: Vec<(ColorPrimaries, Rc<ColorPrimariesStage>)>,
     /// What those tables are built from besides the edits, for the last settings used.
     primaries_weights: Option<Rc<FieldWeights>>,
-    /// Saturated photosites at the base's resolution, built on demand.
-    sensor_clip: Option<(usize, Mask)>,
+}
+
+/// The point operations alone, over a fixed image: typically one strip of a
+/// [`Developer`]'s spatial image, rendered in a worker of a pool.
+pub struct PointRenderer {
+    image: Image,
+    as_shot: Option<[f32; 2]>,
+    cache: PointOpsCache,
+}
+
+impl PointRenderer {
+    /// `as_shot`: the photo's as-shot light ([`RawPhoto::as_shot_illuminant`]).
+    pub fn new(image: Image, as_shot: Option<[f32; 2]>) -> Self {
+        Self { image, as_shot, cache: PointOpsCache::default() }
+    }
+
+    /// Same pixels as [`Developer::render`] gives for these rows.
+    pub fn render(&mut self, params: &EditParams, quality: Quality) -> Rgba8 {
+        self.cache.render_ops(params, self.as_shot, quality).render(&self.image)
+    }
 }
 
 const MAX_SLOTS: usize = 2;
 
 struct Slot {
     size: (usize, usize),
+    /// Changes whenever the image the spatial stages give for this size does.
+    id: u64,
     geometry: Option<(GeometryKey, Image)>,
     detail: Option<(DetailKey, Image)>,
     /// `sensor_clip` through the geometry stage.
@@ -108,13 +139,73 @@ enum DetailStep {
     Equalizer { params: ContrastEqualizer, scale: f32 },
 }
 
+impl PointOpsCache {
+    /// The point operations for a render at this quality.
+    pub fn render_ops(&mut self, params: &EditParams, as_shot: Option<[f32; 2]>, quality: Quality) -> PointOps {
+        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, quality));
+        self.ops(params, as_shot, filmic)
+    }
+
+    /// The point operations, with colour primaries tables from cache when possible.
+    fn ops(&mut self, params: &EditParams, as_shot: Option<[f32; 2]>, filmic: Option<Rc<FilmicStage>>) -> PointOps {
+        let cache = std::mem::take(&mut self.primaries);
+        let mut weights = self.primaries_weights.take();
+        let mut used = Vec::new();
+        let ops = PointOps::with_stages(params, as_shot, filmic, &mut |p| {
+            let stage = match cache.iter().find(|(q, _)| q == p) {
+                Some((_, stage)) => stage.clone(),
+                None => {
+                    // Moving a primary keeps the weights; only gamut coverage and
+                    // smoothing rebuild them (~10× the cost of a table).
+                    let w = match &weights {
+                        Some(w) if w.key() == WeightsKey::of(p) => w.clone(),
+                        _ => Rc::new(FieldWeights::new(p)),
+                    };
+                    // While a slider is dragged, most of the previous table carries over.
+                    let prev = cache.iter().map(|(_, s)| &**s).find(|s| s.key() == w.key());
+                    let stage = Rc::new(ColorPrimariesStage::update(prev, p, &w));
+                    weights = Some(w);
+                    stage
+                }
+            };
+            used.push((p.clone(), stage.clone()));
+            stage
+        });
+        self.primaries = used;
+        self.primaries_weights = weights;
+        ops
+    }
+
+    /// Filmic for interactive renders: computed exactly right after its parameters
+    /// change (e.g. while one of its sliders is dragged), then baked into a 3D lookup
+    /// table once the same parameters are rendered again (other sliders, full-size
+    /// render after a draft…).
+    fn filmic_stage(&mut self, p: &Filmic, quality: Quality) -> Rc<FilmicStage> {
+        if quality == Quality::Final {
+            return Rc::new(FilmicStage::new(p, None));
+        }
+        let lut = match &self.filmic {
+            Some((cached, stage)) if cached == p => {
+                if stage.has_lut() {
+                    return stage.clone();
+                }
+                Some(FILMIC_LUT_SIZE)
+            }
+            _ => None,
+        };
+        let stage = Rc::new(FilmicStage::new(p, lut));
+        self.filmic = Some((p.clone(), stage.clone()));
+        stage
+    }
+}
+
 impl Developer {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         Ok(Self::new(decode::decode(bytes)?))
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None, slots: Vec::new(), filmic: None, primaries: Vec::new(), primaries_weights: None, sensor_clip: None }
+        Self { photo, base: None, slots: Vec::new(), last_id: 0, point_ops: PointOpsCache::default(), sensor_clip: None }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -129,9 +220,7 @@ impl Developer {
     pub fn release_cache(&mut self) {
         self.base = None;
         self.slots.clear();
-        self.filmic = None;
-        self.primaries.clear();
-        self.primaries_weights = None;
+        self.point_ops = PointOpsCache::default();
         self.sensor_clip = None;
     }
 
@@ -163,45 +252,21 @@ impl Developer {
     }
 
     pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
-        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, quality));
-        let ops = self.point_ops(params, filmic);
+        let ops = self.point_ops.render_ops(params, self.photo.as_shot_illuminant, quality);
         ops.render(self.spatial_image(params, size))
-    }
-
-    /// The point operations, with colour primaries tables from cache when possible.
-    fn point_ops(&mut self, params: &EditParams, filmic: Option<Rc<FilmicStage>>) -> PointOps {
-        let cache = std::mem::take(&mut self.primaries);
-        let mut weights = self.primaries_weights.take();
-        let mut used = Vec::new();
-        let ops = PointOps::with_stages(params, self.photo.as_shot_illuminant, filmic, &mut |p| {
-            let stage = match cache.iter().find(|(q, _)| q == p) {
-                Some((_, stage)) => stage.clone(),
-                None => {
-                    // Moving a primary keeps the weights; only gamut coverage and
-                    // smoothing rebuild them (~10× the cost of a table).
-                    let w = match &weights {
-                        Some(w) if w.key() == WeightsKey::of(p) => w.clone(),
-                        _ => Rc::new(FieldWeights::new(p)),
-                    };
-                    let stage = Rc::new(ColorPrimariesStage::new(p, &w));
-                    weights = Some(w);
-                    stage
-                }
-            };
-            used.push((p.clone(), stage.clone()));
-            stage
-        });
-        self.primaries = used;
-        self.primaries_weights = weights;
-        ops
     }
 
     /// [`render`](Self::render), with clipping indicators painted on top.
     pub fn render_with_overlays(&mut self, params: &EditParams, size: RenderSize, quality: Quality, overlays: &Overlays) -> Rgba8 {
         let mut img = self.render(params, size, quality);
-        let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
-        clipping::paint(&mut img, overlays, sensor);
+        self.paint_overlays(params, size, &mut img, overlays);
         img
+    }
+
+    /// Paint clipping indicators on a render of `params` within `size`.
+    pub fn paint_overlays(&mut self, params: &EditParams, size: RenderSize, img: &mut Rgba8, overlays: &Overlays) {
+        let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
+        clipping::paint(img, overlays, sensor);
     }
 
     /// Output pixels that contain saturated photosites, from cache when possible.
@@ -228,64 +293,91 @@ impl Developer {
 
     /// The output of the spatial stages (geometry, blur, sharpen), from cache when possible.
     pub fn spatial_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
+        self.spatial_image_id(params, size).1
+    }
+
+    /// Whether [`spatial_image`](Self::spatial_image) would come from cache, i.e. a
+    /// render would only re-run the point operations.
+    pub fn is_spatial_cached(&self, params: &EditParams, size: RenderSize) -> bool {
         let (width, height, scale) = self.output_size(params, size);
-        // Bin as much as possible while keeping the base at least as large as the output.
-        let factor = ((1.0 / scale).floor() as usize).clamp(1, 64);
-        let base_factor = self.ensure_base(factor);
+        let Some(base_factor) = self.base_factor_for(scale) else { return false };
+        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
+        let Some(slot) = self.slots.iter().find(|s| s.size == (width, height)) else { return false };
+        if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
+            return false;
+        }
+        let steps = detail_steps(params, scale);
+        steps.is_empty() || slot.detail.as_ref().is_some_and(|(k, _)| k.geometry == gkey && k.steps == steps)
+    }
+
+    /// [`spatial_image`](Self::spatial_image), with an id that changes whenever the
+    /// image does (so copies of it elsewhere can tell when they are stale).
+    pub fn spatial_image_id(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image) {
+        let (width, height, scale) = self.output_size(params, size);
+        let base_factor = self.ensure_base(Self::binning(scale));
 
         let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
 
         // Pick (or create) the cache slot for this output size, and make it the most recent.
         let slot = match self.slots.iter().position(|s| s.size == (width, height)) {
             Some(i) => self.slots.remove(i),
-            None => Slot { size: (width, height), geometry: None, detail: None, sensor_clip: None },
+            None => {
+                self.last_id += 1;
+                Slot { size: (width, height), id: self.last_id, geometry: None, detail: None, sensor_clip: None }
+            }
         };
         self.slots.insert(0, slot);
         self.slots.truncate(MAX_SLOTS);
         let slot = &mut self.slots[0];
         let base = &self.base.as_ref().expect("base was just built").1;
+        let mut changed = false;
 
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             slot.detail = None;
             slot.geometry = None; // free before allocating
             slot.geometry = Some((gkey, geometry::apply(base, &gkey.transform, self.photo.lens.as_ref(), width, height)));
+            changed = true;
         }
 
-        // Spatial parameters are expressed in full-resolution pixels.
-        let steps: Vec<DetailStep> = params
-            .modules
-            .iter()
-            .filter(|m| m.enabled)
-            .filter_map(|m| match &m.module {
-                Module::Blur(b) => Some(DetailStep::Blur { sigma: b.radius * scale }),
-                Module::Sharpen(s) => Some(DetailStep::Sharpen { amount: s.amount, sigma: s.radius * scale }),
-                Module::ContrastEqualizer(e) => Some(DetailStep::Equalizer { params: *e, scale }),
-                _ => None,
-            })
-            .filter(|step| match *step {
-                DetailStep::Blur { sigma } => filters::blur_active(sigma),
-                DetailStep::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
-                DetailStep::Equalizer { params, .. } => !params.is_identity(),
-            })
-            .collect();
-        let geometry_img = &slot.geometry.as_ref().expect("geometry was just built").1;
+        let steps = detail_steps(params, scale);
         if steps.is_empty() {
-            slot.detail = None;
-            return geometry_img;
-        }
-        let dkey = DetailKey { geometry: gkey, steps };
-        if slot.detail.as_ref().map(|(k, _)| k) != Some(&dkey) {
-            let mut img = geometry_img.clone();
-            for step in &dkey.steps {
-                match *step {
-                    DetailStep::Blur { sigma } => filters::blur(&mut img, sigma),
-                    DetailStep::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
-                    DetailStep::Equalizer { params, scale } => equalizer::apply(&mut img, &params, scale),
+            changed |= slot.detail.take().is_some();
+        } else {
+            let dkey = DetailKey { geometry: gkey, steps };
+            if slot.detail.as_ref().map(|(k, _)| k) != Some(&dkey) {
+                let mut img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
+                for step in &dkey.steps {
+                    match *step {
+                        DetailStep::Blur { sigma } => filters::blur(&mut img, sigma),
+                        DetailStep::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
+                        DetailStep::Equalizer { params, scale } => equalizer::apply(&mut img, &params, scale),
+                    }
                 }
+                slot.detail = Some((dkey, img));
+                changed = true;
             }
-            slot.detail = Some((dkey, img));
         }
-        &slot.detail.as_ref().expect("detail was just built").1
+        if changed {
+            self.last_id += 1;
+            slot.id = self.last_id;
+        }
+        let img = match &slot.detail {
+            Some((_, img)) => img,
+            None => &slot.geometry.as_ref().expect("geometry was just built").1,
+        };
+        (slot.id, img)
+    }
+
+    /// Binning factor for a render at `scale`: as much as possible while keeping the
+    /// base at least as large as the output.
+    fn binning(scale: f32) -> usize {
+        ((1.0 / scale).floor() as usize).clamp(1, 64)
+    }
+
+    /// The factor of the cached base, if [`ensure_base`](Self::ensure_base) would keep it.
+    fn base_factor_for(&self, scale: f32) -> Option<usize> {
+        let factor = Self::binning(scale);
+        self.base.as_ref().map(|(f, _)| *f).filter(|&f| f <= factor && factor <= f * 4)
     }
 
     /// Filmic auto-tune on the current image (after crop and the adjustments that
@@ -293,7 +385,7 @@ impl Developer {
     /// an enabled filmic instance or anything to measure.
     pub fn auto_tune_filmic(&mut self, params: &EditParams, size: RenderSize) -> Option<(f32, f32)> {
         let scaling = params.get::<Filmic>()?.dynamic_range_scaling;
-        let ops = self.point_ops(params, None);
+        let ops = self.point_ops.ops(params, self.photo.as_shot_illuminant, None);
         let img = self.spatial_image(params, size);
         filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), scaling)
     }
@@ -304,32 +396,10 @@ impl Developer {
     pub fn detect_illuminant(&mut self, params: &EditParams, id: &str, size: RenderSize, method: Detection) -> Option<[f32; 2]> {
         let at = params.modules.iter().position(|m| m.id == id && m.module.kind() == ModuleKind::ColorCalibration)?;
         let before = EditParams { version: params.version, modules: params.modules[..at].to_vec() };
-        let ops = self.point_ops(&before, None);
+        let ops = self.point_ops.ops(&before, self.photo.as_shot_illuminant, None);
         // The spatial modules all come before calibration: same image, from cache.
         let img = self.spatial_image(params, size);
         calibration::detect_illuminant(img, |px| ops.adjust(px), method)
-    }
-
-    /// Filmic for interactive renders: computed exactly right after its parameters
-    /// change (e.g. while one of its sliders is dragged), then baked into a 3D lookup
-    /// table once the same parameters are rendered again (other sliders, full-size
-    /// render after a draft…).
-    fn filmic_stage(&mut self, p: &Filmic, quality: Quality) -> Rc<FilmicStage> {
-        if quality == Quality::Final {
-            return Rc::new(FilmicStage::new(p, None));
-        }
-        let lut = match &self.filmic {
-            Some((cached, stage)) if cached == p => {
-                if stage.has_lut() {
-                    return stage.clone();
-                }
-                Some(FILMIC_LUT_SIZE)
-            }
-            _ => None,
-        };
-        let stage = Rc::new(FilmicStage::new(p, lut));
-        self.filmic = Some((p.clone(), stage.clone()));
-        stage
     }
 
     /// Make sure a base image suitable for `factor` is cached; returns its actual factor.
@@ -343,4 +413,25 @@ impl Developer {
             }
         }
     }
+}
+
+/// The active blur, sharpen and equalizer instances, with their parameters at `scale`
+/// (spatial parameters are expressed in full-resolution pixels).
+fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
+    params
+        .modules
+        .iter()
+        .filter(|m| m.enabled)
+        .filter_map(|m| match &m.module {
+            Module::Blur(b) => Some(DetailStep::Blur { sigma: b.radius * scale }),
+            Module::Sharpen(s) => Some(DetailStep::Sharpen { amount: s.amount, sigma: s.radius * scale }),
+            Module::ContrastEqualizer(e) => Some(DetailStep::Equalizer { params: *e, scale }),
+            _ => None,
+        })
+        .filter(|step| match *step {
+            DetailStep::Blur { sigma } => filters::blur_active(sigma),
+            DetailStep::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
+            DetailStep::Equalizer { params, .. } => !params.is_identity(),
+        })
+        .collect()
 }

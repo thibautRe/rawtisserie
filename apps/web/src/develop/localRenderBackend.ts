@@ -56,7 +56,7 @@ export class LocalRenderBackend implements RenderBackend {
       overlays,
     });
     return {
-      image: new ImageData(new Uint8ClampedArray(r.data), r.width, r.height),
+      image: r.bitmap,
       fullWidth: r.fullWidth,
       fullHeight: r.fullHeight,
       ms: r.ms,

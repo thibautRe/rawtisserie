@@ -59,6 +59,7 @@ import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor } from './CurveEditor.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import type { IlluminantDetection } from './protocol.ts';
+import { useStableCallback } from './useStableCallback.ts';
 import { tracks } from './slider.ts';
 
 interface Props {
@@ -362,7 +363,11 @@ const BLEACH_LABELS: Record<Bleach, string> = {
   extra: 'Extra',
 };
 
-export function ModulePanel(props: Props) {
+/**
+ * Memoised: a new frame re-renders the developer, not this. Handlers must be stable
+ * (`useStableCallback`); they are read through `latest` anyway.
+ */
+export const ModulePanel = memo(function ModulePanel(props: Props) {
   const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
@@ -383,6 +388,9 @@ export function ModulePanel(props: Props) {
 
   const [renaming, setRenaming] = useState<string | null>(null);
   const renamed = params.modules.find((m) => m.id === renaming);
+  // Stable, so that the (memoised) dialog stays out of slider drags.
+  const onRenameClose = useStableCallback(() => setRenaming(null));
+  const onRename = useStableCallback((label: string | null) => renamed && commit((p) => updateInstance(p, renamed.kind, renamed.id, { label })));
 
   const commit = (change: (p: EditParams) => EditParams) => latest.current.onCommit(change(latest.current.params));
 
@@ -990,9 +998,9 @@ export function ModulePanel(props: Props) {
         open={!!renamed}
         name={renamed?.label ?? null}
         placeholder={renamed ? MODULE_TITLES[renamed.kind] : ''}
-        onClose={() => setRenaming(null)}
-        onRename={(label) => renamed && commit((p) => updateInstance(p, renamed.kind, renamed.id, { label }))}
+        onClose={onRenameClose}
+        onRename={onRename}
       />
     </Box>
   );
-}
+});

@@ -2,7 +2,8 @@ import type { EditParams } from '@rawtisserie/pipeline';
 import type { IlluminantDetection, Overlays } from './protocol.ts';
 
 export interface Frame {
-  image: ImageData;
+  /** Transferred to the canvas when shown (`transferFromImageBitmap`), so shown once. */
+  image: ImageBitmap;
   /** Size of the full-size render, in device pixels; drafts are stretched to it. */
   fullWidth: number;
   fullHeight: number;

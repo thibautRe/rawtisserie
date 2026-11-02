@@ -207,11 +207,11 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = canvas.current;
-    if (!c || !frame) return;
-    // Assigning a canvas's size reallocates it, even to the same size.
-    if (c.width !== frame.image.width) c.width = frame.image.width;
-    if (c.height !== frame.image.height) c.height = frame.image.height;
-    c.getContext('2d')!.putImageData(frame.image, 0, 0);
+    // A bitmap already handed over has no size left (effects can run twice in development).
+    if (!c || !frame || frame.image.width === 0) return;
+    // Hands the bitmap over without copying: the canvas takes its size, and the main
+    // thread never touches the pixels.
+    c.getContext('bitmaprenderer')!.transferFromImageBitmap(frame.image);
   }, [frame]);
 
   // ── History ──
@@ -327,6 +327,14 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
       setDetecting(null);
     }
   };
+
+  // The module panel is memoised: its handlers must keep their identity.
+  const onLiveChange = useStableCallback((p: EditParams) => store.setLive(p));
+  const onPanelCommit = useStableCallback(commit);
+  const onAspectChange = useStableCallback(changeAspect);
+  const onStartCrop = useStableCallback(startCrop);
+  const onAutoTuneFilmic = useStableCallback(() => void autoTuneFilmic());
+  const onDetectIlluminant = useStableCallback((id: string, method: IlluminantDetection) => void detectIlluminant(id, method));
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -455,15 +463,15 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
           params={params}
           lensCorrection={metadata.lensCorrection ?? null}
           asShotIlluminant={metadata.asShotIlluminant ?? null}
-          onChange={(p) => store.setLive(p)}
-          onCommit={commit}
+          onChange={onLiveChange}
+          onCommit={onPanelCommit}
           cropping={!!cropDraft}
           aspect={aspect}
-          onAspectChange={changeAspect}
-          onStartCrop={startCrop}
-          onAutoTuneFilmic={() => void autoTuneFilmic()}
+          onAspectChange={onAspectChange}
+          onStartCrop={onStartCrop}
+          onAutoTuneFilmic={onAutoTuneFilmic}
           autoTuning={autoTuning}
-          onDetectIlluminant={(id, method) => void detectIlluminant(id, method)}
+          onDetectIlluminant={onDetectIlluminant}
           detecting={detecting}
         />
       </Box>

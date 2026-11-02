@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import { Button, CloseButton, Dialog, HStack, Input, Portal, Text } from '@chakra-ui/react';
 
-/** Asks for a name; an empty one is reported as null. */
-export function RenameDialog({
+/** Asks for a name; an empty one is reported as null. Memoised: pass stable handlers. */
+export const RenameDialog = memo(function RenameDialog({
   title,
   hint,
   maxLength,
@@ -62,4 +63,4 @@ export function RenameDialog({
       </Portal>
     </Dialog.Root>
   );
-}
+});

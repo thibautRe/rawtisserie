@@ -440,6 +440,8 @@ struct NodeWeights {
     cyl: (f32, f32, f32),
     /// Total weight of the grey-axis anchors (which carry no edit).
     axis: f32,
+    /// Bit `i` set: edited anchor `i` reaches this node.
+    reach: u64,
     /// End of this node's entries.
     end: u32,
 }
@@ -447,6 +449,7 @@ struct NodeWeights {
 impl FieldWeights {
     pub fn new(p: &params::ColorPrimaries) -> Self {
         let anchors = edited_anchors(p);
+        assert!(anchors.len() <= 64, "anchor masks are 64 bits");
         let axis: Vec<Anchor> = axis_anchors().collect();
         let inv_sigma = inv_sigma(p);
         let last = (LEVEL - 1) as f32;
@@ -457,17 +460,19 @@ impl FieldWeights {
                 for b in 0..LEVEL {
                     let cyl = to_cyl([r as f32 / last, g as f32 / last, b as f32 / last]);
                     let mut axis_weight = 0.0;
+                    let mut reach = 0u64;
                     // Greys are left alone.
                     if cyl.1 > 1e-6 {
                         for (i, a) in anchors.iter().enumerate() {
                             let w = anchor_weight(a, cyl, inv_sigma);
                             if w > f32::MIN_POSITIVE {
                                 entries.push((i as u16, w));
+                                reach |= 1 << i;
                             }
                         }
                         axis_weight = axis.iter().map(|a| anchor_weight(a, cyl, inv_sigma)).filter(|&w| w > f32::MIN_POSITIVE).sum();
                     }
-                    nodes.push(NodeWeights { cyl, axis: axis_weight, end: entries.len() as u32 });
+                    nodes.push(NodeWeights { cyl, axis: axis_weight, reach, end: entries.len() as u32 });
                 }
             }
         }
@@ -487,42 +492,75 @@ pub struct ColorPrimariesStage {
     clut: Vec<Rgb>,
     /// The same as linear changes: `decode(clut) − decode(node)`.
     delta: Vec<Rgb>,
+    /// What the table was built from, so that [`update`](Self::update) can tell which
+    /// nodes a new edit reaches.
+    key: WeightsKey,
+    anchors: Vec<Anchor>,
+    rho0: f32,
 }
 
 impl ColorPrimariesStage {
     /// `weights` must be built for the same [`WeightsKey`] as `p`.
     pub fn new(p: &params::ColorPrimaries, weights: &FieldWeights) -> Self {
+        Self::update(None, p, weights)
+    }
+
+    /// [`new`](Self::new), keeping the nodes of `prev` that no changed anchor reaches.
+    /// Dragging one primary's slider only moves the anchors built from it, so most of
+    /// the table carries over. The result is identical to a full build: a reused node
+    /// would be computed from exactly the same numbers.
+    pub fn update(prev: Option<&Self>, p: &params::ColorPrimaries, weights: &FieldWeights) -> Self {
         assert_eq!(weights.key, WeightsKey::of(p), "colour primaries weights built for other settings");
         let anchors = edited_anchors(p);
         let rho0 = p.neutral_protection.max(1e-6);
+        // Anchors sit where gamut coverage puts them (part of the weights key), so the
+        // previous ones line up with these; only what they carry can differ.
+        let reuse = prev.filter(|q| q.key == weights.key && q.rho0 == rho0 && q.anchors.len() == anchors.len()).map(|q| {
+            let changed = anchors.iter().zip(&q.anchors).enumerate().fold(0u64, |mask, (i, (a, b))| {
+                let differs = a.delta_l != b.delta_l || a.chroma_scale != b.chroma_scale || a.delta_theta != b.delta_theta;
+                mask | (u64::from(differs) << i)
+            });
+            (q, changed)
+        });
         let level = LEVEL;
         let last = (level - 1) as f32;
-        let mut clut = Vec::with_capacity(level * level * level);
-        let mut start = 0;
-        for (i, node) in weights.nodes.iter().enumerate() {
-            let x = [i / (level * level), i / level % level, i % level].map(|k| k as f32 / last);
-            let end = node.end as usize;
+        // Node coordinates take `level` values per channel: decode them once.
+        let decoded: [f32; LEVEL] = std::array::from_fn(|k| hlg_decode(k as f32 / last));
+        let compute = |i: usize| -> (Rgb, Rgb) {
+            let node = &weights.nodes[i];
+            let start = if i == 0 { 0 } else { weights.nodes[i - 1].end as usize };
+            let k = [i / (level * level), i / level % level, i % level];
+            let x = k.map(|k| k as f32 / last);
             // The axis anchors carry no edit: weight, and a chroma scale of 1.
             let mut sums = [node.axis, 0.0, node.axis, 0.0];
-            for &(a, w) in &weights.entries[start..end] {
+            for &(a, w) in &weights.entries[start..node.end as usize] {
                 let a = &anchors[a as usize];
                 sums[0] += w;
                 sums[1] += w * a.delta_l;
                 sums[2] += w * a.chroma_scale;
                 sums[3] += w * a.delta_theta;
             }
-            start = end;
-            clut.push(if node.cyl.1 <= 1e-6 { x } else { finish(x, node.cyl, sums, rho0) });
-        }
-        let delta = clut
-            .iter()
-            .enumerate()
-            .map(|(i, out)| {
-                let node = [i / (level * level), i / level % level, i % level].map(|k| k as f32 / last);
-                std::array::from_fn(|c| hlg_decode(out[c]) - hlg_decode(node[c]))
-            })
-            .collect();
-        Self { white: p.white_level.exp2().max(1e-6), level, clut, delta }
+            let out = if node.cyl.1 <= 1e-6 { x } else { finish(x, node.cyl, sums, rho0) };
+            (out, std::array::from_fn(|c| hlg_decode(out[c]) - decoded[k[c]]))
+        };
+        let (clut, delta) = match reuse {
+            Some((q, changed)) => {
+                let (mut clut, mut delta) = (q.clut.clone(), q.delta.clone());
+                for (i, node) in weights.nodes.iter().enumerate() {
+                    if node.reach & changed != 0 {
+                        (clut[i], delta[i]) = compute(i);
+                    }
+                }
+                (clut, delta)
+            }
+            None => (0..weights.nodes.len()).map(compute).unzip(),
+        };
+        Self { white: p.white_level.exp2().max(1e-6), level, clut, delta, key: weights.key, anchors, rho0 }
+    }
+
+    /// The settings the table's weights were built for.
+    pub fn key(&self) -> WeightsKey {
+        self.key
     }
 
     /// Build from scratch (for one-off renders).
@@ -668,6 +706,29 @@ mod tests {
         for (i, out) in stage.clut.iter().enumerate().step_by(97) {
             let x = [i / (LEVEL * LEVEL), i / LEVEL % LEVEL, i % LEVEL].map(|k| k as f32 / last);
             assert!(approx(*out, field.eval(x), 1e-5), "{x:?}: {out:?} vs {:?}", field.eval(x));
+        }
+    }
+
+    #[test]
+    fn updates_match_full_builds() {
+        let mut p = params::ColorPrimaries::default();
+        let weights = FieldWeights::new(&p);
+        let mut stage = ColorPrimariesStage::new(&p, &weights);
+        // A drag on one primary, then on another, a protection change, and back to neutral.
+        let steps: [fn(&mut params::ColorPrimaries); 6] = [
+            |p| p.red.hue = 12.0,
+            |p| p.red.hue = 17.5,
+            |p| p.blue.saturation = -30.0,
+            |p| p.yellow.brightness = 0.2,
+            |p| p.neutral_protection = 0.3,
+            |p| *p = params::ColorPrimaries { neutral_protection: p.neutral_protection, ..Default::default() },
+        ];
+        for step in steps {
+            step(&mut p);
+            let updated = ColorPrimariesStage::update(Some(&stage), &p, &weights);
+            let full = ColorPrimariesStage::new(&p, &weights);
+            assert!(updated.clut == full.clut && updated.delta == full.delta, "{p:?}");
+            stage = updated;
         }
     }
 
