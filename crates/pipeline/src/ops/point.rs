@@ -5,11 +5,12 @@
 //! into lookup tables) and applied in one loop that also encodes to 8-bit sRGB.
 //! This is the part that re-runs on every slider move, so it has to be cheap.
 //!
-//! Order: exposure → warmth/tint → saturation/vibrance → shadows/highlights → colour
-//! primaries (all in linear Rec.2020, each kind possibly several times) → filmic (to
-//! display-linear sRGB primaries) → sRGB encoding.
+//! Order: exposure → colour calibration → saturation/vibrance → shadows/highlights →
+//! colour primaries (all in linear Rec.2020, each kind possibly several times) →
+//! filmic (to display-linear sRGB primaries) → sRGB encoding.
 
 use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, REC709_FROM_REC2020, luminance, mul_vec, srgb_oetf};
+use crate::ops::calibration::CalibrationStage;
 use crate::image::{Image, Rgb, Rgba8};
 use crate::ops::filmic::Filmic;
 use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
@@ -77,9 +78,10 @@ impl FilmicStage {
 
 /// One compiled point module.
 enum Step {
-    /// `(x - offset) × gain` per channel: exposure (black level, gain) and white
-    /// balance. Consecutive ones are folded into one.
+    /// `(x - offset) × gain` per channel: exposure (black level, gain). Consecutive
+    /// ones are folded into one.
     Affine { offset: Rgb, gain: Rgb },
+    Calibration(Box<CalibrationStage>),
     Saturation { saturation: f32, vibrance: f32 },
     /// Gain indexed by luminance.
     ShadowsHighlights(BitsLut<f32>),
@@ -89,15 +91,6 @@ enum Step {
 impl Step {
     fn exposure(p: &params::Exposure) -> Self {
         Step::Affine { offset: [p.black; 3], gain: [p.ev.exp2(); 3] }
-    }
-
-    fn white_balance(p: &params::WhiteBalance) -> Self {
-        let warmth = p.warmth.clamp(-1.0, 1.0) * 0.5;
-        let tint = p.tint.clamp(-1.0, 1.0) * 0.35;
-        let wb = [warmth.exp2(), (-tint).exp2(), (-warmth).exp2()];
-        // Normalise so that warmth/tint preserve luminance.
-        let wb_y = luminance(wb);
-        Step::Affine { offset: [0.0; 3], gain: wb.map(|g| g / wb_y) }
     }
 
     fn color(p: &params::Color) -> Option<Self> {
@@ -116,6 +109,7 @@ impl Step {
     fn apply(&self, c: Rgb) -> Rgb {
         match self {
             Step::Affine { offset, gain } => affine(c, offset, gain),
+            Step::Calibration(stage) => stage.apply(c),
             &Step::Saturation { saturation, vibrance } => saturate(c, saturation, vibrance),
             Step::ShadowsHighlights(lut) => shadows_highlights(c, lut),
             Step::ColorPrimaries(stage) => stage.apply(c),
@@ -126,9 +120,10 @@ impl Step {
     fn rank(&self) -> u8 {
         match self {
             Step::Affine { .. } => 0,
-            Step::Saturation { .. } => 1,
-            Step::ShadowsHighlights(_) => 2,
-            Step::ColorPrimaries(_) => 3,
+            Step::Calibration(_) => 1,
+            Step::Saturation { .. } => 2,
+            Step::ShadowsHighlights(_) => 3,
+            Step::ColorPrimaries(_) => 4,
         }
     }
 }
@@ -169,6 +164,7 @@ enum Chain {
     Fixed {
         /// Identity (`(x - 0)·1`, exact) when there is none.
         affine: (Rgb, Rgb),
+        calibration: Option<Box<CalibrationStage>>,
         saturation: Option<(f32, f32)>,
         shadows_highlights: Option<BitsLut<f32>>,
         primaries: Option<Rc<ColorPrimariesStage>>,
@@ -181,16 +177,17 @@ impl Chain {
         if !steps.windows(2).all(|w| w[0].rank() < w[1].rank()) {
             return Chain::Steps(steps);
         }
-        let (mut affine, mut saturation, mut shadows_highlights, mut primaries) = (([0.0; 3], [1.0; 3]), None, None, None);
+        let (mut affine, mut calibration, mut saturation, mut shadows_highlights, mut primaries) = (([0.0; 3], [1.0; 3]), None, None, None, None);
         for step in steps {
             match step {
                 Step::Affine { offset, gain } => affine = (offset, gain),
+                Step::Calibration(stage) => calibration = Some(stage),
                 Step::Saturation { saturation: s, vibrance } => saturation = Some((s, vibrance)),
                 Step::ShadowsHighlights(lut) => shadows_highlights = Some(lut),
                 Step::ColorPrimaries(stage) => primaries = Some(stage),
             }
         }
-        Chain::Fixed { affine, saturation, shadows_highlights, primaries }
+        Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries }
     }
 }
 
@@ -205,26 +202,29 @@ pub struct PointOps {
 }
 
 impl PointOps {
-    /// Point operations with exact filmic.
+    /// Point operations with exact filmic, for an image whose as-shot light is unknown
+    /// (colour calibration's "as shot" does no adaptation).
     pub fn new(p: &EditParams) -> Self {
-        Self::with_filmic_lut(p, None)
+        Self::with_filmic_lut(p, None, None)
     }
 
+    /// `as_shot`: the xy chromaticity of the file's as-shot light ([`crate::RawPhoto`]).
     /// `lut_size: None` evaluates filmic exactly for every pixel.
-    pub fn with_filmic_lut(p: &EditParams, lut_size: Option<usize>) -> Self {
+    pub fn with_filmic_lut(p: &EditParams, as_shot: Option<[f32; 2]>, lut_size: Option<usize>) -> Self {
         let filmic = p.get::<params::Filmic>().map(|f| Rc::new(FilmicStage::new(f, lut_size)));
-        Self::with_filmic(p, filmic)
+        Self::with_filmic(p, as_shot, filmic)
     }
 
     /// Use a prepared (typically cached) filmic stage; `None` disables filmic.
-    pub fn with_filmic(p: &EditParams, filmic: Option<Rc<FilmicStage>>) -> Self {
-        Self::with_stages(p, filmic, &mut |cp| Rc::new(ColorPrimariesStage::build(cp)))
+    pub fn with_filmic(p: &EditParams, as_shot: Option<[f32; 2]>, filmic: Option<Rc<FilmicStage>>) -> Self {
+        Self::with_stages(p, as_shot, filmic, &mut |cp| Rc::new(ColorPrimariesStage::build(cp)))
     }
 
     /// Like [`with_filmic`](Self::with_filmic), with colour primaries tables from `primaries`
     /// (typically a cache), called for each instance that changes anything.
     pub fn with_stages(
         p: &EditParams,
+        as_shot: Option<[f32; 2]>,
         filmic: Option<Rc<FilmicStage>>,
         primaries: &mut dyn FnMut(&params::ColorPrimaries) -> Rc<ColorPrimariesStage>,
     ) -> Self {
@@ -232,7 +232,10 @@ impl PointOps {
         for instance in p.modules.iter().filter(|m| m.enabled) {
             let step = match &instance.module {
                 Module::Exposure(e) => Step::exposure(e),
-                Module::WhiteBalance(wb) => Step::white_balance(wb),
+                Module::ColorCalibration(c) => match CalibrationStage::new(c, as_shot) {
+                    Some(stage) => Step::Calibration(Box::new(stage)),
+                    None => continue,
+                },
                 Module::Color(c) => match Step::color(c) {
                     Some(step) => step,
                     None => continue,
@@ -267,7 +270,9 @@ impl PointOps {
     #[inline(always)]
     pub fn adjust(&self, px: Rgb) -> Rgb {
         match &self.chain {
-            Chain::Fixed { affine, saturation, shadows_highlights, primaries } => fixed_chain(px, affine, saturation, shadows_highlights, primaries),
+            Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries } => {
+                fixed_chain(px, affine, calibration, saturation, shadows_highlights, primaries)
+            }
             Chain::Steps(steps) => apply_steps(steps, px),
         }
     }
@@ -282,20 +287,65 @@ impl PointOps {
         }
     }
 
+    /// [`adjust`](Self::adjust) on many pixels, one module at a time: each module's
+    /// loop has independent pixels for the CPU to overlap. One pixel through the whole
+    /// chain is a long dependency chain (colour calibration alone has four matrix
+    /// products and three divisions), which made the fused pass latency-bound.
+    fn adjust_all(&self, pixels: &mut [Rgb]) {
+        match &self.chain {
+            Chain::Fixed { affine: (offset, gain), calibration, saturation, shadows_highlights, primaries } => {
+                pixels.iter_mut().for_each(|c| *c = affine(*c, offset, gain));
+                if let Some(stage) = calibration {
+                    stage.apply_all(pixels);
+                }
+                if let &Some((s, v)) = saturation {
+                    pixels.iter_mut().for_each(|c| *c = saturate(*c, s, v));
+                }
+                if let Some(lut) = shadows_highlights {
+                    pixels.iter_mut().for_each(|c| *c = self::shadows_highlights(*c, lut));
+                }
+                if let Some(stage) = primaries {
+                    pixels.iter_mut().for_each(|c| *c = stage.apply(*c));
+                }
+            }
+            Chain::Steps(steps) => {
+                for step in steps {
+                    match step {
+                        Step::Calibration(stage) => stage.apply_all(pixels),
+                        _ => pixels.iter_mut().for_each(|c| *c = step.apply(*c)),
+                    }
+                }
+            }
+        }
+    }
+
+    /// An adjusted pixel to 8-bit sRGB.
+    #[inline]
+    fn encode(&self, c: Rgb) -> [u8; 3] {
+        match &self.filmic {
+            Some(f) => f.apply_u8(c, &self.encode),
+            None => mul_vec(&self.to_rec709, c).map(|v| self.encode.eval(v.clamp(0.0, 1.0))),
+        }
+    }
+
     /// One pixel, all the way to 8-bit sRGB.
     #[inline]
     pub fn apply(&self, px: Rgb) -> [u8; 3] {
-        match &self.filmic {
-            Some(f) => f.apply_u8(self.adjust(px), &self.encode),
-            None => self.display(px).map(|v| self.encode.eval(v)),
-        }
+        self.encode(self.adjust(px))
     }
 
     /// Apply to a whole image and encode as 8-bit sRGB.
     pub fn render(&self, img: &Image) -> Rgba8 {
+        const CHUNK: usize = 64;
         let mut data = vec![255u8; img.pixels.len() * 4];
-        for (px, out) in img.pixels.iter().zip(data.chunks_exact_mut(4)) {
-            out[..3].copy_from_slice(&self.apply(*px));
+        let mut buffer = [[0.0f32; 3]; CHUNK];
+        for (pixels, out) in img.pixels.chunks(CHUNK).zip(data.chunks_mut(CHUNK * 4)) {
+            let buffer = &mut buffer[..pixels.len()];
+            buffer.copy_from_slice(pixels);
+            self.adjust_all(buffer);
+            for (c, out) in buffer.iter().zip(out.chunks_exact_mut(4)) {
+                out[..3].copy_from_slice(&self.encode(*c));
+            }
         }
         Rgba8 { width: img.width, height: img.height, data }
     }
@@ -305,11 +355,15 @@ impl PointOps {
 fn fixed_chain(
     px: Rgb,
     (offset, gain): &(Rgb, Rgb),
+    calibration: &Option<Box<CalibrationStage>>,
     saturation: &Option<(f32, f32)>,
     sh: &Option<BitsLut<f32>>,
     primaries: &Option<Rc<ColorPrimariesStage>>,
 ) -> Rgb {
     let mut c = affine(px, offset, gain);
+    if let Some(stage) = calibration {
+        c = stage.apply(c);
+    }
     if let &Some((saturation, vibrance)) = saturation {
         c = saturate(c, saturation, vibrance);
     }
@@ -331,6 +385,7 @@ mod tests {
         let mut p = EditParams::default();
         p.get_mut::<params::Exposure>().ev = 0.0;
         p.remove(params::ModuleKind::Filmic);
+        p.remove(params::ModuleKind::ColorCalibration);
         f(&mut p);
         PointOps::new(&p)
     }
@@ -352,7 +407,7 @@ mod tests {
             p.add(params::Exposure { ev: 3.0, black: 0.0 });
             p.modules.last_mut().unwrap().enabled = false;
         });
-        assert!(matches!(o.chain, Chain::Fixed { saturation: None, shadows_highlights: None, primaries: None, .. }));
+        assert!(matches!(o.chain, Chain::Fixed { calibration: None, saturation: None, shadows_highlights: None, primaries: None, .. }));
         // ((0.1 - 0.01) - 0.02) · 2
         assert!(approx(o.adjust([0.1; 3]), [0.14; 3], 1e-6));
     }
@@ -375,15 +430,17 @@ mod tests {
     }
 
     #[test]
-    fn white_balance_keeps_luminance() {
-        let out = ops(|p| {
-            let wb = p.get_mut::<params::WhiteBalance>();
-            wb.warmth = 0.8;
-            wb.tint = -0.3;
-        })
-        .adjust([0.18; 3]);
-        assert!((luminance(out) - 0.18).abs() < 1e-5);
-        assert!(out[0] > out[2]);
+    fn calibration_runs_after_exposure() {
+        let o = ops(|p| {
+            p.get_mut::<params::Exposure>().ev = 1.0;
+            let c = p.get_mut::<params::ColorCalibration>();
+            c.illuminant = params::Illuminant::Daylight;
+            c.temperature = 4000.0;
+        });
+        assert!(matches!(o.chain, Chain::Fixed { calibration: Some(_), .. }));
+        // Adapting from a warm light makes neutrals bluer.
+        let out = o.adjust([0.1; 3]);
+        assert!(out[2] > out[0] && luminance(out) > 0.15, "{out:?}");
     }
 
     #[test]
@@ -398,6 +455,7 @@ mod tests {
     fn filmic_lut_matches_exact_curve() {
         let mut p = EditParams::default();
         p.get_mut::<params::Exposure>().ev = 0.0;
+        p.remove(params::ModuleKind::ColorCalibration);
         let o = PointOps::new(&p);
         let exact = Filmic::new(p.get::<params::Filmic>().unwrap());
         for v in [1e-4f32, 0.01, MIDDLE_GREY, 0.5, 1.0, 4.0, 100.0] {

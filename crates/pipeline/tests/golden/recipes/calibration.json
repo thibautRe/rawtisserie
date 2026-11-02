@@ -1,0 +1,15 @@
+{
+  "size": 400,
+  "recipe": {
+    "version": 6,
+    "modules": [
+      { "kind": "exposure" },
+      { "kind": "colorCalibration", "params": {
+          "illuminant": "daylight", "temperature": 4300, "gamut": 2,
+          "red": [1.05, -0.05, 0], "colorfulness": [0.2, 0.1, -0.1], "brightness": [0, 0.1, 0] } },
+      { "kind": "colorCalibration", "label": "bradford", "params": {
+          "illuminant": "fluorescent", "fluorescent": "f7", "adaptation": "linearBradford", "gamut": 0, "clip": false } },
+      { "kind": "filmic" }
+    ]
+  }
+}

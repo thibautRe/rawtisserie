@@ -7,10 +7,11 @@ use crate::metadata::PhotoMetadata;
 use std::rc::Rc;
 
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
+use crate::ops::calibration::{self, Detection};
 use crate::ops::clipping::{self, Overlays};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::{equalizer, filmic, filters, geometry};
-use crate::params::{ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module};
+use crate::params::{ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleKind};
 use crate::Result;
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
@@ -43,7 +44,7 @@ impl RenderSize {
 /// are affected:
 ///
 /// ```text
-///  base        demosaic/bin, white balance, camera → working     keyed by binning factor
+///  base        demosaic/bin, reference WB, camera → working       keyed by binning factor
 ///   └ geometry  lens, orientation, straighten, crop, resample    keyed by lens + geometry + output size (2 sizes kept)
 ///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters at this scale
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
@@ -172,7 +173,7 @@ impl Developer {
         let cache = std::mem::take(&mut self.primaries);
         let mut weights = self.primaries_weights.take();
         let mut used = Vec::new();
-        let ops = PointOps::with_stages(params, filmic, &mut |p| {
+        let ops = PointOps::with_stages(params, self.photo.as_shot_illuminant, filmic, &mut |p| {
             let stage = match cache.iter().find(|(q, _)| q == p) {
                 Some((_, stage)) => stage.clone(),
                 None => {
@@ -295,6 +296,18 @@ impl Developer {
         let ops = self.point_ops(params, None);
         let img = self.spatial_image(params, size);
         filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), scaling)
+    }
+
+    /// Estimate the scene's light on the input of colour calibration instance `id` (the
+    /// image after the modules before it), as Ansel's auto-detection does. Returns its
+    /// xy chromaticity, or `None` without such an instance or anything to measure.
+    pub fn detect_illuminant(&mut self, params: &EditParams, id: &str, size: RenderSize, method: Detection) -> Option<[f32; 2]> {
+        let at = params.modules.iter().position(|m| m.id == id && m.module.kind() == ModuleKind::ColorCalibration)?;
+        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec() };
+        let ops = self.point_ops(&before, None);
+        // The spatial modules all come before calibration: same image, from cache.
+        let img = self.spatial_image(params, size);
+        calibration::detect_illuminant(img, |px| ops.adjust(px), method)
     }
 
     /// Filmic for interactive renders: computed exactly right after its parameters

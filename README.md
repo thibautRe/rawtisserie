@@ -11,9 +11,10 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   modified; edits live in the database. Each photo has one or more *versions* (like
   darktable duplicates), each with its own rating, labels and edit history.
 - **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
-  new imports), exposure, white balance, saturation and vibrance, shadows/highlights,
-  colour primaries and a contrast equalizer (ports of Ansel's), filmic tone mapping (a
-  port of Ansel's filmic rgb with its AgX colour science), sharpening, blur,
+  new imports), exposure, colour calibration (white balance by chromatic adaptation and
+  channel mixing), saturation and vibrance, shadows/highlights, colour primaries and a
+  contrast equalizer (ports of Ansel's), filmic tone mapping (a port of Ansel's filmic
+  rgb with its AgX colour science), sharpening, blur,
   rotation/flip, straightening and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
   display (O) and sensor (Shift+O) clipping indicators.
@@ -43,16 +44,17 @@ Rec.2020 working space, and are only compressed to display range by the tone map
 at the end.
 
 ```
-RAW ─▶ decode ─▶ demosaic/bin ─▶ white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
-    ─▶ geometry (lens, orientation, straighten, crop, resample)         cached: per output size
-    ─▶ blur ─▶ sharpen ─▶ contrast equalizer                            cached: per output size
-    ─▶ exposure ─▶ warmth/tint ─▶ saturation/vibrance ─▶ shadows/highlights
-    ─▶ colour primaries ─▶ filmic (AgX) ─▶ sRGB                         one fused pass, always re-run
+RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
+    ─▶ geometry (lens, orientation, straighten, crop, resample)             cached: per output size
+    ─▶ blur ─▶ sharpen ─▶ contrast equalizer                                cached: per output size
+    ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ shadows/highlights
+    ─▶ colour primaries ─▶ filmic (AgX) ─▶ sRGB                             one fused pass, always re-run
 ```
 
 Each cached stage is keyed by the parameters it depends on, so a slider only re-runs
 the stages after it. Exposure, white balance, colour and tone sliders only re-run the
-fused per-pixel pass. Its curves are baked into lookup tables indexed by the top bits
+fused per-pixel pass. It works on 64-pixel chunks, one module at a time, so that the CPU
+overlaps pixels and branch-free modules (colour calibration) vectorise. Its curves are baked into lookup tables indexed by the top bits
 of the `f32` value (log-spaced, no `log`/`pow` per pixel). For interactive renders,
 filmic's whole colour transform is also baked into a 65³ 3D table over log-encoded RGB,
 built once the filmic settings stop changing. It stays within 1 level (8-bit) of the
@@ -146,6 +148,25 @@ from the darkest luminance, both scaled by *dynamic range scaling*. The one devi
 is that the extreme 0.01 % at each end is ignored, so a few noisy or hot pixels can't
 decide the range.
 
+### Colour calibration
+
+`ops/calibration.rs` ports Ansel's `channelmixerrgb` ("color calibration"), the way Ansel
+does white balance: the base image is balanced with the camera's *reference*
+multipliers, which make D65 light neutral, and colour calibration adapts the scene's
+light to D65 with CAT16 (or linear Bradford, XYZ, or none). Every recipe starts with an
+instance set to the **as-shot** light, which follows the file; the illuminant can also be
+daylight or black body at a temperature, a CIE standard (A, E, F1–F12, LEDs), a custom
+hue/chroma, or detected from the image (Ansel's "surfaces" and "edges", which are rough
+guesses). It also does gamut compression and mixing in the adaptation's space: channel
+mixer, colourfulness, brightness and grey (monochrome). The channel mixer can also be
+edited as primaries, as in Ansel (`packages/pipeline/src/mixer.ts`): each input
+channel's hue and purity plus the white's hue, purity and gain, or a white-preserving
+rotation and saturation per channel. These views read and write the same 3×3 matrix; a
+mix that shifts the white can be reduced to its white-preserving part. Blown highlights are clipped at
+the as-shot white in the base stage, so they stay neutral. Deviations from Ansel, mainly
+from the D65 working space, are listed in the module. Recipes from before v6 had
+warmth/tint instead; it is folded into the channel mixer when they're read.
+
 ### Colour primaries and contrast equalizer
 
 `ops/primaries.rs` ports Ansel's `colorprimaries` (and the parts of `colorequal_shared`
@@ -199,9 +220,9 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Credits
 
-The filmic, colour primaries and contrast equalizer modules are ports of
-[Ansel](https://ansel.photos)'s `filmicrgb`, `colorprimaries` and `atrous` by Aurélien
-Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
+The filmic, colour calibration, colour primaries and contrast equalizer modules are
+ports of [Ansel](https://ansel.photos)'s `filmicrgb`, `channelmixerrgb`, `colorprimaries`
+and `atrous` by Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
 embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). RAW decoding uses
 [rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
 [raw.pixls.us](https://raw.pixls.us) (CC0).

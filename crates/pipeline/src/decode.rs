@@ -2,6 +2,7 @@
 //! needed to interpret it (levels, CFA layout, white balance, colour matrix).
 
 use rawler::decoders::{Orientation, RawDecodeParams};
+use rawler::imgop::xyz::Illuminant;
 use rawler::rawimage::RawPhotometricInterpretation;
 use rawler::rawsource::RawSource;
 use rawler::{CFA, RawImage, RawImageData};
@@ -82,6 +83,13 @@ pub struct RawPhoto {
     white: f32,
     /// As-shot white balance multipliers, normalised to green = 1.
     pub wb: [f32; 3],
+    /// Multipliers applied in the base stage: the "camera reference" ones, which make
+    /// D65 light neutral (colour calibration then adapts to the scene's light). The
+    /// as-shot ones when the camera matrix can't give them, and 1 for monochrome.
+    pub wb_reference: [f32; 3],
+    /// The xy chromaticity of the as-shot light, in the working space; `None` when the
+    /// base stage already makes it neutral (monochrome, or no usable camera matrix).
+    pub as_shot_illuminant: Option<[f32; 2]>,
     /// Camera RGB → linear Rec.2020.
     pub working_from_camera: Mat3,
     pub orientation: Orient,
@@ -126,17 +134,15 @@ impl RawPhoto {
         let (black_width, black_height) = (raw.blacklevel.width.max(1), raw.blacklevel.height.max(1));
         let white = raw.whitelevel.as_vec().into_iter().fold(0.0f32, f32::max).max(1.0);
 
-        let wb = {
-            let c = raw.wb_coeffs;
-            let usable = c[..3].iter().all(|v| v.is_finite() && *v > 0.0);
-            let c = if usable { c } else { raw.neutralwb() };
-            let g = if c[1] > 0.0 { c[1] } else { 1.0 };
-            [c[0] / g, 1.0, c[2] / g]
-        };
-
-        let working_from_camera = match layout {
-            Layout::Mono => color::IDENTITY,
-            _ => color::working_from_camera(&raw.xyz_to_cam),
+        let wb = as_shot_wb(&raw);
+        let xyz_to_cam = camera_matrix(&raw);
+        let (working_from_camera, wb_reference, as_shot_illuminant) = match layout {
+            Layout::Mono => (color::IDENTITY, [1.0; 3], None),
+            _ => (
+                color::working_from_camera(&xyz_to_cam),
+                color::reference_wb(&xyz_to_cam).unwrap_or(wb),
+                color::illuminant_of_wb(&xyz_to_cam, wb),
+            ),
         };
 
         let orientation = Orient::from_exif(match raw.orientation {
@@ -156,6 +162,8 @@ impl RawPhoto {
             black_height,
             white,
             wb,
+            wb_reference,
+            as_shot_illuminant,
             working_from_camera,
             orientation,
             metadata,
@@ -188,4 +196,37 @@ impl RawPhoto {
             _ => 1, // treat "emerald"/4th colour as green
         }
     }
+}
+
+/// The camera's XYZ → camera RGB matrix for D65 light (Adobe's, or the DNG's), or the
+/// closest daylight one. rawler keeps them by calibration illuminant; its old
+/// `xyz_to_cam` field is left empty.
+fn camera_matrix(raw: &RawImage) -> [[f32; 3]; 4] {
+    let preferred = [Illuminant::D65, Illuminant::D55, Illuminant::Daylight, Illuminant::FineWeather, Illuminant::D75, Illuminant::Flash, Illuminant::D50];
+    let flat = raw.color_matrix_find_first(preferred).map(|(_, m)| m).or_else(|| raw.color_matrix.values().next().cloned());
+    let Some(flat) = flat.filter(|m| m.len() >= 9 && m.len() % 3 == 0) else {
+        return raw.xyz_to_cam;
+    };
+    let mut m = [[0.0; 3]; 4];
+    for (i, row) in flat.chunks_exact(3).take(4).enumerate() {
+        m[i].copy_from_slice(row);
+    }
+    m
+}
+
+/// As-shot white balance multipliers, normalised to green = 1.
+fn as_shot_wb(raw: &RawImage) -> [f32; 3] {
+    let c = raw.wb_coeffs;
+    let usable = c[..3].iter().all(|v| v.is_finite() && *v > 0.0);
+    let c = if usable { c } else { raw.neutralwb() };
+    let g = if c[1] > 0.0 { c[1] } else { 1.0 };
+    [c[0] / g, 1.0, c[2] / g]
+}
+
+/// The xy chromaticity of the light the camera balanced for, if the file has colour.
+pub(crate) fn as_shot_illuminant(raw: &RawImage) -> Option<[f32; 2]> {
+    if raw.cpp == 1 && matches!(raw.photometric, RawPhotometricInterpretation::BlackIsZero) {
+        return None;
+    }
+    color::illuminant_of_wb(&camera_matrix(raw), as_shot_wb(raw))
 }

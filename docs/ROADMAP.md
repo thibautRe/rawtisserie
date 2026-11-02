@@ -5,7 +5,7 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 (slider feel); the `RenderBackend` interface (M6 prerequisite); golden-image tests
 (before M3); 3.1 with
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
-3.3 (contrast equalizer); 4.1 (multiple instances).
+3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -334,6 +334,23 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
   double-click to reset). The tone equalizer could reuse it later.
 
 ### 3.4 Colour calibration (M, optional but useful before M4)
+
+> **Done** (`ops/calibration.rs`, recipe v6). As built: the Ansel model. The base stage
+> applies the camera's reference (D65) multipliers, and a colour calibration instance
+> with the "as shot" illuminant (CAT16) is part of every recipe; v1–v5 recipes get one
+> on load, with their warmth/tint folded into its channel mix (the warmth/tint kind is
+> gone). Highlights clip at the as-shot white, so they stay neutral. Illuminants: as
+> shot, D65, daylight/black body temperature, A, E, F1–F12, LEDs, custom hue/chroma;
+> adaptations CAT16, linear Bradford, XYZ, none (no non-linear Bradford); gamut
+> compression; R/G/B mixing (also as Ansel's "primaries" and "white-preserving" mixer
+> modes, which are UI pages over the same matrix), colourfulness, brightness, grey.
+> Ansel's auto-detection
+> (surfaces/edges) is a one-shot button; it's a rough guess on the golden RAWs. No colour
+> checker or spot mode. The point pass now runs on 64-pixel chunks, a module at a time,
+> and calibration's loop is branch-free so it vectorises: a default render costs about
+> the same as before (+4 ns/pixel natively). Found on the way: rawler 0.8 leaves
+> `xyz_to_cam` empty, so camera matrices had never been applied (camera RGB was read as
+> Rec.709); they now come from `RawImage::color_matrix`.
 
 Ansel's `channelmixerrgb` (CAT16 white balance with illuminant, gamut compression,
 colourfulness/brightness/grey mixing). It replaces today's warmth/tint as the standard

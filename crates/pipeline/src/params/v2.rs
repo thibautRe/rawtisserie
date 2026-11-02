@@ -1,17 +1,18 @@
 //! v1/v2 recipes: one fixed section per module. Read only, to migrate them to v3.
 //!
 //! v1 had a sigmoid tone mapper (`toneMap`); it is ignored, so v1 recipes get
-//! filmic's defaults. Must match `migrateV2` in `packages/pipeline/src/params.ts`.
+//! filmic's defaults. Their white balance (warmth/tint) is taken out beforehand and
+//! becomes colour calibration, as for v3–v5. Must match `migrateV2` in
+//! `packages/pipeline/src/params.ts`.
 
 use serde::Deserialize;
 
-use super::{Blur, Color, Exposure, Filmic, Geometry, Module, ModuleInstance, ShadowsHighlights, Sharpen, WhiteBalance};
+use super::{Blur, Color, Exposure, Filmic, Geometry, Module, ModuleInstance, ShadowsHighlights, Sharpen};
 
 #[derive(Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(super) struct EditParams {
     exposure: Exposure,
-    white_balance: WhiteBalance,
     color: Color,
     shadows_highlights: ShadowsHighlights,
     filmic: FilmicV2,
@@ -51,9 +52,6 @@ impl From<EditParams> for super::EditParams {
             push(true, v2.sharpen.into());
         }
         push(true, v2.exposure.into());
-        if v2.white_balance != WhiteBalance::default() {
-            push(true, v2.white_balance.into());
-        }
         if v2.color != Color::default() {
             push(true, v2.color.into());
         }

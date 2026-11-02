@@ -130,6 +130,17 @@ impl Developer {
         Ok(result.map(|(w, b)| vec![w, b]).unwrap_or_default())
     }
 
+    /// Colour calibration's illuminant auto-detection, on the input of instance `id` as
+    /// rendered at this size. `method` is `"surfaces"` or `"edges"`. Returns the light's
+    /// `[x, y]` chromaticity, or an empty array if nothing could be measured.
+    #[wasm_bindgen(js_name = detectIlluminant)]
+    pub fn detect_illuminant(&mut self, params_json: &str, id: &str, max_width: u32, max_height: u32, method: &str) -> Result<Vec<f32>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let method = serde_json::from_value(serde_json::Value::String(method.into())).map_err(js_err)?;
+        let result = self.inner.detect_illuminant(&params, id, RenderSize::fit(max_width, max_height), method);
+        Ok(result.map(Vec::from).unwrap_or_default())
+    }
+
     /// Free the cached demosaiced image (it is rebuilt on the next render).
     #[wasm_bindgen(js_name = releaseCache)]
     pub fn release_cache(&mut self) {

@@ -1,5 +1,5 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
-import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
+import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, illuminantFromXy, updateInstance, updateModule } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
@@ -9,6 +9,7 @@ import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
+import type { IlluminantDetection } from './protocol.ts';
 import type { RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
@@ -175,6 +176,7 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   const [aspect, setAspect] = useState('free');
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
+  const [detecting, setDetecting] = useState<string | null>(null);
 
   // ── Rendering ──
   const [viewport, size] = useElementSize<HTMLDivElement>();
@@ -312,6 +314,20 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
     }
   };
 
+  // Colour calibration's illuminant detection, measured on the full-size preview.
+  const detectIlluminant = async (id: string, method: IlluminantDetection) => {
+    setDetecting(id);
+    try {
+      const xy = await backend.detectIlluminant(params, id, method, job.width, job.height);
+      if (!xy) throw new Error('Nothing to measure');
+      commit(updateInstance(params, 'colorCalibration', id, { enabled: true, params: illuminantFromXy(xy) }));
+    } catch (err) {
+      toaster.create({ type: 'error', title: 'Detection failed', description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setDetecting(null);
+    }
+  };
+
   // Keyboard shortcuts.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -438,6 +454,7 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
         <ModulePanel
           params={params}
           lensCorrection={metadata.lensCorrection ?? null}
+          asShotIlluminant={metadata.asShotIlluminant ?? null}
           onChange={(p) => store.setLive(p)}
           onCommit={commit}
           cropping={!!cropDraft}
@@ -446,6 +463,8 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
           onStartCrop={startCrop}
           onAutoTuneFilmic={() => void autoTuneFilmic()}
           autoTuning={autoTuning}
+          onDetectIlluminant={(id, method) => void detectIlluminant(id, method)}
+          detecting={detecting}
         />
       </Box>
     </Flex>

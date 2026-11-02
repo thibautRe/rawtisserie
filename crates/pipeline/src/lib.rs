@@ -5,10 +5,10 @@
 //! and are only squeezed into display range by the tone mapper at the very end.
 //!
 //! ```text
-//! RAW bytes ─▶ decode ─▶ demosaic/bin ─▶ white balance ─▶ camera → working   (cached "base")
-//!          ─▶ geometry (orientation, straighten, crop, resample)
-//!          ─▶ exposure ─▶ warmth/tint ─▶ saturation/vibrance ─▶ blur ─▶ sharpen
-//!          ─▶ tone mapping ─▶ sRGB output
+//! RAW bytes ─▶ decode ─▶ demosaic/bin ─▶ reference (D65) white balance ─▶ camera → working   (cached "base")
+//!          ─▶ geometry (lens, orientation, straighten, crop, resample)
+//!          ─▶ blur ─▶ sharpen ─▶ contrast equalizer
+//!          ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ … ─▶ tone mapping ─▶ sRGB output
 //! ```
 //!
 //! The crate is plain Rust with no platform dependencies so that it can be compiled

@@ -9,6 +9,10 @@
 //! photo; the TypeScript mirror lives in `packages/pipeline/src/params.ts`. Every
 //! field has a default so that older/partial recipes keep deserialising, and v1/v2
 //! recipes (one fixed section per module) are migrated on load.
+//!
+//! The working space is linear Rec.2020 with a D65 white. The base image is balanced
+//! for D65 light, so every recipe since v6 starts with a colour calibration instance
+//! that adapts it to the scene's light ("as shot" by default).
 
 mod v2;
 
@@ -21,7 +25,8 @@ use crate::metadata::PhotoMetadata;
 /// v3: a list of module instances instead of one section per module.
 /// v4: filmic's latitude/balance became independent toe/shoulder sizes.
 /// v5: filmic's toe/shoulder measure the linear share instead of the curved one.
-pub const CURRENT_VERSION: u32 = 5;
+/// v6: colour calibration replaces warmth/tint, and does the white balance.
+pub const CURRENT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Value")]
@@ -136,7 +141,8 @@ modules! {
     ContrastEqualizer,
     /// Point stage (one fused pass), in linear Rec.2020.
     Exposure,
-    WhiteBalance,
+    /// White balance (chromatic adaptation) and channel mixing.
+    ColorCalibration,
     Color,
     ShadowsHighlights,
     ColorPrimaries,
@@ -160,11 +166,12 @@ impl ModuleKind {
 }
 
 /// The recipe a new image starts with: Ansel's defaults for RAW files, a +0.7 EV
-/// exposure push and filmic.
+/// exposure push, white balance as shot (colour calibration) and filmic.
 impl Default for EditParams {
     fn default() -> Self {
         let mut params = Self { version: CURRENT_VERSION, modules: Vec::new() };
         params.add(Exposure::default());
+        params.add(ColorCalibration::default());
         params.add(Filmic::default());
         params
     }
@@ -280,6 +287,7 @@ impl TryFrom<Value> for EditParams {
     fn try_from(mut json: Value) -> Result<Self, Self::Error> {
         migrate_filmic(&mut json);
         let version = json.get("version").and_then(Value::as_u64).unwrap_or(0);
+        let white_balance = if version < 6 { take_white_balance(&mut json) } else { Vec::new() };
         let mut params = if version >= 3 || json.get("modules").is_some() {
             let raw = match json.get("modules") {
                 Some(modules) => Vec::<RawInstance>::deserialize(modules)?,
@@ -293,8 +301,30 @@ impl TryFrom<Value> for EditParams {
         } else {
             serde_json::from_value::<v2::EditParams>(json)?.into()
         };
+        if version < 6 {
+            // The base image used to be balanced as shot; now colour calibration does it.
+            let calibration = ColorCalibration::from_white_balance(&white_balance);
+            params.modules.push(ModuleInstance { id: String::new(), label: None, enabled: true, module: calibration.into() });
+        }
         params.normalize();
         Ok(params)
+    }
+}
+
+/// Remove the warmth/tint white balance of a v1–v5 recipe; returns the enabled ones'
+/// `(warmth, tint)`, in pipeline order. Must match `takeWhiteBalance` in TS.
+fn take_white_balance(json: &mut Value) -> Vec<(f32, f32)> {
+    let read = |params: Option<&Value>| {
+        let get = |key: &str| params.and_then(|p| p.get(key)).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+        (get("warmth"), get("tint"))
+    };
+    if let Some(modules) = json.get_mut("modules").and_then(Value::as_array_mut) {
+        let is_wb = |m: &Value| m.get("kind").and_then(Value::as_str) == Some("whiteBalance");
+        let found = modules.iter().filter(|m| is_wb(m) && m.get("enabled").and_then(Value::as_bool) != Some(false)).map(|m| read(m.get("params"))).collect();
+        modules.retain(|m| !is_wb(m));
+        found
+    } else {
+        json.as_object_mut().and_then(|o| o.remove("whiteBalance")).map(|wb| vec![read(Some(&wb))]).unwrap_or_default()
     }
 }
 
@@ -367,14 +397,178 @@ impl Default for Exposure {
     }
 }
 
-/// Adjustments relative to the white balance recorded by the camera.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// Colour calibration, after Ansel's `channelmixerrgb.c` (see [`crate::ops::calibration`]):
+/// chromatic adaptation from the scene's light to the working space's white (D65),
+/// gamut compression, then mixing in the adaptation's space (RGB channels,
+/// colourfulness, brightness and grey). Units are Ansel's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct WhiteBalance {
-    /// -1 (cooler/blue) … +1 (warmer/amber).
-    pub warmth: f32,
-    /// -1 (green) … +1 (magenta).
-    pub tint: f32,
+pub struct ColorCalibration {
+    /// The light to adapt from.
+    pub illuminant: Illuminant,
+    /// Correlated colour temperature of the daylight and black body illuminants, in
+    /// kelvin, 1667 … 25000.
+    pub temperature: f32,
+    pub fluorescent: Fluorescent,
+    pub led: Led,
+    /// Chromaticity of the custom illuminant (CIE 1931 xy).
+    pub x: f32,
+    pub y: f32,
+    /// The space the light is adapted and colours are mixed in. "As shot" always uses CAT16.
+    pub adaptation: Adaptation,
+    /// Gamut compression, 0 … 12 (0 = off): pulls the most saturated bright colours
+    /// toward white.
+    pub gamut: f32,
+    /// Clip negative values (colours outside the spectral locus) at each step.
+    pub clip: bool,
+    /// Output channels as a mix of the input ones, -2 … 2 each.
+    pub red: [f32; 3],
+    pub green: [f32; 3],
+    pub blue: [f32; 3],
+    /// Scale each mix so that its coefficients add up to 1 (greys stay grey).
+    pub normalize_red: bool,
+    pub normalize_green: bool,
+    pub normalize_blue: bool,
+    /// Colourfulness of colours along each channel, -1 … 1.
+    pub colorfulness: [f32; 3],
+    /// Make the colourfulness changes add up to 0.
+    pub normalize_colorfulness: bool,
+    /// Brightness of colours along each channel, -1 … 1.
+    pub brightness: [f32; 3],
+    pub normalize_brightness: bool,
+    /// Monochrome: the output is this mix of the channels when any is non-zero, -2 … 2.
+    pub grey: [f32; 3],
+    pub normalize_grey: bool,
+}
+
+impl Default for ColorCalibration {
+    fn default() -> Self {
+        let [x, y] = crate::color::white_xy().map(|v| (v * 1e4).round() / 1e4);
+        Self {
+            illuminant: Illuminant::AsShot,
+            // The working space's white, D65 (Ansel's 5003 K is its D50).
+            temperature: 6504.0,
+            fluorescent: Fluorescent::F3,
+            led: Led::B5,
+            x,
+            y,
+            adaptation: Adaptation::Cat16,
+            gamut: 1.0,
+            clip: true,
+            red: [1.0, 0.0, 0.0],
+            green: [0.0, 1.0, 0.0],
+            blue: [0.0, 0.0, 1.0],
+            normalize_red: true,
+            normalize_green: true,
+            normalize_blue: true,
+            colorfulness: [0.0; 3],
+            normalize_colorfulness: false,
+            brightness: [0.0; 3],
+            normalize_brightness: false,
+            grey: [0.0; 3],
+            normalize_grey: false,
+        }
+    }
+}
+
+impl ColorCalibration {
+    /// The default, with the gains of v1–v5 warmth/tint instances (`(warmth, tint)`,
+    /// applied after the white balance) folded into the channel mix. Must match
+    /// `fromWhiteBalance` in TS.
+    pub fn from_white_balance(instances: &[(f32, f32)]) -> Self {
+        let mut p = Self::default();
+        let mut gains = [1.0f64; 3];
+        for &(warmth, tint) in instances {
+            let warmth = warmth.clamp(-1.0, 1.0) as f64 * 0.5;
+            let tint = tint.clamp(-1.0, 1.0) as f64 * 0.35;
+            let wb = [warmth.exp2(), (-tint).exp2(), (-warmth).exp2()];
+            // They preserved luminance.
+            let luma = crate::color::LUMA_REC2020.map(f64::from);
+            let y = wb[0] * luma[0] + wb[1] * luma[1] + wb[2] * luma[2];
+            gains = [0, 1, 2].map(|c| gains[c] * (wb[c] / y));
+        }
+        if gains != [1.0; 3] {
+            let round = |v: f64| ((v * 1e6).round() / 1e6 + 0.0) as f32;
+            let mix = crate::ops::calibration::mix_for_rgb_gains(gains).map(|row| row.map(round));
+            [p.red, p.green, p.blue] = mix;
+            (p.normalize_red, p.normalize_green, p.normalize_blue) = (false, false, false);
+        }
+        p
+    }
+}
+
+/// The light colour calibration adapts from. Ansel's, without the auto-detection
+/// modes (a one-shot action here; it sets a daylight, black body or custom illuminant).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Illuminant {
+    /// What the camera's white balance was set for.
+    #[default]
+    AsShot,
+    /// The working space's white (D65): no adaptation.
+    Pipeline,
+    /// CIE daylight at `temperature` (black body below 4000 K).
+    Daylight,
+    /// Planckian (black body) radiator at `temperature`.
+    BlackBody,
+    /// CIE A (incandescent).
+    A,
+    /// CIE E (equal energy).
+    E,
+    Fluorescent,
+    Led,
+    /// `x`, `y`.
+    Custom,
+}
+
+/// CIE fluorescent illuminants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Fluorescent {
+    F1,
+    F2,
+    #[default]
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+}
+
+/// CIE LED illuminants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Led {
+    B1,
+    B2,
+    B3,
+    B4,
+    #[default]
+    B5,
+    Bh1,
+    Rgb1,
+    V1,
+    V2,
+}
+
+/// Chromatic adaptation transform. Ansel's non-linear Bradford is left out.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Adaptation {
+    /// CIECAM16's (the most accurate).
+    #[default]
+    Cat16,
+    /// Bradford, as in ICC v4.
+    LinearBradford,
+    /// Von Kries scaling in XYZ.
+    Xyz,
+    /// None: mix in linear Rec.2020 and leave the light alone.
+    None,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -659,9 +853,10 @@ mod tests {
     }
 
     #[test]
-    fn default_is_exposure_and_filmic() {
+    fn default_is_exposure_calibration_and_filmic() {
         let p = EditParams::default();
-        assert_eq!(kinds(&p), [ModuleKind::Exposure, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
+        assert_eq!(p.modules[1].id, "colorCalibration");
         assert_eq!(p.modules[0].id, "exposure");
         assert_eq!(p.get::<Exposure>().unwrap().ev, 0.7);
         assert_eq!(p.get::<Filmic>(), Some(&Filmic::default()));
@@ -673,7 +868,7 @@ mod tests {
         assert_eq!(EditParams::default_for(&plain), EditParams::default());
         let sony = PhotoMetadata { lens_correction: Some("sony".into()), ..Default::default() };
         let p = EditParams::default_for(&sony);
-        assert_eq!(kinds(&p), [ModuleKind::Lens, ModuleKind::Exposure, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Lens, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
         assert_eq!(p.modules[0].id, "lens");
     }
 
@@ -689,7 +884,7 @@ mod tests {
         p.get_mut::<Sharpen>().amount = 0.5;
         p.add(Exposure { ev: -1.0, black: 0.0 });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.starts_with(r#"{"version":5,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
+        assert!(json.starts_with(r#"{"version":6,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
         assert_eq!(EditParams::from_json(&json).unwrap(), p);
     }
 
@@ -699,7 +894,7 @@ mod tests {
             r#"{"version":3,"modules":[{"kind":"filmic","params":{"bleach":"extra"}},{"kind":"exposure","params":{"black":0.01}},{"kind":"blur"}]}"#,
         )
         .unwrap();
-        assert_eq!(kinds(&p), [ModuleKind::Blur, ModuleKind::Exposure, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Blur, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
         assert_eq!(p.get::<Exposure>(), Some(&Exposure { ev: 0.7, black: 0.01 }));
         assert_eq!(p.get::<Filmic>().unwrap().bleach, Bleach::Extra);
         assert!(p.modules.iter().all(|m| m.enabled && m.label.is_none()));
@@ -715,7 +910,7 @@ mod tests {
         )
         .unwrap();
         let ids: Vec<_> = p.modules.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, ["a", "exposure", "exposure-3", "exposure-2", "filmic"]);
+        assert_eq!(ids, ["a", "exposure", "exposure-3", "colorCalibration", "exposure-2", "filmic"]);
         assert_eq!(p.get::<Filmic>().unwrap().contrast, 2.0);
     }
 
@@ -728,6 +923,45 @@ mod tests {
     #[test]
     fn unknown_kinds_are_an_error() {
         assert!(EditParams::from_json(r#"{"version":3,"modules":[{"kind":"teleport"}]}"#).is_err());
+        assert!(EditParams::from_json(r#"{"version":6,"modules":[{"kind":"whiteBalance"}]}"#).is_err());
+    }
+
+    #[test]
+    fn v6_recipes_are_left_alone() {
+        let p = EditParams::from_json(r#"{"version":6,"modules":[{"kind":"exposure"}]}"#).unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::Exposure]);
+    }
+
+    #[test]
+    fn migrates_white_balance_to_calibration() {
+        let p = EditParams::from_json(r#"{"version":5,"modules":[{"kind":"exposure"},{"kind":"filmic"}]}"#).unwrap();
+        assert_eq!(p, EditParams::default());
+
+        let p = EditParams::from_json(
+            r#"{"version":5,"modules":[{"kind":"whiteBalance","params":{"warmth":0.4}},{"kind":"whiteBalance","enabled":false,"params":{"tint":1}},{"kind":"whiteBalance","params":{"tint":-0.2}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::ColorCalibration]);
+        let c = p.get::<ColorCalibration>().unwrap();
+        assert_eq!((c.illuminant, c.normalize_red), (Illuminant::AsShot, false));
+        // The same as warmth/tint gains in Rec.2020 after the white balance.
+        let wb = |w: f32, t: f32| {
+            let g = [(w * 0.5).exp2(), (-t * 0.35).exp2(), (-w * 0.5).exp2()];
+            let y = crate::color::luminance(g);
+            g.map(|v| v / y)
+        };
+        let (a, b) = (wb(0.4, 0.0), wb(0.0, -0.2));
+        let gains = [0, 1, 2].map(|c| a[c] * b[c]);
+        let mix = crate::ops::calibration::mix_for_rgb_gains(gains.map(f64::from));
+        for (row, want) in [c.red, c.green, c.blue].iter().zip(mix) {
+            for (got, want) in row.iter().zip(want) {
+                assert!((*got as f64 - want).abs() < 2e-6, "{row:?}");
+            }
+        }
+
+        let p = EditParams::from_json(r#"{"version":2,"whiteBalance":{"warmth":0.3}}"#).unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
+        assert_ne!(p.get::<ColorCalibration>(), Some(&ColorCalibration::default()));
     }
 
     #[test]
@@ -736,11 +970,11 @@ mod tests {
             r#"{"version":2,"exposure":{"ev":1.5},"geometry":{"rotation":1},"filmic":{"enabled":false,"bleach":"extra"},"sharpen":{"amount":0}}"#,
         )
         .unwrap();
-        assert_eq!(kinds(&p), [ModuleKind::Geometry, ModuleKind::Exposure, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Geometry, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
         assert_eq!(p.get::<Geometry>().unwrap().rotation, 1);
         assert_eq!(p.get::<Exposure>(), Some(&Exposure { ev: 1.5, black: 0.0 }));
         assert_eq!(p.get::<Filmic>(), None);
-        let filmic = &p.modules[2];
+        let filmic = &p.modules[3];
         assert!(!filmic.enabled);
         assert_eq!(Filmic::get(&filmic.module).unwrap().bleach, Bleach::Extra);
     }

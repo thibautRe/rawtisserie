@@ -1,7 +1,38 @@
-import { Box, Button, ButtonGroup, HStack, Heading, IconButton, Menu, NativeSelect, Portal, Stack, Switch, Text } from '@chakra-ui/react';
+import { Box, Button, ButtonGroup, HStack, Heading, IconButton, Menu, NativeSelect, Portal, Stack, Switch, Tabs, Text } from '@chakra-ui/react';
 import {
+  ADAPTATIONS,
+  type Adaptation,
   BLEACH_LEVELS,
   type Bleach,
+  FLUORESCENTS,
+  type Fluorescent,
+  IDENTITY_PRIMARIES,
+  IDENTITY_WHITE_PRESERVING,
+  ILLUMINANTS,
+  type Illuminant,
+  type MixerPrimaries,
+  type MixerWhitePreserving,
+  LEDS,
+  type Led,
+  TEMPERATURE_MAX,
+  TEMPERATURE_MIN,
+  type Xy,
+  blackBodyXy,
+  closestIlluminant,
+  daylightXy,
+  hueChromaToXy,
+  illuminantXy,
+  mixerMatrix,
+  mixerRows,
+  mixerWhite,
+  primariesFromMatrix,
+  primariesToMatrix,
+  switchIlluminant,
+  whitePreservingFromMatrix,
+  whitePreservingToMatrix,
+  withoutWhiteShift,
+  xyToCss,
+  xyToHueChroma,
   type EditParams,
   EQUALIZER_CURVES,
   type EqualizerCurve,
@@ -21,18 +52,21 @@ import {
   resetInstance,
   updateInstance,
 } from '@rawtisserie/pipeline';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Crop, EllipsisVertical, FlipHorizontal2, Pencil, Plus, RotateCcw, RotateCcwSquare, RotateCwSquare, Trash2, WandSparkles } from 'lucide-react';
-import { memo, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Crop, EllipsisVertical, FlipHorizontal2, Pencil, Pipette, Plus, RotateCcw, RotateCcwSquare, RotateCwSquare, Trash2, WandSparkles } from 'lucide-react';
+import { Fragment, memo, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor } from './CurveEditor.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
+import type { IlluminantDetection } from './protocol.ts';
 import { tracks } from './slider.ts';
 
 interface Props {
   params: EditParams;
   /** Source of the file's embedded lens correction data (`PhotoMetadata.lensCorrection`). */
   lensCorrection: string | null;
+  /** The file's as-shot light (`PhotoMetadata.asShotIlluminant`). */
+  asShotIlluminant: Xy | null;
   onChange: (p: EditParams) => void;
   onCommit: (p: EditParams) => void;
   cropping: boolean;
@@ -42,6 +76,10 @@ interface Props {
   /** Measure filmic's white/black relative exposures on the image. */
   onAutoTuneFilmic: () => void;
   autoTuning: boolean;
+  /** Measure the scene's light for a colour calibration instance. */
+  onDetectIlluminant: (id: string, method: IlluminantDetection) => void;
+  /** The instance whose light is being measured. */
+  detecting: string | null;
 }
 
 export const ASPECTS = [
@@ -174,14 +212,145 @@ const PRIMARY_SWATCHES: Record<PrimaryName, string> = {
 /** CSS hue of each primary, for its gradient tracks. */
 const PRIMARY_HUES: Record<PrimaryName, number> = { red: 0, yellow: 60, green: 120, cyan: 180, blue: 240, magenta: 300 };
 
+const ILLUMINANT_LABELS: Record<Illuminant, string> = {
+  asShot: 'As shot',
+  pipeline: 'Same as pipeline (D65)',
+  daylight: 'Daylight',
+  blackBody: 'Black body',
+  a: 'A (incandescent)',
+  e: 'E (equal energy)',
+  fluorescent: 'Fluorescent',
+  led: 'LED',
+  custom: 'Custom',
+};
+
+const ADAPTATION_LABELS: Record<Adaptation, string> = {
+  cat16: 'CAT16 (CIECAM16)',
+  linearBradford: 'Linear Bradford (ICC v4)',
+  xyz: 'XYZ',
+  none: 'None (bypass)',
+};
+
+const FLUORESCENT_LABELS: Record<Fluorescent, string> = {
+  f1: 'F1 (daylight 6430 K), medium CRI',
+  f2: 'F2 (cool white 4230 K), medium CRI',
+  f3: 'F3 (white 3450 K), medium CRI',
+  f4: 'F4 (warm white 2940 K), medium CRI',
+  f5: 'F5 (daylight 6350 K), medium CRI',
+  f6: 'F6 (lite white 4150 K), medium CRI',
+  f7: 'F7 (D65 simulator 6500 K), high CRI',
+  f8: 'F8 (D50 simulator 5000 K), high CRI',
+  f9: 'F9 (cool white deluxe 4150 K), high CRI',
+  f10: 'F10 (tuned RGB 5000 K), low CRI',
+  f11: 'F11 (tuned RGB 4000 K), low CRI',
+  f12: 'F12 (tuned RGB 3000 K), low CRI',
+};
+
+const LED_LABELS: Record<Led, string> = {
+  b1: 'B1 (blue 2733 K)',
+  b2: 'B2 (blue 2998 K)',
+  b3: 'B3 (blue 4103 K)',
+  b4: 'B4 (blue 5109 K)',
+  b5: 'B5 (blue 6598 K)',
+  bh1: 'BH1 (blue-red hybrid 2851 K)',
+  rgb1: 'RGB1 (RGB 2840 K)',
+  v1: 'V1 (violet 2724 K)',
+  v2: 'V2 (violet 4070 K)',
+};
+
+type Calibration = ModuleParams['colorCalibration'];
+
+/** Colour calibration's tabs, as Ansel's: the light, the mix, and what is done with it. */
+const CALIBRATION_PAGES = ['illuminant', 'mixer', 'output'] as const;
+type CalibrationPage = (typeof CALIBRATION_PAGES)[number];
+const CALIBRATION_PAGE_LABELS: Record<CalibrationPage, string> = { illuminant: 'CAT', mixer: 'Mixer', output: 'Output' };
+const CALIBRATION_PAGE_TITLES: Record<CalibrationPage, string> = {
+  illuminant: 'White balance: chromatic adaptation from the scene’s light',
+  mixer: 'Channel mixer',
+  output: 'Colorfulness, brightness and gray (monochrome), after the mix',
+};
+/** The parameters each tab edits, to mark the tabs that differ from the defaults. */
+const CALIBRATION_PAGE_KEYS: Record<CalibrationPage, (keyof Calibration)[]> = {
+  illuminant: ['illuminant', 'temperature', 'fluorescent', 'led', 'x', 'y', 'adaptation', 'gamut', 'clip'],
+  mixer: ['red', 'green', 'blue', 'normalizeRed', 'normalizeGreen', 'normalizeBlue'],
+  output: ['colorfulness', 'normalizeColorfulness', 'brightness', 'normalizeBrightness', 'grey', 'normalizeGrey'],
+};
+
+/** The groups of the output tab, in the order they apply. */
+const OUTPUT_GROUPS = [
+  { key: 'colorfulness', title: 'Colorfulness', min: -1, max: 1, hardMin: -1, hardMax: 1, hint: 'Offset the coefficients so that they add up to 0' },
+  { key: 'brightness', title: 'Brightness', min: -1, max: 1, hardMin: -1, hardMax: 1, hint: 'Offset the coefficients so that they add up to 0' },
+  { key: 'grey', title: 'Gray (monochrome when not 0)', min: 0, max: 1, hardMin: -2, hardMax: 2, hint: 'Scale the coefficients so that they add up to 1 (keeps the brightness)' },
+] as const;
+
+/** Ways to see and edit the mixer's matrix (Ansel's mixer modes). */
+const MIXER_VIEWS = ['primaries', 'whitePreserving', 'channels'] as const;
+type MixerView = (typeof MIXER_VIEWS)[number];
+const MIXER_VIEW_LABELS: Record<MixerView, string> = { primaries: 'Primaries', whitePreserving: 'White-preserving', channels: 'Channels' };
+const MIXER_VIEW_TITLES: Record<MixerView, string> = {
+  primaries: 'Each input channel’s hue and purity, and where the white goes',
+  whitePreserving: 'Each input channel’s rotation and saturation; whites stay white',
+  channels: 'Each output channel as a mix of the input channels',
+};
+const CHANNELS = ['Red', 'Green', 'Blue'] as const;
+const CHANNEL_TRACKS = [tracks.channel('#d04a3a'), tracks.channel('#3aa04a'), tracks.channel('#3a6ad0')];
+const NORMALIZE_KEYS = { red: 'normalizeRed', green: 'normalizeGreen', blue: 'normalizeBlue', colorfulness: 'normalizeColorfulness', brightness: 'normalizeBrightness', grey: 'normalizeGrey' } as const;
+
+/** The mixer's primaries modes: the matrix seen as primaries, and back. */
+const MIXER_MODES = {
+  primaries: { read: primariesFromMatrix, write: primariesToMatrix, identity: IDENTITY_PRIMARIES },
+  whitePreserving: { read: whitePreservingFromMatrix, write: whitePreservingToMatrix, identity: IDENTITY_WHITE_PRESERVING },
+} as const;
+type MixerMode = keyof typeof MIXER_MODES;
+type MixerKey = keyof MixerPrimaries | keyof MixerWhitePreserving;
+
+/**
+ * Angles that mean nothing when their magnitude is zero (a primary on the white): the
+ * matrix then doesn't hold them, so the panel remembers the last one set.
+ */
+const MIXER_ANGLES: Record<MixerMode, [angle: MixerKey, magnitude: MixerKey, zero: number][]> = {
+  primaries: [
+    ['whiteHue', 'whitePurity', 0],
+    ['redHue', 'redPurity', 0],
+    ['greenHue', 'greenPurity', 0],
+    ['blueHue', 'bluePurity', 0],
+  ],
+  whitePreserving: [
+    ['redRotation', 'redSaturation', -1],
+    ['greenRotation', 'greenSaturation', -1],
+    ['blueRotation', 'blueSaturation', -1],
+  ],
+};
+/** Below this distance from zero, a magnitude counts as zero (the matrix is rounded). */
+const ZERO_MAGNITUDE = 1e-4;
+
+/** The CSS hue of each primary, for slider tracks. */
+const PRIMARY_CSS_HUES = [0, 120, 240];
+/** Signed degrees, without "-0.0°" for tiny negative angles read back from the matrix. */
+const degrees = (v: number) => {
+  const r = Number(v.toFixed(1)) + 0;
+  return `${r > 0 ? '+' : ''}${r.toFixed(1)}°`;
+};
+
+/** Soft range of the temperature slider, and its track: the light's colour. */
+const TEMPERATURE_SOFT = [2000, 12000] as const;
+const TEMPERATURE_TRACK = `linear-gradient(to right, ${Array.from({ length: 11 }, (_, i) => {
+  const t = TEMPERATURE_SOFT[0] + (i / 10) * (TEMPERATURE_SOFT[1] - TEMPERATURE_SOFT[0]);
+  return xyToCss((t >= 4000 ? daylightXy(t) : blackBodyXy(t))!);
+}).join(', ')})`;
+
 /** What an instance's section shows, which isn't part of the recipe. */
 interface InstanceView {
   primary: PrimaryName;
   primariesAdvanced: boolean;
   curve: EqualizerCurve;
+  calibration: CalibrationPage;
+  mixer: MixerView;
+  /** Angles remembered while their magnitude is zero (see `MIXER_ANGLES`). */
+  angles: Record<string, number>;
 }
 
-const DEFAULT_VIEW: InstanceView = { primary: 'red', primariesAdvanced: false, curve: 'luma' };
+const DEFAULT_VIEW: InstanceView = { primary: 'red', primariesAdvanced: false, curve: 'luma', calibration: 'illuminant', mixer: 'primaries', angles: {} };
 
 const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
@@ -194,7 +363,7 @@ const BLEACH_LABELS: Record<Bleach, string> = {
 };
 
 export function ModulePanel(props: Props) {
-  const { params, lensCorrection, cropping, aspect, autoTuning } = props;
+  const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -202,6 +371,15 @@ export function ModulePanel(props: Props) {
   });
   // What each instance shows, by id.
   const [views, setViews] = useState<Record<string, InstanceView>>({});
+
+  // The same angles, for handlers: updated as soon as they are set.
+  const angles = useRef<Record<string, Record<string, number>>>({});
+  const setAngle = (id: string, key: string, value: number) => {
+    if (angles.current[id]?.[key] === value) return;
+    const next = { ...angles.current[id], [key]: value };
+    angles.current[id] = next;
+    setViews((v) => ({ ...v, [id]: { ...DEFAULT_VIEW, ...v[id], angles: next } }));
+  };
 
   const [renaming, setRenaming] = useState<string | null>(null);
   const renamed = params.modules.find((m) => m.id === renaming);
@@ -228,7 +406,7 @@ export function ModulePanel(props: Props) {
     /** The parameters now, for handlers (sliders keep their first ones). */
     const current = () => (latest.current.params.modules.find((x) => x.id === id) as ModuleInstance<K> | undefined)?.params ?? defaultModuleParams[kind];
     const setView = (patch: Partial<InstanceView>) => setViews((v) => ({ ...v, [id]: { ...DEFAULT_VIEW, ...v[id], ...patch } }));
-    return { view: views[id] ?? DEFAULT_VIEW, setView, values, current, enabled: m?.enabled ?? false, edit, set: (patch: Partial<ModuleParams[K]>) => latest.current.onCommit(edit(patch)), bind };
+    return { id, view: views[id] ?? DEFAULT_VIEW, setView, values, defaults, current, enabled: m?.enabled ?? false, edit, set: (patch: Partial<ModuleParams[K]>) => latest.current.onCommit(edit(patch)), bind };
   }
 
   /**
@@ -293,6 +471,95 @@ export function ModulePanel(props: Props) {
     };
   }
 
+  type CalibrationEditor = ReturnType<typeof editor<'colorCalibration'>>;
+  type Channels = 'red' | 'green' | 'blue' | 'colorfulness' | 'brightness' | 'grey';
+
+  /** Props for a slider bound to one coefficient of a colour calibration array. */
+  function bindChannel(e: CalibrationEditor, key: Channels, i: number) {
+    const with_ = (v: number) => e.edit({ [key]: e.current()[key].map((c, j) => (j === i ? v : c)) });
+    return {
+      value: e.values[key][i]!,
+      defaultValue: e.defaults[key][i]!,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  }
+
+  /**
+   * The custom illuminant's hue and chroma. Without chroma the light has no hue: the last
+   * one set is kept, so that the hue can be chosen before the chroma.
+   */
+  function hueChroma(id: string, p: Calibration) {
+    const hc = xyToHueChroma([p.x, p.y]);
+    return hc.chroma < 0.05 ? { hue: angles.current[id]?.illuminantHue ?? 0, chroma: 0 } : hc;
+  }
+
+  /** Props for the custom illuminant's hue (degrees) or chroma sliders, which set its x and y. */
+  function bindHueChroma(e: CalibrationEditor, key: 'hue' | 'chroma') {
+    const with_ = (v: number) => {
+      const hc = { ...hueChroma(e.id, e.current()), [key]: v };
+      setAngle(e.id, 'illuminantHue', hc.hue);
+      const [x, y] = hueChromaToXy(hc.hue, hc.chroma).map((c) => Math.round(c * 1e4) / 1e4) as Xy;
+      return e.edit({ x, y });
+    };
+    return {
+      value: hueChroma(e.id, e.values)[key],
+      defaultValue: key === 'hue' ? 0 : xyToHueChroma([e.defaults.x, e.defaults.y]).chroma,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  }
+
+  /**
+   * Props for a slider of a mixer primaries mode. The recipe keeps the matrix: the value
+   * is read from it, and a change rebuilds it (a degenerate mix is ignored, as in Ansel).
+   */
+  function bindMixer(e: CalibrationEditor, mode: MixerMode, key: MixerKey) {
+    const { write, identity } = MIXER_MODES[mode];
+    const with_ = (v: number) => {
+      const p = e.current();
+      const next = mixerValues(e.id, mode, p);
+      if (!next) return latest.current.params;
+      next[key] = v;
+      // Remember the angles, so that one survives its magnitude going through zero.
+      for (const [angle] of MIXER_ANGLES[mode]) setAngle(e.id, `${mode}.${angle}`, next[angle]);
+      const m = write(mixerWhite(p), next as never);
+      return m ? e.edit(mixerRows(m)) : latest.current.params;
+    };
+    const values = (p: Calibration) => mixerValues(e.id, mode, p);
+    const defaultValue = (identity as Record<MixerKey, number>)[key];
+    return {
+      value: values(e.values)?.[key] ?? defaultValue,
+      defaultValue,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  }
+
+  /** A mixer mode's values for an instance, with the remembered angles where they are undefined. */
+  function mixerValues(id: string, mode: MixerMode, p: Calibration) {
+    const values = MIXER_MODES[mode].read(mixerWhite(p), mixerMatrix(p)) as Record<MixerKey, number> | null;
+    if (!values) return null;
+    for (const [angle, magnitude, zero] of MIXER_ANGLES[mode]) {
+      if (Math.abs(values[magnitude] - zero) < ZERO_MAGNITUDE) values[angle] = angles.current[id]?.[`${mode}.${angle}`] ?? 0;
+    }
+    return values;
+  }
+
+  /** A "normalize" switch for a colour calibration page. */
+  const normalizeSwitch = (e: CalibrationEditor, page: Channels, hint: string) => {
+    const key = NORMALIZE_KEYS[page];
+    return (
+      <Switch.Root size="xs" colorPalette="orange" checked={e.values[key]} onCheckedChange={(d) => e.set({ [key]: d.checked })} title={hint}>
+        <Switch.HiddenInput />
+        <Switch.Control />
+        <Switch.Label textStyle="2xs" color="fg.muted">
+          Normalize
+        </Switch.Label>
+      </Switch.Root>
+    );
+  };
+
   /** Props for the slider that steps through filmic's bleach levels. */
   const bindBleach = (e: ReturnType<typeof editor<'filmic'>>) => {
     const with_ = (i: number) => e.edit({ bleach: BLEACH_LEVELS[i]! });
@@ -313,12 +580,218 @@ export function ModulePanel(props: Props) {
         </>
       ))}
 
-      {sections('whiteBalance', [], (e) => (
-        <>
-          <ParamSlider label="Warmth" min={-1} max={1} step={0.01} track={tracks.warmth} {...e.bind('warmth')} />
-          <ParamSlider label="Tint" min={-1} max={1} step={0.01} track={tracks.tint} {...e.bind('tint')} />
-        </>
-      ))}
+      {sections('colorCalibration', [asShotIlluminant, detecting], (e) => {
+        const page = e.view.calibration;
+        const v = e.values;
+        const light = illuminantXy(v, asShotIlluminant);
+        const cct = closestIlluminant(light);
+        const adapts = v.illuminant === 'asShot' || v.adaptation !== 'none';
+        const white = mixerWhite(v);
+        const matrix = mixerMatrix(v);
+        const modified = (p: CalibrationPage) => CALIBRATION_PAGE_KEYS[p].some((k) => JSON.stringify(v[k]) !== JSON.stringify(e.defaults[k]));
+        return (
+          <>
+            {/* Tabs, not a select: they choose what the panel shows, not the image. */}
+            <Tabs.Root size="sm" variant="line" value={page} onValueChange={(d) => e.setView({ calibration: d.value as CalibrationPage })}>
+              <Tabs.List aria-label="Color calibration tabs" gap="0">
+                {CALIBRATION_PAGES.map((p) => (
+                  <Tabs.Trigger key={p} value={p} title={CALIBRATION_PAGE_TITLES[p]} h="7" px="1.5" flex="auto" justifyContent="center" textStyle="2xs" position="relative">
+                    {CALIBRATION_PAGE_LABELS[p]}
+                    {modified(p) && <Box position="absolute" top="1" right="0.5" boxSize="1" borderRadius="full" bg="orange.solid" aria-label="modified" />}
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
+            </Tabs.Root>
+            {page === 'illuminant' && (
+              <>
+                <NativeSelect.Root size="xs" disabled={v.illuminant === 'asShot'}>
+                  <NativeSelect.Field value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation} onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })} aria-label="Adaptation" title="Chromatic adaptation transform (as shot always uses CAT16)">
+                    {ADAPTATIONS.map((a) => (
+                      <option key={a} value={a}>
+                        Adaptation: {ADAPTATION_LABELS[a]}
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+                {adapts && (
+                  <>
+                    <HStack gap="1.5">
+                      <NativeSelect.Root size="xs" flex="1">
+                        <NativeSelect.Field value={v.illuminant} onChange={(ev) => e.set(switchIlluminant(e.current(), ev.target.value as Illuminant, asShotIlluminant))} aria-label="Illuminant">
+                          {ILLUMINANTS.map((i) => (
+                            <option key={i} value={i}>
+                              Illuminant: {ILLUMINANT_LABELS[i]}
+                            </option>
+                          ))}
+                        </NativeSelect.Field>
+                        <NativeSelect.Indicator />
+                      </NativeSelect.Root>
+                      <Box boxSize="5" flexShrink={0} borderRadius="sm" borderWidth="1px" bg={xyToCss(light)} title="The light's colour" />
+                      <Menu.Root lazyMount unmountOnExit onSelect={(d) => latest.current.onDetectIlluminant(e.id, d.value as IlluminantDetection)}>
+                        <Menu.Trigger asChild>
+                          <IconButton aria-label="Detect the illuminant" title="Detect the light from the image (like Ansel's AI detection)" size="2xs" variant="outline" disabled={!e.enabled} loading={detecting === e.id}>
+                            <Pipette />
+                          </IconButton>
+                        </Menu.Trigger>
+                        <Portal>
+                          <Menu.Positioner>
+                            <Menu.Content minW="48">
+                              <Menu.Item value="surfaces">Detect from surfaces</Menu.Item>
+                              <Menu.Item value="edges">Detect from edges</Menu.Item>
+                            </Menu.Content>
+                          </Menu.Positioner>
+                        </Portal>
+                      </Menu.Root>
+                    </HStack>
+                    <Text textStyle="2xs" color="fg.subtle" title="Correlated color temperature; it only describes the light well for daylight and black body spectra">
+                      {cct.temperature > TEMPERATURE_MIN && cct.temperature < TEMPERATURE_MAX
+                        ? `CCT ${Math.round(cct.temperature)} K (${cct.illuminant === 'custom' ? 'not a daylight or black body light' : cct.illuminant === 'daylight' ? 'daylight' : 'black body'})`
+                        : 'CCT undefined'}
+                    </Text>
+                    {(v.illuminant === 'daylight' || v.illuminant === 'blackBody') && (
+                      <ParamSlider label="Temperature" min={TEMPERATURE_SOFT[0]} max={TEMPERATURE_SOFT[1]} hardMin={TEMPERATURE_MIN} hardMax={TEMPERATURE_MAX} step={10} track={TEMPERATURE_TRACK} format={(t) => `${t.toFixed(0)} K`} {...e.bind('temperature')} />
+                    )}
+                    {v.illuminant === 'fluorescent' && (
+                      <NativeSelect.Root size="xs">
+                        <NativeSelect.Field value={v.fluorescent} onChange={(ev) => e.set({ fluorescent: ev.target.value as Fluorescent })} aria-label="Fluorescent illuminant">
+                          {FLUORESCENTS.map((f) => (
+                            <option key={f} value={f}>
+                              {FLUORESCENT_LABELS[f]}
+                            </option>
+                          ))}
+                        </NativeSelect.Field>
+                        <NativeSelect.Indicator />
+                      </NativeSelect.Root>
+                    )}
+                    {v.illuminant === 'led' && (
+                      <NativeSelect.Root size="xs">
+                        <NativeSelect.Field value={v.led} onChange={(ev) => e.set({ led: ev.target.value as Led })} aria-label="LED illuminant">
+                          {LEDS.map((l) => (
+                            <option key={l} value={l}>
+                              {LED_LABELS[l]}
+                            </option>
+                          ))}
+                        </NativeSelect.Field>
+                        <NativeSelect.Indicator />
+                      </NativeSelect.Root>
+                    )}
+                    {v.illuminant === 'custom' && (
+                      <>
+                        <ParamSlider label="Hue" min={0} max={360} step={1} track={tracks.hue(180)} format={(h) => `${h.toFixed(0)}°`} {...bindHueChroma(e, 'hue')} />
+                        <ParamSlider label="Chroma" min={0} max={100} hardMax={200} step={0.5} format={(c) => c.toFixed(1)} {...bindHueChroma(e, 'chroma')} />
+                      </>
+                    )}
+                  </>
+                )}
+                <ParamSlider label="Gamut compression" min={0} max={5} hardMax={12} step={0.01} format={fmt.fixed2} {...e.bind('gamut')} />
+                <Switch.Root size="xs" colorPalette="orange" checked={v.clip} onCheckedChange={(d) => e.set({ clip: d.checked })}>
+                  <Switch.HiddenInput />
+                  <Switch.Control />
+                  <Switch.Label textStyle="2xs" color="fg.muted">
+                    Clip negative RGB from gamut
+                  </Switch.Label>
+                </Switch.Root>
+              </>
+            )}
+            {page === 'mixer' && (
+              <HStack gap="2" alignItems="baseline">
+                <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
+                  Edit as
+                </Text>
+                <Tabs.Root size="sm" variant="subtle" value={e.view.mixer} onValueChange={(d) => e.setView({ mixer: d.value as MixerView })}>
+                  <Tabs.List aria-label="Mixer view" gap="0.5" minH="0" p="0" alignItems="center">
+                    {MIXER_VIEWS.map((m) => (
+                      <Tabs.Trigger key={m} value={m} title={MIXER_VIEW_TITLES[m]} h="5" px="1.5" textStyle="2xs">
+                        {MIXER_VIEW_LABELS[m]}
+                      </Tabs.Trigger>
+                    ))}
+                  </Tabs.List>
+                </Tabs.Root>
+              </HStack>
+            )}
+            {page === 'mixer' && e.view.mixer === 'primaries' && !primariesFromMatrix(white, matrix) && (
+              <Text textStyle="2xs" color="fg.subtle">
+                This mix is singular, so it can’t be shown as primaries. Edit it as channels, or reset the module.
+              </Text>
+            )}
+            {page === 'mixer' && e.view.mixer === 'primaries' && primariesFromMatrix(white, matrix) && (
+              <>
+                <ParamSlider key="primaries-whiteHue" label="White hue" min={-180} max={180} step={0.5} track={tracks.hue(0)} format={degrees} {...bindMixer(e, 'primaries', 'whiteHue')} />
+                <ParamSlider key="primaries-whitePurity" label="White purity" min={0} max={0.1} hardMax={2} step={0.0005} format={(p) => p.toFixed(4)} {...bindMixer(e, 'primaries', 'whitePurity')} />
+                {CHANNELS.map((c, i) => {
+                  const name = c.toLowerCase() as 'red' | 'green' | 'blue';
+                  return (
+                    <Fragment key={name}>
+                      <ParamSlider key={`primaries-${name}Hue`} label={`${c} hue`} min={-90} max={90} hardMin={-180} hardMax={180} step={0.5} track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)} format={degrees} {...bindMixer(e, 'primaries', `${name}Hue`)} />
+                      <ParamSlider key={`primaries-${name}Purity`} label={`${c} purity`} min={0} max={2} step={0.01} track={tracks.saturation(PRIMARY_CSS_HUES[i]!)} format={fmt.fixed2} {...bindMixer(e, 'primaries', `${name}Purity`)} />
+                    </Fragment>
+                  );
+                })}
+                <ParamSlider key="primaries-gain" label="Gain" min={0} max={2} hardMin={-8} hardMax={8} step={0.01} track={tracks.grey} format={fmt.fixed2} {...bindMixer(e, 'primaries', 'gain')} />
+              </>
+            )}
+            {page === 'mixer' && e.view.mixer === 'whitePreserving' && !whitePreservingFromMatrix(white, matrix) && (() => {
+              const clamped = withoutWhiteShift(white, matrix);
+              return (
+                <>
+                  <Text textStyle="2xs" color="fg.subtle">
+                    This mix also shifts the white (a tint or a brightness change), which white-preserving primaries can’t show.
+                    {clamped && ' Removing the shift keeps each primary’s hue and saturation.'}
+                  </Text>
+                  {clamped && (
+                    <Button size="2xs" variant="outline" alignSelf="start" onClick={() => e.set(mixerRows(clamped))}>
+                      Remove the white shift
+                    </Button>
+                  )}
+                </>
+              );
+            })()}
+            {page === 'mixer' && e.view.mixer === 'whitePreserving' && whitePreservingFromMatrix(white, matrix) && (
+              <>
+                {CHANNELS.map((c, i) => {
+                  const name = c.toLowerCase() as 'red' | 'green' | 'blue';
+                  return (
+                    <Fragment key={name}>
+                      <ParamSlider key={`whitePreserving-${name}Rotation`} label={`${c} rotation`} min={-90} max={90} hardMin={-180} hardMax={180} step={0.5} track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)} format={degrees} {...bindMixer(e, 'whitePreserving', `${name}Rotation`)} />
+                      <ParamSlider key={`whitePreserving-${name}Saturation`} label={`${c} saturation`} min={-1} max={1} hardMax={2} step={0.01} track={tracks.saturation(PRIMARY_CSS_HUES[i]!)} {...bindMixer(e, 'whitePreserving', `${name}Saturation`)} />
+                    </Fragment>
+                  );
+                })}
+              </>
+            )}
+            {page === 'mixer' &&
+              e.view.mixer === 'channels' &&
+              (['red', 'green', 'blue'] as const).map((row, r) => (
+                <Fragment key={row}>
+                  <HStack justify="space-between" pt={r ? '1' : '0'}>
+                    <Text textStyle="2xs" fontWeight="medium" color="fg.muted">
+                      {CHANNELS[r]} output
+                    </Text>
+                    {normalizeSwitch(e, row, 'Scale the coefficients so that they add up to 1 (greys stay grey)')}
+                  </HStack>
+                  {CHANNELS.map((c, i) => (
+                    <ParamSlider key={`channels-${row}-${i}`} label={`Input ${c.toLowerCase()}`} min={-2} max={2} step={0.01} track={CHANNEL_TRACKS[i]} format={fmt.fixed2} {...bindChannel(e, row, i)} />
+                  ))}
+                </Fragment>
+              ))}
+            {page === 'output' &&
+              OUTPUT_GROUPS.map((g, r) => (
+                <Fragment key={g.key}>
+                  <HStack justify="space-between" pt={r ? '1' : '0'}>
+                    <Text textStyle="2xs" fontWeight="medium" color="fg.muted">
+                      {g.title}
+                    </Text>
+                    {normalizeSwitch(e, g.key, g.hint)}
+                  </HStack>
+                  {CHANNELS.map((c, i) => (
+                    <ParamSlider key={`output-${g.key}-${i}`} label={c} min={g.min} max={g.max} hardMin={g.hardMin} hardMax={g.hardMax} step={0.01} track={CHANNEL_TRACKS[i]} format={fmt.fixed2} {...bindChannel(e, g.key, i)} />
+                  ))}
+                </Fragment>
+              ))}
+          </>
+        );
+      })}
 
       {sections('color', [], (e) => (
         <>
