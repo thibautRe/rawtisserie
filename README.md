@@ -205,3 +205,11 @@ Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
 embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). RAW decoding uses
 [rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
 [raw.pixls.us](https://raw.pixls.us) (CC0).
+
+## License
+
+RAWtisserie is licensed under the [GNU Affero General Public License v3.0 or
+later](LICENSE) (AGPL-3.0-or-later). If you run a modified version as a network
+service, you must offer its source to the users of that service. The Ansel- and
+darktable-derived modules keep their GPL-3.0-or-later terms, which allow combining
+them with AGPL-3.0 code (GPLv3 §13).

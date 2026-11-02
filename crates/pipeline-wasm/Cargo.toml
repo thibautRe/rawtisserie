@@ -3,6 +3,7 @@ name = "rawtisserie-pipeline-wasm"
 description = "WebAssembly bindings for the RAWtisserie pixel pipeline (browser + Node)"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 publish = false
 
 [lib]

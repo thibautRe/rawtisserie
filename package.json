@@ -1,6 +1,7 @@
 {
   "name": "rawtisserie",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "description": "🍗 RAWtisserie — from raw to well done",
   "type": "module",
   "workspaces": [

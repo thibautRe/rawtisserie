@@ -3,6 +3,7 @@ name = "rawtisserie-pipeline"
 description = "RAWtisserie pixel pipeline: RAW decoding, development and encoding"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 rawler.workspace = true
