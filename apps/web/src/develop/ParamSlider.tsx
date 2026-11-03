@@ -1,6 +1,6 @@
 import { HStack, Input, Slider, Text } from '@chakra-ui/react';
 import { memo, useEffect, useRef, useState } from 'react';
-import { type DragAnchor, type Extent, type SliderRange, dragTo, fineStep, growExtent, modifierFactor, nudge, parseTyped, snapTo, typedText } from './slider.ts';
+import { type DragAnchor, type Extent, LINEAR, type SliderCurve, type SliderRange, dragTo, fineStep, growExtent, modifierFactor, nudge, parseTyped, snapTo, typedText } from './slider.ts';
 
 interface Props {
   label: string;
@@ -23,6 +23,11 @@ interface Props {
    * start otherwise; set it for a neutral point elsewhere (0 in -50 … +200).
    */
   origin?: number;
+  /**
+   * A non-linear track (see `sinhCurve`). Must be a constant: it's compared by identity,
+   * and a `track` gradient must use the same one.
+   */
+  curve?: SliderCurve;
   /** Steps through an enumeration: shows a tick per value, with no typing or modifiers. */
   detents?: boolean;
   disabled?: boolean;
@@ -57,7 +62,7 @@ const PAST_RANGE = 'var(--chakra-colors-yellow-solid)';
  * write those inline, so they must not depend on render state (read the latest recipe at
  * call time), and a slider that gets rebound to something else needs a new `key`.
  */
-export const ParamSlider = memo(function ParamSlider({ label, value, min, max, hardMin = min, hardMax = max, step, defaultValue, format = fmt.signed2, scale = 1, track, origin, detents, disabled, onChange, onCommit }: Props) {
+export const ParamSlider = memo(function ParamSlider({ label, value, min, max, hardMin = min, hardMax = max, step, defaultValue, format = fmt.signed2, scale = 1, track, origin, curve = LINEAR, detents, disabled, onChange, onCommit }: Props) {
   const range: SliderRange = { min, max, step, fine: step };
   const [typing, setTyping] = useState(false);
   const [extent, setExtent] = useState<Extent>(() => growExtent([min, max], value, range));
@@ -79,12 +84,12 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, h
     const control = e.target instanceof Element ? e.target.closest('[data-part="control"]') : null;
     if (disabled || !control || e.button !== 0) return;
     drag.current = { anchor: null, value };
-    const unitsPerPixel = (hi - lo) / control.getBoundingClientRect().width;
+    const unitsPerPixel = (curve.toPosition(hi) - curve.toPosition(lo)) / control.getBoundingClientRect().width;
     const follow = (ev: PointerEvent) => {
       const current = drag.current;
       const factor = modifierFactor(ev);
       if (detents || !current || (!current.anchor && factor === 1)) return;
-      const next = dragTo(current.anchor, ev.clientX * unitsPerPixel, factor, current.value, fine(), grown);
+      const next = dragTo(current.anchor, ev.clientX * unitsPerPixel, factor, current.value, fine(), grown, curve);
       drag.current = next;
       if (next.value !== current.value) onChange(next.value);
     };
@@ -130,17 +135,19 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, h
     setTyping(true);
   };
 
-  const percent = (v: number) => `${((v - lo) / (hi - lo)) * 100}%`;
+  const pos = curve.toPosition;
+  const percent = (v: number) => `${((pos(v) - pos(lo)) / (pos(hi) - pos(lo))) * 100}%`;
   const segment: React.CSSProperties = { position: 'absolute', top: 0, bottom: 0 };
 
   return (
     <Slider.Root
       size="sm"
-      min={lo}
-      max={hi}
+      // In track positions: the same as values, unless there's a curve.
+      min={pos(lo)}
+      max={pos(hi)}
       // Ten times finer than the values: `snapTo` does that.
       step={detents ? step : step / 10}
-      value={[value]}
+      value={[pos(value)]}
       disabled={disabled}
       colorPalette="orange"
       // Symmetric bipolar parameters fill from their neutral (middle) point.
@@ -151,7 +158,7 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, h
         // Only a plain drag: `onPointerDownCapture` handles the rest.
         const current = drag.current;
         if (!current || current.anchor) return;
-        const next = snapTo(e.value[0]!, grown, range);
+        const next = snapTo(e.value[0]!, grown, range, curve);
         drag.current = { anchor: null, value: next };
         if (next !== current.value) onChange(next);
       }}
@@ -256,6 +263,7 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, h
   a.scale === b.scale &&
   a.track === b.track &&
   a.origin === b.origin &&
+  a.curve === b.curve &&
   a.detents === b.detents &&
   a.disabled === b.disabled,
 );

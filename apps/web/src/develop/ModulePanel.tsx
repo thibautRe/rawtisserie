@@ -61,7 +61,7 @@ import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import type { IlluminantDetection } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
-import { tracks } from './slider.ts';
+import { sinhCurve, tracks } from './slider.ts';
 
 interface Props {
   params: EditParams;
@@ -147,6 +147,7 @@ function Module({
   enabled,
   modified,
   menu,
+  actions,
   onToggle,
   onReset,
   children,
@@ -156,6 +157,8 @@ function Module({
   modified: boolean;
   /** Absent for single-instance kinds. */
   menu?: React.ReactNode;
+  /** Header buttons, shown left of the switch. */
+  actions?: React.ReactNode;
   onToggle: (enabled: boolean) => void;
   onReset: () => void;
   children: React.ReactNode;
@@ -168,6 +171,7 @@ function Module({
         </Heading>
         <HStack gap="1">
           {menu}
+          {actions}
           <Switch.Root size="xs" colorPalette="orange" checked={enabled} onCheckedChange={(e) => onToggle(e.checked)} aria-label={`Enable ${title}`}>
             <Switch.HiddenInput />
             <Switch.Control />
@@ -299,6 +303,9 @@ const CHANNEL_TRACKS = [tracks.channel('#d04a3a'), tracks.channel('#3aa04a'), tr
 const NORMALIZE_KEYS = { red: 'normalizeRed', green: 'normalizeGreen', blue: 'normalizeBlue', colorfulness: 'normalizeColorfulness', brightness: 'normalizeBrightness', grey: 'normalizeGrey' } as const;
 
 /** The mixer's primaries modes: the matrix seen as primaries, and back. */
+/** The mixer's primary hue sliders: finer around 0°, over the same ±90° track. */
+const HUE_CURVE = sinhCurve(90);
+
 const MIXER_MODES = {
   primaries: { read: primariesFromMatrix, write: primariesToMatrix, identity: IDENTITY_PRIMARIES },
   whitePreserving: { read: whitePreservingFromMatrix, write: whitePreservingToMatrix, identity: IDENTITY_WHITE_PRESERVING },
@@ -423,7 +430,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
    * keyed by instance id and an empty kind's first instance takes the kind as its id,
    * so a slider dragged there stays mounted, bound to that id.
    */
-  function sections<K extends ModuleKind>(kind: K, deps: readonly unknown[], content: (e: ReturnType<typeof editor<K>>) => React.ReactNode) {
+  function sections<K extends ModuleKind>(
+    kind: K,
+    deps: readonly unknown[],
+    content: (e: ReturnType<typeof editor<K>>) => React.ReactNode,
+    actions?: (e: ReturnType<typeof editor<K>>) => React.ReactNode,
+  ) {
     const list = params.modules.filter((m) => m.kind === kind) as ModuleInstance<K>[];
     const count = list.length;
     return (count ? list : [undefined]).map((m, position) => {
@@ -433,34 +445,38 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         <Section
           key={id}
           deps={[m, position, count, title, views[id], ...deps]}
-          render={() => (
-            <Module
-              title={title}
-              enabled={m?.enabled ?? false}
-              modified={isInstanceModified(params, kind, id)}
-              onToggle={(on) => commit((p) => updateInstance(p, kind, id, { enabled: on }))}
-              onReset={() => commit((p) => resetInstance(p, kind, id))}
-              menu={
-                !SINGLE_INSTANCE_KINDS.includes(kind) && (
-                  <InstanceMenu
-                    title={title}
-                    position={position}
-                    count={count}
-                    disabled={!m}
-                    onAction={(action) => {
-                      if (action === 'new') commit((p) => addInstance(p, id));
-                      else if (action === 'rename') setRenaming(id);
-                      else if (action === 'up') commit((p) => moveInstance(p, id, -1));
-                      else if (action === 'down') commit((p) => moveInstance(p, id, 1));
-                      else commit((p) => removeInstance(p, id));
-                    }}
-                  />
-                )
-              }
-            >
-              {content(editor(kind, m, position))}
-            </Module>
-          )}
+          render={() => {
+            const e = editor(kind, m, position);
+            return (
+              <Module
+                title={title}
+                enabled={m?.enabled ?? false}
+                modified={isInstanceModified(params, kind, id)}
+                onToggle={(on) => commit((p) => updateInstance(p, kind, id, { enabled: on }))}
+                onReset={() => commit((p) => resetInstance(p, kind, id))}
+                menu={
+                  !SINGLE_INSTANCE_KINDS.includes(kind) && (
+                    <InstanceMenu
+                      title={title}
+                      position={position}
+                      count={count}
+                      disabled={!m}
+                      onAction={(action) => {
+                        if (action === 'new') commit((p) => addInstance(p, id));
+                        else if (action === 'rename') setRenaming(id);
+                        else if (action === 'up') commit((p) => moveInstance(p, id, -1));
+                        else if (action === 'down') commit((p) => moveInstance(p, id, 1));
+                        else commit((p) => removeInstance(p, id));
+                      }}
+                    />
+                  )
+                }
+                actions={actions?.(e)}
+              >
+                {content(e)}
+              </Module>
+            );
+          }}
         />
       );
     });
@@ -752,7 +768,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   const name = c.toLowerCase() as 'red' | 'green' | 'blue';
                   return (
                     <Fragment key={name}>
-                      <ParamSlider key={`primaries-${name}Hue`} label={`${c} hue`} min={-90} max={90} hardMin={-180} hardMax={180} step={0.5} track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)} format={degrees} {...bindMixer(e, 'primaries', `${name}Hue`)} />
+                      <ParamSlider key={`primaries-${name}Hue`} label={`${c} hue`} min={-90} max={90} hardMin={-180} hardMax={180} step={0.5} curve={HUE_CURVE} track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!, HUE_CURVE)} format={degrees} {...bindMixer(e, 'primaries', `${name}Hue`)} />
                       <ParamSlider key={`primaries-${name}Purity`} label={`${c} purity`} min={0} max={2} step={0.01} track={tracks.saturation(PRIMARY_CSS_HUES[i]!)} format={fmt.fixed2} {...bindMixer(e, 'primaries', `${name}Purity`)} />
                     </Fragment>
                   );
@@ -915,21 +931,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         <>
           <ParamSlider label="White relative exposure" min={1} max={10} hardMin={0.1} hardMax={16} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'whiteExposure')} />
           <ParamSlider label="Black relative exposure" min={-14} max={-3} hardMin={-16} hardMax={-0.1} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'blackExposure')} />
-          <HStack justify="space-between">
-            <Button
-              size="2xs"
-              variant="outline"
-              disabled={!e.enabled}
-              loading={autoTuning}
-              onClick={() => latest.current.onAutoTuneFilmic()}
-              title="Set white and black relative exposure from the image (like Ansel's auto-tune)"
-            >
-              <WandSparkles /> Auto-tune
-            </Button>
-            <Text textStyle="2xs" color="fg.subtle">
-              dynamic range {(e.values.whiteExposure - e.values.blackExposure).toFixed(2)} EV
-            </Text>
-          </HStack>
+          <Text textStyle="2xs" color="fg.subtle" textAlign="end">
+            dynamic range {(e.values.whiteExposure - e.values.blackExposure).toFixed(2)} EV
+          </Text>
           <ParamSlider
             label="Dynamic range scaling"
             min={-50}
@@ -945,6 +949,18 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           <ParamSlider label="Hue preservation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...e.bind('huePreservation')} />
           <ParamSlider label="AgX bleach" min={0} max={BLEACH_LEVELS.length - 1} step={1} detents format={(i) => BLEACH_LABELS[BLEACH_LEVELS[i]!]} {...bindBleach(e)} />
         </>
+      ), (e) => (
+        <IconButton
+          aria-label="Auto-tune filmic"
+          title="Auto-tune: set white and black relative exposure from the image (like Ansel's auto-tune)"
+          size="2xs"
+          variant="ghost"
+          disabled={!e.enabled}
+          loading={autoTuning}
+          onClick={() => latest.current.onAutoTuneFilmic()}
+        >
+          <WandSparkles />
+        </IconButton>
       ))}
 
       {sections('sharpen', [], (e) => (

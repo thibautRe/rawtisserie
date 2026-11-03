@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dragTo, fineStep, growExtent, modifierFactor, nudge, parseTyped, snapTo, typedText } from './slider.ts';
+import { dragTo, fineStep, growExtent, modifierFactor, nudge, parseTyped, sinhCurve, snapTo, typedText } from './slider.ts';
 
 const contrast = { min: 0.5, max: 3, step: 0.01, fine: 0.01 };
 const ev = { min: -4, max: 4, step: 0.05, fine: 0.01 };
@@ -119,4 +119,26 @@ test('typing uses display units', () => {
   assert.equal(typedText(1.5, 100), '150');
   assert.equal(typedText(0.07, 100), '7');
   assert.equal(typedText(0.1 + 0.2, 1), '0.3');
+});
+
+test('the sinh curve keeps 0 and the range ends, and inverts exactly', () => {
+  const c = sinhCurve(90);
+  for (const v of [-90, 0, 90]) assert.ok(Math.abs(c.toValue(v) - v) < 1e-9);
+  for (const v of [-180, -45, -0.5, 3, 60, 180]) assert.ok(Math.abs(c.toValue(c.toPosition(v)) - v) < 1e-9);
+  // Finer in the middle, coarser at the ends.
+  const slope = (p: number) => (c.toValue(p + 1e-4) - c.toValue(p)) / 1e-4;
+  assert.ok(Math.abs(slope(0) - 2 / Math.sinh(2)) < 1e-3);
+  assert.ok(slope(85) > 1.8);
+});
+
+test('drags and snapping on a curved track work in values', () => {
+  const c = sinhCurve(90);
+  const hue = { min: -90, max: 90, step: 0.5, fine: 0.05 };
+  // A position snaps to the value step.
+  assert.equal(snapTo(c.toPosition(10.2), [-90, 90], hue, c), 10);
+  // A relative drag moves along the track: 10 positions from 0 is less than 10 values.
+  const start = dragTo(null, 0, 1, 0, hue, [-90, 90], c);
+  const moved = dragTo(start.anchor, 10, 1, 0, hue, [-90, 90], c);
+  assert.equal(moved.value, Number(c.toValue(10).toFixed(1)));
+  assert.equal(moved.value, 5.6);
 });

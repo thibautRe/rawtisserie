@@ -30,6 +30,28 @@ export function fineStep(step: number, format: (v: number) => string, scale: num
   return Math.max(step / 10, Math.min(step, 10 ** -digits / scale));
 }
 
+/**
+ * How positions on a track map to values. Both directions are monotonic and inverse to
+ * each other; the slider library, the fill and the track gradient work in positions, the
+ * rest (steps, snapping, typing) in values.
+ */
+export interface SliderCurve {
+  toPosition(v: number): number;
+  toValue(p: number): number;
+}
+
+export const LINEAR: SliderCurve = { toPosition: (v) => v, toValue: (p) => p };
+
+/**
+ * Finer around 0 and coarser toward ±`range`, which stay in place (and so does 0):
+ * `v = range · sinh(k·p/range) / sinh(k)`. With k = 2, a pixel moves the value 0.55× as
+ * much as on a linear track in the middle, and 2.07× at ±range.
+ */
+export function sinhCurve(range: number, k = 2): SliderCurve {
+  const s = Math.sinh(k);
+  return { toValue: (p) => (range * Math.sinh((k * p) / range)) / s, toPosition: (v) => (range / k) * Math.asinh((v * s) / range) };
+}
+
 const stepSize = (factor: number, { step, fine }: SliderRange) => (factor === 1 ? step : factor < 1 ? fine : step * factor);
 
 export type Extent = readonly [number, number];
@@ -56,18 +78,22 @@ export function nudge(value: number, steps: number, factor: number, range: Slide
 }
 
 /** A plain drag: the pointer's position on the track, snapped to the step. */
-export const snapTo = (raw: number, [lo, hi]: Extent, { min, step }: SliderRange) => clamp(rounded(min + Math.round((raw - min) / step) * step, step), lo, hi);
+export const snapTo = (raw: number, [lo, hi]: Extent, { min, step }: SliderRange, curve = LINEAR) => {
+  const v = curve.toValue(raw);
+  return clamp(rounded(min + Math.round((v - min) / step) * step, step), lo, hi);
+};
 
 /** Set once a drag is relative to the pointer, because of a modifier. */
 export type DragAnchor = { position: number; value: number; factor: number } | null;
 
 /**
- * A relative drag, with `position` in the slider's units. A new factor starts from where
- * the value is, so that neither pressing nor releasing a modifier makes it jump.
+ * A relative drag, with `position` in the track's units (`curve` positions). A new factor
+ * starts from where the value is, so that neither pressing nor releasing a modifier makes
+ * it jump.
  */
-export function dragTo(anchor: DragAnchor, position: number, factor: number, value: number, range: SliderRange, [lo, hi]: Extent): { anchor: DragAnchor; value: number } {
+export function dragTo(anchor: DragAnchor, position: number, factor: number, value: number, range: SliderRange, [lo, hi]: Extent, curve = LINEAR): { anchor: DragAnchor; value: number } {
   if (anchor?.factor !== factor) return { anchor: { position, value, factor }, value };
-  const moved = anchor.value + (position - anchor.position) * factor;
+  const moved = curve.toValue(curve.toPosition(anchor.value) + (position - anchor.position) * factor);
   return { anchor, value: clamp(rounded(moved, stepSize(factor, range)), lo, hi) };
 }
 
@@ -92,8 +118,12 @@ export const tracks = {
   channel: (color: string) => ramp('#4a4a4a', '#b9b9b9', color),
   /** Colour primaries, for a CSS hue. A positive hue shift goes up the CSS hue circle. */
   hue: (hue: number) => ramp(...[-180, -120, -60, 0, 60, 120, 180].map((d) => `hsl(${hue + d} 70% 55%)`)),
-  /** Like `hue`, for a slider spanning ±90°. */
-  hueQuarter: (hue: number) => ramp(...[-90, -45, 0, 45, 90].map((d) => `hsl(${hue + d} 70% 55%)`)),
+  /** Like `hue`, for a slider spanning ±90°, with the colours where `curve` puts them. */
+  hueQuarter: (hue: number, curve = LINEAR) => {
+    const [lo, hi] = [curve.toPosition(-90), curve.toPosition(90)];
+    const at = (d: number) => ((curve.toPosition(d) - lo) / (hi - lo)) * 100;
+    return ramp(...Array.from({ length: 13 }, (_, i) => -90 + i * 15).map((d) => `hsl(${hue + d} 70% 55%) ${at(d).toFixed(2)}%`));
+  },
   saturation: (hue: number) => ramp('#8a8a8a', `hsl(${hue} 85% 50%)`),
   brightness: (hue: number) => ramp(`hsl(${hue} 70% 18%)`, `hsl(${hue} 70% 72%)`),
 };
