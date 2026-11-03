@@ -5,8 +5,9 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 (slider feel); the `RenderBackend` interface (M6 prerequisite); golden-image tests
 (before M3); 3.1 with
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
-3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); full-size
-colour drags on a worker pool (see Performance).
+3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
+presets and styles (auto-apply rules to do); full-size colour drags on a worker pool (see
+Performance).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -395,6 +396,25 @@ white balance and is the most common target for masked instances.
 - **Not allowed for:** lens, geometry, filmic, retouch.
 
 ### 4.2 Presets (M, after 1.1; better once M3 exists)
+
+> **Partly done: module presets and styles** (`packages/pipeline/src/presets.ts`,
+> `develop/presets.tsx`, `/api/presets`, migration `00005`). As built: presets and styles
+> are applied on the client and give a plain recipe, so the pipeline never sees them. A
+> module preset can hold part of a module: kinds with distinct parts declare
+> `PRESET_GROUPS` (colour calibration: CAT / mixer / output; filmic: white and black
+> exposure / look; primaries: colour edits / range and smoothing), the save dialog picks
+> some, and applying sets only those, whole at the top level, so there's no merging inside
+> a value. Kinds without groups are saved whole. No geometry presets (they belong to one
+> image). Built-in presets live in code (`BUILTIN_PRESETS`); there are no built-in styles.
+> Applying a preset switches the instance on; a preset or style is always its own history
+> entry ("Filmic: preset High contrast", "Style: B&W"). Styles store full instances
+> without ids. "Append" adds them as new instances, but single-instance kinds still
+> replace theirs. Appending a style that has a first exposure or colour calibration adds
+> its +0.7 EV push or white balance a second time. Saving under an existing
+> name replaces that preset (unique per user, kind and module kind). No `position`
+> column: lists are sorted by name. Payloads carry `version` and are normalised on read,
+> so a future recipe migration must cover them too. Without an account, only built-in
+> presets show and the styles menu is hidden.
 
 - **Module presets:** named parameters for one module kind ("Filmic — high contrast").
   Built-in plus per-user.

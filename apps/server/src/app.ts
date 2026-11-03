@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import { authPlugin, authRoutes } from './auth/routes.ts';
 import { config } from './config.ts';
 import { photoRoutes } from './photos/routes.ts';
+import { presetRoutes } from './presets/routes.ts';
 import { fileExists } from './photos/storage.ts';
 import { RenderQueue } from './render/queue.ts';
 
@@ -42,6 +43,7 @@ export async function buildApp() {
   await app.register(authPlugin);
   await app.register(authRoutes);
   await app.register(photoRoutes, { renderQueue });
+  await app.register(presetRoutes);
 
   app.get('/api/health', async () => ({ ok: true }));
 

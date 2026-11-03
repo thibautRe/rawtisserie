@@ -40,7 +40,10 @@
         "versions.flag": "'picked' | 'rejected'",
         "versions.color_label": "'red' | 'yellow' | 'green' | 'blue' | 'purple'",
         "versions.render_status": "'pending' | 'ready' | 'failed'",
-        "history_entries.recipe": "import('@rawtisserie/pipeline').EditParams"
+        "history_entries.recipe": "import('@rawtisserie/pipeline').EditParams",
+        "presets.kind": "'module' | 'style'",
+        "presets.module_kind": "import('@rawtisserie/pipeline').ModuleKind",
+        "presets.payload": "import('@rawtisserie/pipeline').ModulePresetPayload | import('@rawtisserie/pipeline').StylePayload"
       }
     }
   }

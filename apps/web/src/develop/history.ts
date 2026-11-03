@@ -77,16 +77,18 @@ export class HistoryStore {
 
   /**
    * Record `recipe` (by default the live one) as the next entry. Returns how many
-   * later entries this dropped (0 unless committing from an earlier point).
+   * later entries this dropped (0 unless committing from an earlier point). A `label`
+   * (e.g. "Style: B&W") replaces the description of the change, which then always gets
+   * its own entry.
    */
-  commit(recipe = this.#state.live, now = Date.now()): number {
+  commit(recipe = this.#state.live, now = Date.now(), label?: string): number {
     const { entries, end } = this.#state;
     const base = this.committed;
     if (same(recipe, base)) {
       this.#set({ live: base });
       return 0;
     }
-    const change = describeChange(base, recipe);
+    const change = label ? { label, moduleId: null, structural: true } : describeChange(base, recipe);
     const last = this.#last;
     const previous = entries[end - 1];
     const replace =

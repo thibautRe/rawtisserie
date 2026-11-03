@@ -6,6 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import type { ModuleKind, ModulePresetPayload, Preset, StylePayload } from '@rawtisserie/pipeline';
 import { useCallback } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
 import { ApiError, api } from './client.ts';
@@ -267,4 +268,43 @@ export function useSaveHistory(id: string) {
     },
     [id, qc],
   );
+}
+
+// ── Presets ─────────────────────────────────────────────────────────────────
+
+export type PresetInput =
+  | { type: 'module'; moduleKind: ModuleKind; name: string; payload: ModulePresetPayload }
+  | { type: 'style'; name: string; payload: StylePayload };
+
+const byName = (a: Preset, b: Preset) => a.name.localeCompare(b.name);
+
+/** The user's own presets and styles (none without an account). */
+export function useUserPresets() {
+  const { data: me } = useMe();
+  return useQuery({
+    queryKey: ['presets'],
+    queryFn: async () => (await api.get<{ presets: Preset[] }>('/api/presets')).presets,
+    enabled: !!me,
+    staleTime: Infinity,
+  });
+}
+
+/** Save a preset or style. One with the same name (and kind) is replaced. */
+export function useSavePreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PresetInput) => api.post<Preset>('/api/presets', input),
+    onSuccess: (preset) =>
+      qc.setQueryData<Preset[]>(['presets'], (list = []) =>
+        [...list.filter((p) => p.id !== preset.id), preset].sort(byName),
+      ),
+  });
+}
+
+export function useDeletePreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/presets/${id}`),
+    onSuccess: (_, id) => qc.setQueryData<Preset[]>(['presets'], (list = []) => list.filter((p) => p.id !== id)),
+  });
 }

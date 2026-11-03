@@ -3,6 +3,9 @@ import {
   type CropRect,
   type EditParams,
   type PhotoMetadata,
+  type Style,
+  type StyleMode,
+  applyStyle,
   defaultEditParams,
   findModule,
   illuminantFromXy,
@@ -18,6 +21,7 @@ import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
+import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
 import type { IlluminantDetection } from './protocol.ts';
 import type { RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
@@ -84,6 +88,7 @@ const Toolbar = memo(function Toolbar({
   filename,
   metadata,
   versions,
+  styles,
   canUndo,
   canRedo,
   comparing,
@@ -97,6 +102,8 @@ const Toolbar = memo(function Toolbar({
   filename: string;
   metadata: PhotoMetadata;
   versions: React.ReactNode;
+  /** The styles menu, with an account. */
+  styles: React.ReactNode;
   canUndo: boolean;
   canRedo: boolean;
   comparing: boolean;
@@ -136,6 +143,7 @@ const Toolbar = memo(function Toolbar({
       <IconButton aria-label="Redo (Ctrl+Shift+Z)" size="sm" variant="ghost" disabled={!canRedo} onClick={onRedo}>
         <Redo2 />
       </IconButton>
+      {styles}
       <Button
         size="sm"
         variant={comparing ? 'solid' : 'ghost'}
@@ -252,9 +260,9 @@ export function DeveloperView({
       onStatusChange: ({ status }) => status === 'unmounted' && (undoToast.current = false),
     });
   };
-  const commit = (p?: EditParams) => {
+  const commit = (p?: EditParams, label?: string) => {
     const snapshot = store.snapshot();
-    const dropped = store.commit(p);
+    const dropped = store.commit(p, undefined, label);
     if (store.snapshot().entries === snapshot.entries) return;
     dismissUndo();
     if (dropped) offerUndo(`Dropped ${dropped} undone history ${dropped === 1 ? 'entry' : 'entries'}`, snapshot);
@@ -367,6 +375,22 @@ export function DeveloperView({
     }
   };
 
+  // ── Presets and styles ──
+  const presets = usePresetLibrary();
+  const [creatingStyle, setCreatingStyle] = useState(false);
+  const onApplyStyle = useStableCallback((style: Style, mode: StyleMode) => {
+    setCropDraft(null);
+    commit(applyStyle(params, style.payload, mode), `Style: ${style.name}${mode === 'append' ? ' (appended)' : ''}`);
+  });
+  const onCreateStyle = useStableCallback(() => setCreatingStyle(true));
+  const stylesNode = useMemo(
+    () =>
+      presets.save && (
+        <StyleMenu styles={presets.styles} onApply={onApplyStyle} onCreate={onCreateStyle} onDelete={presets.remove} />
+      ),
+    [presets.styles, !!presets.save], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
   // The module panel is memoised: its handlers must keep their identity.
   const onLiveChange = useStableCallback((p: EditParams) => store.setLive(p));
   const onPanelCommit = useStableCallback(commit);
@@ -446,6 +470,7 @@ export function DeveloperView({
           filename={filename}
           metadata={metadata}
           versions={versionsNode}
+          styles={stylesNode}
           canUndo={canUndo}
           canRedo={canRedo}
           comparing={comparing}
@@ -521,6 +546,9 @@ export function DeveloperView({
           asShotIlluminant={metadata.asShotIlluminant ?? null}
           onChange={onLiveChange}
           onCommit={onPanelCommit}
+          presets={presets.modulePresets}
+          onSavePreset={presets.save}
+          onDeletePreset={presets.remove}
           cropping={!!cropDraft}
           aspect={aspect}
           onAspectChange={onAspectChange}
@@ -531,6 +559,14 @@ export function DeveloperView({
           detecting={detecting}
         />
       </Box>
+      {creatingStyle && presets.save && (
+        <CreateStyleDialog
+          recipe={params}
+          existing={presets.styles}
+          onClose={() => setCreatingStyle(false)}
+          onSave={presets.save}
+        />
+      )}
     </Flex>
   );
 }

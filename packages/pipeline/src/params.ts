@@ -480,7 +480,8 @@ function mixForRgbGains(gains: number[]): Mat3 {
   return mul(lmsFromRgb, mul(diag, rgbFromLms));
 }
 
-function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModuleParams[K] {
+/** The parameters of a `kind` instance from untrusted input: missing or invalid fields get their defaults. */
+export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModuleParams[K] {
   const params = merge(defaultModuleParams[kind], input as DeepPartial<ModuleParams[K]>);
   if (kind === 'filmic') {
     const f = params as ModuleParams['filmic'];

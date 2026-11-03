@@ -56,8 +56,12 @@ import {
   PRIMARIES,
   type Primary,
   type PrimaryName,
+  PRESET_GROUPS,
+  PRESET_KINDS,
+  type ModulePreset,
   SINGLE_INSTANCE_KINDS,
   addInstance,
+  applyModulePreset,
   defaultModuleParams,
   instanceDefaults,
   isInstanceModified,
@@ -87,7 +91,9 @@ import { Fragment, memo, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor } from './CurveEditor.tsx';
+import type { PresetInput } from '../api/hooks.ts';
 import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
+import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './presets.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import type { IlluminantDetection } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
@@ -100,7 +106,13 @@ interface Props {
   /** The file's as-shot light (`PhotoMetadata.asShotIlluminant`). */
   asShotIlluminant: Xy | null;
   onChange: (p: EditParams) => void;
-  onCommit: (p: EditParams) => void;
+  /** With a `label`, the change gets its own history entry under it. */
+  onCommit: (p: EditParams, label?: string) => void;
+  /** Module presets by kind (`PresetLibrary.modulePresets`). */
+  presets: PresetLibrary['modulePresets'];
+  /** Save a preset; null without an account. */
+  onSavePreset: PresetLibrary['save'];
+  onDeletePreset: (preset: ModulePreset) => void;
   cropping: boolean;
   aspect: string;
   onAspectChange: (aspect: string) => void;
@@ -341,22 +353,18 @@ type Calibration = ModuleParams['colorCalibration'];
 /** Colour calibration's tabs, as Ansel's: the light, the mix, and what is done with it. */
 const CALIBRATION_PAGES = ['illuminant', 'mixer', 'output'] as const;
 type CalibrationPage = (typeof CALIBRATION_PAGES)[number];
-const CALIBRATION_PAGE_LABELS: Record<CalibrationPage, string> = {
-  illuminant: 'CAT',
-  mixer: 'Mixer',
-  output: 'Output',
-};
+const CALIBRATION_PAGE_LABELS = Object.fromEntries(
+  CALIBRATION_PAGES.map((page) => [page, PRESET_GROUPS.colorCalibration![page]!.label]),
+) as Record<CalibrationPage, string>;
 const CALIBRATION_PAGE_TITLES: Record<CalibrationPage, string> = {
   illuminant: 'White balance: chromatic adaptation from the scene’s light',
   mixer: 'Channel mixer',
   output: 'Colorfulness, brightness and gray (monochrome), after the mix',
 };
 /** The parameters each tab edits, to mark the tabs that differ from the defaults. */
-const CALIBRATION_PAGE_KEYS: Record<CalibrationPage, (keyof Calibration)[]> = {
-  illuminant: ['illuminant', 'temperature', 'fluorescent', 'led', 'x', 'y', 'adaptation', 'gamut', 'clip'],
-  mixer: ['red', 'green', 'blue', 'normalizeRed', 'normalizeGreen', 'normalizeBlue'],
-  output: ['colorfulness', 'normalizeColorfulness', 'brightness', 'normalizeBrightness', 'grey', 'normalizeGrey'],
-};
+const CALIBRATION_PAGE_KEYS = Object.fromEntries(
+  CALIBRATION_PAGES.map((page) => [page, PRESET_GROUPS.colorCalibration![page]!.keys]),
+) as Record<CalibrationPage, readonly (keyof Calibration)[]>;
 
 /** The groups of the output tab, in the order they apply. */
 const OUTPUT_GROUPS = [
@@ -524,7 +532,29 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     (label: string | null) => renamed && commit((p) => updateInstance(p, renamed.kind, renamed.id, { label })),
   );
 
-  const commit = (change: (p: EditParams) => EditParams) => latest.current.onCommit(change(latest.current.params));
+  const commit = (change: (p: EditParams) => EditParams, label?: string) =>
+    latest.current.onCommit(change(latest.current.params), label);
+
+  // The instance (or the empty kind's future one) being saved as a preset.
+  const [savingPreset, setSavingPreset] = useState<{ kind: ModuleKind; id: string; title: string } | null>(null);
+  const onSavePresetClose = useStableCallback(() => setSavingPreset(null));
+  const onSavePreset = useStableCallback((input: PresetInput) => latest.current.onSavePreset?.(input));
+
+  // While a preset menu item is highlighted, its preset is shown as a live change on top
+  // of this recipe, which comes back when the menu closes.
+  const previewBase = useRef<EditParams | null>(null);
+  const preview = (change: ((p: EditParams) => EditParams) | null) => {
+    if (!change && !previewBase.current) return;
+    const base = (previewBase.current ??= latest.current.params);
+    latest.current.onChange(change ? change(base) : base);
+  };
+  /** Ends a preview and returns the recipe from before it. */
+  const endPreview = () => {
+    const base = previewBase.current;
+    previewBase.current = null;
+    if (base) latest.current.onChange(base);
+    return base ?? latest.current.params;
+  };
 
   /** Lets the content of one instance read and edit it. Without an instance, this is its future one. */
   function editor<K extends ModuleKind>(kind: K, m: ModuleInstance<K> | undefined, position: number) {
@@ -577,13 +607,15 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   ) {
     const list = params.modules.filter((m) => m.kind === kind) as ModuleInstance<K>[];
     const count = list.length;
+    const presets = props.presets[kind] ?? NO_PRESETS;
+    const canSave = !!props.onSavePreset;
     return (count ? list : [undefined]).map((m, position) => {
       const id = m?.id ?? kind;
       const title = m ? instanceTitle(params, m) : MODULE_TITLES[kind];
       return (
         <Section
           key={id}
-          deps={[m, position, count, title, views[id], ...deps]}
+          deps={[m, position, count, title, views[id], presets, canSave, ...deps]}
           render={() => {
             const e = editor(kind, m, position);
             return (
@@ -594,21 +626,51 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 onToggle={(on) => commit((p) => updateInstance(p, kind, id, { enabled: on }))}
                 onReset={() => commit((p) => resetInstance(p, kind, id))}
                 menu={
-                  !SINGLE_INSTANCE_KINDS.includes(kind) && (
-                    <InstanceMenu
-                      title={title}
-                      position={position}
-                      count={count}
-                      disabled={!m}
-                      onAction={(action) => {
-                        if (action === 'new') commit((p) => addInstance(p, id));
-                        else if (action === 'rename') setRenaming(id);
-                        else if (action === 'up') commit((p) => moveInstance(p, id, -1));
-                        else if (action === 'down') commit((p) => moveInstance(p, id, 1));
-                        else commit((p) => removeInstance(p, id));
-                      }}
-                    />
-                  )
+                  <>
+                    {PRESET_KINDS.includes(kind) && (
+                      <PresetMenu
+                        title={title}
+                        presets={presets}
+                        canSave={canSave}
+                        onApply={(preset) =>
+                          latest.current.onCommit(
+                            applyModulePreset(
+                              endPreview(),
+                              kind,
+                              id,
+                              preset.payload.params as Partial<ModuleParams[K]>,
+                            ),
+                            `${title}: preset ${preset.name}`,
+                          )
+                        }
+                        onPreview={(preset) =>
+                          preview(
+                            preset &&
+                              ((p) =>
+                                applyModulePreset(p, kind, id, preset.payload.params as Partial<ModuleParams[K]>)),
+                          )
+                        }
+                        onEndPreview={endPreview}
+                        onSave={() => setSavingPreset({ kind, id, title })}
+                        onDelete={(preset) => latest.current.onDeletePreset(preset)}
+                      />
+                    )}
+                    {!SINGLE_INSTANCE_KINDS.includes(kind) && (
+                      <InstanceMenu
+                        title={title}
+                        position={position}
+                        count={count}
+                        disabled={!m}
+                        onAction={(action) => {
+                          if (action === 'new') commit((p) => addInstance(p, id));
+                          else if (action === 'rename') setRenaming(id);
+                          else if (action === 'up') commit((p) => moveInstance(p, id, -1));
+                          else if (action === 'down') commit((p) => moveInstance(p, id, 1));
+                          else commit((p) => removeInstance(p, id));
+                        }}
+                      />
+                    )}
+                  </>
                 }
                 actions={actions?.(e)}
               >
@@ -1604,6 +1666,19 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         onClose={onRenameClose}
         onRename={onRename}
       />
+      {savingPreset && (
+        <SavePresetDialog
+          key={savingPreset.id}
+          kind={savingPreset.kind}
+          title={savingPreset.title}
+          params={
+            params.modules.find((m) => m.id === savingPreset.id)?.params ?? defaultModuleParams[savingPreset.kind]
+          }
+          existing={props.presets[savingPreset.kind] ?? NO_PRESETS}
+          onClose={onSavePresetClose}
+          onSave={onSavePreset}
+        />
+      )}
     </Box>
   );
 });

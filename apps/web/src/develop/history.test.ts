@@ -124,3 +124,14 @@ test('compress keeps a change of order', () => {
   );
   assert.deepEqual(out.at(-1)!.recipe, moved);
 });
+
+test('a labelled change (a preset, a style) gets its own entry', () => {
+  const { s } = store();
+  s.commit(exposure(defaultEditParams, 1), 0);
+  s.commit(exposure(s.committed, 1.2), 1, 'Exposure: preset Bright');
+  s.commit(exposure(s.committed, 1.4), 2);
+  assert.deepEqual(
+    s.getState().entries.map((e) => e.label),
+    ['Exposure: ev 1', 'Exposure: preset Bright', 'Exposure: ev 1.4'],
+  );
+});

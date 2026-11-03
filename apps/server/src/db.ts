@@ -17,4 +17,5 @@ export const {
   photos,
   versions,
   history_entries: historyEntries,
+  presets,
 } = tables<DatabaseSchema>({ databaseSchema });

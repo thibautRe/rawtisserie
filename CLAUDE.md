@@ -61,6 +61,11 @@ See README.md for the architecture overview and commands.
 - Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 6).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
+  Saved presets and styles (`presets.payload`) hold recipe fragments too: a migration
+  that renames or reinterprets parameters must also handle them (`normalizeModulePreset`,
+  `normalizeStyle` in `packages/pipeline/src/presets.ts`). A kind with distinct parts
+  (e.g. colour calibration's tabs) lists them in `PRESET_GROUPS`, which must cover all
+  its parameters.
 - A recipe (v3) is a list of module instances; pipeline order is fixed by `ModuleKind`
   (same order as `MODULE_KINDS` in TS), and a kind without an enabled instance is
   skipped. A new module kind goes into the `modules!` macro in `params.rs`, the TS
