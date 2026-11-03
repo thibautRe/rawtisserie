@@ -931,9 +931,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         <>
           <ParamSlider label="White relative exposure" min={1} max={10} hardMin={0.1} hardMax={16} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'whiteExposure')} />
           <ParamSlider label="Black relative exposure" min={-14} max={-3} hardMin={-16} hardMax={-0.1} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'blackExposure')} />
-          <Text textStyle="2xs" color="fg.subtle" textAlign="end">
-            dynamic range {(e.values.whiteExposure - e.values.blackExposure).toFixed(2)} EV
-          </Text>
           <ParamSlider
             label="Dynamic range scaling"
             min={-50}
@@ -952,7 +949,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       ), (e) => (
         <IconButton
           aria-label="Auto-tune filmic"
-          title="Auto-tune: set white and black relative exposure from the image (like Ansel's auto-tune)"
+          title="Auto-tune: set white and black relative exposure from the image"
           size="2xs"
           variant="ghost"
           disabled={!e.enabled}
