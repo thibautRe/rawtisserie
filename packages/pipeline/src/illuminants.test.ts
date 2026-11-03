@@ -14,7 +14,8 @@ import {
 } from './illuminants.ts';
 import { defaultModuleParams } from './params.ts';
 
-const near = (a: number, b: number, tol: number, what = '') => assert.ok(Math.abs(a - b) <= tol, `${what} ${a} vs ${b}`);
+const near = (a: number, b: number, tol: number, what = '') =>
+  assert.ok(Math.abs(a - b) <= tol, `${what} ${a} vs ${b}`);
 
 test('temperatures', () => {
   near(xyToCct(...WHITE_XY), 6504, 15, 'D65');
@@ -42,7 +43,12 @@ test('switching illuminants starts from the current light', () => {
   const daylight = switchIlluminant(p, 'daylight', asShot);
   assert.equal(daylight.adaptation, 'cat16');
   near(daylight.temperature!, xyToCct(...asShot), 1);
-  assert.deepEqual(switchIlluminant(p, 'custom', asShot), { illuminant: 'custom', adaptation: 'cat16', x: 0.4, y: 0.39 });
+  assert.deepEqual(switchIlluminant(p, 'custom', asShot), {
+    illuminant: 'custom',
+    adaptation: 'cat16',
+    x: 0.4,
+    y: 0.39,
+  });
   // Between temperature illuminants, the temperature stays.
   const warm = { ...p, illuminant: 'daylight' as const, temperature: 4500 };
   assert.deepEqual(switchIlluminant(warm, 'blackBody', asShot), { illuminant: 'blackBody' });

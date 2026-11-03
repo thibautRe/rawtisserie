@@ -64,11 +64,20 @@ export class LocalRenderBackend implements RenderBackend {
   }
 
   async exportJpeg(params: EditParams, maxSize: number, quality = 92): Promise<Blob> {
-    const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({ type: 'export', params, maxSize, quality });
+    const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({
+      type: 'export',
+      params,
+      maxSize,
+      quality,
+    });
     return new Blob([r.jpeg], { type: 'image/jpeg' });
   }
 
-  async autoTuneFilmic(params: EditParams, maxWidth: number, maxHeight: number): Promise<{ white: number; black: number } | null> {
+  async autoTuneFilmic(
+    params: EditParams,
+    maxWidth: number,
+    maxHeight: number,
+  ): Promise<{ white: number; black: number } | null> {
     const r = await this.call<Extract<WorkerResponse, { type: 'autoTunedFilmic' }>>({
       type: 'autoTuneFilmic',
       params,
@@ -78,8 +87,21 @@ export class LocalRenderBackend implements RenderBackend {
     return r.white === null || r.black === null ? null : { white: r.white, black: r.black };
   }
 
-  async detectIlluminant(params: EditParams, instance: string, method: IlluminantDetection, maxWidth: number, maxHeight: number): Promise<[number, number] | null> {
-    const r = await this.call<Extract<WorkerResponse, { type: 'detectedIlluminant' }>>({ type: 'detectIlluminant', params, instance, method, maxWidth, maxHeight });
+  async detectIlluminant(
+    params: EditParams,
+    instance: string,
+    method: IlluminantDetection,
+    maxWidth: number,
+    maxHeight: number,
+  ): Promise<[number, number] | null> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'detectedIlluminant' }>>({
+      type: 'detectIlluminant',
+      params,
+      instance,
+      method,
+      maxWidth,
+      maxHeight,
+    });
     return r.xy;
   }
 

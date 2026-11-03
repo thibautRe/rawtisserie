@@ -19,7 +19,8 @@ const decimals = (step: number) => Math.max(0, Math.ceil(-Math.log10(step) - 1e-
 const rounded = (v: number, step: number) => Number(v.toFixed(decimals(step)));
 
 /** Shift ×10, Ctrl/⌘ ×0.1. */
-export const modifierFactor = (e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => (e.shiftKey ? 10 : e.ctrlKey || e.metaKey ? 0.1 : 1);
+export const modifierFactor = (e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) =>
+  e.shiftKey ? 10 : e.ctrlKey || e.metaKey ? 0.1 : 1;
 
 /**
  * A tenth of the step, but no finer than the number shown (a change you can't see isn't
@@ -49,10 +50,14 @@ export const LINEAR: SliderCurve = { toPosition: (v) => v, toValue: (p) => p };
  */
 export function sinhCurve(range: number, k = 2): SliderCurve {
   const s = Math.sinh(k);
-  return { toValue: (p) => (range * Math.sinh((k * p) / range)) / s, toPosition: (v) => (range / k) * Math.asinh((v * s) / range) };
+  return {
+    toValue: (p) => (range * Math.sinh((k * p) / range)) / s,
+    toPosition: (v) => (range / k) * Math.asinh((v * s) / range),
+  };
 }
 
-const stepSize = (factor: number, { step, fine }: SliderRange) => (factor === 1 ? step : factor < 1 ? fine : step * factor);
+const stepSize = (factor: number, { step, fine }: SliderRange) =>
+  factor === 1 ? step : factor < 1 ? fine : step * factor;
 
 export type Extent = readonly [number, number];
 
@@ -91,7 +96,15 @@ export type DragAnchor = { position: number; value: number; factor: number } | n
  * starts from where the value is, so that neither pressing nor releasing a modifier makes
  * it jump.
  */
-export function dragTo(anchor: DragAnchor, position: number, factor: number, value: number, range: SliderRange, [lo, hi]: Extent, curve = LINEAR): { anchor: DragAnchor; value: number } {
+export function dragTo(
+  anchor: DragAnchor,
+  position: number,
+  factor: number,
+  value: number,
+  range: SliderRange,
+  [lo, hi]: Extent,
+  curve = LINEAR,
+): { anchor: DragAnchor; value: number } {
   if (anchor?.factor !== factor) return { anchor: { position, value, factor }, value };
   const moved = curve.toValue(curve.toPosition(anchor.value) + (position - anchor.position) * factor);
   return { anchor, value: clamp(rounded(moved, stepSize(factor, range)), lo, hi) };
@@ -122,7 +135,9 @@ export const tracks = {
   hueQuarter: (hue: number, curve = LINEAR) => {
     const [lo, hi] = [curve.toPosition(-90), curve.toPosition(90)];
     const at = (d: number) => ((curve.toPosition(d) - lo) / (hi - lo)) * 100;
-    return ramp(...Array.from({ length: 13 }, (_, i) => -90 + i * 15).map((d) => `hsl(${hue + d} 70% 55%) ${at(d).toFixed(2)}%`));
+    return ramp(
+      ...Array.from({ length: 13 }, (_, i) => -90 + i * 15).map((d) => `hsl(${hue + d} 70% 55%) ${at(d).toFixed(2)}%`),
+    );
   },
   saturation: (hue: number) => ramp('#8a8a8a', `hsl(${hue} 85% 50%)`),
   brightness: (hue: number) => ramp(`hsl(${hue} 70% 18%)`, `hsl(${hue} 70% 72%)`),

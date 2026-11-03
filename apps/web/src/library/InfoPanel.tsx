@@ -45,7 +45,13 @@ interface Actions {
 }
 
 /** Duplicate / Duplicate from original. */
-export function DuplicateMenu({ onDuplicate, children }: { onDuplicate: Actions['onDuplicate']; children: React.ReactNode }) {
+export function DuplicateMenu({
+  onDuplicate,
+  children,
+}: {
+  onDuplicate: Actions['onDuplicate'];
+  children: React.ReactNode;
+}) {
   return (
     <Menu.Root onSelect={(d) => onDuplicate(d.value === 'original')}>
       <Menu.Trigger asChild>{children}</Menu.Trigger>
@@ -71,8 +77,8 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
       <Stack {...PANEL_PROPS} justify="center" align="center" color="fg.muted" textAlign="center">
         <Text>Select a photo to see and edit its metadata.</Text>
         <Text textStyle="xs">
-          Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels ·{' '}
-          <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Del</b> delete · arrows to move
+          Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>D</b>{' '}
+          develop · <b>Ctrl+D</b> duplicate · <b>Del</b> delete · arrows to move
         </Text>
       </Stack>
     );
@@ -243,7 +249,13 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo
             <Copy />
           </IconButton>
         </DuplicateMenu>
-        <IconButton size="sm" variant="outline" colorPalette="red" aria-label="Delete" onClick={() => onDelete([photo])}>
+        <IconButton
+          size="sm"
+          variant="outline"
+          colorPalette="red"
+          aria-label="Delete"
+          onClick={() => onDelete([photo])}
+        >
           <Trash2 />
         </IconButton>
       </HStack>
@@ -290,8 +302,16 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo
         onCommit={(v) => save({ capturedAt: v ? new Date(v).toISOString() : null })}
       />
       <Grid templateColumns="1fr 1fr" gap="2">
-        <MetaField label="Camera make" value={photo.cameraMake ?? ''} onCommit={(v) => save({ cameraMake: textOrNull(v) })} />
-        <MetaField label="Camera model" value={photo.cameraModel ?? ''} onCommit={(v) => save({ cameraModel: textOrNull(v) })} />
+        <MetaField
+          label="Camera make"
+          value={photo.cameraMake ?? ''}
+          onCommit={(v) => save({ cameraMake: textOrNull(v) })}
+        />
+        <MetaField
+          label="Camera model"
+          value={photo.cameraModel ?? ''}
+          onCommit={(v) => save({ cameraModel: textOrNull(v) })}
+        />
       </Grid>
       <MetaField label="Lens" value={photo.lens ?? ''} onCommit={(v) => save({ lens: textOrNull(v) })} />
       <Grid templateColumns="1fr 1fr" gap="2">
@@ -301,8 +321,18 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo
           placeholder="1/250"
           onCommit={(v) => save({ exposureTime: parseExposure(v) })}
         />
-        <MetaField label="Aperture (ƒ)" type="number" value={photo.fNumber?.toString() ?? ''} onCommit={(v) => save({ fNumber: numOrNull(v) })} />
-        <MetaField label="ISO" type="number" value={photo.iso?.toString() ?? ''} onCommit={(v) => save({ iso: numOrNull(v) })} />
+        <MetaField
+          label="Aperture (ƒ)"
+          type="number"
+          value={photo.fNumber?.toString() ?? ''}
+          onCommit={(v) => save({ fNumber: numOrNull(v) })}
+        />
+        <MetaField
+          label="ISO"
+          type="number"
+          value={photo.iso?.toString() ?? ''}
+          onCommit={(v) => save({ iso: numOrNull(v) })}
+        />
         <MetaField
           label="Focal length (mm)"
           type="number"
@@ -317,8 +347,18 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo
         />
       </Grid>
       <Grid templateColumns="1fr 1fr" gap="2">
-        <MetaField label="Latitude" type="number" value={photo.gpsLatitude?.toString() ?? ''} onCommit={(v) => save({ gpsLatitude: numOrNull(v) })} />
-        <MetaField label="Longitude" type="number" value={photo.gpsLongitude?.toString() ?? ''} onCommit={(v) => save({ gpsLongitude: numOrNull(v) })} />
+        <MetaField
+          label="Latitude"
+          type="number"
+          value={photo.gpsLatitude?.toString() ?? ''}
+          onCommit={(v) => save({ gpsLatitude: numOrNull(v) })}
+        />
+        <MetaField
+          label="Longitude"
+          type="number"
+          value={photo.gpsLongitude?.toString() ?? ''}
+          onCommit={(v) => save({ gpsLongitude: numOrNull(v) })}
+        />
       </Grid>
 
       <Separator />

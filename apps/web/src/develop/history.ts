@@ -16,8 +16,7 @@ export interface HistoryEntry {
  * Entries are numbered from 1 and `end` is the new `history_end`.
  */
 export type HistoryOp =
-  | { type: 'splice'; from: number; entries: HistoryEntry[]; end: number }
-  | { type: 'goto'; end: number };
+  { type: 'splice'; from: number; entries: HistoryEntry[]; end: number } | { type: 'goto'; end: number };
 
 export interface HistorySnapshot {
   entries: readonly HistoryEntry[];
@@ -101,7 +100,9 @@ export class HistoryStore {
       ? { label: describeChange(last.before, recipe).label, recipe, createdAt: previous.createdAt }
       : { label: change.label, recipe, createdAt: new Date(now).toISOString() };
     const from = replace ? end : end + 1;
-    if (!replace) this.#last = change.moduleId && !change.structural ? { seq: from, moduleId: change.moduleId, before: base } : null;
+    if (!replace)
+      this.#last =
+        change.moduleId && !change.structural ? { seq: from, moduleId: change.moduleId, before: base } : null;
     this.#set(
       { entries: [...entries.slice(0, from - 1), entry], end: from, live: recipe },
       { type: 'splice', from, entries: [entry], end: from },
@@ -133,7 +134,11 @@ export class HistoryStore {
     while (common < entries.length && entries[common] === snapshot.entries[common]) common++;
     this.#last = null;
     this.#set(
-      { entries: snapshot.entries, end: snapshot.end, live: snapshot.entries[snapshot.end - 1]?.recipe ?? this.original },
+      {
+        entries: snapshot.entries,
+        end: snapshot.end,
+        live: snapshot.entries[snapshot.end - 1]?.recipe ?? this.original,
+      },
       { type: 'splice', from: common + 1, entries: snapshot.entries.slice(common), end: snapshot.end },
     );
   }
@@ -171,9 +176,7 @@ export function compressHistory(original: EditParams, entries: readonly HistoryE
     }
     prev = next;
   });
-  const changed = [...lastChange]
-    .filter(([id]) => !same(initial.get(id), target.get(id)))
-    .sort((a, b) => a[1] - b[1]);
+  const changed = [...lastChange].filter(([id]) => !same(initial.get(id), target.get(id))).sort((a, b) => a[1] - b[1]);
 
   const order = new Map(final.modules.map((m, i) => [m.id, i]));
   let modules: ModuleInstance[] = original.modules;
@@ -192,6 +195,7 @@ export function compressHistory(original: EditParams, entries: readonly HistoryE
   }
   if (out.length) out[out.length - 1]!.recipe = final;
   // Only the order of instances changed: no instance differs, but the result does.
-  else if (!same(original, final)) out.push({ label: describeChange(original, final).label, recipe: final, createdAt: entries.at(-1)!.createdAt });
+  else if (!same(original, final))
+    out.push({ label: describeChange(original, final).label, recipe: final, createdAt: entries.at(-1)!.createdAt });
   return out;
 }

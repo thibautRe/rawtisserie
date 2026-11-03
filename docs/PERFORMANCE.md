@@ -35,10 +35,10 @@ Unless stated otherwise, numbers come from 2026-11-03, on an Intel i9-10885H lap
   render at full size; spatial drags keep the draft.
 
   | browser, image fps | draft (before) | pool, 4 workers |
-  |---|---|---|
-  | exposure | 835×557 @ 18 | 1344×896 @ 22 |
-  | filmic contrast | 835×557 @ 14 | 1344×896 @ 17 |
-  | primaries hue | 835×557 @ 10 | 1344×896 @ 11 |
+  | ------------------ | -------------- | --------------- |
+  | exposure           | 835×557 @ 18   | 1344×896 @ 22   |
+  | filmic contrast    | 835×557 @ 14   | 1344×896 @ 17   |
+  | primaries hue      | 835×557 @ 10   | 1344×896 @ 11   |
 
 - **Frames as `ImageBitmap`**: the pipeline worker builds the bitmap and the canvas
   takes it with `transferFromImageBitmap`. The main thread doesn't copy pixels
@@ -56,10 +56,10 @@ saved ~3 %. The main thread's tasks simply ran slower: they shared physical core
 busy workers, and all-core load lowers the turbo clock. Measured:
 
 | workers | mainBusy, colour scenarios | exposure / filmic fps |
-|---|---|---|
-| 8 | 43–58 % | 30 / 24 |
-| 6 | 42–56 % | 28 / 22 |
-| 4 | 39–46 % | 22 / 17 |
+| ------- | -------------------------- | --------------------- |
+| 8       | 43–58 %                    | 30 / 24               |
+| 6       | 42–56 %                    | 28 / 22               |
+| 4       | 39–46 %                    | 22 / 17               |
 
 UI fps (60) and input latency were fine in every configuration: `mainBusy` is a proxy.
 The pool uses `min(4, hardwareConcurrency / 2 − 1)` workers, and none below 6

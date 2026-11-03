@@ -53,13 +53,23 @@ export function StatusBar({ save, ms, clipping, onClippingChange, assessment, on
       <Text textStyle="2xs" color="fg.subtle" fontVariantNumeric="tabular-nums" px="1" flex="1">
         {ms !== null && `${Math.round(ms)} ms`}
       </Text>
-      <ViewToggles clipping={clipping} onClippingChange={onClippingChange} assessment={assessment} onAssessmentChange={onAssessmentChange} />
+      <ViewToggles
+        clipping={clipping}
+        onClippingChange={onClippingChange}
+        assessment={assessment}
+        onAssessmentChange={onAssessmentChange}
+      />
     </HStack>
   );
 }
 
 /** Memoised: the bar around it updates with every frame. */
-const ViewToggles = memo(function ViewToggles({ clipping, onClippingChange, assessment, onAssessmentChange }: Omit<Props, 'save' | 'ms'>) {
+const ViewToggles = memo(function ViewToggles({
+  clipping,
+  onClippingChange,
+  assessment,
+  onAssessmentChange,
+}: Omit<Props, 'save' | 'ms'>) {
   return (
     <>
       <HStack gap="0">
@@ -97,7 +107,10 @@ const ViewToggles = memo(function ViewToggles({ clipping, onClippingChange, asse
                 <Menu.Separator />
                 <Menu.ItemGroup>
                   <Menu.ItemGroupLabel>Indicators</Menu.ItemGroupLabel>
-                  <Menu.RadioItemGroup value={clipping.zebra ? 'zebra' : 'solid'} onValueChange={(e) => onClippingChange({ zebra: e.value === 'zebra' })}>
+                  <Menu.RadioItemGroup
+                    value={clipping.zebra ? 'zebra' : 'solid'}
+                    onValueChange={(e) => onClippingChange({ zebra: e.value === 'zebra' })}
+                  >
                     <Menu.RadioItem value="solid">
                       Solid
                       <Menu.ItemIndicator />
@@ -166,7 +179,12 @@ function SaveIndicator({ status, retry }: { status: SaveStatus; retry: () => voi
   }
   const saving = status === 'saving' && slow;
   return (
-    <Center boxSize="5" color="fg.subtle" title={saving ? 'Saving…' : 'All changes saved'} aria-label={saving ? 'Saving' : 'Saved'}>
+    <Center
+      boxSize="5"
+      color="fg.subtle"
+      title={saving ? 'Saving…' : 'All changes saved'}
+      aria-label={saving ? 'Saving' : 'Saved'}
+    >
       {saving ? <Spinner size="xs" borderWidth="1.5px" /> : <CloudCheck size={14} />}
     </Center>
   );

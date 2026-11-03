@@ -20,7 +20,9 @@ const post = (msg: WorkerResponse, transfer: Transferable[] = []) => self.postMe
 
 /** RGBA8 pixels as an image the page can show without copying them on its thread. */
 const toBitmap = (data: Uint8Array, width: number, height: number) =>
-  createImageBitmap(new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer, data.byteOffset, data.length), width, height));
+  createImageBitmap(
+    new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer, data.byteOffset, data.length), width, height),
+  );
 
 // One message at a time: pool renders await their workers, and nothing else may touch
 // the developer meanwhile.
@@ -60,19 +62,51 @@ async function handle(msg: WorkerRequest) {
           developer.paintOverlays(params, msg.fullWidth, msg.fullHeight, data, width, height, JSON.stringify(overlays));
         }
         const bitmap = await toBitmap(data, width, height);
-        post({ type: 'rendered', id: msg.id, width, height, fullWidth: width, fullHeight: height, bitmap, ms: performance.now() - started }, [bitmap]);
+        post(
+          {
+            type: 'rendered',
+            id: msg.id,
+            width,
+            height,
+            fullWidth: width,
+            fullHeight: height,
+            bitmap,
+            ms: performance.now() - started,
+          },
+          [bitmap],
+        );
         return;
       }
       const img = developer.render(params, msg.maxWidth, msg.maxHeight, JSON.stringify(msg.overlays));
       const { width, height } = img;
       const data = img.takeData();
       img.free();
-      const [fullWidth, fullHeight] = isDraft ? developer.outputSize(params, msg.fullWidth, msg.fullHeight) : [width, height];
+      const [fullWidth, fullHeight] = isDraft
+        ? developer.outputSize(params, msg.fullWidth, msg.fullHeight)
+        : [width, height];
       const bitmap = await toBitmap(data, width, height);
-      post({ type: 'rendered', id: msg.id, width, height, fullWidth: fullWidth!, fullHeight: fullHeight!, bitmap, ms: performance.now() - started }, [bitmap]);
+      post(
+        {
+          type: 'rendered',
+          id: msg.id,
+          width,
+          height,
+          fullWidth: fullWidth!,
+          fullHeight: fullHeight!,
+          bitmap,
+          ms: performance.now() - started,
+        },
+        [bitmap],
+      );
     } else if (msg.type === 'autoTuneFilmic') {
       const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
-      post({ type: 'autoTunedFilmic', id: msg.id, white: white ?? null, black: black ?? null, ms: performance.now() - started });
+      post({
+        type: 'autoTunedFilmic',
+        id: msg.id,
+        white: white ?? null,
+        black: black ?? null,
+        ms: performance.now() - started,
+      });
     } else if (msg.type === 'detectIlluminant') {
       const [x, y] = developer.detectIlluminant(params, msg.instance, msg.maxWidth, msg.maxHeight, msg.method);
       const xy: [number, number] | null = x === undefined || y === undefined ? null : [x, y];

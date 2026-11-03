@@ -73,7 +73,15 @@ export class PointPool {
     this.fail(new Error('Point pool disposed'));
   }
 
-  private upload(dev: Developer, params: string, maxWidth: number, maxHeight: number, width: number, height: number, id: number) {
+  private upload(
+    dev: Developer,
+    params: string,
+    maxWidth: number,
+    maxHeight: number,
+    width: number,
+    height: number,
+    id: number,
+  ) {
     const rows = Math.ceil(height / this.workers.length);
     this.strips = [];
     for (let y0 = 0; y0 < height; y0 += rows) this.strips.push([y0, Math.min(height, y0 + rows)]);

@@ -123,7 +123,9 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
         name={photo.versionName}
         placeholder={`Version ${photo.versionIndex}`}
         onClose={() => setRenaming(false)}
-        onRename={(versionName) => update.mutate({ id: photo.id, patch: { versionName } }, { onError: failed('Could not rename') })}
+        onRename={(versionName) =>
+          update.mutate({ id: photo.id, patch: { versionName } }, { onError: failed('Could not rename') })
+        }
       />
       <DeleteVersionsDialog
         versions={deleting ? [photo] : null}

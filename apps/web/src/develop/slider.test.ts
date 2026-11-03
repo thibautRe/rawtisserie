@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dragTo, fineStep, growExtent, modifierFactor, nudge, parseTyped, sinhCurve, snapTo, typedText } from './slider.ts';
+import {
+  dragTo,
+  fineStep,
+  growExtent,
+  modifierFactor,
+  nudge,
+  parseTyped,
+  sinhCurve,
+  snapTo,
+  typedText,
+} from './slider.ts';
 
 const contrast = { min: 0.5, max: 3, step: 0.01, fine: 0.01 };
 const ev = { min: -4, max: 4, step: 0.05, fine: 0.01 };
@@ -19,11 +29,20 @@ test('the fine step stops at what the number shows', () => {
   // Already at the number's precision.
   assert.equal(fineStep(0.01, ev2, 1), 0.01);
   // More digits than a tenth of the step needs.
-  assert.equal(fineStep(0.1, (v) => v.toFixed(3), 1), 0.01);
+  assert.equal(
+    fineStep(0.1, (v) => v.toFixed(3), 1),
+    0.01,
+  );
   // Display units: "+0.0 %" of a fraction shows thousandths.
-  assert.equal(fineStep(0.005, (v) => `${(v * 100).toFixed(1)} %`, 100), 0.001);
+  assert.equal(
+    fineStep(0.005, (v) => `${(v * 100).toFixed(1)} %`, 100),
+    0.001,
+  );
   // A display coarser than the step keeps the step.
-  assert.equal(fineStep(0.01, (v) => `${((v * 180) / Math.PI).toFixed(0)}°`, 180 / Math.PI), 0.01);
+  assert.equal(
+    fineStep(0.01, (v) => `${((v * 180) / Math.PI).toFixed(0)}°`, 180 / Math.PI),
+    0.01,
+  );
 });
 
 test('nudge moves by clean steps', () => {

@@ -121,9 +121,25 @@ export function CurveEditor({ values, defaults, neutral, left, right, label, dis
           onBlur={() => setFocused(null)}
         >
           {values.map((_, i) => (
-            <line key={i} x1={px(i)} x2={px(i)} y1={PAD} y2={H - PAD} stroke="var(--chakra-colors-border)" strokeWidth="1" />
+            <line
+              key={i}
+              x1={px(i)}
+              x2={px(i)}
+              y1={PAD}
+              y2={H - PAD}
+              stroke="var(--chakra-colors-border)"
+              strokeWidth="1"
+            />
           ))}
-          <line x1={PAD} x2={W - PAD} y1={py(neutral)} y2={py(neutral)} stroke="var(--chakra-colors-fg-subtle)" strokeDasharray="3 3" strokeWidth="1" />
+          <line
+            x1={PAD}
+            x2={W - PAD}
+            y1={py(neutral)}
+            y2={py(neutral)}
+            stroke="var(--chakra-colors-fg-subtle)"
+            strokeDasharray="3 3"
+            strokeWidth="1"
+          />
           <path d={path} fill="none" stroke="var(--chakra-colors-orange-solid)" strokeWidth="1.5" />
           {values.map((v, i) => (
             <circle

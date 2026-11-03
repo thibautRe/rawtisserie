@@ -16,7 +16,9 @@ import { type Browser, type Page, chromium } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const raw = process.env.PERF_RAW ?? fileURLToPath(new URL('../../../crates/pipeline/tests/golden/raws/sony-ilce-7m3.arw', import.meta.url));
+const raw =
+  process.env.PERF_RAW ??
+  fileURLToPath(new URL('../../../crates/pipeline/tests/golden/raws/sony-ilce-7m3.arw', import.meta.url));
 const PORT = 4181;
 
 let server: PreviewServer;
@@ -42,7 +44,8 @@ after(async () => {
   await server?.close();
 });
 
-const slider = (label: RegExp) => page.locator('[data-scope="slider"][data-part="root"]').filter({ hasText: label }).first();
+const slider = (label: RegExp) =>
+  page.locator('[data-scope="slider"][data-part="root"]').filter({ hasText: label }).first();
 const thumb = (label: RegExp) => slider(label).locator('[data-part="thumb"]');
 
 /** Lets the slider's microtasks and React settle. */
@@ -118,7 +121,9 @@ test('a Ctrl drag on the track starts without a jump, and commits', async () => 
 test('a Shift drag on the track stops at its end, and commits', async () => {
   const amount = /^Amount/;
   await page.keyboard.down('Shift');
-  await (await press(amount, 0.1, 0.9))();
+  await (
+    await press(amount, 0.1, 0.9)
+  )();
   await page.keyboard.up('Shift');
   assert.equal(await value(amount), 2, 'the end of the track, under the hard limit of 5');
   assert.equal(await trackMax(amount), 2);
@@ -127,7 +132,9 @@ test('a Shift drag on the track stops at its end, and commits', async () => {
 
 test('a plain drag commits', async () => {
   const exposure = /^Exposure/;
-  await (await press(exposure, 0.5, 0.75))();
+  await (
+    await press(exposure, 0.5, 0.75)
+  )();
   const end = await value(exposure);
   assert.ok(end > 1.8 && end < 2.2, `${end}: three quarters of ±4`);
   await assertCommitted(exposure);
@@ -135,7 +142,9 @@ test('a plain drag commits', async () => {
 
 test('a click on a detent commits', async () => {
   const bleach = /^AgX bleach/;
-  await (await press(bleach, 0.99))();
+  await (
+    await press(bleach, 0.99)
+  )();
   await settle();
   assert.match((await slider(bleach).textContent())!, /Extra$/);
   await assertCommitted(bleach);
@@ -192,8 +201,17 @@ test('sliders stay bound to their instance through adding, moving and deleting',
     await page.getByRole('menuitem', { name: item }).click();
     await settle();
   };
-  const module = (title: string) => page.locator('div').filter({ has: page.getByRole('heading', { name: title, exact: true }) }).filter({ has: page.locator('[data-scope="slider"]') }).last();
-  const radius = (title: string) => module(title).locator('[data-scope="slider"][data-part="root"]').filter({ hasText: /^Radius/ }).locator('button');
+  const module = (title: string) =>
+    page
+      .locator('div')
+      .filter({ has: page.getByRole('heading', { name: title, exact: true }) })
+      .filter({ has: page.locator('[data-scope="slider"]') })
+      .last();
+  const radius = (title: string) =>
+    module(title)
+      .locator('[data-scope="slider"][data-part="root"]')
+      .filter({ hasText: /^Radius/ })
+      .locator('button');
   const set = async (title: string, v: string) => {
     await radius(title).click();
     await page.keyboard.type(`${v}\n`);
@@ -234,7 +252,12 @@ test('sliders stay bound to their instance through adding, moving and deleting',
 });
 
 test('instances of a module do not affect each other', async () => {
-  const section = (title: string) => page.locator('div').filter({ has: page.getByRole('heading', { name: title, exact: true }) }).filter({ has: page.locator('[data-scope="slider"]') }).last();
+  const section = (title: string) =>
+    page
+      .locator('div')
+      .filter({ has: page.getByRole('heading', { name: title, exact: true }) })
+      .filter({ has: page.locator('[data-scope="slider"]') })
+      .last();
   const addSecond = async (kind: string) => {
     const toggle = section(kind).getByRole('checkbox', { name: `Enable ${kind}` });
     if (!(await toggle.isChecked())) await section(kind).locator('[data-scope="switch"][data-part="control"]').click();
@@ -246,7 +269,15 @@ test('instances of a module do not affect each other', async () => {
   const sliders = (title: string) => section(title).locator('[data-scope="slider"][data-part="root"]');
 
   // Every slider of the second instance moves it and leaves the first alone.
-  for (const kind of ['Exposure', 'Color calibration', 'Color', 'Shadows & highlights', 'Sharpen', 'Contrast equalizer', 'Color primaries']) {
+  for (const kind of [
+    'Exposure',
+    'Color calibration',
+    'Color',
+    'Shadows & highlights',
+    'Sharpen',
+    'Contrast equalizer',
+    'Color primaries',
+  ]) {
     await addSecond(kind);
     const count = await sliders(`${kind} 2`).count();
     assert.ok(count > 0, kind);
@@ -269,10 +300,22 @@ test('instances of a module do not affect each other', async () => {
   await settle();
   assert.equal(await swatch('Color primaries 1', 'red').getAttribute('aria-checked'), 'true');
   assert.equal(await swatch('Color primaries 2', 'yellow').getAttribute('aria-checked'), 'true');
-  await section('Color primaries 2').getByRole('button', { name: /Gamut and smoothing/ }).click();
+  await section('Color primaries 2')
+    .getByRole('button', { name: /Gamut and smoothing/ })
+    .click();
   await settle();
-  assert.equal(await sliders('Color primaries 1').filter({ hasText: /^White level/ }).count(), 0);
-  assert.equal(await sliders('Color primaries 2').filter({ hasText: /^White level/ }).count(), 1);
+  assert.equal(
+    await sliders('Color primaries 1')
+      .filter({ hasText: /^White level/ })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await sliders('Color primaries 2')
+      .filter({ hasText: /^White level/ })
+      .count(),
+    1,
+  );
   const curve = (title: string) => section(title).getByRole('combobox', { name: 'Curve' });
   await curve('Contrast equalizer 2').selectOption('edges');
   await settle();
@@ -282,14 +325,27 @@ test('instances of a module do not affect each other', async () => {
   await calibrationTab('Color calibration 2', 'Output').click();
   await settle();
   assert.equal(await calibrationTab('Color calibration 1', 'CAT').getAttribute('aria-selected'), 'true');
-  assert.equal(await sliders('Color calibration 2').filter({ hasText: /^Green/ }).count(), 3);
-  assert.equal(await sliders('Color calibration 1').filter({ hasText: /^Green/ }).count(), 0);
+  assert.equal(
+    await sliders('Color calibration 2')
+      .filter({ hasText: /^Green/ })
+      .count(),
+    3,
+  );
+  assert.equal(
+    await sliders('Color calibration 1')
+      .filter({ hasText: /^Green/ })
+      .count(),
+    0,
+  );
 
   // A curve edit stays in its instance too (both showing the same curve).
   await curve('Contrast equalizer 2').selectOption('luma');
   await settle();
   const graph = (title: string) => section(title).getByRole('group', { name: 'Luminance contrast' });
-  const [first, second] = [await graph('Contrast equalizer 1').innerHTML(), await graph('Contrast equalizer 2').innerHTML()];
+  const [first, second] = [
+    await graph('Contrast equalizer 1').innerHTML(),
+    await graph('Contrast equalizer 2').innerHTML(),
+  ];
   await graph('Contrast equalizer 2').scrollIntoViewIfNeeded();
   const box = (await graph('Contrast equalizer 2').boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.2);

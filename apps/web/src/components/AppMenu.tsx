@@ -40,7 +40,10 @@ export function AppMenu() {
                     {user.email}
                   </Text>
                 </Box>
-                <Menu.Item value="logout" onClick={() => logout.mutate(undefined, { onSuccess: () => navigate('/login') })}>
+                <Menu.Item
+                  value="logout"
+                  onClick={() => logout.mutate(undefined, { onSuccess: () => navigate('/login') })}
+                >
                   <LogOut /> Log out
                 </Menu.Item>
               </>

@@ -137,7 +137,14 @@ export const HistoryPanel = memo(function HistoryPanel({ original, entries, end,
             />
           ))
           .reverse()}
-        <Row seq={0} label="Original" icon={ImageIcon} selected={end === 0} undone={false} onClick={() => onSelect(0)} />
+        <Row
+          seq={0}
+          label="Original"
+          icon={ImageIcon}
+          selected={end === 0}
+          undone={false}
+          onClick={() => onSelect(0)}
+        />
       </Stack>
     </Stack>
   );

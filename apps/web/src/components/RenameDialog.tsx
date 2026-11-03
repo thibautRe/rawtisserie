@@ -39,7 +39,13 @@ export const RenameDialog = memo(function RenameDialog({
                 <Dialog.Title>{title}</Dialog.Title>
               </Dialog.Header>
               <Dialog.Body>
-                <Input name="name" defaultValue={name ?? ''} placeholder={placeholder} maxLength={maxLength} autoFocus />
+                <Input
+                  name="name"
+                  defaultValue={name ?? ''}
+                  placeholder={placeholder}
+                  maxLength={maxLength}
+                  autoFocus
+                />
                 <Text textStyle="xs" color="fg.muted" mt="2">
                   {hint}
                 </Text>

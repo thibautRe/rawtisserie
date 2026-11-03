@@ -18,6 +18,9 @@ export function curveAt(nodes: readonly number[], x: number): number {
   const t2 = t * t;
   const t3 = t2 * t;
   const y =
-    (2 * t3 - 3 * t2 + 1) * nodes[i]! + (t3 - 2 * t2 + t) * h * tangent(i) + (-2 * t3 + 3 * t2) * nodes[i + 1]! + (t3 - t2) * h * tangent(i + 1);
+    (2 * t3 - 3 * t2 + 1) * nodes[i]! +
+    (t3 - 2 * t2 + t) * h * tangent(i) +
+    (-2 * t3 + 3 * t2) * nodes[i + 1]! +
+    (t3 - t2) * h * tangent(i + 1);
   return clamp(y, 0, 1);
 }

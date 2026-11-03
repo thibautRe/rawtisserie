@@ -1,5 +1,14 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
-import { type CropRect, type EditParams, type PhotoMetadata, defaultEditParams, findModule, illuminantFromXy, updateInstance, updateModule } from '@rawtisserie/pipeline';
+import {
+  type CropRect,
+  type EditParams,
+  type PhotoMetadata,
+  defaultEditParams,
+  findModule,
+  illuminantFromXy,
+  updateInstance,
+  updateModule,
+} from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
@@ -159,7 +168,18 @@ const Toolbar = memo(function Toolbar({
   );
 });
 
-export function DeveloperView({ backend, filename, metadata, original, initialHistory, save, revision = 0, actions, versions, onBack }: Props) {
+export function DeveloperView({
+  backend,
+  filename,
+  metadata,
+  original,
+  initialHistory,
+  save,
+  revision = 0,
+  actions,
+  versions,
+  onBack,
+}: Props) {
   const [store] = useState(() => new HistoryStore(original, initialHistory));
   const history = useSyncExternalStore(store.subscribe, store.getState);
   const params = history.live;
@@ -287,11 +307,18 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
     try {
       const blob = await backend.exportJpeg(params, maxSize);
       const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), { href: url, download: `${filename.replace(/\.[^.]+$/, '')}.jpg` });
+      const a = Object.assign(document.createElement('a'), {
+        href: url,
+        download: `${filename.replace(/\.[^.]+$/, '')}.jpg`,
+      });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (err) {
-      toaster.create({ type: 'error', title: 'Export failed', description: err instanceof Error ? err.message : undefined });
+      toaster.create({
+        type: 'error',
+        title: 'Export failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setExporting(false);
     }
@@ -306,9 +333,17 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
       const result = await backend.autoTuneFilmic(params, job.width, job.height);
       if (!result) throw new Error('Nothing to measure');
       const round = (v: number) => Math.round(v * 100) / 100;
-      commit(updateModule(params, 'filmic', { params: { whiteExposure: round(result.white), blackExposure: round(result.black) } }));
+      commit(
+        updateModule(params, 'filmic', {
+          params: { whiteExposure: round(result.white), blackExposure: round(result.black) },
+        }),
+      );
     } catch (err) {
-      toaster.create({ type: 'error', title: 'Auto-tune failed', description: err instanceof Error ? err.message : undefined });
+      toaster.create({
+        type: 'error',
+        title: 'Auto-tune failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setAutoTuning(false);
     }
@@ -322,7 +357,11 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
       if (!xy) throw new Error('Nothing to measure');
       commit(updateInstance(params, 'colorCalibration', id, { enabled: true, params: illuminantFromXy(xy) }));
     } catch (err) {
-      toaster.create({ type: 'error', title: 'Detection failed', description: err instanceof Error ? err.message : undefined });
+      toaster.create({
+        type: 'error',
+        title: 'Detection failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setDetecting(null);
     }
@@ -334,14 +373,17 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   const onAspectChange = useStableCallback(changeAspect);
   const onStartCrop = useStableCallback(startCrop);
   const onAutoTuneFilmic = useStableCallback(() => void autoTuneFilmic());
-  const onDetectIlluminant = useStableCallback((id: string, method: IlluminantDetection) => void detectIlluminant(id, method));
+  const onDetectIlluminant = useStableCallback(
+    (id: string, method: IlluminantDetection) => void detectIlluminant(id, method),
+  );
 
   // Keyboard shortcuts.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       // An open menu or dialog closes on Esc (in the capture phase): that's all this press does.
       if (e.key === 'Escape' && e.defaultPrevented) return;
-      const field = e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ? e.target : null;
+      const field =
+        e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ? e.target : null;
       // Esc leaves a field first (it may also be closing a native dropdown), except a
       // module's switch: it keeps the focus after a click, with nothing to show for it.
       const toggle = field instanceof HTMLInputElement && field.type === 'checkbox';
@@ -383,12 +425,21 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
   const { entries, end } = history;
   const versionsNode = useMemo(() => versions?.(autosave.whenSaved), [versions, autosave.whenSaved]);
   const actionsNode = useMemo(() => actions?.({ entries, end }), [actions, entries, end]);
-  const saveState = useMemo(() => save && { status: autosave.status, retry: autosave.flush }, [!!save, autosave.status, autosave.flush]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveState = useMemo(
+    () => save && { status: autosave.status, retry: autosave.flush },
+    [!!save, autosave.status, autosave.flush],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Flex h="full" minH="0">
       <Box as="aside" w="56" flexShrink={0} borderRightWidth="1px" bg="bg.panel" minH="0">
-        <HistoryPanel original={original} entries={history.entries} end={history.end} onSelect={onSelectEntry} onCompress={onCompress} />
+        <HistoryPanel
+          original={original}
+          entries={history.entries}
+          end={history.end}
+          onSelect={onSelectEntry}
+          onCompress={onCompress}
+        />
       </Box>
       <Flex direction="column" flex="1" minW="0">
         <Toolbar
@@ -420,7 +471,12 @@ export function DeveloperView({ backend, filename, metadata, original, initialHi
                 style={{ width: frame.fullWidth / dpr, height: frame.fullHeight / dpr, display: 'block' }}
               />
               {cropDraft && !comparing && (
-                <CropOverlay rect={cropDraft} aspect={aspectRatio(aspect)} frameAspect={frameAspect} onChange={setCropDraft} />
+                <CropOverlay
+                  rect={cropDraft}
+                  aspect={aspectRatio(aspect)}
+                  frameAspect={frameAspect}
+                  onChange={setCropDraft}
+                />
               )}
             </Box>
           ) : (

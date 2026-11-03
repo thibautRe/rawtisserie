@@ -28,7 +28,13 @@ import {
 } from './storage.ts';
 
 const Id = z.object({ id: z.uuid() });
-const nullableText = (max: number) => z.string().trim().max(max).nullable().transform((s) => s || null);
+const nullableText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .transform((s) => s || null);
 const COLOR_LABELS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
 
 /**
@@ -214,7 +220,8 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
     const versionColumns = toColumns<Versions>(patch, VERSION_FIELDS);
     const photoColumns = toColumns<Photos>(patch, PHOTO_FIELDS);
     await db.tx(async (tx) => {
-      if (Object.keys(versionColumns).length) await versions(tx).update({ id }, { ...versionColumns, updated_at: new Date() });
+      if (Object.keys(versionColumns).length)
+        await versions(tx).update({ id }, { ...versionColumns, updated_at: new Date() });
       if (Object.keys(photoColumns).length) {
         await photos(tx).update({ id: row.photo_id }, { ...photoColumns, updated_at: new Date() });
       }
@@ -230,8 +237,10 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
     for (const [key, value] of Object.entries(toColumns<Versions>(simple, VERSION_FIELDS))) {
       sets.push(sql`${sql.ident(key)} = ${value}`);
     }
-    if (addTags?.length) sets.push(sql`tags = ARRAY(SELECT DISTINCT t FROM unnest(tags || ${addTags}::text[]) t ORDER BY 1)`);
-    if (removeTags?.length) sets.push(sql`tags = ARRAY(SELECT unnest(tags) EXCEPT SELECT unnest(${removeTags}::text[]))`);
+    if (addTags?.length)
+      sets.push(sql`tags = ARRAY(SELECT DISTINCT t FROM unnest(tags || ${addTags}::text[]) t ORDER BY 1)`);
+    if (removeTags?.length)
+      sets.push(sql`tags = ARRAY(SELECT unnest(tags) EXCEPT SELECT unnest(${removeTags}::text[]))`);
     const updated = await db.query(sql`
       UPDATE versions SET ${sql.join(sets, sql`, `)}
       WHERE id = ANY(${ids}) AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
@@ -256,7 +265,10 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
         RETURNING storage_key`)) as Pick<Photos, 'storage_key'>[];
       return { deleted, orphans };
     });
-    await Promise.all([...deleted.map((d) => deleteRenders(d.id)), ...orphans.map((p) => deleteOriginal(p.storage_key))]);
+    await Promise.all([
+      ...deleted.map((d) => deleteRenders(d.id)),
+      ...orphans.map((p) => deleteOriginal(p.storage_key)),
+    ]);
     return { deleted: deleted.map((d) => d.id) };
   });
 
@@ -289,7 +301,10 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
         history_end: fromOriginal ? 0 : source.history_end,
         edited_at: fromOriginal ? null : source.edited_at,
       });
-      await setPositions(tx, siblings.toSpliced(index + 1, 0, copy!).map((v) => v.id));
+      await setPositions(
+        tx,
+        siblings.toSpliced(index + 1, 0, copy!).map((v) => v.id),
+      );
       if (!fromOriginal) {
         await tx.query(sql`
           INSERT INTO history_entries (version_id, seq, created_at, label, recipe)
@@ -310,7 +325,10 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
     await db.tx(async (tx) => {
       const ids = (
         (await tx.query(sql`
-          SELECT id FROM versions WHERE photo_id = ${photo_id} ORDER BY position, id FOR UPDATE`)) as Pick<Versions, 'id'>[]
+          SELECT id FROM versions WHERE photo_id = ${photo_id} ORDER BY position, id FOR UPDATE`)) as Pick<
+          Versions,
+          'id'
+        >[]
       ).map((v) => v.id);
       const others = ids.filter((v) => v !== id);
       await setPositions(tx, others.toSpliced(Math.min(position, others.length), 0, id));
@@ -332,7 +350,10 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
         SELECT v.history_end, v.revision,
           (SELECT coalesce(max(seq), 0)::int FROM history_entries h WHERE h.version_id = v.id) AS count
         FROM ${VERSIONS_FROM}
-        WHERE v.id = ${id} AND p.owner_id = ${user.id} FOR UPDATE OF v`)) as (Pick<Versions, 'history_end' | 'revision'> & {
+        WHERE v.id = ${id} AND p.owner_id = ${user.id} FOR UPDATE OF v`)) as (Pick<
+        Versions,
+        'history_end' | 'revision'
+      > & {
         count: number;
       })[];
       if (!current) throw notFound('Photo not found');
@@ -385,9 +406,7 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
   });
 
   app.get('/api/versions/:id/render/:size', async (request, reply) => {
-    const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(
-      request.params,
-    );
+    const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(request.params);
     const version = await findVersion(currentUser(request).id, id);
     const file = renderPath(version.id, size);
     if (!(await fileExists(file))) throw notFound('Not rendered yet');

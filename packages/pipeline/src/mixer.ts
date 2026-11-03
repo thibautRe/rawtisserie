@@ -49,8 +49,25 @@ export interface MixerWhitePreserving {
   blueSaturation: number;
 }
 
-export const IDENTITY_PRIMARIES: MixerPrimaries = { whiteHue: 0, whitePurity: 0, redHue: 0, redPurity: 1, greenHue: 0, greenPurity: 1, blueHue: 0, bluePurity: 1, gain: 1 };
-export const IDENTITY_WHITE_PRESERVING: MixerWhitePreserving = { redRotation: 0, redSaturation: 0, greenRotation: 0, greenSaturation: 0, blueRotation: 0, blueSaturation: 0 };
+export const IDENTITY_PRIMARIES: MixerPrimaries = {
+  whiteHue: 0,
+  whitePurity: 0,
+  redHue: 0,
+  redPurity: 1,
+  greenHue: 0,
+  greenPurity: 1,
+  blueHue: 0,
+  bluePurity: 1,
+  gain: 1,
+};
+export const IDENTITY_WHITE_PRESERVING: MixerWhitePreserving = {
+  redRotation: 0,
+  redSaturation: 0,
+  greenRotation: 0,
+  greenSaturation: 0,
+  blueRotation: 0,
+  blueSaturation: 0,
+};
 
 const EPS = 5e-5;
 /** Smallest primaries triangle, relative to the basis one, the white-preserving mode accepts. */
@@ -63,7 +80,8 @@ const XYZ_TO_BRADFORD: Mat3 = [
   [0.0389, -0.0685, 1.0296],
 ];
 
-const mulVec = (m: number[][], v: number[]): Vec3 => [0, 1, 2].map((i) => m[i]![0]! * v[0]! + m[i]![1]! * v[1]! + m[i]![2]! * v[2]!) as Vec3;
+const mulVec = (m: number[][], v: number[]): Vec3 =>
+  [0, 1, 2].map((i) => m[i]![0]! * v[0]! + m[i]![1]! * v[1]! + m[i]![2]! * v[2]!) as Vec3;
 const sum3 = (v: number[]) => v[0]! + v[1]! + v[2]!;
 
 /** The working space's white in the space the mixer acts in. As shot always uses CAT16. */
@@ -92,7 +110,9 @@ export function mixerMatrix(p: Calibration): Mat3 {
 }
 
 /** The recipe fields for a mixer matrix (rounded, rows not normalised). */
-export function mixerRows(m: Mat3): Pick<Calibration, 'red' | 'green' | 'blue' | 'normalizeRed' | 'normalizeGreen' | 'normalizeBlue'> {
+export function mixerRows(
+  m: Mat3,
+): Pick<Calibration, 'red' | 'green' | 'blue' | 'normalizeRed' | 'normalizeGreen' | 'normalizeBlue'> {
   const round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
   const [red, green, blue] = m.map((r) => r.map(round));
   return { red: red!, green: green!, blue: blue!, normalizeRed: false, normalizeGreen: false, normalizeBlue: false };
@@ -116,14 +136,20 @@ const S6B = 0.8164965809277261;
 const project = (d: number[]): [number, number] => [S2 * (d[0]! - d[1]!), S6 * (d[0]! + d[1]!) - S6B * d[2]!];
 const unproject = ([u, v]: [number, number]): Vec3 => [S2 * u + S6 * v, -S2 * u + S6 * v, -S6B * v];
 const affine = (v: number[]): Vec3 | null => (Math.abs(sum3(v)) < EPS ? null : (v.map((c) => c / sum3(v)) as Vec3));
-const rotate = ([x, y]: [number, number], a: number): [number, number] => [Math.cos(a) * x - Math.sin(a) * y, Math.sin(a) * x + Math.cos(a) * y];
+const rotate = ([x, y]: [number, number], a: number): [number, number] => [
+  Math.cos(a) * x - Math.sin(a) * y,
+  Math.sin(a) * x + Math.cos(a) * y,
+];
 const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 
 /** The basis white (normalised) and the basis primaries around it, in the affine plane. */
 function simplex(white: Vec3) {
   const w = affine(white);
   if (!w) return null;
-  const primaries = [0, 1, 2].map((i) => project([0, 1, 2].map((c) => (c === i ? 1 : 0) - w[c]!))) as [number, number][];
+  const primaries = [0, 1, 2].map((i) => project([0, 1, 2].map((c) => (c === i ? 1 : 0) - w[c]!))) as [
+    number,
+    number,
+  ][];
   return { w, primaries };
 }
 
@@ -142,7 +168,12 @@ function distanceToEdge(dir: [number, number], primaries: [number, number][]) {
   return best;
 }
 
-function pointFromPolar(s: NonNullable<ReturnType<typeof simplex>>, ref: number, hue: number, purity: number): Vec3 | null {
+function pointFromPolar(
+  s: NonNullable<ReturnType<typeof simplex>>,
+  ref: number,
+  hue: number,
+  purity: number,
+): Vec3 | null {
   const r = s.primaries[ref]!;
   const radius = Math.hypot(r[0], r[1]);
   if (radius < EPS) return null;
@@ -153,7 +184,11 @@ function pointFromPolar(s: NonNullable<ReturnType<typeof simplex>>, ref: number,
   return s.w.map((c, i) => c + d[i]!) as Vec3;
 }
 
-function polarFromPoint(s: NonNullable<ReturnType<typeof simplex>>, ref: number, point: Vec3): { hue: number; purity: number } | null {
+function polarFromPoint(
+  s: NonNullable<ReturnType<typeof simplex>>,
+  ref: number,
+  point: Vec3,
+): { hue: number; purity: number } | null {
   const r = s.primaries[ref]!;
   const uv = project(point.map((c, i) => c - s.w[i]!));
   const radius = Math.hypot(uv[0], uv[1]);
@@ -165,21 +200,32 @@ function polarFromPoint(s: NonNullable<ReturnType<typeof simplex>>, ref: number,
 }
 
 const column = (m: Mat3, c: number): Vec3 => [m[0][c]!, m[1][c]!, m[2][c]!];
-const fromColumns = (cols: Vec3[], scales: number[]): Mat3 => [0, 1, 2].map((row) => [0, 1, 2].map((col) => scales[col]! * cols[col]![row]!)) as Mat3;
+const fromColumns = (cols: Vec3[], scales: number[]): Mat3 =>
+  [0, 1, 2].map((row) => [0, 1, 2].map((col) => scales[col]! * cols[col]![row]!)) as Mat3;
 
 /** Ansel's `primaries_to_matrix`. Null when the primaries are degenerate. */
 export function primariesToMatrix(white: Vec3, p: MixerPrimaries): Mat3 | null {
   const s = simplex(white);
   if (!s || Math.abs(sum3(white)) < EPS) return null;
   const customWhite = pointFromPolar(s, 0, p.whiteHue * DEG, p.whitePurity);
-  const cols = [pointFromPolar(s, 0, p.redHue * DEG, p.redPurity), pointFromPolar(s, 1, p.greenHue * DEG, p.greenPurity), pointFromPolar(s, 2, p.blueHue * DEG, p.bluePurity)];
+  const cols = [
+    pointFromPolar(s, 0, p.redHue * DEG, p.redPurity),
+    pointFromPolar(s, 1, p.greenHue * DEG, p.greenPurity),
+    pointFromPolar(s, 2, p.blueHue * DEG, p.bluePurity),
+  ];
   if (!customWhite || cols.some((c) => !c)) return null;
   const inverse = invert([0, 1, 2].map((row) => [0, 1, 2].map((col) => cols[col]![row]!)) as Mat3);
   if (!inverse) return null;
   // Column scales such that the basis white maps to the custom white.
-  const weights = mulVec(inverse, customWhite.map((c) => c * p.gain * sum3(white)));
+  const weights = mulVec(
+    inverse,
+    customWhite.map((c) => c * p.gain * sum3(white)),
+  );
   if (white.some((c) => Math.abs(c) < EPS)) return null;
-  return fromColumns(cols as Vec3[], weights.map((t, c) => t / white[c]!));
+  return fromColumns(
+    cols as Vec3[],
+    weights.map((t, c) => t / white[c]!),
+  );
 }
 
 /** Ansel's `primaries_from_matrix`. Null when the matrix can't be shown as primaries. */
@@ -197,13 +243,31 @@ export function primariesFromMatrix(white: Vec3, m: Mat3): MixerPrimaries | null
     if (!polar) return null;
     out.push(polar.hue / DEG, polar.purity);
   }
-  const [redHue, redPurity, greenHue, greenPurity, blueHue, bluePurity] = out as [number, number, number, number, number, number];
-  const result = { whiteHue: achromatic.hue / DEG, whitePurity: achromatic.purity, redHue, redPurity, greenHue, greenPurity, blueHue, bluePurity, gain: sum3(mappedWhite) / sum3(white) };
+  const [redHue, redPurity, greenHue, greenPurity, blueHue, bluePurity] = out as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  const result = {
+    whiteHue: achromatic.hue / DEG,
+    whitePurity: achromatic.purity,
+    redHue,
+    redPurity,
+    greenHue,
+    greenPurity,
+    blueHue,
+    bluePurity,
+    gain: sum3(mappedWhite) / sum3(white),
+  };
   const back = primariesToMatrix(white, result);
   return back && roundtripError(m, back) <= 1e-4 ? result : null;
 }
 
-const area = (v: [number, number][]) => (v[1]![0] - v[0]![0]) * (v[2]![1] - v[0]![1]) - (v[1]![1] - v[0]![1]) * (v[2]![0] - v[0]![0]);
+const area = (v: [number, number][]) =>
+  (v[1]![0] - v[0]![0]) * (v[2]![1] - v[0]![1]) - (v[1]![1] - v[0]![1]) * (v[2]![0] - v[0]![0]);
 
 /** Ansel's `white_preserving_to_matrix`. Null when the primaries are (nearly) collinear. */
 export function whitePreservingToMatrix(white: Vec3, p: MixerWhitePreserving): Mat3 | null {
@@ -227,7 +291,10 @@ export function whitePreservingToMatrix(white: Vec3, p: MixerWhitePreserving): M
   if (!inverse || white.some((c) => Math.abs(c) < EPS)) return null;
   // Column scales such that the white maps to itself.
   const weights = mulVec(inverse, white);
-  return fromColumns(cols, weights.map((t, c) => t / white[c]!));
+  return fromColumns(
+    cols,
+    weights.map((t, c) => t / white[c]!),
+  );
 }
 
 /** The rotation and saturation of each column of a matrix, whether it keeps the white or not. */
@@ -245,7 +312,14 @@ function whitePreservingDirections(white: Vec3, m: Mat3): MixerWhitePreserving |
     if (radius < EPS) out.push(0, -1);
     else out.push(wrapPi(Math.atan2(uv[1], uv[0]) - Math.atan2(r[1], r[0])) / DEG, radius / radius0 - 1);
   }
-  const [redRotation, redSaturation, greenRotation, greenSaturation, blueRotation, blueSaturation] = out as [number, number, number, number, number, number];
+  const [redRotation, redSaturation, greenRotation, greenSaturation, blueRotation, blueSaturation] = out as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   return { redRotation, redSaturation, greenRotation, greenSaturation, blueRotation, blueSaturation };
 }
 

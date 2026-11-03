@@ -86,7 +86,11 @@ export function LocalDevelopPage() {
       toaster.create({ type: 'success', title: 'Added to your library' });
       navigate(`/versions/${version.id}/develop`);
     } catch (err) {
-      toaster.create({ type: 'error', title: 'Could not add to library', description: err instanceof Error ? err.message : undefined });
+      toaster.create({
+        type: 'error',
+        title: 'Could not add to library',
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setSavingToLibrary(false);
     }
@@ -123,7 +127,12 @@ export function LocalDevelopPage() {
                 <FolderOpen /> Open…
               </Button>
               {me && (
-                <Button size="sm" colorPalette="orange" loading={savingToLibrary} onClick={() => void saveToLibrary(history)}>
+                <Button
+                  size="sm"
+                  colorPalette="orange"
+                  loading={savingToLibrary}
+                  onClick={() => void saveToLibrary(history)}
+                >
                   <LibraryBig /> Add to library
                 </Button>
               )}
@@ -174,8 +183,8 @@ export function LocalDevelopPage() {
         </Text>
         <Heading size="2xl">Develop a RAW file</Heading>
         <Text color="fg.muted">
-          Drop a RAW file here (ARW, CR2, CR3, NEF, DNG, RAF, ORF, RW2…) to develop it: exposure, white balance,
-          tone mapping, colour, sharpening, crop & straighten. Export the result as a JPEG.
+          Drop a RAW file here (ARW, CR2, CR3, NEF, DNG, RAF, ORF, RW2…) to develop it: exposure, white balance, tone
+          mapping, colour, sharpening, crop & straighten. Export the result as a JPEG.
         </Text>
         <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!backend}>
           <FolderOpen /> Open a RAW file
@@ -252,7 +261,13 @@ export function LibraryDevelopPage() {
     );
   }
   if (!photo || !backend) return <Loading label="Loading…" />;
-  if (!metadata) return <Loading label={progress < 1 ? `Downloading ${photo.filename}…` : `Decoding ${photo.filename}…`} progress={progress} />;
+  if (!metadata)
+    return (
+      <Loading
+        label={progress < 1 ? `Downloading ${photo.filename}…` : `Decoding ${photo.filename}…`}
+        progress={progress}
+      />
+    );
 
   return (
     <DeveloperView

@@ -29,7 +29,11 @@ test('TypeScript defaults match the Rust defaults', () => {
 test('defaultRecipe matches Rust', () => {
   initPipeline();
   for (const metadata of [{}, { lensCorrection: null }, { lensCorrection: 'sony' }]) {
-    assert.deepEqual(defaultRecipe(metadata), JSON.parse(defaultRecipeWasm(JSON.stringify(metadata))), JSON.stringify(metadata));
+    assert.deepEqual(
+      defaultRecipe(metadata),
+      JSON.parse(defaultRecipeWasm(JSON.stringify(metadata))),
+      JSON.stringify(metadata),
+    );
   }
   assert.equal(defaultRecipe({ lensCorrection: null }), defaultEditParams);
 });
@@ -38,7 +42,13 @@ test('defaultRecipe matches Rust', () => {
 const samples: unknown[] = [
   {},
   { version: 1, exposure: { ev: 1 }, toneMap: { contrast: 2 } },
-  { version: 2, exposure: { ev: 1.5 }, geometry: { rotation: 1 }, filmic: { enabled: false, bleach: 'extra' }, sharpen: { amount: 0, radius: 2 } },
+  {
+    version: 2,
+    exposure: { ev: 1.5 },
+    geometry: { rotation: 1 },
+    filmic: { enabled: false, bleach: 'extra' },
+    sharpen: { amount: 0, radius: 2 },
+  },
   {
     version: 2,
     whiteBalance: { warmth: 0.3 },
@@ -65,7 +75,10 @@ const samples: unknown[] = [
       { kind: 'geometry', params: { crop: { width: 0.5 } } },
     ],
   },
-  { version: 5, modules: [{ kind: 'filmic' }, { kind: 'lens', params: { tca: 0 } }, { kind: 'lens', params: { tca: 2 } }] },
+  {
+    version: 5,
+    modules: [{ kind: 'filmic' }, { kind: 'lens', params: { tca: 0 } }, { kind: 'lens', params: { tca: 2 } }],
+  },
   // Every kind with its defaults.
   { version: 5, modules: MODULE_KINDS.map((kind) => ({ kind })) },
   { version: 6, modules: MODULE_KINDS.map((kind) => ({ kind })) },
@@ -84,17 +97,36 @@ const samples: unknown[] = [
   {
     version: 6,
     modules: [
-      { kind: 'colorCalibration', params: { illuminant: 'daylight', temperature: 4200, adaptation: 'linearBradford', gamut: 2.5 } },
-      { kind: 'colorCalibration', label: 'mono', params: { adaptation: 'none', grey: [0.3, 0.6, 0.1], normalizeGrey: true, clip: false } },
-      { kind: 'colorCalibration', params: { illuminant: 'fluorescent', fluorescent: 'f11', red: [1.1, -0.1, 0], colorfulness: [0.2, 0, -0.1] } },
-      { kind: 'colorCalibration', params: { illuminant: 'custom', x: 0.4, y: 0.38, led: 'rgb1', brightness: [0, 0.1, 0] } },
+      {
+        kind: 'colorCalibration',
+        params: { illuminant: 'daylight', temperature: 4200, adaptation: 'linearBradford', gamut: 2.5 },
+      },
+      {
+        kind: 'colorCalibration',
+        label: 'mono',
+        params: { adaptation: 'none', grey: [0.3, 0.6, 0.1], normalizeGrey: true, clip: false },
+      },
+      {
+        kind: 'colorCalibration',
+        params: { illuminant: 'fluorescent', fluorescent: 'f11', red: [1.1, -0.1, 0], colorfulness: [0.2, 0, -0.1] },
+      },
+      {
+        kind: 'colorCalibration',
+        params: { illuminant: 'custom', x: 0.4, y: 0.38, led: 'rgb1', brightness: [0, 0.1, 0] },
+      },
     ],
   },
   {
     version: 5,
     modules: [
-      { kind: 'colorPrimaries', params: { red: { hue: 12.5 }, blue: { saturation: -20, brightness: 0.05 }, whiteLevel: 2 } },
-      { kind: 'contrastEqualizer', params: { luma: [0.5, 0.6, 0.7, 0.6, 0.5, 0.5], lumaDenoise: [0, 0, 0, 0, 0.2, 0.4], mix: 0.5 } },
+      {
+        kind: 'colorPrimaries',
+        params: { red: { hue: 12.5 }, blue: { saturation: -20, brightness: 0.05 }, whiteLevel: 2 },
+      },
+      {
+        kind: 'contrastEqualizer',
+        params: { luma: [0.5, 0.6, 0.7, 0.6, 0.5, 0.5], lumaDenoise: [0, 0, 0, 0, 0.2, 0.4], mix: 0.5 },
+      },
       { kind: 'contrastEqualizer', label: 'fine', params: { edges: [1, 1, 1, 0.5, 0.5, 0.5] } },
     ],
   },
@@ -103,14 +135,24 @@ const samples: unknown[] = [
 test('normalizeEditParams matches Rust', () => {
   initPipeline();
   for (const sample of samples) {
-    assert.deepEqual(normalizeEditParams(sample), JSON.parse(normalizeParams(JSON.stringify(sample))), JSON.stringify(sample));
+    assert.deepEqual(
+      normalizeEditParams(sample),
+      JSON.parse(normalizeParams(JSON.stringify(sample))),
+      JSON.stringify(sample),
+    );
   }
 });
 
 test('normalizeEditParams fills gaps and ignores junk', () => {
   const p = normalizeEditParams({
     version: 3,
-    modules: [{ kind: 'exposure', params: { ev: 2 } }, { kind: 'color', params: 'nope' }, { kind: 'teleport' }, 'junk', { kind: 'filmic', params: { bleach: 'neon' } }],
+    modules: [
+      { kind: 'exposure', params: { ev: 2 } },
+      { kind: 'color', params: 'nope' },
+      { kind: 'teleport' },
+      'junk',
+      { kind: 'filmic', params: { bleach: 'neon' } },
+    ],
   });
   assert.deepEqual(
     p.modules.map((m) => m.kind),
@@ -119,15 +161,24 @@ test('normalizeEditParams fills gaps and ignores junk', () => {
   assert.deepEqual(findModule(p, 'exposure')!.params, { ev: 2, black: 0 });
   assert.deepEqual(findModule(p, 'color')!.params, defaultModuleParams.color);
   assert.equal(findModule(p, 'filmic')!.params.bleach, 'medium');
-  const c = normalizeEditParams({ version: 6, modules: [{ kind: 'colorCalibration', params: { illuminant: 'moon', adaptation: 'magic', red: [1, 2] } }] });
+  const c = normalizeEditParams({
+    version: 6,
+    modules: [{ kind: 'colorCalibration', params: { illuminant: 'moon', adaptation: 'magic', red: [1, 2] } }],
+  });
   assert.deepEqual(findModule(c, 'colorCalibration')!.params, defaultModuleParams.colorCalibration);
 });
 
 test('v1–v5 recipes get colour calibration, with their warmth/tint', () => {
-  assert.deepEqual(normalizeEditParams({ version: 5, modules: [{ kind: 'exposure' }, { kind: 'filmic' }] }), defaultEditParams);
+  assert.deepEqual(
+    normalizeEditParams({ version: 5, modules: [{ kind: 'exposure' }, { kind: 'filmic' }] }),
+    defaultEditParams,
+  );
   assert.deepEqual(normalizeEditParams({}), defaultEditParams);
   const p = normalizeEditParams({ version: 5, modules: [{ kind: 'whiteBalance', params: { warmth: 0.5 } }] });
-  assert.deepEqual(p.modules.map((m) => m.kind), ['colorCalibration']);
+  assert.deepEqual(
+    p.modules.map((m) => m.kind),
+    ['colorCalibration'],
+  );
   const c = findModule(p, 'colorCalibration')!.params;
   assert.equal(c.illuminant, 'asShot');
   assert.equal(c.normalizeRed, false);
@@ -139,7 +190,12 @@ test('v1–v5 recipes get colour calibration, with their warmth/tint', () => {
 test('curves must be whole', () => {
   const p = normalizeEditParams({
     version: 5,
-    modules: [{ kind: 'contrastEqualizer', params: { luma: [0.7, 0.7], chroma: [1, 1, 1, 1, 1, 'x'], edges: [1, 1, 1, 1, 1, 1] } }],
+    modules: [
+      {
+        kind: 'contrastEqualizer',
+        params: { luma: [0.7, 0.7], chroma: [1, 1, 1, 1, 1, 'x'], edges: [1, 1, 1, 1, 1, 1] },
+      },
+    ],
   });
   const eq = findModule(p, 'contrastEqualizer')!.params;
   assert.deepEqual(eq.luma, defaultModuleParams.contrastEqualizer.luma);
@@ -149,7 +205,12 @@ test('curves must be whole', () => {
 });
 
 test('v2 recipes become one instance per section', () => {
-  const p = normalizeEditParams({ version: 2, exposure: { ev: 2 }, filmic: { enabled: false, contrast: 1.5 }, geometry: { crop: { x: 0.5 } } });
+  const p = normalizeEditParams({
+    version: 2,
+    exposure: { ev: 2 },
+    filmic: { enabled: false, contrast: 1.5 },
+    geometry: { crop: { x: 0.5 } },
+  });
   assert.equal(p.version, 6);
   assert.deepEqual(
     p.modules.map((m) => [m.id, m.enabled]),
@@ -194,7 +255,10 @@ test('resetModule and isModuleModified compare with the default recipe', () => {
 test('instances can be duplicated, moved, renamed, reset and removed', () => {
   const base = updateModule(defaultEditParams, 'exposure', { params: { ev: 1 } });
   const two = addInstance(base, 'exposure');
-  assert.deepEqual(two.modules.map((m) => m.id), ['exposure', 'exposure-2', 'colorCalibration', 'filmic']);
+  assert.deepEqual(
+    two.modules.map((m) => m.id),
+    ['exposure', 'exposure-2', 'colorCalibration', 'filmic'],
+  );
   // Starts from scratch, and a new exposure doesn't change the image.
   assert.deepEqual(two.modules[1]!.params, { ev: 0, black: 0 });
   assert.ok(!isInstanceModified(two, 'exposure', 'exposure-2'));
@@ -209,11 +273,19 @@ test('instances can be duplicated, moved, renamed, reset and removed', () => {
   // A second colour calibration doesn't adapt again.
   const calibrations = addInstance(defaultEditParams, 'colorCalibration');
   assert.equal(findModule(calibrations, 'colorCalibration')!.params.adaptation, 'cat16');
-  assert.deepEqual(calibrations.modules[2]!.params, { ...defaultModuleParams.colorCalibration, adaptation: 'none', gamut: 0, clip: false });
+  assert.deepEqual(calibrations.modules[2]!.params, {
+    ...defaultModuleParams.colorCalibration,
+    adaptation: 'none',
+    gamut: 0,
+    clip: false,
+  });
   assert.ok(!isInstanceModified(calibrations, 'colorCalibration', 'colorCalibration-2'));
 
   const moved = moveInstance(two, 'exposure-2', -1);
-  assert.deepEqual(moved.modules.map((m) => m.id), ['exposure-2', 'exposure', 'colorCalibration', 'filmic']);
+  assert.deepEqual(
+    moved.modules.map((m) => m.id),
+    ['exposure-2', 'exposure', 'colorCalibration', 'filmic'],
+  );
   // Only within its kind.
   assert.equal(moveInstance(two, 'exposure-2', 1), two);
   assert.equal(moveInstance(two, 'exposure', -1), two);
@@ -229,7 +301,10 @@ test('instances can be duplicated, moved, renamed, reset and removed', () => {
   assert.deepEqual(resetInstance(base, 'exposure', 'exposure'), defaultEditParams);
   // An instance that doesn't exist yet is added after its kind.
   const added = updateInstance(defaultEditParams, 'color', 'color', { enabled: true, params: { saturation: 0.5 } });
-  assert.deepEqual(added.modules.map((m) => m.id), ['exposure', 'colorCalibration', 'color', 'filmic']);
+  assert.deepEqual(
+    added.modules.map((m) => m.id),
+    ['exposure', 'colorCalibration', 'color', 'filmic'],
+  );
 });
 
 test('develops a RAW file when RAWTISSERIE_SAMPLE is set', { skip: !process.env.RAWTISSERIE_SAMPLE }, async () => {

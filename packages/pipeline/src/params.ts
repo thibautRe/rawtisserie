@@ -176,7 +176,17 @@ export const EQUALIZER_NODES = 6;
 export const EQUALIZER_CURVES = ['luma', 'chroma', 'edges', 'lumaDenoise', 'chromaDenoise'] as const;
 export type EqualizerCurve = (typeof EQUALIZER_CURVES)[number];
 
-export const ILLUMINANTS = ['asShot', 'pipeline', 'daylight', 'blackBody', 'a', 'e', 'fluorescent', 'led', 'custom'] as const;
+export const ILLUMINANTS = [
+  'asShot',
+  'pipeline',
+  'daylight',
+  'blackBody',
+  'a',
+  'e',
+  'fluorescent',
+  'led',
+  'custom',
+] as const;
 export type Illuminant = (typeof ILLUMINANTS)[number];
 export const FLUORESCENTS = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12'] as const;
 export type Fluorescent = (typeof FLUORESCENTS)[number];
@@ -283,7 +293,10 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
   color: { saturation: 0, vibrance: 0 },
   shadowsHighlights: { shadows: 0, highlights: 0 },
   colorPrimaries: {
-    ...(Object.fromEntries(PRIMARIES.map((p) => [p, { hue: 0, saturation: 0, brightness: 0 }])) as Record<PrimaryName, Primary>),
+    ...(Object.fromEntries(PRIMARIES.map((p) => [p, { hue: 0, saturation: 0, brightness: 0 }])) as Record<
+      PrimaryName,
+      Primary
+    >),
     whiteLevel: 1,
     gamutCoverage: 67,
     brightnessSmoothing: 100,
@@ -312,7 +325,11 @@ const instance = <K extends ModuleKind>(kind: K, id = ''): ModuleInstance<K> =>
 /** The recipe a new image starts with: exposure, white balance as shot (colour calibration) and filmic. */
 export const defaultEditParams: EditParams = Object.freeze({
   version: EDIT_PARAMS_VERSION,
-  modules: [instance('exposure', 'exposure'), instance('colorCalibration', 'colorCalibration'), instance('filmic', 'filmic')],
+  modules: [
+    instance('exposure', 'exposure'),
+    instance('colorCalibration', 'colorCalibration'),
+    instance('filmic', 'filmic'),
+  ],
 });
 
 /**
@@ -371,7 +388,10 @@ function takeWhiteBalance(raw: Record<string, unknown>): [number, number][] {
   };
   if (Array.isArray(raw.modules)) {
     const isWb = (m: unknown): m is Record<string, unknown> => isObject(m) && m.kind === 'whiteBalance';
-    const found = raw.modules.filter(isWb).filter((m) => m.enabled !== false).map((m) => read(m.params));
+    const found = raw.modules
+      .filter(isWb)
+      .filter((m) => m.enabled !== false)
+      .map((m) => read(m.params));
     raw.modules = raw.modules.filter((m) => !isWb(m));
     return found;
   }
@@ -557,7 +577,8 @@ type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]>
 /** `base` with the fields of `patch` that have the right type (arrays: whole, same length). */
 function merge<T>(base: T, patch: DeepPartial<T> | undefined): T {
   if (Array.isArray(base)) {
-    const ok = Array.isArray(patch) && patch.length === base.length && patch.every((v, i) => typeof v === typeof base[i]);
+    const ok =
+      Array.isArray(patch) && patch.length === base.length && patch.every((v, i) => typeof v === typeof base[i]);
     return (ok ? [...patch] : [...base]) as T;
   }
   if (patch === undefined || patch === null || typeof base !== 'object' || base === null) {
@@ -627,7 +648,8 @@ export function instanceDefaults<K extends ModuleKind>(kind: K, position: number
   return defaults;
 }
 
-const positionOf = (params: EditParams, kind: ModuleKind, id: string) => params.modules.filter((m) => m.kind === kind).findIndex((m) => m.id === id);
+const positionOf = (params: EditParams, kind: ModuleKind, id: string) =>
+  params.modules.filter((m) => m.kind === kind).findIndex((m) => m.id === id);
 
 /** Add a new instance with default parameters right after this one. Not for single-instance kinds. */
 export function addInstance(params: EditParams, id: string): EditParams {
@@ -635,7 +657,10 @@ export function addInstance(params: EditParams, id: string): EditParams {
   const source = params.modules[at];
   if (!source || SINGLE_INSTANCE_KINDS.includes(source.kind)) return params;
   const added = {
-    ...instance(source.kind, freshId(source.kind, (id) => params.modules.some((m) => m.id === id))),
+    ...instance(
+      source.kind,
+      freshId(source.kind, (id) => params.modules.some((m) => m.id === id)),
+    ),
     params: instanceDefaults(source.kind, 1),
   } as ModuleInstance;
   return { ...params, modules: params.modules.toSpliced(at + 1, 0, added) };
@@ -675,14 +700,20 @@ export function isModuleModified(params: EditParams, kind: ModuleKind): boolean 
  */
 export function resetInstance(params: EditParams, kind: ModuleKind, id: string): EditParams {
   if (params.modules.filter((m) => m.kind === kind).length <= 1) return resetModule(params, kind);
-  return updateInstance(params, kind, id, { enabled: true, params: instanceDefaults(kind, positionOf(params, kind, id)) });
+  return updateInstance(params, kind, id, {
+    enabled: true,
+    params: instanceDefaults(kind, positionOf(params, kind, id)),
+  });
 }
 
 /** Whether `resetInstance` would change anything. */
 export function isInstanceModified(params: EditParams, kind: ModuleKind, id: string): boolean {
   if (params.modules.filter((m) => m.kind === kind).length <= 1) return isModuleModified(params, kind);
   const m = params.modules.find((m) => m.id === id);
-  return !!m && (!m.enabled || JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id))));
+  return (
+    !!m &&
+    (!m.enabled || JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id))))
+  );
 }
 
 export function isDefaultEdit(params: EditParams): boolean {

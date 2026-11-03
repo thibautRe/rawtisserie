@@ -30,7 +30,15 @@ export function useRenderLoop(backend: RenderBackend | null, job: Job | null) {
       s.busy = true;
       try {
         const full = { width: j.width, height: j.height };
-        setFrame(await backend.render(j.params, Math.floor(j.width * j.scale), Math.floor(j.height * j.scale), j.overlays, full));
+        setFrame(
+          await backend.render(
+            j.params,
+            Math.floor(j.width * j.scale),
+            Math.floor(j.height * j.scale),
+            j.overlays,
+            full,
+          ),
+        );
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));

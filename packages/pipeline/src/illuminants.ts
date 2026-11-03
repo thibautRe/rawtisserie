@@ -94,7 +94,12 @@ export function illuminantXy(p: ModuleParams['colorCalibration'], asShot: Xy | n
 /** Correlated colour temperature (McCamy's approximation, valid for 3000 … 50000 K). */
 function mcCamy(x: number, y: number) {
   const n = (x - 0.3366) / (y - 0.1735);
-  return -949.86315 + 6253.80338 * Math.exp(-n / 0.92159) + 28.70599 * Math.exp(-n / 0.20039) + 0.00004 * Math.exp(-n / 0.07125);
+  return (
+    -949.86315 +
+    6253.80338 * Math.exp(-n / 0.92159) +
+    28.70599 * Math.exp(-n / 0.20039) +
+    0.00004 * Math.exp(-n / 0.07125)
+  );
 }
 
 /** The closest temperature on the daylight/black body locus, by brute force (Ansel's `CCT_reverse_lookup`). */
@@ -134,7 +139,8 @@ export function closestIlluminant(xy: Xy): { temperature: number; illuminant: 'd
   const error = (test: Xy | null) => (test ? Math.hypot(uv(test)[0] - ref[0], uv(test)[1] - ref[1]) : Infinity);
   const daylight = error(daylightXy(t) ?? blackBodyXy(t));
   const blackBody = error(blackBodyXy(t));
-  if (blackBody < 0.005 || daylight < 0.005) return { temperature, illuminant: blackBody < daylight ? 'blackBody' : 'daylight' };
+  if (blackBody < 0.005 || daylight < 0.005)
+    return { temperature, illuminant: blackBody < daylight ? 'blackBody' : 'daylight' };
   return { temperature, illuminant: 'custom' };
 }
 
@@ -186,7 +192,11 @@ const kelvin = (t: number) => Math.round(clamp(t, TEMPERATURE_MIN, TEMPERATURE_M
  * as Ansel does: a temperature becomes the current light's, a custom illuminant takes
  * its chromaticity. Leaving "as shot" (always CAT16) keeps CAT16.
  */
-export function switchIlluminant(p: Calibration, illuminant: Illuminant, asShot: Xy | null | undefined): Partial<Calibration> {
+export function switchIlluminant(
+  p: Calibration,
+  illuminant: Illuminant,
+  asShot: Xy | null | undefined,
+): Partial<Calibration> {
   const xy = illuminantXy(p, asShot);
   const patch: Partial<Calibration> = { illuminant };
   if (p.illuminant === 'asShot') patch.adaptation = 'cat16';

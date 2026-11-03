@@ -15,7 +15,15 @@ export type WorkerRequest =
     }
   | { type: 'export'; id: number; params: EditParams; maxSize: number; quality: number }
   | { type: 'autoTuneFilmic'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
-  | { type: 'detectIlluminant'; id: number; params: EditParams; instance: string; method: IlluminantDetection; maxWidth: number; maxHeight: number };
+  | {
+      type: 'detectIlluminant';
+      id: number;
+      params: EditParams;
+      instance: string;
+      method: IlluminantDetection;
+      maxWidth: number;
+      maxHeight: number;
+    };
 
 /** Colour calibration's auto-detection: grey world (textured surfaces) or grey edges. */
 export type IlluminantDetection = 'surfaces' | 'edges';
@@ -46,7 +54,8 @@ export type PointRequest =
   /** Render the strip; `params` is the recipe as JSON. */
   | { type: 'render'; id: number; params: string };
 
-export type PointResponse = { type: 'rendered'; id: number; data: ArrayBuffer } | { type: 'error'; id: number; message: string };
+export type PointResponse =
+  { type: 'rendered'; id: number; data: ArrayBuffer } | { type: 'error'; id: number; message: string };
 
 /** Clipping indicators painted over interactive renders (`ops/clipping.rs`). */
 export interface Overlays {

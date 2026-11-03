@@ -17,11 +17,27 @@ export interface Frame {
  */
 export interface RenderBackend {
   /** Render within `maxWidth × maxHeight`, as a draft of the render within `full` if given. */
-  render(params: EditParams, maxWidth: number, maxHeight: number, overlays?: Overlays, full?: { width: number; height: number }): Promise<Frame>;
+  render(
+    params: EditParams,
+    maxWidth: number,
+    maxHeight: number,
+    overlays?: Overlays,
+    full?: { width: number; height: number },
+  ): Promise<Frame>;
   exportJpeg(params: EditParams, maxSize: number, quality?: number): Promise<Blob>;
   /** Filmic white/black relative exposures measured on the image, or null. */
-  autoTuneFilmic(params: EditParams, maxWidth: number, maxHeight: number): Promise<{ white: number; black: number } | null>;
+  autoTuneFilmic(
+    params: EditParams,
+    maxWidth: number,
+    maxHeight: number,
+  ): Promise<{ white: number; black: number } | null>;
   /** The scene's light (xy) measured on the input of colour calibration instance `instance`, or null. */
-  detectIlluminant(params: EditParams, instance: string, method: IlluminantDetection, maxWidth: number, maxHeight: number): Promise<[number, number] | null>;
+  detectIlluminant(
+    params: EditParams,
+    instance: string,
+    method: IlluminantDetection,
+    maxWidth: number,
+    maxHeight: number,
+  ): Promise<[number, number] | null>;
   dispose(): void;
 }

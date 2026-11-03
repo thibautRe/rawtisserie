@@ -18,7 +18,9 @@ import { type CDPSession, type Page, chromium } from 'playwright';
 import { build, preview } from 'vite';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const raw = process.env.PERF_RAW ?? fileURLToPath(new URL('../../../crates/pipeline/tests/golden/raws/sony-ilce-7m3.arw', import.meta.url));
+const raw =
+  process.env.PERF_RAW ??
+  fileURLToPath(new URL('../../../crates/pipeline/tests/golden/raws/sony-ilce-7m3.arw', import.meta.url));
 const throttle = Number(process.env.PERF_CPU_THROTTLE ?? 1);
 const DRAG_MS = 4000;
 /** How often the mouse reports a position; the browser coalesces these per frame. */
@@ -73,7 +75,13 @@ function instrument() {
       this.addEventListener('message', (e: MessageEvent) => {
         if (e.data?.type !== 'rendered') return;
         const t0 = sent.get(e.data.id);
-        if (t0 !== undefined) log.renders.push({ rtt: performance.now() - t0, workerMs: e.data.ms, width: e.data.width, height: e.data.height });
+        if (t0 !== undefined)
+          log.renders.push({
+            rtt: performance.now() - t0,
+            workerMs: e.data.ms,
+            width: e.data.width,
+            height: e.data.height,
+          });
         sent.delete(e.data.id);
       });
     }
@@ -156,7 +164,7 @@ async function drag(page: Page, cdp: CDPSession, scenario: Scenario) {
   const busy = (await taskTime(cdp)) - busyBefore;
   const elapsed = performance.now() - started;
 
-  const log = await page.evaluate(() => (window as never as { __perf: unknown }).__perf) as {
+  const log = (await page.evaluate(() => (window as never as { __perf: unknown }).__perf)) as {
     frames: number[];
     longTasks: number[];
     inputLatency: number[];
@@ -179,9 +187,24 @@ async function drag(page: Page, cdp: CDPSession, scenario: Scenario) {
     inputP50: round(quantile(log.inputLatency, 0.5)),
     inputP95: round(quantile(log.inputLatency, 0.95)),
     imageFps: round(log.paints / span),
-    workerP50: round(quantile(log.renders.map((r) => r.workerMs), 0.5)),
-    rttP50: round(quantile(log.renders.map((r) => r.rtt), 0.5)),
-    rttP95: round(quantile(log.renders.map((r) => r.rtt), 0.95)),
+    workerP50: round(
+      quantile(
+        log.renders.map((r) => r.workerMs),
+        0.5,
+      ),
+    ),
+    rttP50: round(
+      quantile(
+        log.renders.map((r) => r.rtt),
+        0.5,
+      ),
+    ),
+    rttP95: round(
+      quantile(
+        log.renders.map((r) => r.rtt),
+        0.95,
+      ),
+    ),
     minImageFps: scenario.minImageFps,
     renderSize: log.renders[0] ? `${log.renders[0].width}×${log.renders[0].height}` : '-',
   };

@@ -39,8 +39,16 @@ function Section({ title, children, onClear }: { title: string; children: React.
 function FacetList({ name, values, search }: { name: string; values: FacetValue[]; search: LibrarySearch }) {
   const selected = search.params.getAll(name);
   // Keep selected values visible even if the other filters leave no match.
-  const all = [...values, ...selected.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 }))];
-  if (!all.length) return <Text textStyle="xs" color="fg.subtle">Nothing yet</Text>;
+  const all = [
+    ...values,
+    ...selected.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 })),
+  ];
+  if (!all.length)
+    return (
+      <Text textStyle="xs" color="fg.subtle">
+        Nothing yet
+      </Text>
+    );
   return (
     <Stack gap="1" maxH="48" overflowY="auto">
       {all.map(({ value, count }) => (
@@ -64,7 +72,17 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
   );
 }
 
-function RangeInputs({ search, min, max, placeholder }: { search: LibrarySearch; min: string; max: string; placeholder: [unknown, unknown] }) {
+function RangeInputs({
+  search,
+  min,
+  max,
+  placeholder,
+}: {
+  search: LibrarySearch;
+  min: string;
+  max: string;
+  placeholder: [unknown, unknown];
+}) {
   return (
     <HStack>
       <Input
@@ -205,7 +223,12 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
             <Text textStyle="xs" w="8" color="fg.muted">
               From
             </Text>
-            <Input size="xs" type="date" value={p.get('from') ?? ''} onChange={(e) => search.set('from', e.target.value)} />
+            <Input
+              size="xs"
+              type="date"
+              value={p.get('from') ?? ''}
+              onChange={(e) => search.set('from', e.target.value)}
+            />
           </Flex>
           <Flex align="center" gap="2">
             <Text textStyle="xs" w="8" color="fg.muted">
@@ -228,7 +251,12 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
         <RangeInputs search={search} min="focalMin" max="focalMax" placeholder={[r?.focalMin, r?.focalMax]} />
       </Section>
       <Section title="Aperture (ƒ)">
-        <RangeInputs search={search} min="apertureMin" max="apertureMax" placeholder={[r?.apertureMin, r?.apertureMax]} />
+        <RangeInputs
+          search={search}
+          min="apertureMin"
+          max="apertureMax"
+          placeholder={[r?.apertureMin, r?.apertureMax]}
+        />
       </Section>
       <Box h="4" />
     </Stack>

@@ -36,7 +36,8 @@ const SORTS = [
 ];
 
 const isTyping = (target: EventTarget | null) =>
-  target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 export function LibraryPage() {
   const search = useLibrarySearch();
@@ -112,7 +113,11 @@ export function LibraryPage() {
         setFocusedId(copies.at(-1)!.id);
         anchorRef.current = copies.at(-1)!.id;
       } catch (err) {
-        toaster.create({ type: 'error', title: 'Could not duplicate', description: err instanceof Error ? err.message : undefined });
+        toaster.create({
+          type: 'error',
+          title: 'Could not duplicate',
+          description: err instanceof Error ? err.message : undefined,
+        });
       }
     },
     [photos, selection, duplicate],
@@ -132,7 +137,7 @@ export function LibraryPage() {
       const idx = photos.findIndex((p) => p.id === focusedId);
       const columns = Math.max(1, Math.floor((gridRef.current?.clientWidth ?? cellSize) / (cellSize + 8)));
       const move = (delta: number) => {
-        const next = photos[Math.min(photos.length - 1, Math.max(0, (idx < 0 ? 0 : idx + delta)))];
+        const next = photos[Math.min(photos.length - 1, Math.max(0, idx < 0 ? 0 : idx + delta))];
         if (!next) return;
         if (e.shiftKey) {
           setSelection((sel) => new Set(sel).add(next.id));
@@ -171,7 +176,17 @@ export function LibraryPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [photos, focusedId, cellSize, selection, selectedPhotos, applyToSelection, duplicateSelection, selectOne, navigate]);
+  }, [
+    photos,
+    focusedId,
+    cellSize,
+    selection,
+    selectedPhotos,
+    applyToSelection,
+    duplicateSelection,
+    selectOne,
+    navigate,
+  ]);
 
   // ── Upload (button or drag & drop) ──
   const fileInput = useRef<HTMLInputElement>(null);
@@ -183,7 +198,8 @@ export function LibraryPage() {
       upload.mutate(
         {
           files,
-          onProgress: (done) => toaster.update(id, { type: 'loading', title: `Uploading… ${done} of ${files.length} done` }),
+          onProgress: (done) =>
+            toaster.update(id, { type: 'loading', title: `Uploading… ${done} of ${files.length} done` }),
         },
         {
           onSuccess: ({ created, skipped }) =>
@@ -302,7 +318,9 @@ export function LibraryPage() {
         ) : photos.length === 0 ? (
           <Center flex="1">
             <Stack align="center" gap="3" textAlign="center" maxW="md">
-              <Heading size="lg">{search.activeFilterCount ? 'No photos match these filters' : 'Your library is empty'}</Heading>
+              <Heading size="lg">
+                {search.activeFilterCount ? 'No photos match these filters' : 'Your library is empty'}
+              </Heading>
               <Text color="fg.muted">
                 {search.activeFilterCount
                   ? 'Try removing some filters.'
@@ -352,11 +370,7 @@ export function LibraryPage() {
         </Center>
       )}
 
-      <DeleteVersionsDialog
-        versions={pendingDelete}
-        onConfirm={confirmDelete}
-        onClose={() => setPendingDelete(null)}
-      />
+      <DeleteVersionsDialog versions={pendingDelete} onConfirm={confirmDelete} onClose={() => setPendingDelete(null)} />
     </Flex>
   );
 }

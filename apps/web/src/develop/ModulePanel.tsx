@@ -1,4 +1,18 @@
-import { Box, Button, ButtonGroup, HStack, Heading, IconButton, Menu, NativeSelect, Portal, Stack, Switch, Tabs, Text } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  ButtonGroup,
+  HStack,
+  Heading,
+  IconButton,
+  Menu,
+  NativeSelect,
+  Portal,
+  Stack,
+  Switch,
+  Tabs,
+  Text,
+} from '@chakra-ui/react';
 import {
   ADAPTATIONS,
   type Adaptation,
@@ -52,7 +66,23 @@ import {
   resetInstance,
   updateInstance,
 } from '@rawtisserie/pipeline';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Crop, EllipsisVertical, FlipHorizontal2, Pencil, Pipette, Plus, RotateCcw, RotateCcwSquare, RotateCwSquare, Trash2, WandSparkles } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Crop,
+  EllipsisVertical,
+  FlipHorizontal2,
+  Pencil,
+  Pipette,
+  Plus,
+  RotateCcw,
+  RotateCcwSquare,
+  RotateCwSquare,
+  Trash2,
+  WandSparkles,
+} from 'lucide-react';
 import { Fragment, memo, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
@@ -104,10 +134,28 @@ type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
  * comparing props: this way dragging a slider doesn't restyle the menu.
  */
 const InstanceMenu = memo(
-  ({ title, position, count, disabled, onAction }: { title: string; position: number; count: number; disabled: boolean; onAction: (action: InstanceAction) => void }) => (
+  ({
+    title,
+    position,
+    count,
+    disabled,
+    onAction,
+  }: {
+    title: string;
+    position: number;
+    count: number;
+    disabled: boolean;
+    onAction: (action: InstanceAction) => void;
+  }) => (
     <Menu.Root lazyMount unmountOnExit onSelect={(d) => onAction(d.value as InstanceAction)}>
       <Menu.Trigger asChild>
-        <IconButton aria-label={`${title} instances`} title="Module instances" size="2xs" variant="ghost" disabled={disabled}>
+        <IconButton
+          aria-label={`${title} instances`}
+          title="Module instances"
+          size="2xs"
+          variant="ghost"
+          disabled={disabled}
+        >
           <EllipsisVertical />
         </IconButton>
       </Menu.Trigger>
@@ -127,7 +175,12 @@ const InstanceMenu = memo(
               <ArrowDown /> Move down
             </Menu.Item>
             <Menu.Separator />
-            <Menu.Item value="delete" disabled={count <= 1} color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
+            <Menu.Item
+              value="delete"
+              disabled={count <= 1}
+              color="fg.error"
+              _highlighted={{ bg: 'bg.error', color: 'fg.error' }}
+            >
               <Trash2 /> Delete
             </Menu.Item>
           </Menu.Content>
@@ -166,13 +219,25 @@ function Module({
   return (
     <Stack gap="1.5" pt="1.5" pb="2.5" borderBottomWidth="1px">
       <HStack justify="space-between" h="6">
-        <Heading size="xs" fontSize="2xs" textTransform="uppercase" letterSpacing="wider" color={modified ? 'orange.fg' : 'fg.muted'}>
+        <Heading
+          size="xs"
+          fontSize="2xs"
+          textTransform="uppercase"
+          letterSpacing="wider"
+          color={modified ? 'orange.fg' : 'fg.muted'}
+        >
           {title}
         </Heading>
         <HStack gap="1">
           {menu}
           {actions}
-          <Switch.Root size="xs" colorPalette="orange" checked={enabled} onCheckedChange={(e) => onToggle(e.checked)} aria-label={`Enable ${title}`}>
+          <Switch.Root
+            size="xs"
+            colorPalette="orange"
+            checked={enabled}
+            onCheckedChange={(e) => onToggle(e.checked)}
+            aria-label={`Enable ${title}`}
+          >
             <Switch.HiddenInput />
             <Switch.Control />
           </Switch.Root>
@@ -216,7 +281,14 @@ const PRIMARY_SWATCHES: Record<PrimaryName, string> = {
 };
 
 /** CSS hue of each primary, for its gradient tracks. */
-const PRIMARY_HUES: Record<PrimaryName, number> = { red: 0, yellow: 60, green: 120, cyan: 180, blue: 240, magenta: 300 };
+const PRIMARY_HUES: Record<PrimaryName, number> = {
+  red: 0,
+  yellow: 60,
+  green: 120,
+  cyan: 180,
+  blue: 240,
+  magenta: 300,
+};
 
 const ILLUMINANT_LABELS: Record<Illuminant, string> = {
   asShot: 'As shot',
@@ -269,7 +341,11 @@ type Calibration = ModuleParams['colorCalibration'];
 /** Colour calibration's tabs, as Ansel's: the light, the mix, and what is done with it. */
 const CALIBRATION_PAGES = ['illuminant', 'mixer', 'output'] as const;
 type CalibrationPage = (typeof CALIBRATION_PAGES)[number];
-const CALIBRATION_PAGE_LABELS: Record<CalibrationPage, string> = { illuminant: 'CAT', mixer: 'Mixer', output: 'Output' };
+const CALIBRATION_PAGE_LABELS: Record<CalibrationPage, string> = {
+  illuminant: 'CAT',
+  mixer: 'Mixer',
+  output: 'Output',
+};
 const CALIBRATION_PAGE_TITLES: Record<CalibrationPage, string> = {
   illuminant: 'White balance: chromatic adaptation from the scene’s light',
   mixer: 'Channel mixer',
@@ -284,15 +360,43 @@ const CALIBRATION_PAGE_KEYS: Record<CalibrationPage, (keyof Calibration)[]> = {
 
 /** The groups of the output tab, in the order they apply. */
 const OUTPUT_GROUPS = [
-  { key: 'colorfulness', title: 'Colorfulness', min: -1, max: 1, hardMin: -1, hardMax: 1, hint: 'Offset the coefficients so that they add up to 0' },
-  { key: 'brightness', title: 'Brightness', min: -1, max: 1, hardMin: -1, hardMax: 1, hint: 'Offset the coefficients so that they add up to 0' },
-  { key: 'grey', title: 'Gray (monochrome when not 0)', min: 0, max: 1, hardMin: -2, hardMax: 2, hint: 'Scale the coefficients so that they add up to 1 (keeps the brightness)' },
+  {
+    key: 'colorfulness',
+    title: 'Colorfulness',
+    min: -1,
+    max: 1,
+    hardMin: -1,
+    hardMax: 1,
+    hint: 'Offset the coefficients so that they add up to 0',
+  },
+  {
+    key: 'brightness',
+    title: 'Brightness',
+    min: -1,
+    max: 1,
+    hardMin: -1,
+    hardMax: 1,
+    hint: 'Offset the coefficients so that they add up to 0',
+  },
+  {
+    key: 'grey',
+    title: 'Gray (monochrome when not 0)',
+    min: 0,
+    max: 1,
+    hardMin: -2,
+    hardMax: 2,
+    hint: 'Scale the coefficients so that they add up to 1 (keeps the brightness)',
+  },
 ] as const;
 
 /** Ways to see and edit the mixer's matrix (Ansel's mixer modes). */
 const MIXER_VIEWS = ['primaries', 'whitePreserving', 'channels'] as const;
 type MixerView = (typeof MIXER_VIEWS)[number];
-const MIXER_VIEW_LABELS: Record<MixerView, string> = { primaries: 'Primaries', whitePreserving: 'White-preserving', channels: 'Channels' };
+const MIXER_VIEW_LABELS: Record<MixerView, string> = {
+  primaries: 'Primaries',
+  whitePreserving: 'White-preserving',
+  channels: 'Channels',
+};
 const MIXER_VIEW_TITLES: Record<MixerView, string> = {
   primaries: 'Each input channel’s hue and purity, and where the white goes',
   whitePreserving: 'Each input channel’s rotation and saturation; whites stay white',
@@ -300,7 +404,14 @@ const MIXER_VIEW_TITLES: Record<MixerView, string> = {
 };
 const CHANNELS = ['Red', 'Green', 'Blue'] as const;
 const CHANNEL_TRACKS = [tracks.channel('#d04a3a'), tracks.channel('#3aa04a'), tracks.channel('#3a6ad0')];
-const NORMALIZE_KEYS = { red: 'normalizeRed', green: 'normalizeGreen', blue: 'normalizeBlue', colorfulness: 'normalizeColorfulness', brightness: 'normalizeBrightness', grey: 'normalizeGrey' } as const;
+const NORMALIZE_KEYS = {
+  red: 'normalizeRed',
+  green: 'normalizeGreen',
+  blue: 'normalizeBlue',
+  colorfulness: 'normalizeColorfulness',
+  brightness: 'normalizeBrightness',
+  grey: 'normalizeGrey',
+} as const;
 
 /** The mixer's primaries modes: the matrix seen as primaries, and back. */
 /** The mixer's primary hue sliders: finer around 0°, over the same ±90° track. */
@@ -308,7 +419,11 @@ const HUE_CURVE = sinhCurve(90);
 
 const MIXER_MODES = {
   primaries: { read: primariesFromMatrix, write: primariesToMatrix, identity: IDENTITY_PRIMARIES },
-  whitePreserving: { read: whitePreservingFromMatrix, write: whitePreservingToMatrix, identity: IDENTITY_WHITE_PRESERVING },
+  whitePreserving: {
+    read: whitePreservingFromMatrix,
+    write: whitePreservingToMatrix,
+    identity: IDENTITY_WHITE_PRESERVING,
+  },
 } as const;
 type MixerMode = keyof typeof MIXER_MODES;
 type MixerKey = keyof MixerPrimaries | keyof MixerWhitePreserving;
@@ -359,7 +474,14 @@ interface InstanceView {
   angles: Record<string, number>;
 }
 
-const DEFAULT_VIEW: InstanceView = { primary: 'red', primariesAdvanced: false, curve: 'luma', calibration: 'illuminant', mixer: 'primaries', angles: {} };
+const DEFAULT_VIEW: InstanceView = {
+  primary: 'red',
+  primariesAdvanced: false,
+  curve: 'luma',
+  calibration: 'illuminant',
+  mixer: 'primaries',
+  angles: {},
+};
 
 const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
@@ -398,7 +520,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const renamed = params.modules.find((m) => m.id === renaming);
   // Stable, so that the (memoised) dialog stays out of slider drags.
   const onRenameClose = useStableCallback(() => setRenaming(null));
-  const onRename = useStableCallback((label: string | null) => renamed && commit((p) => updateInstance(p, renamed.kind, renamed.id, { label })));
+  const onRename = useStableCallback(
+    (label: string | null) => renamed && commit((p) => updateInstance(p, renamed.kind, renamed.id, { label })),
+  );
 
   const commit = (change: (p: EditParams) => EditParams) => latest.current.onCommit(change(latest.current.params));
 
@@ -408,7 +532,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     const id = m?.id ?? kind;
     const values = m?.params ?? defaultModuleParams[kind];
     // Editing a module switches it on, as in Ansel.
-    const edit = (patch: Partial<ModuleParams[K]>) => updateInstance(latest.current.params, kind, id, { enabled: true, params: patch });
+    const edit = (patch: Partial<ModuleParams[K]>) =>
+      updateInstance(latest.current.params, kind, id, { enabled: true, params: patch });
     /** Props for a slider bound to a numeric parameter. */
     const bind = (key: keyof ModuleParams[K] & string) => {
       const with_ = (v: number) => edit({ [key]: v } as Partial<ModuleParams[K]>);
@@ -420,9 +545,23 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       };
     };
     /** The parameters now, for handlers (sliders keep their first ones). */
-    const current = () => (latest.current.params.modules.find((x) => x.id === id) as ModuleInstance<K> | undefined)?.params ?? defaultModuleParams[kind];
-    const setView = (patch: Partial<InstanceView>) => setViews((v) => ({ ...v, [id]: { ...DEFAULT_VIEW, ...v[id], ...patch } }));
-    return { id, view: views[id] ?? DEFAULT_VIEW, setView, values, defaults, current, enabled: m?.enabled ?? false, edit, set: (patch: Partial<ModuleParams[K]>) => latest.current.onCommit(edit(patch)), bind };
+    const current = () =>
+      (latest.current.params.modules.find((x) => x.id === id) as ModuleInstance<K> | undefined)?.params ??
+      defaultModuleParams[kind];
+    const setView = (patch: Partial<InstanceView>) =>
+      setViews((v) => ({ ...v, [id]: { ...DEFAULT_VIEW, ...v[id], ...patch } }));
+    return {
+      id,
+      view: views[id] ?? DEFAULT_VIEW,
+      setView,
+      values,
+      defaults,
+      current,
+      enabled: m?.enabled ?? false,
+      edit,
+      set: (patch: Partial<ModuleParams[K]>) => latest.current.onCommit(edit(patch)),
+      bind,
+    };
   }
 
   /**
@@ -566,7 +705,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     const values = MIXER_MODES[mode].read(mixerWhite(p), mixerMatrix(p)) as Record<MixerKey, number> | null;
     if (!values) return null;
     for (const [angle, magnitude, zero] of MIXER_ANGLES[mode]) {
-      if (Math.abs(values[magnitude] - zero) < ZERO_MAGNITUDE) values[angle] = angles.current[id]?.[`${mode}.${angle}`] ?? 0;
+      if (Math.abs(values[magnitude] - zero) < ZERO_MAGNITUDE)
+        values[angle] = angles.current[id]?.[`${mode}.${angle}`] ?? 0;
     }
     return values;
   }
@@ -575,7 +715,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const normalizeSwitch = (e: CalibrationEditor, page: Channels, hint: string) => {
     const key = NORMALIZE_KEYS[page];
     return (
-      <Switch.Root size="xs" colorPalette="orange" checked={e.values[key]} onCheckedChange={(d) => e.set({ [key]: d.checked })} title={hint}>
+      <Switch.Root
+        size="xs"
+        colorPalette="orange"
+        checked={e.values[key]}
+        onCheckedChange={(d) => e.set({ [key]: d.checked })}
+        title={hint}
+      >
         <Switch.HiddenInput />
         <Switch.Control />
         <Switch.Label textStyle="2xs" color="fg.muted">
@@ -620,8 +766,26 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     <Box px="3">
       {sections('exposure', [], (e) => (
         <>
-          <ParamSlider label="Exposure" min={-4} max={4} hardMin={-10} hardMax={10} step={0.05} format={fmt.ev} track={tracks.grey} {...e.bind('ev')} />
-          <ParamSlider label="Black level" min={0} max={0.1} hardMax={1} step={0.001} format={(v) => v.toFixed(3)} {...e.bind('black')} />
+          <ParamSlider
+            label="Exposure"
+            min={-4}
+            max={4}
+            hardMin={-10}
+            hardMax={10}
+            step={0.05}
+            format={fmt.ev}
+            track={tracks.grey}
+            {...e.bind('ev')}
+          />
+          <ParamSlider
+            label="Black level"
+            min={0}
+            max={0.1}
+            hardMax={1}
+            step={0.001}
+            format={(v) => v.toFixed(3)}
+            {...e.bind('black')}
+          />
         </>
       ))}
 
@@ -633,16 +797,42 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         const adapts = v.illuminant === 'asShot' || v.adaptation !== 'none';
         const white = mixerWhite(v);
         const matrix = mixerMatrix(v);
-        const modified = (p: CalibrationPage) => CALIBRATION_PAGE_KEYS[p].some((k) => JSON.stringify(v[k]) !== JSON.stringify(e.defaults[k]));
+        const modified = (p: CalibrationPage) =>
+          CALIBRATION_PAGE_KEYS[p].some((k) => JSON.stringify(v[k]) !== JSON.stringify(e.defaults[k]));
         return (
           <>
             {/* Tabs, not a select: they choose what the panel shows, not the image. */}
-            <Tabs.Root size="sm" variant="line" value={page} onValueChange={(d) => e.setView({ calibration: d.value as CalibrationPage })}>
+            <Tabs.Root
+              size="sm"
+              variant="line"
+              value={page}
+              onValueChange={(d) => e.setView({ calibration: d.value as CalibrationPage })}
+            >
               <Tabs.List aria-label="Color calibration tabs" gap="0">
                 {CALIBRATION_PAGES.map((p) => (
-                  <Tabs.Trigger key={p} value={p} title={CALIBRATION_PAGE_TITLES[p]} h="7" px="1.5" flex="auto" justifyContent="center" textStyle="2xs" position="relative">
+                  <Tabs.Trigger
+                    key={p}
+                    value={p}
+                    title={CALIBRATION_PAGE_TITLES[p]}
+                    h="7"
+                    px="1.5"
+                    flex="auto"
+                    justifyContent="center"
+                    textStyle="2xs"
+                    position="relative"
+                  >
                     {CALIBRATION_PAGE_LABELS[p]}
-                    {modified(p) && <Box position="absolute" top="1" right="0.5" boxSize="1" borderRadius="full" bg="orange.solid" aria-label="modified" />}
+                    {modified(p) && (
+                      <Box
+                        position="absolute"
+                        top="1"
+                        right="0.5"
+                        boxSize="1"
+                        borderRadius="full"
+                        bg="orange.solid"
+                        aria-label="modified"
+                      />
+                    )}
                   </Tabs.Trigger>
                 ))}
               </Tabs.List>
@@ -650,7 +840,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             {page === 'illuminant' && (
               <>
                 <NativeSelect.Root size="xs" disabled={v.illuminant === 'asShot'}>
-                  <NativeSelect.Field value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation} onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })} aria-label="Adaptation" title="Chromatic adaptation transform (as shot always uses CAT16)">
+                  <NativeSelect.Field
+                    value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation}
+                    onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })}
+                    aria-label="Adaptation"
+                    title="Chromatic adaptation transform (as shot always uses CAT16)"
+                  >
                     {ADAPTATIONS.map((a) => (
                       <option key={a} value={a}>
                         Adaptation: {ADAPTATION_LABELS[a]}
@@ -663,7 +858,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   <>
                     <HStack gap="1.5">
                       <NativeSelect.Root size="xs" flex="1">
-                        <NativeSelect.Field value={v.illuminant} onChange={(ev) => e.set(switchIlluminant(e.current(), ev.target.value as Illuminant, asShotIlluminant))} aria-label="Illuminant">
+                        <NativeSelect.Field
+                          value={v.illuminant}
+                          onChange={(ev) =>
+                            e.set(switchIlluminant(e.current(), ev.target.value as Illuminant, asShotIlluminant))
+                          }
+                          aria-label="Illuminant"
+                        >
                           {ILLUMINANTS.map((i) => (
                             <option key={i} value={i}>
                               Illuminant: {ILLUMINANT_LABELS[i]}
@@ -672,10 +873,28 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         </NativeSelect.Field>
                         <NativeSelect.Indicator />
                       </NativeSelect.Root>
-                      <Box boxSize="5" flexShrink={0} borderRadius="sm" borderWidth="1px" bg={xyToCss(light)} title="The light's colour" />
-                      <Menu.Root lazyMount unmountOnExit onSelect={(d) => latest.current.onDetectIlluminant(e.id, d.value as IlluminantDetection)}>
+                      <Box
+                        boxSize="5"
+                        flexShrink={0}
+                        borderRadius="sm"
+                        borderWidth="1px"
+                        bg={xyToCss(light)}
+                        title="The light's colour"
+                      />
+                      <Menu.Root
+                        lazyMount
+                        unmountOnExit
+                        onSelect={(d) => latest.current.onDetectIlluminant(e.id, d.value as IlluminantDetection)}
+                      >
                         <Menu.Trigger asChild>
-                          <IconButton aria-label="Detect the illuminant" title="Detect the light from the image (like Ansel's AI detection)" size="2xs" variant="outline" disabled={!e.enabled} loading={detecting === e.id}>
+                          <IconButton
+                            aria-label="Detect the illuminant"
+                            title="Detect the light from the image (like Ansel's AI detection)"
+                            size="2xs"
+                            variant="outline"
+                            disabled={!e.enabled}
+                            loading={detecting === e.id}
+                          >
                             <Pipette />
                           </IconButton>
                         </Menu.Trigger>
@@ -689,17 +908,35 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         </Portal>
                       </Menu.Root>
                     </HStack>
-                    <Text textStyle="2xs" color="fg.subtle" title="Correlated color temperature; it only describes the light well for daylight and black body spectra">
+                    <Text
+                      textStyle="2xs"
+                      color="fg.subtle"
+                      title="Correlated color temperature; it only describes the light well for daylight and black body spectra"
+                    >
                       {cct.temperature > TEMPERATURE_MIN && cct.temperature < TEMPERATURE_MAX
                         ? `CCT ${Math.round(cct.temperature)} K (${cct.illuminant === 'custom' ? 'not a daylight or black body light' : cct.illuminant === 'daylight' ? 'daylight' : 'black body'})`
                         : 'CCT undefined'}
                     </Text>
                     {(v.illuminant === 'daylight' || v.illuminant === 'blackBody') && (
-                      <ParamSlider label="Temperature" min={TEMPERATURE_SOFT[0]} max={TEMPERATURE_SOFT[1]} hardMin={TEMPERATURE_MIN} hardMax={TEMPERATURE_MAX} step={10} track={TEMPERATURE_TRACK} format={(t) => `${t.toFixed(0)} K`} {...e.bind('temperature')} />
+                      <ParamSlider
+                        label="Temperature"
+                        min={TEMPERATURE_SOFT[0]}
+                        max={TEMPERATURE_SOFT[1]}
+                        hardMin={TEMPERATURE_MIN}
+                        hardMax={TEMPERATURE_MAX}
+                        step={10}
+                        track={TEMPERATURE_TRACK}
+                        format={(t) => `${t.toFixed(0)} K`}
+                        {...e.bind('temperature')}
+                      />
                     )}
                     {v.illuminant === 'fluorescent' && (
                       <NativeSelect.Root size="xs">
-                        <NativeSelect.Field value={v.fluorescent} onChange={(ev) => e.set({ fluorescent: ev.target.value as Fluorescent })} aria-label="Fluorescent illuminant">
+                        <NativeSelect.Field
+                          value={v.fluorescent}
+                          onChange={(ev) => e.set({ fluorescent: ev.target.value as Fluorescent })}
+                          aria-label="Fluorescent illuminant"
+                        >
                           {FLUORESCENTS.map((f) => (
                             <option key={f} value={f}>
                               {FLUORESCENT_LABELS[f]}
@@ -711,7 +948,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     )}
                     {v.illuminant === 'led' && (
                       <NativeSelect.Root size="xs">
-                        <NativeSelect.Field value={v.led} onChange={(ev) => e.set({ led: ev.target.value as Led })} aria-label="LED illuminant">
+                        <NativeSelect.Field
+                          value={v.led}
+                          onChange={(ev) => e.set({ led: ev.target.value as Led })}
+                          aria-label="LED illuminant"
+                        >
                           {LEDS.map((l) => (
                             <option key={l} value={l}>
                               {LED_LABELS[l]}
@@ -723,14 +964,43 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     )}
                     {v.illuminant === 'custom' && (
                       <>
-                        <ParamSlider label="Hue" min={0} max={360} step={1} track={tracks.hue(180)} format={(h) => `${h.toFixed(0)}°`} {...bindHueChroma(e, 'hue')} />
-                        <ParamSlider label="Chroma" min={0} max={100} hardMax={200} step={0.5} format={(c) => c.toFixed(1)} {...bindHueChroma(e, 'chroma')} />
+                        <ParamSlider
+                          label="Hue"
+                          min={0}
+                          max={360}
+                          step={1}
+                          track={tracks.hue(180)}
+                          format={(h) => `${h.toFixed(0)}°`}
+                          {...bindHueChroma(e, 'hue')}
+                        />
+                        <ParamSlider
+                          label="Chroma"
+                          min={0}
+                          max={100}
+                          hardMax={200}
+                          step={0.5}
+                          format={(c) => c.toFixed(1)}
+                          {...bindHueChroma(e, 'chroma')}
+                        />
                       </>
                     )}
                   </>
                 )}
-                <ParamSlider label="Gamut compression" min={0} max={5} hardMax={12} step={0.01} format={fmt.fixed2} {...e.bind('gamut')} />
-                <Switch.Root size="xs" colorPalette="orange" checked={v.clip} onCheckedChange={(d) => e.set({ clip: d.checked })}>
+                <ParamSlider
+                  label="Gamut compression"
+                  min={0}
+                  max={5}
+                  hardMax={12}
+                  step={0.01}
+                  format={fmt.fixed2}
+                  {...e.bind('gamut')}
+                />
+                <Switch.Root
+                  size="xs"
+                  colorPalette="orange"
+                  checked={v.clip}
+                  onCheckedChange={(d) => e.set({ clip: d.checked })}
+                >
                   <Switch.HiddenInput />
                   <Switch.Control />
                   <Switch.Label textStyle="2xs" color="fg.muted">
@@ -744,7 +1014,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
                   Edit as
                 </Text>
-                <Tabs.Root size="sm" variant="subtle" value={e.view.mixer} onValueChange={(d) => e.setView({ mixer: d.value as MixerView })}>
+                <Tabs.Root
+                  size="sm"
+                  variant="subtle"
+                  value={e.view.mixer}
+                  onValueChange={(d) => e.setView({ mixer: d.value as MixerView })}
+                >
                   <Tabs.List aria-label="Mixer view" gap="0.5" minH="0" p="0" alignItems="center">
                     {MIXER_VIEWS.map((m) => (
                       <Tabs.Trigger key={m} value={m} title={MIXER_VIEW_TITLES[m]} h="5" px="1.5" textStyle="2xs">
@@ -762,44 +1037,118 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             )}
             {page === 'mixer' && e.view.mixer === 'primaries' && primariesFromMatrix(white, matrix) && (
               <>
-                <ParamSlider key="primaries-whiteHue" label="White hue" min={-180} max={180} step={0.5} track={tracks.hue(0)} format={degrees} {...bindMixer(e, 'primaries', 'whiteHue')} />
-                <ParamSlider key="primaries-whitePurity" label="White purity" min={0} max={0.1} hardMax={2} step={0.0005} format={(p) => p.toFixed(4)} {...bindMixer(e, 'primaries', 'whitePurity')} />
+                <ParamSlider
+                  key="primaries-whiteHue"
+                  label="White hue"
+                  min={-180}
+                  max={180}
+                  step={0.5}
+                  track={tracks.hue(0)}
+                  format={degrees}
+                  {...bindMixer(e, 'primaries', 'whiteHue')}
+                />
+                <ParamSlider
+                  key="primaries-whitePurity"
+                  label="White purity"
+                  min={0}
+                  max={0.1}
+                  hardMax={2}
+                  step={0.0005}
+                  format={(p) => p.toFixed(4)}
+                  {...bindMixer(e, 'primaries', 'whitePurity')}
+                />
                 {CHANNELS.map((c, i) => {
                   const name = c.toLowerCase() as 'red' | 'green' | 'blue';
                   return (
                     <Fragment key={name}>
-                      <ParamSlider key={`primaries-${name}Hue`} label={`${c} hue`} min={-90} max={90} hardMin={-180} hardMax={180} step={0.5} curve={HUE_CURVE} track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!, HUE_CURVE)} format={degrees} {...bindMixer(e, 'primaries', `${name}Hue`)} />
-                      <ParamSlider key={`primaries-${name}Purity`} label={`${c} purity`} min={0} max={2} step={0.01} track={tracks.saturation(PRIMARY_CSS_HUES[i]!)} format={fmt.fixed2} {...bindMixer(e, 'primaries', `${name}Purity`)} />
+                      <ParamSlider
+                        key={`primaries-${name}Hue`}
+                        label={`${c} hue`}
+                        min={-90}
+                        max={90}
+                        hardMin={-180}
+                        hardMax={180}
+                        step={0.5}
+                        curve={HUE_CURVE}
+                        track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!, HUE_CURVE)}
+                        format={degrees}
+                        {...bindMixer(e, 'primaries', `${name}Hue`)}
+                      />
+                      <ParamSlider
+                        key={`primaries-${name}Purity`}
+                        label={`${c} purity`}
+                        min={0}
+                        max={2}
+                        step={0.01}
+                        track={tracks.saturation(PRIMARY_CSS_HUES[i]!)}
+                        format={fmt.fixed2}
+                        {...bindMixer(e, 'primaries', `${name}Purity`)}
+                      />
                     </Fragment>
                   );
                 })}
-                <ParamSlider key="primaries-gain" label="Gain" min={0} max={2} hardMin={-8} hardMax={8} step={0.01} track={tracks.grey} format={fmt.fixed2} {...bindMixer(e, 'primaries', 'gain')} />
+                <ParamSlider
+                  key="primaries-gain"
+                  label="Gain"
+                  min={0}
+                  max={2}
+                  hardMin={-8}
+                  hardMax={8}
+                  step={0.01}
+                  track={tracks.grey}
+                  format={fmt.fixed2}
+                  {...bindMixer(e, 'primaries', 'gain')}
+                />
               </>
             )}
-            {page === 'mixer' && e.view.mixer === 'whitePreserving' && !whitePreservingFromMatrix(white, matrix) && (() => {
-              const clamped = withoutWhiteShift(white, matrix);
-              return (
-                <>
-                  <Text textStyle="2xs" color="fg.subtle">
-                    This mix also shifts the white (a tint or a brightness change), which white-preserving primaries can’t show.
-                    {clamped && ' Removing the shift keeps each primary’s hue and saturation.'}
-                  </Text>
-                  {clamped && (
-                    <Button size="2xs" variant="outline" alignSelf="start" onClick={() => e.set(mixerRows(clamped))}>
-                      Remove the white shift
-                    </Button>
-                  )}
-                </>
-              );
-            })()}
+            {page === 'mixer' &&
+              e.view.mixer === 'whitePreserving' &&
+              !whitePreservingFromMatrix(white, matrix) &&
+              (() => {
+                const clamped = withoutWhiteShift(white, matrix);
+                return (
+                  <>
+                    <Text textStyle="2xs" color="fg.subtle">
+                      This mix also shifts the white (a tint or a brightness change), which white-preserving primaries
+                      can’t show.
+                      {clamped && ' Removing the shift keeps each primary’s hue and saturation.'}
+                    </Text>
+                    {clamped && (
+                      <Button size="2xs" variant="outline" alignSelf="start" onClick={() => e.set(mixerRows(clamped))}>
+                        Remove the white shift
+                      </Button>
+                    )}
+                  </>
+                );
+              })()}
             {page === 'mixer' && e.view.mixer === 'whitePreserving' && whitePreservingFromMatrix(white, matrix) && (
               <>
                 {CHANNELS.map((c, i) => {
                   const name = c.toLowerCase() as 'red' | 'green' | 'blue';
                   return (
                     <Fragment key={name}>
-                      <ParamSlider key={`whitePreserving-${name}Rotation`} label={`${c} rotation`} min={-90} max={90} hardMin={-180} hardMax={180} step={0.5} track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)} format={degrees} {...bindMixer(e, 'whitePreserving', `${name}Rotation`)} />
-                      <ParamSlider key={`whitePreserving-${name}Saturation`} label={`${c} saturation`} min={-1} max={1} hardMax={2} step={0.01} track={tracks.saturation(PRIMARY_CSS_HUES[i]!)} {...bindMixer(e, 'whitePreserving', `${name}Saturation`)} />
+                      <ParamSlider
+                        key={`whitePreserving-${name}Rotation`}
+                        label={`${c} rotation`}
+                        min={-90}
+                        max={90}
+                        hardMin={-180}
+                        hardMax={180}
+                        step={0.5}
+                        track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)}
+                        format={degrees}
+                        {...bindMixer(e, 'whitePreserving', `${name}Rotation`)}
+                      />
+                      <ParamSlider
+                        key={`whitePreserving-${name}Saturation`}
+                        label={`${c} saturation`}
+                        min={-1}
+                        max={1}
+                        hardMax={2}
+                        step={0.01}
+                        track={tracks.saturation(PRIMARY_CSS_HUES[i]!)}
+                        {...bindMixer(e, 'whitePreserving', `${name}Saturation`)}
+                      />
                     </Fragment>
                   );
                 })}
@@ -816,7 +1165,16 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     {normalizeSwitch(e, row, 'Scale the coefficients so that they add up to 1 (greys stay grey)')}
                   </HStack>
                   {CHANNELS.map((c, i) => (
-                    <ParamSlider key={`channels-${row}-${i}`} label={`Input ${c.toLowerCase()}`} min={-2} max={2} step={0.01} track={CHANNEL_TRACKS[i]} format={fmt.fixed2} {...bindChannel(e, row, i)} />
+                    <ParamSlider
+                      key={`channels-${row}-${i}`}
+                      label={`Input ${c.toLowerCase()}`}
+                      min={-2}
+                      max={2}
+                      step={0.01}
+                      track={CHANNEL_TRACKS[i]}
+                      format={fmt.fixed2}
+                      {...bindChannel(e, row, i)}
+                    />
                   ))}
                 </Fragment>
               ))}
@@ -830,7 +1188,18 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     {normalizeSwitch(e, g.key, g.hint)}
                   </HStack>
                   {CHANNELS.map((c, i) => (
-                    <ParamSlider key={`output-${g.key}-${i}`} label={c} min={g.min} max={g.max} hardMin={g.hardMin} hardMax={g.hardMax} step={0.01} track={CHANNEL_TRACKS[i]} format={fmt.fixed2} {...bindChannel(e, g.key, i)} />
+                    <ParamSlider
+                      key={`output-${g.key}-${i}`}
+                      label={c}
+                      min={g.min}
+                      max={g.max}
+                      hardMin={g.hardMin}
+                      hardMax={g.hardMax}
+                      step={0.01}
+                      track={CHANNEL_TRACKS[i]}
+                      format={fmt.fixed2}
+                      {...bindChannel(e, g.key, i)}
+                    />
                   ))}
                 </Fragment>
               ))}
@@ -877,25 +1246,114 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   outlineOffset="1px"
                   onClick={() => e.setView({ primary: name })}
                 >
-                  {edited && <Box position="absolute" top="1" right="1" boxSize="1.5" borderRadius="full" bg="white" boxShadow="xs" />}
+                  {edited && (
+                    <Box
+                      position="absolute"
+                      top="1"
+                      right="1"
+                      boxSize="1.5"
+                      borderRadius="full"
+                      bg="white"
+                      boxShadow="xs"
+                    />
+                  )}
                 </Box>
               );
             })}
           </HStack>
-          <ParamSlider key={`${e.view.primary}-hue`} label="Hue" min={-180} max={180} step={1} track={tracks.hue(PRIMARY_HUES[e.view.primary])} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`} {...bindPrimary(e, e.view.primary, 'hue')} />
-          <ParamSlider key={`${e.view.primary}-saturation`} label="Saturation" min={-100} max={100} step={1} track={tracks.saturation(PRIMARY_HUES[e.view.primary])} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...bindPrimary(e, e.view.primary, 'saturation')} />
-          <ParamSlider key={`${e.view.primary}-brightness`} label="Brightness" min={-0.25} max={0.25} hardMin={-1} hardMax={1} step={0.005} scale={100} track={tracks.brightness(PRIMARY_HUES[e.view.primary])} format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`} {...bindPrimary(e, e.view.primary, 'brightness')} />
-          <Button size="2xs" variant="ghost" alignSelf="start" px="0" onClick={() => e.setView({ primariesAdvanced: !e.view.primariesAdvanced })}>
+          <ParamSlider
+            key={`${e.view.primary}-hue`}
+            label="Hue"
+            min={-180}
+            max={180}
+            step={1}
+            track={tracks.hue(PRIMARY_HUES[e.view.primary])}
+            format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`}
+            {...bindPrimary(e, e.view.primary, 'hue')}
+          />
+          <ParamSlider
+            key={`${e.view.primary}-saturation`}
+            label="Saturation"
+            min={-100}
+            max={100}
+            step={1}
+            track={tracks.saturation(PRIMARY_HUES[e.view.primary])}
+            format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
+            {...bindPrimary(e, e.view.primary, 'saturation')}
+          />
+          <ParamSlider
+            key={`${e.view.primary}-brightness`}
+            label="Brightness"
+            min={-0.25}
+            max={0.25}
+            hardMin={-1}
+            hardMax={1}
+            step={0.005}
+            scale={100}
+            track={tracks.brightness(PRIMARY_HUES[e.view.primary])}
+            format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`}
+            {...bindPrimary(e, e.view.primary, 'brightness')}
+          />
+          <Button
+            size="2xs"
+            variant="ghost"
+            alignSelf="start"
+            px="0"
+            onClick={() => e.setView({ primariesAdvanced: !e.view.primariesAdvanced })}
+          >
             {e.view.primariesAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut and smoothing
           </Button>
           {e.view.primariesAdvanced && (
             <>
-              <ParamSlider label="White level" min={-2} max={16} step={0.05} format={fmt.ev} {...e.bind('whiteLevel')} />
-              <ParamSlider label="Gamut coverage" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...e.bind('gamutCoverage')} />
-              <ParamSlider label="Neutral protection" min={0} max={2} step={0.01} format={fmt.fixed2} {...e.bind('neutralProtection')} />
-              <ParamSlider label="Brightness smoothing" min={1} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...e.bind('brightnessSmoothing')} />
-              <ParamSlider label="Saturation smoothing" min={0.01} max={2} step={0.01} format={fmt.fixed2} {...e.bind('saturationSmoothing')} />
-              <ParamSlider label="Hue smoothing" min={0.01} max={6.28} step={0.01} scale={180 / Math.PI} format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`} {...e.bind('hueSmoothing')} />
+              <ParamSlider
+                label="White level"
+                min={-2}
+                max={16}
+                step={0.05}
+                format={fmt.ev}
+                {...e.bind('whiteLevel')}
+              />
+              <ParamSlider
+                label="Gamut coverage"
+                min={0}
+                max={100}
+                step={0.5}
+                format={(v) => `${v.toFixed(1)} %`}
+                {...e.bind('gamutCoverage')}
+              />
+              <ParamSlider
+                label="Neutral protection"
+                min={0}
+                max={2}
+                step={0.01}
+                format={fmt.fixed2}
+                {...e.bind('neutralProtection')}
+              />
+              <ParamSlider
+                label="Brightness smoothing"
+                min={1}
+                max={100}
+                step={0.5}
+                format={(v) => `${v.toFixed(1)} %`}
+                {...e.bind('brightnessSmoothing')}
+              />
+              <ParamSlider
+                label="Saturation smoothing"
+                min={0.01}
+                max={2}
+                step={0.01}
+                format={fmt.fixed2}
+                {...e.bind('saturationSmoothing')}
+              />
+              <ParamSlider
+                label="Hue smoothing"
+                min={0.01}
+                max={6.28}
+                step={0.01}
+                scale={180 / Math.PI}
+                format={(v) => `${((v * 180) / Math.PI).toFixed(0)}°`}
+                {...e.bind('hueSmoothing')}
+              />
             </>
           )}
         </>
@@ -904,7 +1362,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       {sections('contrastEqualizer', [], (e) => (
         <>
           <NativeSelect.Root size="xs">
-            <NativeSelect.Field value={e.view.curve} onChange={(ev) => e.setView({ curve: ev.target.value as EqualizerCurve })} aria-label="Curve">
+            <NativeSelect.Field
+              value={e.view.curve}
+              onChange={(ev) => e.setView({ curve: ev.target.value as EqualizerCurve })}
+              aria-label="Curve"
+            >
               {EQUALIZER_CURVES.map((c) => (
                 <option key={c} value={c}>
                   {EQUALIZER_LABELS[c]}
@@ -927,49 +1389,134 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         </>
       ))}
 
-      {sections('filmic', [autoTuning], (e) => (
-        <>
-          <ParamSlider label="White relative exposure" min={1} max={10} hardMin={0.1} hardMax={16} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'whiteExposure')} />
-          <ParamSlider label="Black relative exposure" min={-14} max={-3} hardMin={-16} hardMax={-0.1} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'blackExposure')} />
-          <ParamSlider
-            label="Dynamic range scaling"
-            min={-50}
-            max={200}
-            step={1}
-            origin={0}
-            format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
-            {...bindRange(e, 'dynamicRangeScaling')}
-          />
-          <ParamSlider label="Contrast" min={0.5} max={3} hardMin={0} hardMax={5} step={0.01} format={fmt.fixed2} {...e.bind('contrast')} />
-          <ParamSlider label="Toe" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...e.bind('toe')} />
-          <ParamSlider label="Shoulder" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...e.bind('shoulder')} />
-          <ParamSlider label="Hue preservation" min={-100} max={100} step={1} format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`} {...e.bind('huePreservation')} />
-          <ParamSlider label="AgX bleach" min={0} max={BLEACH_LEVELS.length - 1} step={1} detents format={(i) => BLEACH_LABELS[BLEACH_LEVELS[i]!]} {...bindBleach(e)} />
-        </>
-      ), (e) => (
-        <IconButton
-          aria-label="Auto-tune filmic"
-          title="Auto-tune: set white and black relative exposure from the image"
-          size="2xs"
-          variant="ghost"
-          disabled={!e.enabled}
-          loading={autoTuning}
-          onClick={() => latest.current.onAutoTuneFilmic()}
-        >
-          <WandSparkles />
-        </IconButton>
-      ))}
+      {sections(
+        'filmic',
+        [autoTuning],
+        (e) => (
+          <>
+            <ParamSlider
+              label="White relative exposure"
+              min={1}
+              max={10}
+              hardMin={0.1}
+              hardMax={16}
+              step={0.05}
+              format={fmt.ev}
+              track={tracks.grey}
+              {...bindRange(e, 'whiteExposure')}
+            />
+            <ParamSlider
+              label="Black relative exposure"
+              min={-14}
+              max={-3}
+              hardMin={-16}
+              hardMax={-0.1}
+              step={0.05}
+              format={fmt.ev}
+              track={tracks.grey}
+              {...bindRange(e, 'blackExposure')}
+            />
+            <ParamSlider
+              label="Dynamic range scaling"
+              min={-50}
+              max={200}
+              step={1}
+              origin={0}
+              format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
+              {...bindRange(e, 'dynamicRangeScaling')}
+            />
+            <ParamSlider
+              label="Contrast"
+              min={0.5}
+              max={3}
+              hardMin={0}
+              hardMax={5}
+              step={0.01}
+              format={fmt.fixed2}
+              {...e.bind('contrast')}
+            />
+            <ParamSlider
+              label="Toe"
+              min={0}
+              max={100}
+              step={0.5}
+              format={(v) => `${v.toFixed(1)} %`}
+              {...e.bind('toe')}
+            />
+            <ParamSlider
+              label="Shoulder"
+              min={0}
+              max={100}
+              step={0.5}
+              format={(v) => `${v.toFixed(1)} %`}
+              {...e.bind('shoulder')}
+            />
+            <ParamSlider
+              label="Hue preservation"
+              min={-100}
+              max={100}
+              step={1}
+              format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
+              {...e.bind('huePreservation')}
+            />
+            <ParamSlider
+              label="AgX bleach"
+              min={0}
+              max={BLEACH_LEVELS.length - 1}
+              step={1}
+              detents
+              format={(i) => BLEACH_LABELS[BLEACH_LEVELS[i]!]}
+              {...bindBleach(e)}
+            />
+          </>
+        ),
+        (e) => (
+          <IconButton
+            aria-label="Auto-tune filmic"
+            title="Auto-tune: set white and black relative exposure from the image"
+            size="2xs"
+            variant="ghost"
+            disabled={!e.enabled}
+            loading={autoTuning}
+            onClick={() => latest.current.onAutoTuneFilmic()}
+          >
+            <WandSparkles />
+          </IconButton>
+        ),
+      )}
 
       {sections('sharpen', [], (e) => (
         <>
-          <ParamSlider label="Amount" min={0} max={2} hardMax={5} step={0.01} format={fmt.fixed2} {...e.bind('amount')} />
-          <ParamSlider label="Radius" min={0.3} max={5} step={0.05} format={(v) => `${v.toFixed(2)} px`} {...e.bind('radius')} />
+          <ParamSlider
+            label="Amount"
+            min={0}
+            max={2}
+            hardMax={5}
+            step={0.01}
+            format={fmt.fixed2}
+            {...e.bind('amount')}
+          />
+          <ParamSlider
+            label="Radius"
+            min={0.3}
+            max={5}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)} px`}
+            {...e.bind('radius')}
+          />
         </>
       ))}
 
       {sections('blur', [], (e) => (
         <>
-          <ParamSlider label="Radius" min={0} max={50} step={0.1} format={(v) => `${v.toFixed(1)} px`} {...e.bind('radius')} />
+          <ParamSlider
+            label="Radius"
+            min={0}
+            max={50}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)} px`}
+            {...e.bind('radius')}
+          />
         </>
       ))}
 
@@ -1004,14 +1551,30 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 <FlipHorizontal2 />
               </IconButton>
             </ButtonGroup>
-            <Button size="xs" variant={cropping ? 'solid' : 'outline'} colorPalette={cropping ? 'orange' : 'gray'} onClick={() => latest.current.onStartCrop()}>
+            <Button
+              size="xs"
+              variant={cropping ? 'solid' : 'outline'}
+              colorPalette={cropping ? 'orange' : 'gray'}
+              onClick={() => latest.current.onStartCrop()}
+            >
               <Crop /> {cropping ? 'Cropping…' : 'Crop'}
             </Button>
           </HStack>
-          <ParamSlider label="Straighten" min={-45} max={45} step={0.1} format={(v) => `${v.toFixed(1)}°`} {...e.bind('angle')} />
+          <ParamSlider
+            label="Straighten"
+            min={-45}
+            max={45}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)}°`}
+            {...e.bind('angle')}
+          />
           <HStack>
             <NativeSelect.Root size="xs" flex="1">
-              <NativeSelect.Field value={aspect} onChange={(e) => latest.current.onAspectChange(e.target.value)} aria-label="Crop aspect ratio">
+              <NativeSelect.Field
+                value={aspect}
+                onChange={(e) => latest.current.onAspectChange(e.target.value)}
+                aria-label="Crop aspect ratio"
+              >
                 {ASPECTS.map((a) => (
                   <option key={a.value} value={a.value}>
                     Aspect: {a.label}
@@ -1020,7 +1583,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               </NativeSelect.Field>
               <NativeSelect.Indicator />
             </NativeSelect.Root>
-            <Button size="xs" variant="ghost" disabled={!isCropped(e.values.crop)} onClick={() => e.set({ crop: { ...defaultModuleParams.geometry.crop } })}>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={!isCropped(e.values.crop)}
+              onClick={() => e.set({ crop: { ...defaultModuleParams.geometry.crop } })}
+            >
               Uncrop
             </Button>
           </HStack>

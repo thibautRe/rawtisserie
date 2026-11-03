@@ -8,7 +8,7 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
 - **Library**: every photo you own, filterable by EXIF metadata (camera, lens, ISO,
   focal length, aperture, date), tags, rating, flags and colour labels. Cull with the
   keyboard (rate, pick/reject, label, delete) and correct metadata. Originals are never
-  modified; edits live in the database. Each photo has one or more *versions* (like
+  modified; edits live in the database. Each photo has one or more _versions_ (like
   darktable duplicates), each with its own rating, labels and edit history.
 - **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
   new imports), exposure, colour calibration (white balance by chromatic adaptation and
@@ -108,14 +108,14 @@ server start; `npm run db:migrate` runs them by hand.
 
 ### Useful commands
 
-| Command                                           | What it does                                                    |
-| ------------------------------------------------- | --------------------------------------------------------------- |
-| `npm run build:wasm`                              | Rebuild the WebAssembly pipeline (`packages/pipeline/wasm`)     |
-| `npm run build`                                   | wasm + production web build (served by the API server)          |
-| `npm test`                                        | Rust tests + TS tests                                           |
-| `npm run typecheck`                               | TypeScript in every workspace                                   |
-| `npm run db:schema -w @rawtisserie/server`        | Regenerate DB types into `apps/server/src/__generated__`        |
-| `cargo run --release --example develop -- in.ARW out.jpg 2048 [params.json]` | Develop a file from the CLI |
+| Command                                                                      | What it does                                                |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `npm run build:wasm`                                                         | Rebuild the WebAssembly pipeline (`packages/pipeline/wasm`) |
+| `npm run build`                                                              | wasm + production web build (served by the API server)      |
+| `npm test`                                                                   | Rust tests + TS tests                                       |
+| `npm run typecheck`                                                          | TypeScript in every workspace                               |
+| `npm run db:schema -w @rawtisserie/server`                                   | Regenerate DB types into `apps/server/src/__generated__`    |
+| `cargo run --release --example develop -- in.ARW out.jpg 2048 [params.json]` | Develop a file from the CLI                                 |
 
 `RAWTISSERIE_SAMPLE=/path/to/file.ARW npm test -w @rawtisserie/pipeline` also runs a
 real decode-and-render through the wasm module.
@@ -151,14 +151,14 @@ latitude 10 %, balance 0.
 
 **Auto-tune** follows Ansel's `autoset`. It measures filmic's input over the image as
 displayed (after crop): white relative exposure from the brightest max(R, G, B), black
-from the darkest luminance, both scaled by *dynamic range scaling*. The one deviation
+from the darkest luminance, both scaled by _dynamic range scaling_. The one deviation
 is that the extreme 0.01 % at each end is ignored, so a few noisy or hot pixels can't
 decide the range.
 
 ### Colour calibration
 
 `ops/calibration.rs` ports Ansel's `channelmixerrgb` ("color calibration"), the way Ansel
-does white balance: the base image is balanced with the camera's *reference*
+does white balance: the base image is balanced with the camera's _reference_
 multipliers, which make D65 light neutral, and colour calibration adapts the scene's
 light to D65 with CAT16 (or linear Bradford, XYZ, or none). Every recipe starts with an
 instance set to the **as-shot** light, which follows the file; the illuminant can also be

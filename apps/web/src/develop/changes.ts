@@ -27,7 +27,9 @@ export interface Change {
 export function instanceTitle(recipe: EditParams, m: Pick<ModuleInstance, 'id' | 'kind' | 'label'>): string {
   if (m.label) return `${MODULE_TITLES[m.kind]} (${m.label})`;
   const siblings = recipe.modules.filter((x) => x.kind === m.kind);
-  return siblings.length > 1 ? `${MODULE_TITLES[m.kind]} ${siblings.findIndex((x) => x.id === m.id) + 1}` : MODULE_TITLES[m.kind];
+  return siblings.length > 1
+    ? `${MODULE_TITLES[m.kind]} ${siblings.findIndex((x) => x.id === m.id) + 1}`
+    : MODULE_TITLES[m.kind];
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -42,12 +44,19 @@ function formatValue(v: unknown): string | null {
   return null;
 }
 
-function describeInstance(recipes: { before: EditParams; after: EditParams }, before: ModuleInstance | undefined, after: ModuleInstance | undefined): Change {
+function describeInstance(
+  recipes: { before: EditParams; after: EditParams },
+  before: ModuleInstance | undefined,
+  after: ModuleInstance | undefined,
+): Change {
   const m = (after ?? before)!;
   const hasKind = (r: EditParams) => r.modules.some((x) => x.kind === m.kind);
   const title = instanceTitle(after ? recipes.after : recipes.before, m);
   const structural = (word: string): Change => ({ label: `${title}: ${word}`, moduleId: m.id, structural: true });
-  if (!after) return hasKind(recipes.after) ? structural('removed') : { label: `${title}: reset`, moduleId: m.id, structural: false };
+  if (!after)
+    return hasKind(recipes.after)
+      ? structural('removed')
+      : { label: `${title}: reset`, moduleId: m.id, structural: false };
   if (!before && hasKind(recipes.before)) return structural('added');
   if (before && before.label !== after.label) return structural('renamed');
   const parts: string[] = [];

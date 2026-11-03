@@ -30,7 +30,11 @@ export function describeDeletion(versions: Version[]) {
       `${removed === 1 ? 'its original RAW file' : 'their original RAW files'} will be permanently removed too.`
     : `The edit history and curation of ${n === 1 ? 'this version' : 'these versions'} will be removed. ` +
       'The original RAW files stay, with their other versions.';
-  return { title: `Delete ${plural(n, 'version', 'versions')}?`, body, done: `Deleted ${plural(n, 'version', 'versions')}` };
+  return {
+    title: `Delete ${plural(n, 'version', 'versions')}?`,
+    body,
+    done: `Deleted ${plural(n, 'version', 'versions')}`,
+  };
 }
 
 export function DeleteVersionsDialog<T extends Version>({

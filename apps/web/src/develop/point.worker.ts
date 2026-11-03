@@ -31,7 +31,8 @@ self.onmessage = async (event: MessageEvent<PointRequest>) => {
     img.free();
     post({ type: 'rendered', id: msg.id, data: data.buffer as ArrayBuffer }, [data.buffer as ArrayBuffer]);
   } catch (err) {
-    if (msg.type === 'render') post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
+    if (msg.type === 'render')
+      post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
     else console.error(err);
   }
 };

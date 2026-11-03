@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type EditParams, addInstance, defaultEditParams, defaultModuleParams, moveInstance, removeInstance, updateInstance, updateModule } from '@rawtisserie/pipeline';
+import {
+  type EditParams,
+  addInstance,
+  defaultEditParams,
+  defaultModuleParams,
+  moveInstance,
+  removeInstance,
+  updateInstance,
+  updateModule,
+} from '@rawtisserie/pipeline';
 import { type HistoryOp, HistoryStore, compressHistory } from './history.ts';
 
 const exposure = (p: EditParams, ev: number) => updateModule(p, 'exposure', { params: { ev } });
@@ -109,6 +118,9 @@ test('compress keeps a change of order', () => {
   const original = addInstance(defaultEditParams, 'exposure');
   const moved = moveInstance(original, 'exposure-2', -1);
   const out = compressHistory(original, [at(moved)]);
-  assert.deepEqual(out.map((e) => e.label), ['Exposure: reordered']);
+  assert.deepEqual(
+    out.map((e) => e.label),
+    ['Exposure: reordered'],
+  );
   assert.deepEqual(out.at(-1)!.recipe, moved);
 });

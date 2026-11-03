@@ -41,12 +41,26 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
 {
   "version": 3,
   "modules": [
-    { "id": "m1", "kind": "exposure", "label": null, "enabled": true,
-      "params": { "ev": 0.7, "black": 0 }, "mask": null, "opacity": 1 },
-    { "id": "m2", "kind": "exposure", "label": "sky", "enabled": true,
-      "params": { "ev": -0.5, "black": 0 }, "mask": { /* M4 */ }, "opacity": 1 },
-    { "id": "m3", "kind": "filmic", "enabled": true, "params": { /* … */ } }
-  ]
+    {
+      "id": "m1",
+      "kind": "exposure",
+      "label": null,
+      "enabled": true,
+      "params": { "ev": 0.7, "black": 0 },
+      "mask": null,
+      "opacity": 1,
+    },
+    {
+      "id": "m2",
+      "kind": "exposure",
+      "label": "sky",
+      "enabled": true,
+      "params": { "ev": -0.5, "black": 0 },
+      "mask": {/* M4 */},
+      "opacity": 1,
+    },
+    { "id": "m3", "kind": "filmic", "enabled": true, "params": {/* … */} },
+  ],
 }
 ```
 
@@ -68,6 +82,7 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
   Spatial stages run before point stages. This is already the case and keeps
   exposure/colour sliders cheap. It requires spatial modules to be exposure-invariant
   (see 3.3).
+
 - **Migration:** a pure `v2 → v3` function in Rust and TS (each section becomes one
   instance). It's cheap and deterministic, so worth doing even for test content.
 - **Image-specific defaults:** add `default_recipe(metadata)` (Ansel's `reload_defaults`)
@@ -89,11 +104,11 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
 
 Split "the file" from "an edit of the file", like darktable duplicates:
 
-| Table | Holds |
-|---|---|
-| `photos` | original file, sha256, EXIF/metadata (unchanged) |
-| `versions` (new) | `photo_id`, `name`, `position`, rating, flag, colour label, title/description/tags, `history_end`, `revision`, render status/version |
-| `history_entries` (new) | `version_id`, `seq`, `created_at`, `label` ("exposure +0.3 EV"), `recipe jsonb` (full snapshot) |
+| Table                   | Holds                                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `photos`                | original file, sha256, EXIF/metadata (unchanged)                                                                                     |
+| `versions` (new)        | `photo_id`, `name`, `position`, rating, flag, colour label, title/description/tags, `history_end`, `revision`, render status/version |
+| `history_entries` (new) | `version_id`, `seq`, `created_at`, `label` ("exposure +0.3 EV"), `recipe jsonb` (full snapshot)                                      |
 
 - Full recipe snapshots per entry keep reads trivial (a few KB each); compress later if needed.
 - **Decision:** ratings, flags and labels move to versions, so variants can be culled
@@ -389,7 +404,7 @@ white balance and is the most common target for masked instances.
   `default_recipe` hook from 1.1, and auto lens correction can simply be a built-in
   rule.
 - Table: `presets(id, owner_id, name, kind: module|style, module_kind, payload jsonb,
-  auto_apply jsonb, position)`.
+auto_apply jsonb, position)`.
 - A style that includes masked instances or retouch spots carries the shapes they
   reference (see 4.3).
 
@@ -402,13 +417,19 @@ recipe level, and referenced by id. This is darktable's "forms" and mask manager
 {
   "version": 3,
   "shapes": {
-    "s1": { "type": "ellipse", "center": [0.42, 0.31], "radii": [0.08, 0.05], "rotation": 0.3,
-            "feather": 0.02, "opacity": 1 },
+    "s1": {
+      "type": "ellipse",
+      "center": [0.42, 0.31],
+      "radii": [0.08, 0.05],
+      "rotation": 0.3,
+      "feather": 0.02,
+      "opacity": 1,
+    },
     "s2": { "type": "gradient", "anchor": [0.5, 0.4], "angle": 1.57, "width": 0.1 },
-    "s3": { "type": "path", "points": [[0.1, 0.2, /* Bézier handles… */]], "feather": 0.01 },
-    "s4": { "type": "brush", "points": [[0.3, 0.3, 0.004 /* radius */, 0.8 /* hardness */]] }
+    "s3": { "type": "path", "points": [[0.1, 0.2 /* Bézier handles… */]], "feather": 0.01 },
+    "s4": { "type": "brush", "points": [[0.3, 0.3, 0.004 /* radius */, 0.8 /* hardness */]] },
   },
-  "modules": [ /* masks and retouch spots reference "s1"… */ ]
+  "modules": [/* masks and retouch spots reference "s1"… */],
 }
 ```
 
@@ -453,14 +474,19 @@ For dust spots, sensor and lens marks, hot spots and skin blemishes. It follows 
 `retouch.c`.
 
 ```jsonc
-{ "id": "m9", "kind": "retouch", "params": {
+{
+  "id": "m9",
+  "kind": "retouch",
+  "params": {
     "spots": [
       { "shape": "s5", "mode": "heal", "source": [0.03, -0.01], "opacity": 1 },
       { "shape": "s6", "mode": "clone", "source": [-0.02, 0.0], "opacity": 0.8 },
       { "shape": "s7", "mode": "fill", "color": [0.18, 0.18, 0.18] },
-      { "shape": "s8", "mode": "blur", "radius": 6 }
+      { "shape": "s8", "mode": "blur", "radius": 6 },
     ],
-    "scales": null /* or [2, 5]: only these wavelet scales */ } }
+    "scales": null /* or [2, 5]: only these wavelet scales */,
+  },
+}
 ```
 
 - **Modes:** heal (copy the source, then match it to the target's surroundings), clone,
@@ -621,6 +647,7 @@ Ideas, roughly by value for effort:
   > bit-identical between runs and between debug and release builds, and +0.02 EV on
   > one recipe already gives a mean of about 0.5. New modules should add a recipe that
   > uses them (for 3.1, one with lens correction on).
+
 - **Performance budget:** extend `bench.rs` per module and record numbers in PRs
   (findings so far: [PERFORMANCE.md](PERFORMANCE.md)).
   Point modules must not use transcendental functions per pixel; anything nontrivial

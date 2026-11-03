@@ -96,7 +96,14 @@ export function CropOverlay({ rect, aspect, frameAspect, onChange }: Props) {
 
   const pct = (v: number) => `${v * 100}%`;
   return (
-    <Box ref={box} position="absolute" inset="0" onPointerMove={onPointerMove} onPointerUp={() => (drag.current = null)} touchAction="none">
+    <Box
+      ref={box}
+      position="absolute"
+      inset="0"
+      onPointerMove={onPointerMove}
+      onPointerUp={() => (drag.current = null)}
+      touchAction="none"
+    >
       <Box
         position="absolute"
         left={pct(rect.x)}
@@ -110,10 +117,24 @@ export function CropOverlay({ rect, aspect, frameAspect, onChange }: Props) {
       >
         {/* rule of thirds */}
         {[1, 2].map((i) => (
-          <Box key={`v${i}`} position="absolute" top="0" bottom="0" left={`${(i * 100) / 3}%`} borderLeft="1px solid rgba(255,255,255,.35)" />
+          <Box
+            key={`v${i}`}
+            position="absolute"
+            top="0"
+            bottom="0"
+            left={`${(i * 100) / 3}%`}
+            borderLeft="1px solid rgba(255,255,255,.35)"
+          />
         ))}
         {[1, 2].map((i) => (
-          <Box key={`h${i}`} position="absolute" left="0" right="0" top={`${(i * 100) / 3}%`} borderTop="1px solid rgba(255,255,255,.35)" />
+          <Box
+            key={`h${i}`}
+            position="absolute"
+            left="0"
+            right="0"
+            top={`${(i * 100) / 3}%`}
+            borderTop="1px solid rgba(255,255,255,.35)"
+          />
         ))}
         {handle('nw', { left: '0', top: '0' })}
         {handle('ne', { left: '100%', top: '0' })}

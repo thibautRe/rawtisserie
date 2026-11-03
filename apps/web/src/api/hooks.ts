@@ -145,7 +145,8 @@ function refreshVersions(qc: QueryClient) {
 export function useUpdatePhoto() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: PhotoPatch }) => api.patch<PhotoDetail>(`/api/versions/${id}`, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: PhotoPatch }) =>
+      api.patch<PhotoDetail>(`/api/versions/${id}`, patch),
     onMutate: ({ id, patch }) => updateCachedPhotos(qc, [id], (p) => ({ ...p, ...patch })),
     onSuccess: (photo) => {
       qc.setQueryData(['photo', photo.id], photo);
