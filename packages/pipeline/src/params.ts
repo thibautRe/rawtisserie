@@ -147,7 +147,11 @@ export interface ModuleParams {
     /** AgX hue recovery: -100 keeps the film-like drift, +100 restores original hues. */
     huePreservation: number;
     bleach: Bleach;
-    /** Widens (+) or narrows (-) the range found by auto-tune, %, -50 … +200. */
+    /**
+     * How much the white/black range is widened (+) or narrowed (-) from the unscaled one,
+     * %, -50 … +200. Auto-tune applies it to the measured range; the editor keeps it in
+     * step with the white and black exposures (`apps/web/src/develop/filmicRange.ts`).
+     */
     dynamicRangeScaling: number;
   };
 }

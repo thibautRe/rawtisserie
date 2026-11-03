@@ -18,6 +18,11 @@ interface Props {
   scale?: number;
   /** A CSS gradient for the track, instead of a filled range. */
   track?: string;
+  /**
+   * Where the filled range starts. Defaults to the middle for symmetric ranges and to the
+   * start otherwise; set it for a neutral point elsewhere (0 in -50 … +200).
+   */
+  origin?: number;
   /** Steps through an enumeration: shows a tick per value, with no typing or modifiers. */
   detents?: boolean;
   disabled?: boolean;
@@ -29,6 +34,9 @@ const signed = (digits: number) => (v: number) => `${v > 0 ? '+' : ''}${v.toFixe
 export const fmt = { ev: (v: number) => `${signed(2)(v)} EV`, signed2: signed(2), fixed2: (v: number) => v.toFixed(2) };
 
 const KEY_STEPS: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1, PageUp: 10, PageDown: -10 };
+
+/** The filled range, as `Slider.Range` draws it (orange.solid/70). */
+const FILL = 'color-mix(in srgb, var(--chakra-colors-orange-solid) 70%, transparent)';
 
 /** The part of the track outside the useful range. */
 const PAST_RANGE = 'var(--chakra-colors-yellow-solid)';
@@ -49,7 +57,7 @@ const PAST_RANGE = 'var(--chakra-colors-yellow-solid)';
  * write those inline, so they must not depend on render state (read the latest recipe at
  * call time), and a slider that gets rebound to something else needs a new `key`.
  */
-export const ParamSlider = memo(function ParamSlider({ label, value, min, max, hardMin = min, hardMax = max, step, defaultValue, format = fmt.signed2, scale = 1, track, detents, disabled, onChange, onCommit }: Props) {
+export const ParamSlider = memo(function ParamSlider({ label, value, min, max, hardMin = min, hardMax = max, step, defaultValue, format = fmt.signed2, scale = 1, track, origin, detents, disabled, onChange, onCommit }: Props) {
   const range: SliderRange = { min, max, step, fine: step };
   const [typing, setTyping] = useState(false);
   const [extent, setExtent] = useState<Extent>(() => growExtent([min, max], value, range));
@@ -203,14 +211,36 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, h
       </HStack>
       <Slider.Control minH="3.5">
         <Slider.Track h="2px" bg="bg.emphasized">
-          {track ? <div style={{ ...segment, left: percent(min), right: `calc(100% - ${percent(max)})`, background: track }} /> : <Slider.Range bg="orange.solid/70" />}
+          {track ? (
+            <div style={{ ...segment, left: percent(min), right: `calc(100% - ${percent(max)})`, background: track }} />
+          ) : detents ? (
+            // From the first dot, which is inset like the thumb (the slider's range starts at the track's edge).
+            <div style={{ ...segment, left: 'calc(var(--slider-thumb-width) / 2)', width: 'calc(var(--slider-thumb-offset-0) - var(--slider-thumb-width) / 2)', background: FILL }} />
+          ) : origin !== undefined ? (
+            <div style={{ ...segment, left: percent(Math.min(origin, value)), right: `calc(100% - ${percent(Math.max(origin, value))})`, background: FILL }} />
+          ) : (
+            <Slider.Range bg="orange.solid/70" />
+          )}
           {lo < min && <div style={{ ...segment, left: 0, width: percent(min), background: PAST_RANGE }} />}
           {hi > max && <div style={{ ...segment, left: percent(max), right: 0, background: PAST_RANGE }} />}
         </Slider.Track>
         <Slider.Thumb index={0} boxSize="2.5" bg="fg.muted" borderWidth="0" boxShadow="xs" _hover={{ bg: 'fg' }} _focusVisible={{ bg: 'fg', outline: '2px solid', outlineColor: 'orange.solid' }}>
           <Slider.HiddenInput />
         </Slider.Thumb>
-        {detents && <Slider.Marks marks={Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => min + i * step)} />}
+        {/*
+          Chakra places the dots for its own thumb size: centre them on the track, spanning it
+          like the thumb. In the thumb's colour, also on the filled range (Chakra's turn into holes there), and
+          under the thumb (whose z-index drops to the dots' while it has focus).
+        */}
+        {detents && (
+          <Slider.MarkerGroup top="calc(50% - var(--slider-marker-size) / 2)" insetInline="0" zIndex="0">
+            {Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => min + i * step).map((v) => (
+              <Slider.Marker key={v} value={v}>
+                <Slider.MarkerIndicator bg="fg.muted" />
+              </Slider.Marker>
+            ))}
+          </Slider.MarkerGroup>
+        )}
       </Slider.Control>
     </Slider.Root>
   );
@@ -225,6 +255,7 @@ export const ParamSlider = memo(function ParamSlider({ label, value, min, max, h
   a.defaultValue === b.defaultValue &&
   a.scale === b.scale &&
   a.track === b.track &&
+  a.origin === b.origin &&
   a.detents === b.detents &&
   a.disabled === b.disabled,
 );

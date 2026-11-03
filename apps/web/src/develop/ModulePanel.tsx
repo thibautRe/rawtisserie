@@ -57,6 +57,7 @@ import { Fragment, memo, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor } from './CurveEditor.tsx';
+import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import type { IlluminantDetection } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
@@ -579,6 +580,26 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     };
   };
 
+  // A drag on a filmic range slider works from the values it started with, so that a
+  // clamped white or black doesn't drift.
+  const rangeDrag = useRef<{ id: string; key: keyof FilmicRange; from: FilmicRange } | null>(null);
+
+  /** Props for filmic's white, black and dynamic range scaling sliders, which move each other. */
+  const bindRange = (e: ReturnType<typeof editor<'filmic'>>, key: keyof FilmicRange) => {
+    const with_ = (v: number, done: boolean) => {
+      const drag = rangeDrag.current;
+      const from = drag && drag.id === e.id && drag.key === key ? drag.from : pickRange(e.current());
+      rangeDrag.current = done ? null : { id: e.id, key, from };
+      return e.edit(moveRange(from, key, v));
+    };
+    return {
+      value: e.values[key],
+      defaultValue: e.defaults[key],
+      onChange: (v: number) => latest.current.onChange(with_(v, false)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v, true)),
+    };
+  };
+
   return (
     <Box px="3">
       {sections('exposure', [], (e) => (
@@ -892,8 +913,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
 
       {sections('filmic', [autoTuning], (e) => (
         <>
-          <ParamSlider label="White relative exposure" min={1} max={10} hardMin={0.1} hardMax={16} step={0.05} format={fmt.ev} track={tracks.grey} {...e.bind('whiteExposure')} />
-          <ParamSlider label="Black relative exposure" min={-14} max={-3} hardMin={-16} hardMax={-0.1} step={0.05} format={fmt.ev} track={tracks.grey} {...e.bind('blackExposure')} />
+          <ParamSlider label="White relative exposure" min={1} max={10} hardMin={0.1} hardMax={16} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'whiteExposure')} />
+          <ParamSlider label="Black relative exposure" min={-14} max={-3} hardMin={-16} hardMax={-0.1} step={0.05} format={fmt.ev} track={tracks.grey} {...bindRange(e, 'blackExposure')} />
           <HStack justify="space-between">
             <Button
               size="2xs"
@@ -910,12 +931,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             </Text>
           </HStack>
           <ParamSlider
-            label="Dynamic range scaling (auto-tune)"
+            label="Dynamic range scaling"
             min={-50}
             max={200}
             step={1}
+            origin={0}
             format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
-            {...e.bind('dynamicRangeScaling')}
+            {...bindRange(e, 'dynamicRangeScaling')}
           />
           <ParamSlider label="Contrast" min={0.5} max={3} hardMin={0} hardMax={5} step={0.01} format={fmt.fixed2} {...e.bind('contrast')} />
           <ParamSlider label="Toe" min={0} max={100} step={0.5} format={(v) => `${v.toFixed(1)} %`} {...e.bind('toe')} />

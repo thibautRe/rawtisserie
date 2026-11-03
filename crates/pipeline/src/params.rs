@@ -727,7 +727,9 @@ pub struct Filmic {
     pub hue_preservation: f32,
     /// How strongly bright saturated colours bleach toward white.
     pub bleach: Bleach,
-    /// Widens (+) or narrows (-) the range found by auto-tune, in %, -50 … +200.
+    /// How much the white/black range is widened (+) or narrowed (-) from the unscaled
+    /// one, in %, -50 … +200. Auto-tune applies it to the measured range; the editor
+    /// keeps it in step with the white and black exposures.
     pub dynamic_range_scaling: f32,
 }
 
