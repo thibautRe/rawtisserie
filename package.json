@@ -19,6 +19,11 @@
     "db:up": "./scripts/db-up.sh",
     "db:migrate": "npm run db:migrate -w @rawtisserie/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "cargo test --workspace && npm test --workspaces --if-present"
+    "test": "cargo test --workspace && npm test --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
   }
 }
