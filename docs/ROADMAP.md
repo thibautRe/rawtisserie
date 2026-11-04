@@ -20,6 +20,7 @@ M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipp
                  ├─▶ M4 Creative control (module instances, presets, shapes, retouch, masks)
                  └─▶ M5 Compare
 M6 Cloud processing ── independent; can start any time (native renderer first)
+M7 Hosted service ──── storage, quotas, history size, local originals; 7.1 before a public launch
 ```
 
 Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or more.
@@ -111,7 +112,8 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 | `versions` (new)        | `photo_id`, `name`, `position`, rating, flag, colour label, title/description/tags, `history_end`, `revision`, render status/version |
 | `history_entries` (new) | `version_id`, `seq`, `created_at`, `label` ("exposure +0.3 EV"), `recipe jsonb` (full snapshot)                                      |
 
-- Full recipe snapshots per entry keep reads trivial (a few KB each); compress later if needed.
+- Full recipe snapshots per entry keep reads trivial (a few KB each); compress later if
+  needed (see 7.7).
 - **Decision:** ratings, flags and labels move to versions, so variants can be culled
   separately. EXIF stays on photos.
 - The library grid lists versions; versions of the same photo show a stack badge.
@@ -598,9 +600,17 @@ A module's mask combines drawn shapes (4.3) with parametric ranges:
    cloud processing. Also a per-user setting: auto / local / cloud.
 5. **Scope.** Library photos only, since their originals are already on the server. In
    the public developer, cloud processing would mean uploading the file, so it is off
-   there unless the user explicitly opts in.
+   there unless the user explicitly opts in. Photos with local originals (7.8) upload
+   the original into the session only; it is deleted when the session is evicted.
 6. **Operations.** Concurrency limits, per-user quotas, a memory budget per worker, and
    metrics (render time, queue time, frame size).
+   - Meter session time per user (open, active, evicted), so a paid add-on can have a
+     fair-use allowance in hours and the quotas have something to count.
+   - Capacity is set by peak concurrent sessions (evenings, weekends), not by total
+     hours: memory per session decides how many fit on a worker. Record peak
+     concurrency against the number of users allowed to use cloud processing.
+   - Originals are read over the storage provider's internal network (free at OVH),
+     so render workers should run in the same region as the object storage (7.1).
 
 Prerequisite worth doing early: introduce `RenderBackend` while the developer is still
 small, even with only the local implementation.
@@ -608,6 +618,141 @@ small, even with only the local implementation.
 > **Done** (`develop/renderBackend.ts`). As built: the interface covers `render`,
 > `exportJpeg`, `autoTuneFilmic` and `dispose`. Loading stays on `LocalRenderBackend`
 > (`load(bytes)`), since a remote backend would open a session by version id instead.
+
+---
+
+## M7 — Hosted service: storage, quotas, history size (L–XL overall)
+
+What a hosted, multi-user instance needs to keep its per-user costs low and predictable.
+Originals dominate storage (25–120 MB each; previews add ~0.7 MB per version), and
+database storage costs far more per GB than object storage, so the history matters too.
+Target hosting is OVH (object storage and managed Postgres), but everything goes through
+the S3 API so the provider stays a configuration choice.
+
+### 7.1 Object storage backend (M)
+
+`photos/storage.ts` writes to local disk (`STORAGE_DIR`). Put it behind an interface
+with two implementations: local disk (development and self-hosting) and S3-compatible
+object storage.
+
+- Same keys as today: originals by `storage_key`, renders by version id.
+- Uploads stream to object storage while hashing, as they stream to a temp file today.
+- `GET /api/photos/:id/original` and render URLs can redirect to short-lived presigned
+  URLs instead of proxying the bytes through the server.
+- Thumbnails and previews stay in the standard (hot) class: small and read constantly.
+
+### 7.2 Storage tiers for originals (M, after 7.1)
+
+Most originals are opened in the weeks after import, then rarely. Keep new imports in
+the standard class and move originals that haven't been opened for N days (60–90) to a
+cheaper class (OVH Infrequent Access, or Active Archive if its reads are immediate).
+
+- Add `photos.last_opened_at`, updated when the developer loads the original, on export,
+  and on server renders.
+- The cheaper classes bill a minimum duration (30–90 days) and every GB read. Don't
+  move recent imports (rejects get deleted early), and avoid bulk reads (7.4, exports
+  of a whole library).
+- App-driven moves (copy, verify, delete) work everywhere; use the provider's lifecycle
+  rules instead if they support transitions.
+
+### 7.3 Backups and soft delete (S–M, after 7.1)
+
+Multi-zone storage protects against losing a data centre, not against bugs, mistakes or
+losing the account.
+
+- Copy originals to a second provider (e.g. Scaleway Glacier or a Hetzner Storage Box).
+  If the archive class works per bucket, use one bucket per month of imports.
+- Soft delete: deleted originals are kept ~30 days before being removed (also in the
+  backup), so an accidental delete or a bug can be undone.
+- Postgres backups follow the same rule: in another provider or region, with restores
+  tested.
+
+### 7.4 Lazy re-renders (S–M)
+
+Breaking look changes set `render_status = 'pending'` on every version (migrations
+`00002`, `00004`), so the server reads every original again. With 7.2 that becomes a
+bill for each migration and a slow queue.
+
+- Re-render recently opened versions right away; mark the others stale and re-render
+  them when they're shown in the grid or opened (a priority queue: visible first).
+- Update the note in `CLAUDE.md` about migrations when this lands.
+
+### 7.5 Quotas and usage (M, after 7.1)
+
+- Count bytes per user (originals + renders), kept up to date on upload and delete
+  rather than computed by summing on each request.
+- Refuse uploads over quota with a clear message; show usage in the app, warn at 80 %
+  and 100 %.
+- A photo-count limit for libraries whose originals stay local (7.8).
+- Free libraries that stay inactive for a long time are removed after notice.
+
+### 7.6 Purge rejected photos (S)
+
+Many photographers keep everything, rejects included.
+
+- A "Delete rejected" action in the library (reusing `DeleteVersionsDialog`): deletes
+  rejected versions, and their photos once no version is left.
+- Opt-in automatic deletion of versions rejected more than 30 days ago, with a reminder
+  before it runs. Goes through soft delete (7.3).
+
+### 7.7 History size (M)
+
+Every `history_entries` row holds a full recipe (a few KB), and autosave adds many per
+edited version. Measure first: track history size per user.
+
+1. **Diffs.** Store each entry as a diff from the previous one, with a full snapshot
+   every N entries. The API is unchanged: the server rebuilds full recipes on read, and
+   `splice`/`goto` ops keep working.
+2. **Cold history in object storage.** The history of versions not opened for months
+   moves to object storage as gzipped JSON, keeping only the current recipe in the
+   database. It's loaded back when the version is opened.
+3. **Automatic compression.** Run "Compress history" (2.2: one entry per instance that
+   differs from the original) on versions untouched for N months. It drops
+   entries the user didn't choose to drop, so it's a user setting and the default
+   needs a decision. Lossless steps 1–2 come first.
+
+### 7.8 Local originals (L)
+
+A library whose originals stay on the user's disk or NAS: the server keeps previews,
+recipes, history and metadata (~0.7 MB per photo instead of the whole RAW). The browser
+already decodes and renders RAWs (`LocalRenderBackend`), and `photos.sha256`
+identifies files.
+
+- **Schema:** `photos.storage_key` becomes nullable, plus a `storage` column
+  (`'cloud' | 'local'`, a SQL `CHECK`), `relative_path`, and a `library_roots` table
+  (one row per folder the user picked).
+- **Import in the browser:** pick a folder (`showDirectoryPicker()`; the handle is kept
+  in IndexedDB, and Chrome can keep the permission across visits). On a small worker
+  pool: read, hash, `load()` for metadata, render the thumbnail and preview with the
+  default recipe, then upload metadata, hash, path and JPEGs to a new endpoint. The
+  original never leaves the device. Resumable, and it skips known hashes.
+- **Developer:** reads the file through the folder handle instead of `fetchBytes`. If
+  it's missing or changed (size and date), a "locate" flow rescans the folder, matching
+  by name and size, then hash.
+- **Renders:** the server queue skips local photos. The browser renders and uploads
+  the preview after edits, and re-renders stale previews (7.4) in the background when
+  the folder is connected.
+- **Export** runs in the browser (`exportJpeg`). Other devices see the whole library;
+  editing needs the files ("original not on this device" badge).
+- **Moving:** "Upload originals" for a selection turns local photos into cloud ones;
+  making a cloud photo local only deletes the cloud copy after checking the local
+  file's hash.
+- **Browsers:** Firefox and Safari have no directory handles, so they re-pick the folder
+  each session (`<input webkitdirectory>` or drag and drop).
+
+### 7.9 Plans and billing (M, after 7.5)
+
+Plans are enforced in the app: storage quota, whether originals are stored (7.8),
+cloud processing entitlement and its fair-use hours (M6). Payment through Stripe or a
+merchant of record (which handles EU VAT), annual billing as the default. Prices and
+plans themselves are decided outside this repo.
+
+### 7.10 Self-hosted object storage (XL, later)
+
+At a few hundred TB, S3-compatible storage run on dedicated storage servers (MinIO,
+Ceph or Garage) can cost several times less per TB than managed object storage, at the
+price of operating it (disk replacement, monitoring, on-call). Only once 7.1 makes the
+backend a configuration choice and the volume justifies it.
 
 ---
 
@@ -694,3 +839,6 @@ Ideas, roughly by value for effort:
 6. M5 compare.
 7. M6 cloud processing. Move it earlier if slow-hardware users are a near-term priority;
    step 1 (the native renderer) is useful on its own.
+8. M7 hosted service, before opening sign-ups: 7.1 → 7.3 → 7.4 → 7.5 (and 7.6 with it),
+   then 7.9. 7.2 and 7.7 once storage and database costs are worth the complexity; 7.8
+   can start any time (it doesn't need 7.1); 7.10 only at a few hundred TB.
