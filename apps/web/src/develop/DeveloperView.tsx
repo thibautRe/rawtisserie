@@ -293,9 +293,10 @@ export function DeveloperView({
             mode: scopes.mode,
             width: Math.round(scopeWidth * scopeDpr),
             height: Math.round(scopeCssHeight * scopeDpr),
+            zoom: scopes.mode === 'vectorscope' ? scopes.zoom : 1,
           }
         : null,
-    [scopes.open, scopes.mode, scopeWidth, scopeCssHeight, scopeDpr],
+    [scopes.open, scopes.mode, scopes.zoom, scopeWidth, scopeCssHeight, scopeDpr],
   );
   const { margin, frameWidth } = assessmentLayout(size, assessment);
   const job = useMemo(() => {

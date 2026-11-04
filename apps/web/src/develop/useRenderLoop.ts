@@ -2,6 +2,7 @@ import type { EditParams } from '@rawtisserie/pipeline';
 import { useEffect, useRef, useState } from 'react';
 import type { Frame, RenderBackend } from './renderBackend.ts';
 import type { Overlays, Region } from './protocol.ts';
+import type { ScopeRequest } from './scopes.ts';
 
 export interface Job {
   params: EditParams;
@@ -13,6 +14,8 @@ export interface Job {
   /** Fraction of the full size actually rendered (< 1 for drafts). */
   scale: number;
   overlays: Overlays;
+  /** A scope to draw from the render. */
+  scope?: ScopeRequest | null;
 }
 
 /**
@@ -40,6 +43,7 @@ export function useRenderLoop(backend: RenderBackend | null, job: Job | null) {
           j.overlays,
           full,
           j.region && scaleRegion(j.region, j.scale),
+          j.scope,
         );
         setShown({ frame, job: j });
         setError(null);

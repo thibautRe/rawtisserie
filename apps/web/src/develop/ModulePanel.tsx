@@ -5,6 +5,7 @@ import {
   HStack,
   Heading,
   IconButton,
+  Input,
   Menu,
   NativeSelect,
   Portal,
@@ -72,6 +73,7 @@ import {
 } from '@rawtisserie/pipeline';
 import {
   ArrowDown,
+  ArrowLeftRight,
   ArrowUp,
   ChevronDown,
   ChevronRight,
@@ -89,6 +91,7 @@ import {
 } from 'lucide-react';
 import { Fragment, memo, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
+import { ASPECTS, type CropAspect, aspectLabel, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor } from './CurveEditor.tsx';
 import type { PresetInput } from '../api/hooks.ts';
@@ -114,8 +117,13 @@ interface Props {
   onSavePreset: PresetLibrary['save'];
   onDeletePreset: (preset: ModulePreset) => void;
   cropping: boolean;
-  aspect: string;
-  onAspectChange: (aspect: string) => void;
+  aspect: CropAspect;
+  /** Pick a value of `ASPECTS`. */
+  onAspectChange: (preset: string) => void;
+  /** Set the custom ratio's text. */
+  onCustomAspectChange: (text: string) => void;
+  /** Swap the crop's width and height. */
+  onFlipAspect: () => void;
   onStartCrop: () => void;
   /** Measure filmic's white/black relative exposures on the image. */
   onAutoTuneFilmic: () => void;
@@ -125,19 +133,6 @@ interface Props {
   /** The instance whose light is being measured. */
   detecting: string | null;
 }
-
-export const ASPECTS = [
-  { value: 'free', label: 'Free', ratio: null },
-  { value: 'original', label: 'Original', ratio: 'original' },
-  { value: '1:1', label: '1:1', ratio: 1 },
-  { value: '3:2', label: '3:2', ratio: 3 / 2 },
-  { value: '4:3', label: '4:3', ratio: 4 / 3 },
-  { value: '5:4', label: '5:4', ratio: 5 / 4 },
-  { value: '16:9', label: '16:9', ratio: 16 / 9 },
-  { value: '2:3', label: '2:3', ratio: 2 / 3 },
-  { value: '4:5', label: '4:5', ratio: 4 / 5 },
-  { value: '9:16', label: '9:16', ratio: 9 / 16 },
-] as const;
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
 
@@ -490,6 +485,14 @@ const DEFAULT_VIEW: InstanceView = {
   mixer: 'primaries',
   angles: {},
 };
+
+/** A typed ratio the other way round (`51:48` → `48:51`), as shown once swapped. */
+function flipRatioText(text: string): string {
+  const m = /^\s*([^:/x×*]+?)\s*([:/x×*])\s*(.+?)\s*$/i.exec(text);
+  if (m) return `${m[3]}${m[2]}${m[1]}`;
+  const r = parseAspect(text);
+  return r ? `1:${text.trim()}` : text;
+}
 
 const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
@@ -1633,18 +1636,27 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           <HStack>
             <NativeSelect.Root size="xs" flex="1">
               <NativeSelect.Field
-                value={aspect}
+                value={aspect.preset}
                 onChange={(e) => latest.current.onAspectChange(e.target.value)}
                 aria-label="Crop aspect ratio"
               >
                 {ASPECTS.map((a) => (
                   <option key={a.value} value={a.value}>
-                    Aspect: {a.label}
+                    Aspect: {a.value === 'custom' ? a.label : aspectLabel(a.label, aspect.flipped)}
                   </option>
                 ))}
               </NativeSelect.Field>
               <NativeSelect.Indicator />
             </NativeSelect.Root>
+            <IconButton
+              size="xs"
+              variant="outline"
+              aria-label="Swap crop width and height"
+              title="Swap crop width and height"
+              onClick={() => latest.current.onFlipAspect()}
+            >
+              <ArrowLeftRight />
+            </IconButton>
             <Button
               size="xs"
               variant="ghost"
@@ -1654,6 +1666,23 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               Uncrop
             </Button>
           </HStack>
+          {aspect.preset === 'custom' && (
+            <Input
+              // Uncontrolled, applied on Enter or blur: half-typed ratios would reshape the
+              // crop. The key resets it when the ratio changes elsewhere (e.g. swapped).
+              key={`${aspect.custom}-${aspect.flipped}`}
+              size="xs"
+              defaultValue={aspect.flipped ? flipRatioText(aspect.custom) : aspect.custom}
+              placeholder="Ratio, e.g. 51:48 or 16/9"
+              aria-label="Custom crop aspect ratio"
+              aria-invalid={aspect.custom.trim() !== '' && parseAspect(aspect.custom) === null}
+              onBlur={(e) => {
+                const field = e.currentTarget;
+                if (field.value !== field.defaultValue) latest.current.onCustomAspectChange(field.value);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            />
+          )}
         </>
       ))}
       <RenameDialog

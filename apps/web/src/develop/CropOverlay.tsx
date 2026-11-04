@@ -16,21 +16,6 @@ interface Props {
 const MIN = 0.02;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Fit `rect` to an aspect ratio, keeping its centre and staying in the frame. */
-export function constrainAspect(rect: CropRect, aspect: number | null, frameAspect: number): CropRect {
-  if (!aspect) return rect;
-  // In normalised units, width/height must equal aspect / frameAspect.
-  const k = aspect / frameAspect;
-  const cx = rect.x + rect.width / 2;
-  const cy = rect.y + rect.height / 2;
-  let w = Math.sqrt(rect.width * rect.height * k);
-  let h = w / k;
-  const scale = Math.min(1, 1 / w, 1 / h);
-  w *= scale;
-  h *= scale;
-  return { x: clamp(cx - w / 2, 0, 1 - w), y: clamp(cy - h / 2, 0, 1 - h), width: w, height: h };
-}
-
 /** Interactive crop rectangle drawn over the (uncropped) preview. */
 export function CropOverlay({ rect, aspect, frameAspect, onChange }: Props) {
   const box = useRef<HTMLDivElement>(null);

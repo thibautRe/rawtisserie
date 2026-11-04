@@ -1,4 +1,5 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 /** A part of a render, in its output pixels. */
 export interface Region {
@@ -30,6 +31,8 @@ export type WorkerRequest =
       fullHeight: number;
       fullRegion: Region | null;
       overlays: Overlays;
+      /** Also draw this scope of the render (`scopes.ts`), without the overlays. */
+      scope: ScopeRequest | null;
     }
   | { type: 'export'; id: number; params: EditParams; maxSize: number; quality: number }
   | { type: 'autoTuneFilmic'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
@@ -63,6 +66,8 @@ export type WorkerResponse =
       sourceHeight: number;
       /** Ready to hand to the canvas without touching the pixels on the main thread. */
       bitmap: ImageBitmap;
+      /** The scope asked for, if any. */
+      scope: { mode: ScopeMode; bitmap: ImageBitmap } | null;
       ms: number;
     }
   | { type: 'exported'; id: number; jpeg: ArrayBuffer; ms: number }

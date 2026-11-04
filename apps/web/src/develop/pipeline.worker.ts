@@ -9,6 +9,7 @@ import init, { Developer } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import { PointPool } from './pointPool.ts';
 import type { Overlays, Placement, Region, WorkerRequest, WorkerResponse } from './protocol.ts';
+import { computeScope } from './scopes.ts';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -63,8 +64,16 @@ async function handle(msg: WorkerRequest) {
         frameHeight: frameHeight!,
       };
       const [sourceWidth, sourceHeight] = developer.outputSize(params, 0, 0);
-      const rendered = async (data: Uint8Array, width: number, height: number) => {
+      // The scope shows the image, without the clipping indicators: drawn before them.
+      const drawScope = (data: Uint8Array, width: number, height: number) => {
+        const req = msg.scope;
+        if (!req || req.width < 1 || req.height < 1) return null;
+        const pixels = computeScope(data, width, height, req);
+        return { mode: req.mode, image: createImageBitmap(new ImageData(pixels, req.width, req.height)) };
+      };
+      const rendered = async (data: Uint8Array, width: number, height: number, scope: ReturnType<typeof drawScope>) => {
         const bitmap = await toBitmap(data, width, height);
+        const scopeBitmap = scope && (await scope.image);
         post(
           {
             type: 'rendered',
@@ -77,9 +86,10 @@ async function handle(msg: WorkerRequest) {
             sourceWidth: sourceWidth!,
             sourceHeight: sourceHeight!,
             bitmap,
+            scope: scope && { mode: scope.mode, bitmap: scopeBitmap! },
             ms: performance.now() - started,
           },
-          [bitmap],
+          scopeBitmap ? [bitmap, scopeBitmap] : [bitmap],
         );
       };
       // A draft stands in for a full-size render while dragging. If only the point
@@ -93,19 +103,29 @@ async function handle(msg: WorkerRequest) {
           const [draftWidth] = developer.outputSize(params, msg.maxWidth, msg.maxHeight);
           overlays = { ...overlays, stripes: (overlays.stripes * frameWidth!) / draftWidth! };
         }
+        const scope = drawScope(data, width, height);
         if (overlays.display || overlays.sensor) {
           const json = JSON.stringify(overlays);
           developer.paintOverlays(params, full.width, full.height, data, width, height, json, full.region);
         }
-        await rendered(data, width, height);
+        await rendered(data, width, height, scope);
         return;
       }
-      const overlays = JSON.stringify(msg.overlays);
-      const img = developer.render(params, msg.maxWidth, msg.maxHeight, overlays, regionArg(msg.region));
+      const region = regionArg(msg.region);
+      const painted = !!(msg.overlays.display || msg.overlays.sensor);
+      // With a scope, the overlays are painted after it is drawn (as `render` would).
+      const split = painted && !!msg.scope;
+      const overlays = split ? '{}' : JSON.stringify(msg.overlays);
+      const img = developer.render(params, msg.maxWidth, msg.maxHeight, overlays, region);
       const { width, height } = img;
       const data = img.takeData();
       img.free();
-      await rendered(data, width, height);
+      const scope = drawScope(data, width, height);
+      if (split) {
+        const json = JSON.stringify(msg.overlays);
+        developer.paintOverlays(params, msg.maxWidth, msg.maxHeight, data, width, height, json, region);
+      }
+      await rendered(data, width, height, scope);
     } else if (msg.type === 'autoTuneFilmic') {
       const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
       post({

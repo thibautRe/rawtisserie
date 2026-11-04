@@ -92,11 +92,11 @@ function instrument() {
     }
   };
 
-  // Image updates reaching the canvas.
+  // Image updates reaching the canvas (not the scope's, which follows each of them).
   const count = <T extends object>(proto: T, name: keyof T) => {
     const original = proto[name] as (...args: unknown[]) => unknown;
-    (proto[name] as unknown) = function (this: unknown, ...args: unknown[]) {
-      log.paints++;
+    (proto[name] as unknown) = function (this: { canvas?: unknown }, ...args: unknown[]) {
+      if (!(this.canvas instanceof HTMLCanvasElement && 'scopeView' in this.canvas.dataset)) log.paints++;
       return original.apply(this, args);
     };
   };
