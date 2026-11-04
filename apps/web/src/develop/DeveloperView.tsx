@@ -13,7 +13,7 @@ import {
   updateModule,
 } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
@@ -23,11 +23,13 @@ import { HistoryPanel } from './HistoryPanel.tsx';
 import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
 import type { IlluminantDetection } from './protocol.ts';
-import type { RenderBackend } from './renderBackend.ts';
+import type { Frame, RenderBackend } from './renderBackend.ts';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 import { useStableCallback } from './useStableCallback.ts';
+import { type ZoomLayout, visibleRegion } from './zoom.ts';
+import { useZoom } from './useZoom.ts';
 
 interface Props {
   backend: RenderBackend;
@@ -81,6 +83,50 @@ function useElementSize<T extends HTMLElement>() {
     return () => ro.disconnect();
   }, []);
   return [ref, size] as const;
+}
+
+/** Show the spinner once the image has waited this long for a new render. */
+const SPINNER_DELAY_MS = 500;
+
+/**
+ * In a corner of the image while a render is overdue: after `SPINNER_DELAY_MS` without
+ * a new frame, with renders still to come (a slow zoomed-in view, or slow frames during
+ * a drag). It stays until the renders catch up, and fades in and out.
+ */
+function RenderSpinner({ busy, frame }: { busy: boolean; frame: Frame | null }) {
+  const [shown, setShown] = useState(false);
+  // Kept while it fades out.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    if (!busy) return setShown(false);
+    if (shown) return;
+    // Restarted by every new frame.
+    const timer = setTimeout(() => {
+      setShown(true);
+      setMounted(true);
+    }, SPINNER_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [busy, frame, shown]);
+  if (!mounted) return null;
+  return (
+    <Center
+      position="absolute"
+      top="3"
+      right="3"
+      boxSize="8"
+      bg="bg.panel"
+      borderRadius="full"
+      boxShadow="md"
+      pointerEvents="none"
+      title="Rendering…"
+      animationName={shown ? 'fade-in' : 'fade-out'}
+      animationDuration="fast"
+      animationFillMode="forwards"
+      onAnimationEnd={() => !shown && setMounted(false)}
+    >
+      <Spinner size="sm" color="orange.solid" />
+    </Center>
+  );
 }
 
 /** Memoised, like the panels: a slider drag or a new frame leaves it alone. */
@@ -191,8 +237,9 @@ export function DeveloperView({
   const [store] = useState(() => new HistoryStore(original, initialHistory));
   const history = useSyncExternalStore(store.subscribe, store.getState);
   const params = history.live;
+  const committed = history.entries[history.end - 1]?.recipe ?? original;
   /** A live change (e.g. a slider being dragged) has not been committed yet. */
-  const live = params !== (history.entries[history.end - 1]?.recipe ?? original);
+  const live = params !== committed;
   const autosave = useAutosave(store, revision, save);
 
   const [comparing, setComparing] = useState(false);
@@ -209,14 +256,26 @@ export function DeveloperView({
   // ── Rendering ──
   const [viewport, size] = useElementSize<HTMLDivElement>();
   const dpr = window.devicePixelRatio || 1;
-  const effective = useMemo(() => {
+  // Zoom (`useZoom.ts`): the fitted render is scaled up at once, and a render of the
+  // visible region follows when the view stops moving. The layout is set below, once
+  // the fitted frame is known.
+  const zoomWindow = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const zoomLayout = useRef<ZoomLayout | null>(null);
+  const { view: zoom, zoomTo } = useZoom(zoomWindow, stage, zoomLayout, !cropDraft);
+  // Zoomed in, the fitted render is mostly hidden: it stays at the committed recipe
+  // while a slider is dragged, so that only the visible region is rendered.
+  const fitParams = zoom && live ? committed : params;
+  const withView = (p: EditParams) => {
     if (comparing) return defaultEditParams;
-    if (cropDraft) return updateModule(params, 'geometry', { params: { crop: FULL_CROP } });
-    return params;
-  }, [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (cropDraft) return updateModule(p, 'geometry', { params: { crop: FULL_CROP } });
+    return p;
+  };
+  const effective = useMemo(() => withView(params), [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fitEffective = useMemo(() => withView(fitParams), [fitParams, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
   // While a slider is being dragged, render a ~0.5 MP draft (the pipeline keeps its
   // caches for both sizes); the full-resolution render follows on release.
-  const draft = live && !cropDraft;
+  const draft = live && !cropDraft && !zoom;
   const { margin, frameWidth } = assessmentLayout(size, assessment);
   const job = useMemo(() => {
     const inset = 2 * (margin + frameWidth);
@@ -228,12 +287,59 @@ export function DeveloperView({
       sensor: clipping.sensor,
       stripes: clipping.zebra ? STRIPE_PX * dpr * scale : 0,
     };
-    return { params: effective, width, height, scale, overlays };
-  }, [effective, size.width, size.height, dpr, draft, margin, frameWidth, clipping]);
-  const { frame, error } = useRenderLoop(backend, job);
+    return { params: fitEffective, width, height, scale, overlays };
+  }, [fitEffective, size.width, size.height, dpr, draft, margin, frameWidth, clipping]);
+  const { frame, error, pending } = useRenderLoop(backend, job);
 
+  // The image is seen through a window: the viewport, or the inside of the ISO 12646
+  // frame, which keeps its place and shape when zooming.
+  const fitWidth = frame ? frame.fullWidth / dpr : 0;
+  const fitHeight = frame ? frame.fullHeight / dpr : 0;
+  zoomLayout.current = frame && {
+    windowWidth: assessment ? fitWidth : size.width,
+    windowHeight: assessment ? fitHeight : size.height,
+    fitWidth,
+    fitHeight,
+    fitScale: frame.fullWidth / frame.sourceWidth,
+    sourceWidth: frame.sourceWidth,
+    sourceHeight: frame.sourceHeight,
+    dpr,
+  };
+  const layout = zoomLayout.current;
+  const regionJob = useMemo(() => {
+    const visible = layout && visibleRegion(layout, zoom);
+    if (!zoom || !visible) return null;
+    const { width, height, region } = visible;
+    const scale = live ? Math.min(1, Math.sqrt(DRAFT_PIXELS / (region.width * region.height))) : 1;
+    // Above 100 %, the render's pixels are shown enlarged.
+    const enlarged = zoom.scale / visible.scale;
+    const overlays = {
+      display: clipping.display ? { mode: clipping.mode } : null,
+      sensor: clipping.sensor,
+      stripes: clipping.zebra ? Math.max(1, (STRIPE_PX * dpr * scale) / enlarged) : 0,
+    };
+    return { params: effective, width, height, region, scale, overlays };
+  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { frame: regionFrame, pending: regionPending } = useRenderLoop(backend, regionJob);
+  // A region left from an earlier zoom may show an older recipe: zooming in again waits
+  // for a new one.
+  const staleRegion = useRef<Frame | null>(null);
+  if (!zoom) staleRegion.current = regionFrame;
+  // A region of the same image (not of another crop, or of the unedited image).
+  const region =
+    zoom &&
+    regionFrame &&
+    regionFrame !== staleRegion.current &&
+    frame &&
+    regionFrame.sourceWidth === frame.sourceWidth &&
+    regionFrame.sourceHeight === frame.sourceHeight
+      ? regionFrame.placement
+      : null;
+
+  // The bitmaps go to their canvas before the browser paints, together with the
+  // placement they come with: otherwise the old one shows a frame at the new place.
   const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const c = canvas.current;
     // A bitmap already handed over has no size left (effects can run twice in development).
     if (!c || !frame || frame.image.width === 0) return;
@@ -241,6 +347,12 @@ export function DeveloperView({
     // thread never touches the pixels.
     c.getContext('bitmaprenderer')!.transferFromImageBitmap(frame.image);
   }, [frame]);
+  const regionCanvas = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const c = regionCanvas.current;
+    if (!c || !regionFrame || regionFrame.image.width === 0) return;
+    c.getContext('bitmaprenderer')!.transferFromImageBitmap(regionFrame.image);
+  }, [regionFrame]);
 
   // ── History ──
   // Dropping undone entries (by editing from an earlier point) or compressing can be
@@ -483,17 +595,46 @@ export function DeveloperView({
         />
 
         <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
-          {frame ? (
+          {/* Always mounted: it holds the zoom's event listeners. */}
+          <Box
+            ref={zoomWindow}
+            position={assessment ? 'relative' : 'absolute'}
+            inset={assessment ? undefined : '0'}
+            boxSizing="content-box"
+            overflow="hidden"
+            touchAction="none"
+            borderWidth={`${frameWidth}px`}
+            borderStyle="solid"
+            borderColor={frameWidth ? 'white' : 'transparent'}
+            visibility={frame ? 'visible' : 'hidden'}
+            style={assessment ? { width: fitWidth, height: fitHeight } : undefined}
+          >
+            {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
             <Box
-              position="relative"
+              ref={stage}
+              position="absolute"
+              top="0"
+              left="0"
               lineHeight="0"
-              borderWidth={`${frameWidth}px`}
-              borderStyle="solid"
-              borderColor={frameWidth ? 'white' : 'transparent'}
+              transformOrigin="0 0"
+              style={{ width: fitWidth, height: fitHeight }}
             >
+              <canvas ref={canvas} style={{ width: '100%', height: '100%', display: 'block' }} />
               <canvas
-                ref={canvas}
-                style={{ width: frame.fullWidth / dpr, height: frame.fullHeight / dpr, display: 'block' }}
+                ref={regionCanvas}
+                style={
+                  region
+                    ? {
+                        position: 'absolute',
+                        left: `${(100 * region.x) / region.frameWidth}%`,
+                        top: `${(100 * region.y) / region.frameHeight}%`,
+                        width: `${(100 * region.width) / region.frameWidth}%`,
+                        height: `${(100 * region.height) / region.frameHeight}%`,
+                        // Rendered at 100 %: larger zoom levels enlarge its pixels.
+                        imageRendering: region.frameWidth >= regionFrame!.sourceWidth ? 'pixelated' : 'auto',
+                      }
+                    : { display: 'none' }
+                }
               />
               {cropDraft && !comparing && (
                 <CropOverlay
@@ -504,9 +645,9 @@ export function DeveloperView({
                 />
               )}
             </Box>
-          ) : (
-            <Spinner color="orange.solid" size="lg" />
-          )}
+          </Box>
+          {!frame && <Spinner color="orange.solid" size="lg" position="absolute" />}
+          {frame && <RenderSpinner busy={zoom ? regionPending : pending} frame={zoom ? regionFrame : frame} />}
           {error && (
             <Text position="absolute" bottom="3" color="fg.error" textStyle="sm">
               {error}
@@ -531,7 +672,10 @@ export function DeveloperView({
         </Center>
         <StatusBar
           save={saveState}
-          ms={frame?.ms ?? null}
+          ms={(region ? regionFrame?.ms : frame?.ms) ?? null}
+          zoom={zoom ? zoom.scale : null}
+          fitScale={layout?.fitScale ?? 1}
+          onZoom={cropDraft ? undefined : zoomTo}
           clipping={clipping}
           onClippingChange={setClipping}
           assessment={assessment}

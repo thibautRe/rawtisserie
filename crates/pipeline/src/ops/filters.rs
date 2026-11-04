@@ -28,6 +28,11 @@ pub fn sharpen_active(amount: f32, sigma: f32) -> bool {
     amount > 0.0 && sigma >= 0.2
 }
 
+/// How far, in pixels, a blur of `sigma` (also sharpening's) reads around each pixel.
+pub fn reach(sigma: f32) -> usize {
+    if sigma <= 4.0 { (sigma * 3.0).ceil() as usize } else { box_radii(sigma).iter().sum() }
+}
+
 pub fn blur(img: &mut Image, sigma: f32) {
     if blur_active(sigma) {
         *img = gaussian_blur(img, sigma);

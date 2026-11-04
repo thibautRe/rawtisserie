@@ -16,7 +16,7 @@ struct Case {
     recipe: EditParams,
 }
 
-const SIZE: RenderSize = RenderSize { max_width: 900, max_height: 900 };
+const SIZE: RenderSize = RenderSize::fit(900, 900);
 
 fn developer() -> Developer {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/raws/sony-ilce-7m3.arw");

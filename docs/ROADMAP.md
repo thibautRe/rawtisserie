@@ -335,7 +335,7 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
 > separable (rows then columns), and luminance and colour are decomposed separately,
 > skipping a neutral one. The bands are **not cached**: ~60 MB per megapixel was too
 > much next to the other caches. A curve edit re-runs the module, ~75 ms per megapixel
-> for luminance (native). wasm SIMD would be the next speed-up. The curve editor has
+> for luminance (native). The wasm build uses SIMD (autovectorised loops). The curve editor has
 > fixed node positions (vertical drag, double-click reset, arrow keys).
 
 - À-trous wavelet decomposition (B-spline, edge-aware option) into 6–8 frequency bands
@@ -768,9 +768,9 @@ Ideas, roughly by value for effort:
 - **P.1 Adaptive draft size (S).** Spatial drags (sharpen, equalizer curves, geometry)
   still use a fixed ~0.5 MP draft. Pick the size from the last render's time against a
   frame budget (~40–50 ms), so faster machines get sharper drafts.
-- **P.2 wasm SIMD (S–M).** Build with `+simd128` and measure. The per-module loops in
-  `PointOps::adjust_all` and the equalizer's separable filters may autovectorise; LUT
-  lookups won't. Golden tests must pass unchanged.
+- **P.2 wasm SIMD (S–M).** ✅ Built with `+simd128` (autovectorisation only): 8–18 %
+  more image fps on drags, ~30 % off zoomed-in equalizer renders (docs/PERFORMANCE.md).
+  Explicit SIMD in the equalizer's 5-tap passes is the next step there.
 - **P.3 Adaptive pool size (S).** The pool is capped at 4 workers because more starve
   the main thread on an 8-core hyperthreaded laptop, and that cap fits one machine.
   Options: grow or shrink it from the measured frame rate or input latency, or let

@@ -35,7 +35,7 @@ before(async () => {
   await page.route('**/api/**', (route) => route.fulfill({ status: 401, json: { error: 'unauthenticated' } }));
   await page.goto(`http://localhost:${PORT}/develop`);
   await page.locator('input[type="file"]').setInputFiles(raw);
-  await page.locator('canvas').waitFor({ timeout: 120_000 });
+  await page.locator('canvas').first().waitFor({ timeout: 120_000 });
   await page.waitForTimeout(1500);
 });
 

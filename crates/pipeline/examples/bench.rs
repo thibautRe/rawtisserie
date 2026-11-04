@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use rawtisserie_pipeline::params::{Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, EditParams, Exposure, Filmic, Geometry, Illuminant, ShadowsHighlights, Sharpen};
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
-use rawtisserie_pipeline::{Developer, Quality, RenderSize};
+use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -86,6 +86,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let t = Instant::now();
         let img = dev.render_with_overlays(&p, fit, Quality::Interactive, &overlays);
         println!("{label:<34} {:>7.1} ms  ({}×{})", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
+
+    // Zoomed in: a 1300×900 view at 70 % and 100 %, panned a little then a lot.
+    let (full_w, full_h, _) = dev.output_size(&p, RenderSize::FULL);
+    for zoom in [0.7f32, 1.0] {
+        let (w, h) = ((full_w as f32 * zoom).round() as u32, (full_h as f32 * zoom).round() as u32);
+        let at = |x: usize, y: usize| RenderSize::fit(w, h).with_region(Region { x, y, width: 1300, height: 900 });
+        let (cx, cy) = (w as usize / 2 - 650, h as usize / 2 - 450);
+        let pct = (zoom * 100.0).round();
+        for (label, size) in [("first", at(cx, cy)), ("pan 100 px", at(cx + 100, cy)), ("pan 1000 px", at(cx + 1000, cy))] {
+            let t = Instant::now();
+            dev.spatial_image(&p, size);
+            let spatial = t.elapsed().as_secs_f64() * 1e3;
+            let img = dev.render(&p, size, Quality::Interactive);
+            let total = t.elapsed().as_secs_f64() * 1e3;
+            println!("{:<34} {total:>7.1} ms  ({}×{}, spatial {spatial:.1} ms)", format!("zoom {pct} %, {label}"), img.width, img.height);
+        }
+        p.get_mut::<Exposure>().ev += 0.1;
+        let t = Instant::now();
+        let img = dev.render(&p, at(cx + 1000, cy), Quality::Interactive);
+        println!("{:<34} {:>7.1} ms  ({}×{})", format!("zoom {pct} %, exposure slider"), t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     }
     Ok(())
 }

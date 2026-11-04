@@ -2,7 +2,7 @@
 
 use crate::decode::{self, RawPhoto};
 use crate::demosaic;
-use crate::image::{Image, Mask, Rgba8};
+use crate::image::{Image, Mask, Region, Rgba8};
 use crate::metadata::PhotoMetadata;
 use std::rc::Rc;
 
@@ -29,13 +29,21 @@ pub enum Quality {
 pub struct RenderSize {
     pub max_width: u32,
     pub max_height: u32,
+    /// Render only this part of the fitted image (output pixels, clipped to it), e.g.
+    /// what a zoomed-in view shows. Only the photosites under it are developed.
+    pub region: Option<Region>,
 }
 
 impl RenderSize {
-    pub const FULL: RenderSize = RenderSize { max_width: 0, max_height: 0 };
+    pub const FULL: RenderSize = RenderSize { max_width: 0, max_height: 0, region: None };
 
-    pub fn fit(max_width: u32, max_height: u32) -> Self {
-        Self { max_width, max_height }
+    pub const fn fit(max_width: u32, max_height: u32) -> Self {
+        Self { max_width, max_height, region: None }
+    }
+
+    /// Only `region` of the fitted image.
+    pub const fn with_region(self, region: Region) -> Self {
+        Self { region: Some(region), ..self }
     }
 }
 
@@ -45,10 +53,15 @@ impl RenderSize {
 ///
 /// ```text
 ///  base        demosaic/bin, reference WB, camera → working       keyed by binning factor
-///   └ geometry  lens, orientation, straighten, crop, resample    keyed by lens + geometry + output size (2 sizes kept)
+///   └ geometry  lens, orientation, straighten, crop, resample    keyed by lens + geometry + output size (3 sizes kept)
 ///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters at this scale
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
 /// ```
+///
+/// A render of a region (a zoomed-in view) develops only the photosites under it, in a
+/// "patch" of the base at the region's own binning factor, kept for nearby regions. Its
+/// geometry stage renders the region with a margin for the detail stages to read, so
+/// that it gives the same pixels as the whole image at that size would.
 ///
 /// Clipping indicators are painted on the result when asked for. Sensor clipping
 /// needs a mask of saturated photosites, built on demand next to the base and
@@ -61,8 +74,11 @@ impl RenderSize {
 pub struct Developer {
     photo: RawPhoto,
     base: Option<(usize, Image)>,
-    /// Spatial-stage caches per output size, most recently used first. Two sizes cover
-    /// the interactive case: a reduced "draft" size while dragging, full size after.
+    /// Part of a base image, for region renders.
+    patch: Option<Patch>,
+    /// Spatial-stage caches per output size (and region), most recently used first.
+    /// The interactive case uses a reduced "draft" size while dragging and full size
+    /// after; zoomed in, the visible region too.
     slots: Vec<Slot>,
     /// Last id given to a spatial image (see [`spatial_image_id`](Self::spatial_image_id)).
     last_id: u64,
@@ -103,10 +119,41 @@ impl PointRenderer {
     }
 }
 
-const MAX_SLOTS: usize = 2;
+const MAX_SLOTS: usize = 3;
+/// Most a region render develops around the region for the detail stages to read (in
+/// output pixels): wider blurs and equalizer bands are approximated at its edges.
+const MAX_PADDING: usize = 1024;
+
+/// A patch extends this fraction of its size past what a region render needs.
+const PATCH_MARGIN: usize = 8;
+
+/// `at`, a part of the base image for `factor`.
+struct Patch {
+    factor: usize,
+    at: Region,
+    image: Image,
+    /// Saturated photosites at the patch's pixels, built on demand.
+    sensor_clip: Option<Mask>,
+}
+
+/// What the spatial stages give for a render size.
+#[derive(Clone, Debug, PartialEq)]
+struct Plan {
+    /// Size of the whole fitted image.
+    frame: (usize, usize),
+    scale: f32,
+    /// What is rendered: the whole frame, or the region asked for.
+    region: Region,
+    /// Whether the region's pixels come from a patch rather than the whole base.
+    patch: bool,
+    /// `region` plus what the detail steps read around it.
+    padded: Region,
+    steps: Vec<DetailStep>,
+}
 
 struct Slot {
-    size: (usize, usize),
+    frame: (usize, usize),
+    region: Region,
     /// Changes whenever the image the spatial stages give for this size does.
     id: u64,
     geometry: Option<(GeometryKey, Image)>,
@@ -119,8 +166,11 @@ struct Slot {
 struct GeometryKey {
     base_factor: usize,
     transform: geometry::Transform,
+    /// The whole fitted image.
     width: usize,
     height: usize,
+    /// What is rendered of it.
+    region: Region,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -205,7 +255,7 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None, slots: Vec::new(), last_id: 0, point_ops: PointOpsCache::default(), sensor_clip: None }
+        Self { photo, base: None, patch: None, slots: Vec::new(), last_id: 0, point_ops: PointOpsCache::default(), sensor_clip: None }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -219,6 +269,7 @@ impl Developer {
     /// Drop all cached intermediate images to free memory.
     pub fn release_cache(&mut self) {
         self.base = None;
+        self.patch = None;
         self.slots.clear();
         self.point_ops = PointOpsCache::default();
         self.sensor_clip = None;
@@ -251,6 +302,28 @@ impl Developer {
         (w, h, scale)
     }
 
+    /// The part of the [`output_size`](Self::output_size) image that a render within
+    /// `size` gives: its region, clipped (at least one pixel), or all of it.
+    pub fn output_region(&self, params: &EditParams, size: RenderSize) -> Region {
+        let (width, height, _) = self.output_size(params, size);
+        clip_region(size.region, width, height)
+    }
+
+    fn plan(&self, params: &EditParams, size: RenderSize) -> Plan {
+        let (width, height, scale) = self.output_size(params, size);
+        let region = clip_region(size.region, width, height);
+        let steps = detail_steps(params, scale);
+        let patch = size.region.is_some();
+        let padding = if patch { steps.iter().map(|s| s.margin((width, height))).sum::<usize>().next_multiple_of(32).min(MAX_PADDING) } else { 0 };
+        let padded = region.padded(padding, width, height);
+        Plan { frame: (width, height), scale, region, patch, padded, steps }
+    }
+
+    /// Binning factor of the base or patch the geometry stage reads for `plan`: whole
+    /// renders reuse the base within a range of sizes; region renders use their own.
+    fn plan_factor(&self, plan: &Plan) -> Option<usize> {
+        if plan.patch { Some(Self::binning(plan.scale)) } else { self.base_factor_for(plan.scale) }
+    }
     pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
         let ops = self.point_ops.render_ops(params, self.photo.as_shot_illuminant, quality);
         ops.render(self.spatial_image(params, size))
@@ -265,18 +338,39 @@ impl Developer {
 
     /// Paint clipping indicators on a render of `params` within `size`.
     pub fn paint_overlays(&mut self, params: &EditParams, size: RenderSize, img: &mut Rgba8, overlays: &Overlays) {
+        let (_, frame_height, _) = self.output_size(params, size);
+        let region = self.output_region(params, size);
         let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
-        clipping::paint(img, overlays, sensor);
+        clipping::paint_region(img, overlays, sensor, region, frame_height);
     }
 
     /// Output pixels that contain saturated photosites, from cache when possible.
     pub fn sensor_clip_mask(&mut self, params: &EditParams, size: RenderSize) -> &Mask {
-        let (width, height, _) = self.output_size(params, size);
+        let plan = self.plan(params, size);
+        let (width, height) = plan.frame;
         // Builds the base and selects this size's slot, as for a render.
         self.spatial_image(params, size);
-        let base_factor = self.base.as_ref().expect("base was just built").0;
-        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
+        let transform = self.transform(params);
 
+        if plan.patch {
+            let factor = Self::binning(plan.scale);
+            let base = demosaic::base_size(&self.photo, factor);
+            let gkey = GeometryKey { base_factor: factor, transform, width, height, region: plan.region };
+            if self.slots[0].sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
+                // The slot's geometry may come from cache, built from another patch.
+                let bounds = geometry::source_bounds(base, &transform, self.photo.lens.as_ref(), width, height, plan.region);
+                self.ensure_patch(factor, bounds);
+                let patch = self.patch.as_mut().expect("patch was just built");
+                let src = patch.sensor_clip.get_or_insert_with(|| demosaic::clipped_photosites_region(&self.photo, factor, patch.at));
+                let lens = self.photo.lens.as_ref();
+                let mask = geometry::apply_mask_region(src, patch.at, base, &transform, lens, width, height, plan.region);
+                self.slots[0].sensor_clip = Some((gkey, mask));
+            }
+            return &self.slots[0].sensor_clip.as_ref().expect("mask was just built").1;
+        }
+
+        let base_factor = self.base.as_ref().expect("base was just built").0;
+        let gkey = GeometryKey { base_factor, transform, width, height, region: plan.region };
         if self.sensor_clip.as_ref().map(|(f, _)| *f) != Some(base_factor) {
             self.sensor_clip = Some((base_factor, demosaic::clipped_photosites(&self.photo, base_factor)));
             for slot in &mut self.slots {
@@ -299,59 +393,63 @@ impl Developer {
     /// Whether [`spatial_image`](Self::spatial_image) would come from cache, i.e. a
     /// render would only re-run the point operations.
     pub fn is_spatial_cached(&self, params: &EditParams, size: RenderSize) -> bool {
-        let (width, height, scale) = self.output_size(params, size);
-        let Some(base_factor) = self.base_factor_for(scale) else { return false };
-        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
-        let Some(slot) = self.slots.iter().find(|s| s.size == (width, height)) else { return false };
+        let plan = self.plan(params, size);
+        let Some(base_factor) = self.plan_factor(&plan) else { return false };
+        let (width, height) = plan.frame;
+        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height, region: plan.padded };
+        let Some(slot) = self.slots.iter().find(|s| s.frame == plan.frame && s.region == plan.region) else { return false };
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             return false;
         }
-        let steps = detail_steps(params, scale);
-        steps.is_empty() || slot.detail.as_ref().is_some_and(|(k, _)| k.geometry == gkey && k.steps == steps)
+        plan.steps.is_empty() || slot.detail.as_ref().is_some_and(|(k, _)| k.geometry == gkey && k.steps == plan.steps)
     }
 
     /// [`spatial_image`](Self::spatial_image), with an id that changes whenever the
     /// image does (so copies of it elsewhere can tell when they are stale).
     pub fn spatial_image_id(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image) {
-        let (width, height, scale) = self.output_size(params, size);
-        let base_factor = self.ensure_base(Self::binning(scale));
-
-        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height };
+        let plan = self.plan(params, size);
+        let base_factor = if plan.patch { Self::binning(plan.scale) } else { self.ensure_base(Self::binning(plan.scale)) };
+        let (width, height) = plan.frame;
+        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height, region: plan.padded };
 
         // Pick (or create) the cache slot for this output size, and make it the most recent.
-        let slot = match self.slots.iter().position(|s| s.size == (width, height)) {
+        let slot = match self.slots.iter().position(|s| s.frame == plan.frame && s.region == plan.region) {
             Some(i) => self.slots.remove(i),
             None => {
                 self.last_id += 1;
-                Slot { size: (width, height), id: self.last_id, geometry: None, detail: None, sensor_clip: None }
+                Slot { frame: plan.frame, region: plan.region, id: self.last_id, geometry: None, detail: None, sensor_clip: None }
             }
         };
         self.slots.insert(0, slot);
         self.slots.truncate(MAX_SLOTS);
-        let slot = &mut self.slots[0];
-        let base = &self.base.as_ref().expect("base was just built").1;
         let mut changed = false;
 
-        if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
+        if self.slots[0].geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
+            let slot = &mut self.slots[0];
             slot.detail = None;
             slot.geometry = None; // free before allocating
-            slot.geometry = Some((gkey, geometry::apply(base, &gkey.transform, self.photo.lens.as_ref(), width, height)));
+            let img = self.geometry_stage(&gkey, plan.patch);
+            self.slots[0].geometry = Some((gkey, img));
             changed = true;
         }
 
-        let steps = detail_steps(params, scale);
-        if steps.is_empty() {
+        let slot = &mut self.slots[0];
+        if plan.steps.is_empty() {
             changed |= slot.detail.take().is_some();
         } else {
-            let dkey = DetailKey { geometry: gkey, steps };
+            let dkey = DetailKey { geometry: gkey, steps: plan.steps };
             if slot.detail.as_ref().map(|(k, _)| k) != Some(&dkey) {
                 let mut img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
                 for step in &dkey.steps {
                     match *step {
                         DetailStep::Blur { sigma } => filters::blur(&mut img, sigma),
                         DetailStep::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
-                        DetailStep::Equalizer { params, scale } => equalizer::apply(&mut img, &params, scale),
+                        DetailStep::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
                     }
+                }
+                if plan.padded != plan.region {
+                    let (r, p) = (plan.region, plan.padded);
+                    img = img.crop(Region { x: r.x - p.x, y: r.y - p.y, ..r });
                 }
                 slot.detail = Some((dkey, img));
                 changed = true;
@@ -366,6 +464,33 @@ impl Developer {
             None => &slot.geometry.as_ref().expect("geometry was just built").1,
         };
         (slot.id, img)
+    }
+
+    /// Run the geometry stage for `key`, from the whole base or from a patch.
+    fn geometry_stage(&mut self, key: &GeometryKey, patch: bool) -> Image {
+        let lens = self.photo.lens.as_ref();
+        if !patch {
+            let base = &self.base.as_ref().expect("base was just built").1;
+            return geometry::apply(base, &key.transform, lens, key.width, key.height);
+        }
+        let base = demosaic::base_size(&self.photo, key.base_factor);
+        let bounds = geometry::source_bounds(base, &key.transform, lens, key.width, key.height, key.region);
+        self.ensure_patch(key.base_factor, bounds);
+        let patch = self.patch.as_ref().expect("patch was just built");
+        geometry::apply_region(&patch.image, patch.at, base, &key.transform, self.photo.lens.as_ref(), key.width, key.height, key.region)
+    }
+
+    /// Make sure the patch covers `bounds` of the base image for `factor`.
+    fn ensure_patch(&mut self, factor: usize, bounds: Region) {
+        if self.patch.as_ref().is_some_and(|p| p.factor == factor && p.at.contains(&bounds)) {
+            return;
+        }
+        self.patch = None; // free before allocating
+        // With room around, so that panning a little doesn't develop it again.
+        let (width, height) = demosaic::base_size(&self.photo, factor);
+        let at = bounds.padded(bounds.width.max(bounds.height) / PATCH_MARGIN, width, height);
+        let image = demosaic::develop_base_region(&self.photo, factor, at);
+        self.patch = Some(Patch { factor, at, image, sensor_clip: None });
     }
 
     /// Binning factor for a render at `scale`: as much as possible while keeping the
@@ -411,6 +536,29 @@ impl Developer {
                 self.base = Some((factor, demosaic::develop_base(&self.photo, factor)));
                 factor
             }
+        }
+    }
+}
+
+/// `region` within a `width × height` image, at least one pixel; all of it without one.
+fn clip_region(region: Option<Region>, width: usize, height: usize) -> Region {
+    let Some(r) = region else { return Region::full(width, height) };
+    let mut r = r.clipped(width, height);
+    if r.width == 0 {
+        r = Region { x: r.x.min(width - 1), width: 1, ..r };
+    }
+    if r.height == 0 {
+        r = Region { y: r.y.min(height - 1), height: 1, ..r };
+    }
+    r
+}
+
+impl DetailStep {
+    /// How much of the render around a region the step needs for the region's pixels.
+    fn margin(&self, frame: (usize, usize)) -> usize {
+        match *self {
+            DetailStep::Blur { sigma } | DetailStep::Sharpen { sigma, .. } => filters::reach(sigma),
+            DetailStep::Equalizer { params, scale } => equalizer::margin(&params, scale, frame),
         }
     }
 }

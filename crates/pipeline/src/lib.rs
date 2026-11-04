@@ -26,7 +26,7 @@ pub mod params;
 pub mod pipeline;
 
 pub use decode::RawPhoto;
-pub use image::{Image, Rgba8};
+pub use image::{Image, Region, Rgba8};
 pub use metadata::PhotoMetadata;
 pub use params::EditParams;
 pub use pipeline::{Developer, Quality, RenderSize};

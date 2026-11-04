@@ -110,6 +110,26 @@ fn bands(p: &ContrastEqualizer, width: usize, height: usize, scale: f32) -> (Vec
     (l, c)
 }
 
+/// How much of a render around a part of it [`apply_in_frame`] needs to give that part
+/// as the whole render would, to within a level: ¾ of [`reach`], as the outermost taps
+/// of the coarsest bands weigh little. Every band boosted to the maximum, on a 24 MP
+/// photo at full size: ¾ was within a level after tone mapping (`tests/regions.rs`), ½
+/// was not. It saves ~20 % of a zoomed-in render, where the margin is most of the work.
+pub fn margin(p: &ContrastEqualizer, scale: f32, frame: (usize, usize)) -> usize {
+    (reach(p, scale, frame) * 3).div_ceil(4)
+}
+
+/// How far, in pixels, the module reads around each pixel of a `frame` sized render.
+pub fn reach(p: &ContrastEqualizer, scale: f32, frame: (usize, usize)) -> usize {
+    if p.is_identity() {
+        return 0;
+    }
+    let (l, c) = bands(p, frame.0, frame.1, scale);
+    // Band `i` filters with taps 2^i apart, two on each side, on the previous band's output.
+    let used = |bands: &[Band]| bands.iter().rposition(|b| !b.is_identity()).map_or(0, |last| 2 * ((2 << last) - 1));
+    used(&l).max(used(&c))
+}
+
 /// Pixel → `[log₂ luminance, colour relative to luminance]`.
 #[inline]
 fn split(px: Rgb) -> [f32; 4] {
@@ -234,11 +254,18 @@ fn equalize<const N: usize>(data: &mut [[f32; N]], width: usize, height: usize, 
 
 /// Apply the module to `img`, rendered at `scale` output pixels per full-resolution pixel.
 pub fn apply(img: &mut Image, p: &ContrastEqualizer, scale: f32) {
+    apply_in_frame(img, p, scale, (img.width, img.height));
+}
+
+/// [`apply`] to a part of a `frame` sized render: the bands are those of the whole
+/// frame. Pixels further than [`margin`] from the part's edges (other than the frame's)
+/// come out as in the whole render.
+pub fn apply_in_frame(img: &mut Image, p: &ContrastEqualizer, scale: f32, frame: (usize, usize)) {
     if p.is_identity() {
         return;
     }
     let (width, height) = (img.width, img.height);
-    let (luma_bands, chroma_bands) = bands(p, width, height, scale);
+    let (luma_bands, chroma_bands) = bands(p, frame.0, frame.1, scale);
     // Luminance and colour are decomposed separately (their edge weights only look at
     // themselves), so an untouched one costs nothing.
     let (mut luma, mut chroma): (Vec<[f32; 1]>, Vec<[f32; 3]>) = img

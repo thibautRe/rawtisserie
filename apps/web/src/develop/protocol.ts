@@ -1,5 +1,20 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
 
+/** A part of a render, in its output pixels. */
+export interface Region {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Where a render sits in the whole image fitted within its bounds. */
+export interface Placement extends Region {
+  /** Size of the whole fitted image. */
+  frameWidth: number;
+  frameHeight: number;
+}
+
 export type WorkerRequest =
   | { type: 'load'; id: number; bytes: ArrayBuffer }
   | {
@@ -8,9 +23,12 @@ export type WorkerRequest =
       params: EditParams;
       maxWidth: number;
       maxHeight: number;
-      /** Bounds of the full-size render, when this one is a reduced draft. */
+      /** Render only this part of the image fitted within the bounds (a zoomed-in view). */
+      region: Region | null;
+      /** Bounds and region of the full-size render, when this one is a reduced draft. */
       fullWidth: number;
       fullHeight: number;
+      fullRegion: Region | null;
       overlays: Overlays;
     }
   | { type: 'export'; id: number; params: EditParams; maxSize: number; quality: number }
@@ -38,6 +56,11 @@ export type WorkerResponse =
       /** Size of the full-size render: what a draft stands in for. */
       fullWidth: number;
       fullHeight: number;
+      /** Where the full-size render sits in its image. */
+      placement: Placement;
+      /** Size of the (cropped) image at full resolution. */
+      sourceWidth: number;
+      sourceHeight: number;
       /** Ready to hand to the canvas without touching the pixels on the main thread. */
       bitmap: ImageBitmap;
       ms: number;

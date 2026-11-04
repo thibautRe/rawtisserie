@@ -12,7 +12,7 @@ wasm-bindgen --target web --out-dir packages/pipeline/wasm --out-name pipeline \
   "target/wasm32-unknown-unknown/$profile/rawtisserie_pipeline_wasm.wasm"
 
 if command -v wasm-opt >/dev/null && [ "$profile" = "release" ]; then
-  wasm-opt -O3 --enable-bulk-memory --enable-nontrapping-float-to-int \
+  wasm-opt -O3 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-simd \
     -o packages/pipeline/wasm/pipeline_bg.wasm packages/pipeline/wasm/pipeline_bg.wasm
 fi
 ls -lh packages/pipeline/wasm/pipeline_bg.wasm

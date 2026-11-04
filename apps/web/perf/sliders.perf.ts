@@ -226,7 +226,7 @@ try {
   await page.addInitScript(instrument);
   await page.goto('http://localhost:4179/develop');
   await page.locator('input[type="file"]').setInputFiles(raw);
-  await page.locator('canvas').waitFor({ timeout: 120_000 });
+  await page.locator('canvas').first().waitFor({ timeout: 120_000 });
   await page.waitForTimeout(1500);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');

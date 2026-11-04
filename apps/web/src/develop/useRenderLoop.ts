@@ -1,13 +1,15 @@
 import type { EditParams } from '@rawtisserie/pipeline';
 import { useEffect, useRef, useState } from 'react';
 import type { Frame, RenderBackend } from './renderBackend.ts';
-import type { Overlays } from './protocol.ts';
+import type { Overlays, Region } from './protocol.ts';
 
-interface Job {
+export interface Job {
   params: EditParams;
   /** Bounds of the full-size render, in device pixels. */
   width: number;
   height: number;
+  /** Only this part of the full-size render (a zoomed-in view). */
+  region?: Region | null;
   /** Fraction of the full size actually rendered (< 1 for drafts). */
   scale: number;
   overlays: Overlays;
@@ -19,7 +21,8 @@ interface Job {
  * so dragging a slider never builds up a backlog.
  */
 export function useRenderLoop(backend: RenderBackend | null, job: Job | null) {
-  const [frame, setFrame] = useState<Frame | null>(null);
+  /** The last frame, and the job it was rendered for. */
+  const [shown, setShown] = useState<{ frame: Frame; job: Job } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const state = useRef<{ busy: boolean; next: Job | null }>({ busy: false, next: null });
 
@@ -29,19 +32,21 @@ export function useRenderLoop(backend: RenderBackend | null, job: Job | null) {
     const run = async (j: Job) => {
       s.busy = true;
       try {
-        const full = { width: j.width, height: j.height };
-        setFrame(
-          await backend.render(
-            j.params,
-            Math.floor(j.width * j.scale),
-            Math.floor(j.height * j.scale),
-            j.overlays,
-            full,
-          ),
+        const full = { width: j.width, height: j.height, region: j.region };
+        const frame = await backend.render(
+          j.params,
+          Math.floor(j.width * j.scale),
+          Math.floor(j.height * j.scale),
+          j.overlays,
+          full,
+          j.region && scaleRegion(j.region, j.scale),
         );
+        setShown({ frame, job: j });
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+        // Nothing more is coming for this job.
+        setShown((prev) => prev && { frame: prev.frame, job: j });
       } finally {
         s.busy = false;
         const next = s.next;
@@ -53,5 +58,15 @@ export function useRenderLoop(backend: RenderBackend | null, job: Job | null) {
     else void run(job);
   }, [backend, job]);
 
-  return { frame, error };
+  // Whether the frame doesn't show the latest job yet (rendering, or queued).
+  const pending = !!job && shown?.job !== job;
+  return { frame: shown?.frame ?? null, error, pending };
+}
+
+/** `r` of a render, in a render `scale` times its size (rounded outwards). */
+function scaleRegion(r: Region, scale: number): Region {
+  if (scale === 1) return r;
+  const x = Math.floor(r.x * scale);
+  const y = Math.floor(r.y * scale);
+  return { x, y, width: Math.ceil((r.x + r.width) * scale) - x, height: Math.ceil((r.y + r.height) * scale) - y };
 }

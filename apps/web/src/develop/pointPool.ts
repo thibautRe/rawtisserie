@@ -54,10 +54,14 @@ export class PointPool {
     this.spatialId = -1;
   }
 
-  /** Interactive render of `params` (JSON) within `maxWidth × maxHeight`, to RGBA8. */
-  async render(dev: Developer, params: string, maxWidth: number, maxHeight: number) {
-    const [id, width, height] = dev.spatialInfo(params, maxWidth, maxHeight) as unknown as [number, number, number];
-    if (id !== this.spatialId) this.upload(dev, params, maxWidth, maxHeight, width, height, id);
+  /**
+   * Interactive render of `params` (JSON) within `maxWidth × maxHeight` (only `region`
+   * of it, as `[x, y, width, height]`, if given), to RGBA8.
+   */
+  async render(dev: Developer, params: string, maxWidth: number, maxHeight: number, region?: Uint32Array) {
+    const info = dev.spatialInfo(params, maxWidth, maxHeight, region);
+    const [id, width, height] = info as unknown as [number, number, number];
+    if (id !== this.spatialId) this.upload(dev, params, maxWidth, maxHeight, region, width, height, id);
     const parts = await Promise.all(this.strips.map((_, i) => this.call(i, params)));
     const data = new Uint8Array(width * height * 4);
     let offset = 0;
@@ -78,6 +82,7 @@ export class PointPool {
     params: string,
     maxWidth: number,
     maxHeight: number,
+    region: Uint32Array | undefined,
     width: number,
     height: number,
     id: number,
@@ -87,7 +92,7 @@ export class PointPool {
     for (let y0 = 0; y0 < height; y0 += rows) this.strips.push([y0, Math.min(height, y0 + rows)]);
     const asShot = Array.from(dev.asShotIlluminant());
     this.strips.forEach(([y0, y1], i) => {
-      const pixels = dev.spatialRows(params, maxWidth, maxHeight, y0, y1).buffer as ArrayBuffer;
+      const pixels = dev.spatialRows(params, maxWidth, maxHeight, y0, y1, region).buffer as ArrayBuffer;
       this.post(i, { type: 'strip', width, height: y1 - y0, pixels, asShot }, [pixels]);
     });
     this.spatialId = id;

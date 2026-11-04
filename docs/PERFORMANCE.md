@@ -45,6 +45,27 @@ Unless stated otherwise, numbers come from 2026-11-03, on an Intel i9-10885H lap
   (`putImageData` used to cost ~60 ms per 4 s drag in `Canvas2DResourceProvider`).
 - **`ModulePanel` and `RenameDialog` memoised**, with stable handlers. A closed Chakra
   `Dialog` was re-rendering its state machine on every slider move (~35 ms per 4 s).
+- **WebAssembly SIMD** (`+simd128` in `.cargo/config.toml`): the compiler vectorises the
+  pipeline's loops. Same results (no float reassociation), and every stage is faster:
+  slider drags gained 8–18 % image fps, a zoomed-in render with the equalizer went from
+  2.25 s to 1.54 s. Needs Safari 16.4+ (other browsers and Node have had it since 2021).
+- **Zoom renders only the visible region** (`RenderSize::with_region`): from a patch of
+  the base demosaiced around it, with the detail stages' reach as margin (capped at
+  1024 px; within a level of the whole render, `tests/regions.rs`). The equalizer's
+  margin is ¾ of its reach (`equalizer::margin`): ½ was off by several levels with
+  extreme curves. The page enlarges the fitted render with a CSS transform and asks for the
+  region once the view has been still for 150 ms, so wheel steps and pans cost nothing
+  in the pipeline. Zoomed in, the fitted render keeps the committed recipe during a
+  drag, so only the region renders. Native, 1300×900 view, lens + sharpen + equalizer:
+  first zoom 570–690 ms (patch ~120–230 ms), pan within the patch ~450 ms, colour slider
+  ~135 ms. Browser, default recipe: first zoom ~250 ms, 100 % pan ~110 ms, exposure drag
+  at 100 % ~22 fps through the pool. With the equalizer on, its margin at 100 % (~380 px
+  around a ~1300×900 view) is most of the cost: in wasm, a first zoom takes ~1.2 s and a
+  pan ~1 s (2.25 s and 2 s before SIMD and the ¾ margin). Next step would be the
+  equalizer itself (~140 ns/px native, 8 bands of 5-tap edge-aware passes).
+- **Full-resolution demosaic reads each photosite once** (it used to normalise every
+  neighbour again, ~20 times per pixel): patches and full-size exports are 2–3× faster,
+  bit-identical.
 - **Incremental primaries table**: see above. It's bit-identical to a full build
   (`updates_match_full_builds`).
 

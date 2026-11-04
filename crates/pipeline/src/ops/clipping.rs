@@ -8,7 +8,7 @@
 
 use serde::Deserialize;
 
-use crate::image::{Mask, Rgba8};
+use crate::image::{Mask, Region, Rgba8};
 
 /// What to paint over a render. The default paints nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
@@ -72,15 +72,42 @@ fn srgb_eotf(v: f32) -> f32 {
 }
 
 pub fn paint(img: &mut Rgba8, overlays: &Overlays, sensor: Option<&Mask>) {
+    let whole = Region::full(img.width, img.height);
+    paint_region(img, overlays, sensor, whole, img.height);
+}
+
+/// [`paint`] on `region` of a render `frame_height` pixels high: stripes line up with
+/// those of the whole render.
+pub fn paint_region(img: &mut Rgba8, overlays: &Overlays, sensor: Option<&Mask>, region: Region, frame_height: usize) {
+    let stripes = Stripes { width: overlays.stripes, x0: region.x, y0: region.y, height: frame_height };
     if let Some(display) = &overlays.display {
-        paint_display(img, display, overlays.stripes);
+        paint_display(img, display, stripes);
     }
     if let Some(mask) = sensor.filter(|_| overlays.sensor) {
-        paint_sensor(img, mask, overlays.stripes);
+        paint_sensor(img, mask, stripes);
     }
 }
 
-fn paint_display(img: &mut Rgba8, p: &DisplayClipping, stripes: f32) {
+/// Diagonal stripes over a render, seen through an image at `(x0, y0)` of it.
+#[derive(Clone, Copy)]
+struct Stripes {
+    /// 0 = solid colour.
+    width: f32,
+    x0: usize,
+    y0: usize,
+    /// Of the whole render.
+    height: usize,
+}
+
+impl Stripes {
+    /// Does pixel `(x, y)` of the image belong to a stripe? `rising` picks the diagonal direction.
+    #[inline]
+    fn on(&self, x: usize, y: usize, rising: bool) -> bool {
+        on_stripe(self.x0 + x, self.y0 + y, self.height, self.width, rising)
+    }
+}
+
+fn paint_display(img: &mut Rgba8, p: &DisplayClipping, stripes: Stripes) {
     let linear: [f32; 256] = std::array::from_fn(|i| srgb_eotf(i as f32 / 255.0));
     let lower = p.lower_ev.exp2();
     // Per-channel tests on 8-bit values: precompute the thresholds once.
@@ -90,7 +117,7 @@ fn paint_display(img: &mut Rgba8, p: &DisplayClipping, stripes: f32) {
     let channel_under = |c: &[u8]| c.iter().any(|&v| i16::from(v) <= under_u8);
     let luma = |c: &[u8]| (0..3).map(|i| linear[c[i] as usize] * LUMA_REC709[i]).sum::<f32>();
 
-    let (width, height) = (img.width, img.height);
+    let width = img.width;
     for (i, px) in img.data.chunks_exact_mut(4).enumerate() {
         let c = &px[..3];
         // Luminance can only be out of range if a channel is.
@@ -117,19 +144,19 @@ fn paint_display(img: &mut Rgba8, p: &DisplayClipping, stripes: f32) {
             }
         };
         if let Some(colour) = colour {
-            if on_stripe(i % width, i / width, height, stripes, false) {
+            if stripes.on(i % width, i / width, false) {
                 px[..3].copy_from_slice(&colour);
             }
         }
     }
 }
 
-fn paint_sensor(img: &mut Rgba8, mask: &Mask, stripes: f32) {
+fn paint_sensor(img: &mut Rgba8, mask: &Mask, stripes: Stripes) {
     debug_assert_eq!((mask.width, mask.height), (img.width, img.height));
-    let (width, height) = (img.width, img.height);
+    let width = img.width;
     for (i, px) in img.data.chunks_exact_mut(4).enumerate() {
         let (x, y) = (i % width, i / width);
-        if mask.get(x, y) && on_stripe(x, y, height, stripes, true) {
+        if mask.get(x, y) && stripes.on(x, y, true) {
             px[..3].copy_from_slice(&SENSOR);
         }
     }

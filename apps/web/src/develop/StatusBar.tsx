@@ -1,5 +1,5 @@
 import { Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
-import { ChevronDown, CloudAlert, CloudCheck, Frame, SunMoon, Zap } from 'lucide-react';
+import { ChevronDown, CloudAlert, CloudCheck, Frame, SunMoon, Zap, ZoomIn } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
@@ -39,6 +39,12 @@ interface Props {
   save?: { status: SaveStatus; retry: () => void };
   /** Render time of the last frame, if any. */
   ms: number | null;
+  /** Zoom level (device pixels per full-resolution pixel), or null at fit. */
+  zoom: number | null;
+  /** The zoom level at fit. */
+  fitScale: number;
+  /** Set the zoom level (null: fit); unavailable (e.g. while cropping) if not given. */
+  onZoom?: (scale: number | null) => void;
   clipping: ClippingSettings;
   onClippingChange: (patch: Partial<ClippingSettings>) => void;
   assessment: boolean;
@@ -46,13 +52,25 @@ interface Props {
 }
 
 /** A slim bar under the image: save state, render time and view toggles. */
-export function StatusBar({ save, ms, clipping, onClippingChange, assessment, onAssessmentChange }: Props) {
+export function StatusBar({
+  save,
+  ms,
+  zoom,
+  fitScale,
+  onZoom,
+  clipping,
+  onClippingChange,
+  assessment,
+  onAssessmentChange,
+}: Props) {
   return (
     <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
       {save && <SaveIndicator {...save} />}
       <Text textStyle="2xs" color="fg.subtle" fontVariantNumeric="tabular-nums" px="1" flex="1">
         {ms !== null && `${Math.round(ms)} ms`}
       </Text>
+      <ZoomMenu zoom={zoom} fitScale={fitScale} onZoom={onZoom} />
+      <Separator orientation="vertical" h="4" mx="1" />
       <ViewToggles
         clipping={clipping}
         onClippingChange={onClippingChange}
@@ -69,7 +87,7 @@ const ViewToggles = memo(function ViewToggles({
   onClippingChange,
   assessment,
   onAssessmentChange,
-}: Omit<Props, 'save' | 'ms'>) {
+}: Pick<Props, 'clipping' | 'onClippingChange' | 'assessment' | 'onAssessmentChange'>) {
   return (
     <>
       <HStack gap="0">
@@ -145,6 +163,49 @@ const ViewToggles = memo(function ViewToggles({
         <Frame /> Assessment
       </Button>
     </>
+  );
+});
+
+/** Zoom levels offered in the menu, besides fit (device pixels per full-resolution pixel). */
+const ZOOM_LEVELS = [0.5, 1, 2, 4, 8];
+
+/** The zoom level, and a menu to set it. Memoised like the toggles. */
+const ZoomMenu = memo(function ZoomMenu({ zoom, fitScale, onZoom }: Pick<Props, 'zoom' | 'fitScale' | 'onZoom'>) {
+  return (
+    <Menu.Root>
+      <Menu.Trigger asChild>
+        <Button
+          size="2xs"
+          variant={zoom === null ? 'ghost' : 'subtle'}
+          disabled={!onZoom}
+          title="Zoom: mouse wheel or pinch, middle click for 100 % on a point (again for fit), drag to pan"
+          fontVariantNumeric="tabular-nums"
+        >
+          <ZoomIn /> {zoom === null ? 'Fit' : `${Math.round(zoom * 100)} %`} <ChevronDown />
+        </Button>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content minW="28">
+            <Menu.RadioItemGroup
+              value={zoom === null ? 'fit' : String(zoom)}
+              onValueChange={(e) => onZoom?.(e.value === 'fit' ? null : Number(e.value))}
+            >
+              <Menu.RadioItem value="fit">
+                Fit
+                <Menu.ItemIndicator />
+              </Menu.RadioItem>
+              {ZOOM_LEVELS.map((level) => (
+                <Menu.RadioItem key={level} value={String(level)} disabled={level <= fitScale}>
+                  {level * 100} %
+                  <Menu.ItemIndicator />
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioItemGroup>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
   );
 });
 

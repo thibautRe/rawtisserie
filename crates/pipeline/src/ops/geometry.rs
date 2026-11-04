@@ -5,7 +5,7 @@
 //! frame → (lens correction: radial, per channel) → base image.
 
 use crate::decode::Orient;
-use crate::image::{Image, Mask};
+use crate::image::{Image, Mask, Region};
 use crate::lens::{Correction, LensProfile};
 use crate::params::{Crop, Lens};
 
@@ -99,10 +99,29 @@ fn correction(t: &Transform, profile: Option<&LensProfile>, sw: f32, sh: f32) ->
 /// Render `out_w × out_h` pixels of the transformed `src`, corrected with `profile`
 /// when `t.lens` asks for it.
 pub fn apply(src: &Image, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Image {
-    let (sw, sh) = (src.width as f32, src.height as f32);
+    let whole = Region::full(src.width, src.height);
+    apply_region(src, whole, (src.width, src.height), t, profile, out_w, out_h, Region::full(out_w, out_h))
+}
+
+/// `region` of [`apply`]'s output, from a patch of the base image: `src` holds pixels
+/// `src_at` of a `base` sized image. The patch must cover [`source_bounds`].
+#[allow(clippy::too_many_arguments)]
+pub fn apply_region(
+    src: &Image,
+    src_at: Region,
+    base: (usize, usize),
+    t: &Transform,
+    profile: Option<&LensProfile>,
+    out_w: usize,
+    out_h: usize,
+    region: Region,
+) -> Image {
+    debug_assert_eq!((src.width, src.height), (src_at.width, src_at.height));
+    let (sw, sh) = (base.0 as f32, base.1 as f32);
     let (ow, oh) = t.oriented_size(sw, sh);
     let crop = t.crop.sanitized();
     let m = Mapping::new(sw, sh, t, out_w, out_h);
+    let at = Patch { x0: region.x as f32, y0: region.y as f32, u0: src_at.x as f32, v0: src_at.y as f32 };
 
     // Source pixels per output pixel. The base image is binned to within 2× of the
     // output, so plain bilinear is enough unless we shrink by more than 1.5×.
@@ -111,20 +130,20 @@ pub fn apply(src: &Image, t: &Transform, profile: Option<&LensProfile>, out_w: u
     let inv_ss = 1.0 / ss as f32;
     let norm = 1.0 / (ss * ss) as f32;
 
-    let mut out = Image::new(out_w, out_h);
+    let mut out = Image::new(region.width, region.height);
     if let Some(lens) = correction(t, profile, sw, sh) {
-        apply_lens(src, &m, &lens, ss, &mut out);
+        apply_lens(src, &m, &lens, ss, at, &mut out);
         return out;
     }
-    for (y, row) in out.pixels.chunks_exact_mut(out_w).enumerate() {
+    for (y, row) in out.pixels.chunks_exact_mut(region.width.max(1)).enumerate() {
         for (x, px) in row.iter_mut().enumerate() {
             let mut acc = [0.0f32; 3];
             for sy in 0..ss {
                 for sx in 0..ss {
-                    let fx = x as f32 + (sx as f32 + 0.5) * inv_ss;
-                    let fy = y as f32 + (sy as f32 + 0.5) * inv_ss;
+                    let fx = at.x0 + x as f32 + (sx as f32 + 0.5) * inv_ss;
+                    let fy = at.y0 + y as f32 + (sy as f32 + 0.5) * inv_ss;
                     let (u, v) = m.at(fx, fy);
-                    let s = src.sample_bilinear(u, v);
+                    let s = src.sample_bilinear(u - at.u0, v - at.v0);
                     acc[0] += s[0];
                     acc[1] += s[1];
                     acc[2] += s[2];
@@ -136,31 +155,76 @@ pub fn apply(src: &Image, t: &Transform, profile: Option<&LensProfile>, out_w: u
     out
 }
 
-/// [`apply`]'s loop with lens correction: each channel is read at its own position
+/// Offsets of a region render: output pixel `(x, y)` is `(x0 + x, y0 + y)` of the
+/// whole output, and source position `(u, v)` is `(u - u0, v - v0)` in the patch.
+#[derive(Clone, Copy)]
+struct Patch {
+    x0: f32,
+    y0: f32,
+    u0: f32,
+    v0: f32,
+}
+
+/// The pixels of a `base` sized source that [`apply_region`] reads for `region`
+/// (with a margin for the filters and lens correction's per-channel shifts).
+pub fn source_bounds(base: (usize, usize), t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize, region: Region) -> Region {
+    let (sw, sh) = (base.0 as f32, base.1 as f32);
+    let m = Mapping::new(sw, sh, t, out_w, out_h);
+    let lens = correction(t, profile, sw, sh);
+    // The chain maps straight lines to straight lines, except for lens distortion,
+    // which is smooth: points along the border are enough.
+    const STEPS: usize = 32;
+    let (x0, y0, x1, y1) = (region.x as f32, region.y as f32, region.right() as f32, region.bottom() as f32);
+    let border = (0..=STEPS).flat_map(|i| {
+        let f = i as f32 / STEPS as f32;
+        let (x, y) = (x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
+        [(x, y0), (x, y1), (x0, y), (x1, y)]
+    });
+    let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+    for (x, y) in border {
+        let (u, v) = m.at(x, y);
+        let (u, v) = lens.as_ref().map_or((u, v), |l| l.map_green(u, v));
+        lo = (lo.0.min(u), lo.1.min(v));
+        hi = (hi.0.max(u), hi.1.max(v));
+    }
+    // Bilinear taps, a curved border between the samples, and TCA (well under 1 %).
+    let margin = 4.0 + 0.01 * (hi.0 - lo.0).max(hi.1 - lo.1);
+    let span = |lo: f32, hi: f32, len: usize| {
+        let start = ((lo - margin).floor().max(0.0) as usize).min(len - 1);
+        let end = ((hi + margin).ceil().max(0.0) as usize).clamp(start + 1, len);
+        (start, end - start)
+    };
+    let ((x, width), (y, height)) = (span(lo.0, hi.0, base.0), span(lo.1, hi.1, base.1));
+    Region { x, y, width, height }
+}
+
+/// [`apply_region`]'s loop with lens correction: each channel is read at its own position
 /// (unless there's no TCA), and scaled by the vignetting gain. The correction is
 /// evaluated once per output pixel, at its centre, and shared by its subsamples.
-fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, out: &mut Image) {
+fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, at: Patch, out: &mut Image) {
     let inv_ss = 1.0 / ss as f32;
     let norm = 1.0 / (ss * ss) as f32;
     let out_w = out.width;
     let (cx, cy) = lens.centre();
-    for (y, row) in out.pixels.chunks_exact_mut(out_w).enumerate() {
+    for (y, row) in out.pixels.chunks_exact_mut(out_w.max(1)).enumerate() {
         for (x, px) in row.iter_mut().enumerate() {
-            let (u, v) = m.at(x as f32 + 0.5, y as f32 + 0.5);
+            let (u, v) = m.at(at.x0 + x as f32 + 0.5, at.y0 + y as f32 + 0.5);
             let (scales, gain) = lens.local(u, v);
             let mut acc = [0.0f32; 3];
             for sy in 0..ss {
                 for sx in 0..ss {
-                    let fx = x as f32 + (sx as f32 + 0.5) * inv_ss;
-                    let fy = y as f32 + (sy as f32 + 0.5) * inv_ss;
+                    let fx = at.x0 + x as f32 + (sx as f32 + 0.5) * inv_ss;
+                    let fy = at.y0 + y as f32 + (sy as f32 + 0.5) * inv_ss;
                     let (u, v) = m.at(fx, fy);
                     let (dx, dy) = (u - cx, v - cy);
+                    // Positions in the whole source first, then in the patch (exactly, as the
+                    // origin is a whole number), so that patches read what the whole would.
                     if lens.tca {
                         for (c, s) in scales.iter().enumerate() {
-                            acc[c] += src.sample_bilinear_channel(cx + dx * s, cy + dy * s, c);
+                            acc[c] += src.sample_bilinear_channel(cx + dx * s - at.u0, cy + dy * s - at.v0, c);
                         }
                     } else {
-                        let s = src.sample_bilinear(cx + dx * scales[1], cy + dy * scales[1]);
+                        let s = src.sample_bilinear(cx + dx * scales[1] - at.u0, cy + dy * scales[1] - at.v0);
                         acc[0] += s[0];
                         acc[1] += s[1];
                         acc[2] += s[2];
@@ -174,16 +238,34 @@ fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, out: &mut 
 
 /// Render `out_w × out_h` pixels of the transformed `src` mask, by nearest sampling.
 pub fn apply_mask(src: &Mask, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Mask {
-    let (sw, sh) = (src.width as f32, src.height as f32);
+    let whole = Region::full(src.width, src.height);
+    apply_mask_region(src, whole, (src.width, src.height), t, profile, out_w, out_h, Region::full(out_w, out_h))
+}
+
+/// `region` of [`apply_mask`]'s output, from a patch of the mask (as [`apply_region`]).
+#[allow(clippy::too_many_arguments)]
+pub fn apply_mask_region(
+    src: &Mask,
+    src_at: Region,
+    base: (usize, usize),
+    t: &Transform,
+    profile: Option<&LensProfile>,
+    out_w: usize,
+    out_h: usize,
+    region: Region,
+) -> Mask {
+    let (sw, sh) = (base.0 as f32, base.1 as f32);
     let m = Mapping::new(sw, sh, t, out_w, out_h);
     let lens = correction(t, profile, sw, sh);
-    let (max_x, max_y) = (src.width as f32 - 1.0, src.height as f32 - 1.0);
-    let mut out = Mask::new(out_w, out_h);
-    for y in 0..out_h {
-        for x in 0..out_w {
-            let (u, v) = m.at(x as f32 + 0.5, y as f32 + 0.5);
+    let (min_x, min_y) = (src_at.x as f32, src_at.y as f32);
+    let (max_x, max_y) = (min_x + src.width as f32 - 1.0, min_y + src.height as f32 - 1.0);
+    let mut out = Mask::new(region.width, region.height);
+    for y in 0..region.height {
+        for x in 0..region.width {
+            let (u, v) = m.at((region.x + x) as f32 + 0.5, (region.y + y) as f32 + 0.5);
             let (u, v) = lens.as_ref().map_or((u, v), |l| l.map_green(u, v));
-            if src.get(u.clamp(0.0, max_x) as usize, v.clamp(0.0, max_y) as usize) {
+            let (u, v) = (u.clamp(min_x, max_x) as usize - src_at.x, v.clamp(min_y, max_y) as usize - src_at.y);
+            if src.get(u, v) {
                 out.set(x, y);
             }
         }

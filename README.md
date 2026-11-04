@@ -17,7 +17,9 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   rgb with its AgX colour science), sharpening, blur,
   rotation/flip, straightening and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
-  display (O) and sensor (Shift+O) clipping indicators. Module presets (built-in and
+  display (O) and sensor (Shift+O) clipping indicators. Zoom with the mouse wheel or a
+  touchpad pinch (fit to 800 %), middle click for 100 % at the pointer (again for fit),
+  and drag to pan. Module presets (built-in and
   your own, optionally limited to part of a module, e.g. colour calibration's mixer) and
   styles (a set of modules to apply to other photos) are in each module's header and
   the toolbar.
@@ -74,6 +76,12 @@ size instead and splits the per-pixel stages across a pool of workers
 (`develop/pointPool.ts`), each holding a strip of the cached image. Only spatial edits
 (geometry, blur, sharpen, equalizer curves) fall back to the draft. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for measurements and what didn't work.
+
+Zoomed in, the developer renders only the visible region at the zoom level (at most
+100 %). Only the photosites under it are developed, in a cached "patch" of the base
+image, and the spatial stages get a margin around it so that its pixels match a render of
+the whole image. Meanwhile the fitted render is enlarged with a CSS transform, so the wheel
+and panning respond at once; the region follows 150 ms after the view stops moving.
 
 Previews bin photosites ("superpixel") down to roughly the output size instead of
 demosaicing at full resolution. Spatial parameters (blur and sharpen radii) are
@@ -223,8 +231,8 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
 - Filmic is the costliest per-pixel stage (~45 ns/pixel interactively, ~80 ns exact).
 - The contrast equalizer is the costliest spatial stage: ~75 ms per megapixel when only
   luminance is edited, about twice that with colour. It re-runs on curve edits; caching
-  the bands would make those cheap but costs ~60 MB per megapixel. Building the wasm
-  module with SIMD (`+simd128`) would speed it up.
+  the bands would make those cheap but costs ~60 MB per megapixel. Zoomed in at 100 %,
+  its margin makes the first render of a view take about a second in the browser.
 - Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise, masks or XMP sidecar import/export yet.
 - Storage is local disk; the storage module is small enough to swap for S3-compatible storage.
 

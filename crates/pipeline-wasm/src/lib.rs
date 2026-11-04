@@ -17,6 +17,22 @@ fn js_err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
 
+/// Fitted within `max_width × max_height`; `region` (`[x, y, width, height]`, output
+/// pixels) renders only that part of it, e.g. a zoomed-in view.
+fn render_size(max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<RenderSize, JsError> {
+    let size = RenderSize::fit(max_width, max_height);
+    match region.as_deref() {
+        None => Ok(size),
+        Some(&[x, y, width, height]) => Ok(size.with_region(pipeline::Region {
+            x: x as usize,
+            y: y as usize,
+            width: width as usize,
+            height: height as usize,
+        })),
+        Some(_) => Err(JsError::new("a region is [x, y, width, height]")),
+    }
+}
+
 /// Read metadata (EXIF, dimensions…) without decoding the sensor data. Returns JSON.
 #[wasm_bindgen(js_name = readMetadata)]
 pub fn read_metadata(bytes: &[u8]) -> Result<String, JsError> {
@@ -91,7 +107,8 @@ impl Developer {
         serde_json::to_string(self.inner.metadata()).map_err(js_err)
     }
 
-    /// `[width, height]` that `render` would produce for these parameters and bounds.
+    /// `[width, height]` of the image fitted within these bounds (0 = unbounded): with
+    /// no bounds, the size of the (cropped) image at full resolution.
     #[wasm_bindgen(js_name = outputSize)]
     pub fn output_size(&self, params_json: &str, max_width: u32, max_height: u32) -> Result<Vec<u32>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
@@ -99,13 +116,23 @@ impl Developer {
         Ok(vec![w as u32, h as u32])
     }
 
-    /// Interactive render to RGBA8, fitted within `max_width × max_height` (0 = unbounded).
+    /// `[x, y, width, height]` of the fitted image that `render` gives with this
+    /// region: the region, clipped to the image.
+    #[wasm_bindgen(js_name = outputRegion)]
+    pub fn output_region(&self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<Vec<u32>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let r = self.inner.output_region(&params, render_size(max_width, max_height, region)?);
+        Ok([r.x, r.y, r.width, r.height].map(|v| v as u32).to_vec())
+    }
+
+    /// Interactive render to RGBA8, fitted within `max_width × max_height` (0 = unbounded),
+    /// or only `region` of that (see `outputRegion`).
     /// May use approximations that are invisible in practice; see `Quality`.
     /// `overlays_json` selects clipping indicators (`Overlays`; `"{}"` for none).
-    pub fn render(&mut self, params_json: &str, max_width: u32, max_height: u32, overlays_json: &str) -> Result<RenderedImage, JsError> {
+    pub fn render(&mut self, params_json: &str, max_width: u32, max_height: u32, overlays_json: &str, region: Option<Vec<u32>>) -> Result<RenderedImage, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
         let overlays: Overlays = serde_json::from_str(overlays_json).map_err(js_err)?;
-        let img = self.inner.render_with_overlays(&params, RenderSize::fit(max_width, max_height), Quality::Interactive, &overlays);
+        let img = self.inner.render_with_overlays(&params, render_size(max_width, max_height, region)?, Quality::Interactive, &overlays);
         Ok(RenderedImage {
             width: img.width as u32,
             height: img.height as u32,
@@ -113,28 +140,28 @@ impl Developer {
         })
     }
 
-    /// Whether a render of these parameters within these bounds would only re-run the
-    /// point operations (the spatial stages' output is cached).
+    /// Whether a render of these parameters within these bounds (and region, as for
+    /// `render`) would only re-run the point operations (the spatial stages' output is cached).
     #[wasm_bindgen(js_name = isSpatialCached)]
-    pub fn is_spatial_cached(&self, params_json: &str, max_width: u32, max_height: u32) -> Result<bool, JsError> {
+    pub fn is_spatial_cached(&self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<bool, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        Ok(self.inner.is_spatial_cached(&params, RenderSize::fit(max_width, max_height)))
+        Ok(self.inner.is_spatial_cached(&params, render_size(max_width, max_height, region)?))
     }
 
-    /// Build (or reuse) the spatial stages' output: `[id, width, height]`. The id
-    /// changes whenever the image does.
+    /// Build (or reuse) the spatial stages' output (of the region, as for `render`):
+    /// `[id, width, height]`. The id changes whenever the image does.
     #[wasm_bindgen(js_name = spatialInfo)]
-    pub fn spatial_info(&mut self, params_json: &str, max_width: u32, max_height: u32) -> Result<Vec<f64>, JsError> {
+    pub fn spatial_info(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<Vec<f64>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        let (id, img) = self.inner.spatial_image_id(&params, RenderSize::fit(max_width, max_height));
+        let (id, img) = self.inner.spatial_image_id(&params, render_size(max_width, max_height, region)?);
         Ok(vec![id as f64, img.width as f64, img.height as f64])
     }
 
     /// Rows `y0..y1` of the spatial stages' output, as interleaved linear RGB.
     #[wasm_bindgen(js_name = spatialRows)]
-    pub fn spatial_rows(&mut self, params_json: &str, max_width: u32, max_height: u32, y0: u32, y1: u32) -> Result<Vec<f32>, JsError> {
+    pub fn spatial_rows(&mut self, params_json: &str, max_width: u32, max_height: u32, y0: u32, y1: u32, region: Option<Vec<u32>>) -> Result<Vec<f32>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        let img = self.inner.spatial_image(&params, RenderSize::fit(max_width, max_height));
+        let img = self.inner.spatial_image(&params, render_size(max_width, max_height, region)?);
         let (y0, y1) = ((y0 as usize).min(img.height), (y1 as usize).min(img.height));
         Ok(img.pixels[y0 * img.width..y1.max(y0) * img.width].iter().flatten().copied().collect())
     }
@@ -146,13 +173,13 @@ impl Developer {
     }
 
     /// Paint clipping indicators (`Overlays` JSON) on an RGBA8 render of these
-    /// parameters within these bounds, in place.
+    /// parameters within these bounds (and region, as for `render`), in place.
     #[wasm_bindgen(js_name = paintOverlays)]
-    pub fn paint_overlays(&mut self, params_json: &str, max_width: u32, max_height: u32, data: &mut [u8], width: u32, height: u32, overlays_json: &str) -> Result<(), JsError> {
+    pub fn paint_overlays(&mut self, params_json: &str, max_width: u32, max_height: u32, data: &mut [u8], width: u32, height: u32, overlays_json: &str, region: Option<Vec<u32>>) -> Result<(), JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
         let overlays: Overlays = serde_json::from_str(overlays_json).map_err(js_err)?;
         let mut img = pipeline::Rgba8 { width: width as usize, height: height as usize, data: data.to_vec() };
-        self.inner.paint_overlays(&params, RenderSize::fit(max_width, max_height), &mut img, &overlays);
+        self.inner.paint_overlays(&params, render_size(max_width, max_height, region)?, &mut img, &overlays);
         data.copy_from_slice(&img.data);
         Ok(())
     }

@@ -8,7 +8,7 @@
 import init, { Developer } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import { PointPool } from './pointPool.ts';
-import type { Overlays, WorkerRequest, WorkerResponse } from './protocol.ts';
+import type { Overlays, Placement, Region, WorkerRequest, WorkerResponse } from './protocol.ts';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -23,6 +23,9 @@ const toBitmap = (data: Uint8Array, width: number, height: number) =>
   createImageBitmap(
     new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer, data.byteOffset, data.length), width, height),
   );
+
+/** A region as the wasm module takes it. */
+const regionArg = (r: Region | null) => (r ? new Uint32Array([r.x, r.y, r.width, r.height]) : undefined);
 
 // One message at a time: pool renders await their workers, and nothing else may touch
 // the developer meanwhile.
@@ -47,20 +50,20 @@ async function handle(msg: WorkerRequest) {
     const params = JSON.stringify(msg.params);
     if (msg.type === 'render') {
       const isDraft = msg.fullWidth !== msg.maxWidth || msg.fullHeight !== msg.maxHeight;
-      // A draft stands in for a full-size render while dragging. If only the point
-      // operations need to run, the pool renders full size about as fast: do that.
-      const upgrade = isDraft && !!pool && developer.isSpatialCached(params, msg.fullWidth, msg.fullHeight);
-      if (pool && (!isDraft || upgrade)) {
-        const { width, height, data } = await pool.render(developer, params, msg.fullWidth, msg.fullHeight);
-        let overlays: Overlays = msg.overlays;
-        if (upgrade && overlays.stripes) {
-          // Stripe widths were scaled for the draft.
-          const [draftWidth] = developer.outputSize(params, msg.maxWidth, msg.maxHeight);
-          overlays = { ...overlays, stripes: (overlays.stripes * width) / draftWidth! };
-        }
-        if (overlays.display || overlays.sensor) {
-          developer.paintOverlays(params, msg.fullWidth, msg.fullHeight, data, width, height, JSON.stringify(overlays));
-        }
+      const full = { width: msg.fullWidth, height: msg.fullHeight, region: regionArg(msg.fullRegion) };
+      // Where the full-size render sits, which a draft stands in for.
+      const [frameWidth, frameHeight] = developer.outputSize(params, full.width, full.height);
+      const [x, y, fullWidth, fullHeight] = developer.outputRegion(params, full.width, full.height, full.region);
+      const placement: Placement = {
+        x: x!,
+        y: y!,
+        width: fullWidth!,
+        height: fullHeight!,
+        frameWidth: frameWidth!,
+        frameHeight: frameHeight!,
+      };
+      const [sourceWidth, sourceHeight] = developer.outputSize(params, 0, 0);
+      const rendered = async (data: Uint8Array, width: number, height: number) => {
         const bitmap = await toBitmap(data, width, height);
         post(
           {
@@ -68,36 +71,41 @@ async function handle(msg: WorkerRequest) {
             id: msg.id,
             width,
             height,
-            fullWidth: width,
-            fullHeight: height,
+            fullWidth: fullWidth!,
+            fullHeight: fullHeight!,
+            placement,
+            sourceWidth: sourceWidth!,
+            sourceHeight: sourceHeight!,
             bitmap,
             ms: performance.now() - started,
           },
           [bitmap],
         );
+      };
+      // A draft stands in for a full-size render while dragging. If only the point
+      // operations need to run, the pool renders full size about as fast: do that.
+      const upgrade = isDraft && !!pool && developer.isSpatialCached(params, full.width, full.height, full.region);
+      if (pool && (!isDraft || upgrade)) {
+        const { width, height, data } = await pool.render(developer, params, full.width, full.height, full.region);
+        let overlays: Overlays = msg.overlays;
+        if (upgrade && overlays.stripes) {
+          // Stripe widths were scaled for the draft.
+          const [draftWidth] = developer.outputSize(params, msg.maxWidth, msg.maxHeight);
+          overlays = { ...overlays, stripes: (overlays.stripes * frameWidth!) / draftWidth! };
+        }
+        if (overlays.display || overlays.sensor) {
+          const json = JSON.stringify(overlays);
+          developer.paintOverlays(params, full.width, full.height, data, width, height, json, full.region);
+        }
+        await rendered(data, width, height);
         return;
       }
-      const img = developer.render(params, msg.maxWidth, msg.maxHeight, JSON.stringify(msg.overlays));
+      const overlays = JSON.stringify(msg.overlays);
+      const img = developer.render(params, msg.maxWidth, msg.maxHeight, overlays, regionArg(msg.region));
       const { width, height } = img;
       const data = img.takeData();
       img.free();
-      const [fullWidth, fullHeight] = isDraft
-        ? developer.outputSize(params, msg.fullWidth, msg.fullHeight)
-        : [width, height];
-      const bitmap = await toBitmap(data, width, height);
-      post(
-        {
-          type: 'rendered',
-          id: msg.id,
-          width,
-          height,
-          fullWidth: fullWidth!,
-          fullHeight: fullHeight!,
-          bitmap,
-          ms: performance.now() - started,
-        },
-        [bitmap],
-      );
+      await rendered(data, width, height);
     } else if (msg.type === 'autoTuneFilmic') {
       const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
       post({

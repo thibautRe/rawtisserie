@@ -13,15 +13,27 @@ use rawler::CFA;
 
 use crate::color;
 use crate::decode::{Layout, RawPhoto};
-use crate::image::{Image, Mask};
+use crate::image::{Image, Mask, Region};
+
+/// Size of the base image for `factor`.
+pub fn base_size(photo: &RawPhoto, factor: usize) -> (usize, usize) {
+    let factor = factor.max(1);
+    ((photo.width / factor).max(1), (photo.height / factor).max(1))
+}
 
 pub fn develop_base(photo: &RawPhoto, factor: usize) -> Image {
+    let (w, h) = base_size(photo, factor);
+    develop_base_region(photo, factor, Region::full(w, h))
+}
+
+/// `region` of [`develop_base`]'s image (same pixels), without developing the rest.
+pub fn develop_base_region(photo: &RawPhoto, factor: usize, region: Region) -> Image {
     let factor = factor.max(1);
     let mut img = match &photo.layout {
-        Layout::Mosaic(cfa) if factor == 1 => demosaic_bilinear(photo, cfa),
-        Layout::Mosaic(cfa) => bin_mosaic(photo, cfa, factor),
-        Layout::Rgb => bin_plain(photo, factor, 3),
-        Layout::Mono => bin_plain(photo, factor, 1),
+        Layout::Mosaic(cfa) if factor == 1 => demosaic_bilinear(photo, cfa, region),
+        Layout::Mosaic(cfa) => bin_mosaic(photo, cfa, factor, region),
+        Layout::Rgb => bin_plain(photo, factor, 3, region),
+        Layout::Mono => bin_plain(photo, factor, 1, region),
     };
 
     let (wb, as_shot, matrix) = match photo.layout {
@@ -48,31 +60,35 @@ pub const SENSOR_CLIP: f32 = 0.99;
 /// The pixels of the base image for `factor` (same size as [`develop_base`]'s) that
 /// contain at least one saturated photosite.
 pub fn clipped_photosites(photo: &RawPhoto, factor: usize) -> Mask {
+    let (w, h) = base_size(photo, factor);
+    clipped_photosites_region(photo, factor, Region::full(w, h))
+}
+
+/// `region` of [`clipped_photosites`]'s mask.
+pub fn clipped_photosites_region(photo: &RawPhoto, factor: usize, region: Region) -> Mask {
     let factor = factor.max(1);
     let channels = match photo.layout {
         Layout::Rgb => 3,
         _ => 1,
     };
-    let (w, h) = ((photo.width / factor).max(1), (photo.height / factor).max(1));
-    let mut mask = Mask::new(w, h);
-    for oy in 0..h {
-        for ox in 0..w {
+    let mut mask = Mask::new(region.width, region.height);
+    for (my, oy) in (region.y..region.bottom()).enumerate() {
+        for (mx, ox) in (region.x..region.right()).enumerate() {
             let clipped = (oy * factor..((oy + 1) * factor).min(photo.height)).any(|y| {
                 (ox * factor..((ox + 1) * factor).min(photo.width)).any(|x| (0..channels).any(|c| photo.sample(x, y, c) >= SENSOR_CLIP))
             });
             if clipped {
-                mask.set(ox, oy);
+                mask.set(mx, my);
             }
         }
     }
     mask
 }
 
-fn bin_mosaic(photo: &RawPhoto, cfa: &CFA, factor: usize) -> Image {
-    let (w, h) = (photo.width / factor, photo.height / factor);
-    let mut img = Image::new(w.max(1), h.max(1));
-    for oy in 0..img.height {
-        for ox in 0..img.width {
+fn bin_mosaic(photo: &RawPhoto, cfa: &CFA, factor: usize, region: Region) -> Image {
+    let mut img = Image::new(region.width, region.height);
+    for (iy, oy) in (region.y..region.bottom()).enumerate() {
+        for (ix, ox) in (region.x..region.right()).enumerate() {
             let mut grow = 0;
             loop {
                 let (mut sum, mut count) = ([0.0f32; 3], [0u32; 3]);
@@ -89,7 +105,7 @@ fn bin_mosaic(photo: &RawPhoto, cfa: &CFA, factor: usize) -> Image {
                 }
                 // Blocks smaller than the CFA period (e.g. X-Trans) may miss a colour.
                 if count.iter().all(|&n| n > 0) || grow >= 4 {
-                    img.pixels[oy * img.width + ox] = std::array::from_fn(|c| sum[c] / count[c].max(1) as f32);
+                    img.pixels[iy * img.width + ix] = std::array::from_fn(|c| sum[c] / count[c].max(1) as f32);
                     break;
                 }
                 grow += 1;
@@ -99,25 +115,42 @@ fn bin_mosaic(photo: &RawPhoto, cfa: &CFA, factor: usize) -> Image {
     img
 }
 
-fn demosaic_bilinear(photo: &RawPhoto, cfa: &CFA) -> Image {
+fn demosaic_bilinear(photo: &RawPhoto, cfa: &CFA, region: Region) -> Image {
     let (w, h) = (photo.width, photo.height);
-    let mut img = Image::new(w, h);
-    for y in 0..h {
-        for x in 0..w {
-            let own = photo.color_at(cfa, x, y);
+    // Every photosite the region reads (up to 2 around it), normalised once: each one
+    // is read by up to 25 pixels.
+    const REACH: usize = 2;
+    let (x0, y0) = (region.x.saturating_sub(REACH), region.y.saturating_sub(REACH));
+    let (x1, y1) = ((region.right() + REACH).min(w), (region.bottom() + REACH).min(h));
+    let stride = x1 - x0;
+    let mut samples = Vec::with_capacity(stride * (y1 - y0));
+    let mut colours = Vec::with_capacity(stride * (y1 - y0));
+    for y in y0..y1 {
+        for x in x0..x1 {
+            samples.push(photo.sample(x, y, 0));
+            colours.push(photo.color_at(cfa, x, y) as u8);
+        }
+    }
+    let at = |x: usize, y: usize| (y - y0) * stride + (x - x0);
+
+    let mut img = Image::new(region.width, region.height);
+    for (iy, y) in (region.y..region.bottom()).enumerate() {
+        for (ix, x) in (region.x..region.right()).enumerate() {
+            let own = colours[at(x, y)] as usize;
             let mut out = [0.0f32; 3];
-            out[own] = photo.sample(x, y, 0);
+            out[own] = samples[at(x, y)];
             for (c, value) in out.iter_mut().enumerate() {
                 if c == own {
                     continue;
                 }
                 // Average the nearest same-colour neighbours (3×3, widening for X-Trans).
-                for radius in 1..=2usize {
+                for radius in 1..=REACH {
                     let (mut sum, mut count) = (0.0f32, 0u32);
                     for ny in y.saturating_sub(radius)..(y + radius + 1).min(h) {
                         for nx in x.saturating_sub(radius)..(x + radius + 1).min(w) {
-                            if photo.color_at(cfa, nx, ny) == c {
-                                sum += photo.sample(nx, ny, 0);
+                            let i = at(nx, ny);
+                            if colours[i] as usize == c {
+                                sum += samples[i];
                                 count += 1;
                             }
                         }
@@ -128,18 +161,17 @@ fn demosaic_bilinear(photo: &RawPhoto, cfa: &CFA) -> Image {
                     }
                 }
             }
-            img.pixels[y * w + x] = out;
+            img.pixels[iy * region.width + ix] = out;
         }
     }
     img
 }
 
-fn bin_plain(photo: &RawPhoto, factor: usize, channels: usize) -> Image {
-    let (w, h) = ((photo.width / factor).max(1), (photo.height / factor).max(1));
-    let mut img = Image::new(w, h);
+fn bin_plain(photo: &RawPhoto, factor: usize, channels: usize, region: Region) -> Image {
+    let mut img = Image::new(region.width, region.height);
     let norm = 1.0 / (factor * factor) as f32;
-    for oy in 0..h {
-        for ox in 0..w {
+    for (iy, oy) in (region.y..region.bottom()).enumerate() {
+        for (ix, ox) in (region.x..region.right()).enumerate() {
             let mut sum = [0.0f32; 3];
             for y in oy * factor..((oy + 1) * factor).min(photo.height) {
                 for x in ox * factor..((ox + 1) * factor).min(photo.width) {
@@ -148,7 +180,7 @@ fn bin_plain(photo: &RawPhoto, factor: usize, channels: usize) -> Image {
                     }
                 }
             }
-            img.pixels[oy * w + ox] = sum.map(|s| s * norm);
+            img.pixels[iy * region.width + ix] = sum.map(|s| s * norm);
         }
     }
     img

@@ -1,5 +1,5 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
-import type { IlluminantDetection, Overlays, WorkerRequest, WorkerResponse } from './protocol.ts';
+import type { IlluminantDetection, Overlays, Region, WorkerRequest, WorkerResponse } from './protocol.ts';
 import type { Frame, RenderBackend } from './renderBackend.ts';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
@@ -44,21 +44,28 @@ export class LocalRenderBackend implements RenderBackend {
     maxWidth: number,
     maxHeight: number,
     overlays: Overlays = {},
-    full = { width: maxWidth, height: maxHeight },
+    full?: { width: number; height: number; region?: Region | null },
+    region: Region | null = null,
   ): Promise<Frame> {
+    full ??= { width: maxWidth, height: maxHeight, region };
     const r = await this.call<Extract<WorkerResponse, { type: 'rendered' }>>({
       type: 'render',
       params,
       maxWidth,
       maxHeight,
+      region,
       fullWidth: full.width,
       fullHeight: full.height,
+      fullRegion: full.region ?? null,
       overlays,
     });
     return {
       image: r.bitmap,
       fullWidth: r.fullWidth,
       fullHeight: r.fullHeight,
+      placement: r.placement,
+      sourceWidth: r.sourceWidth,
+      sourceHeight: r.sourceHeight,
       ms: r.ms,
     };
   }

@@ -103,3 +103,54 @@ pub struct Rgba8 {
     pub height: usize,
     pub data: Vec<u8>,
 }
+
+/// A rectangle of pixels, top-left origin.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Region {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl Region {
+    /// The whole of a `width × height` image.
+    pub fn full(width: usize, height: usize) -> Self {
+        Self { x: 0, y: 0, width, height }
+    }
+
+    pub fn right(&self) -> usize {
+        self.x + self.width
+    }
+
+    pub fn bottom(&self) -> usize {
+        self.y + self.height
+    }
+
+    /// The part of this region inside a `width × height` image.
+    pub fn clipped(&self, width: usize, height: usize) -> Self {
+        let (x, y) = (self.x.min(width), self.y.min(height));
+        Self { x, y, width: self.right().min(width) - x, height: self.bottom().min(height) - y }
+    }
+
+    /// Grown by `margin` on every side, within a `width × height` image.
+    pub fn padded(&self, margin: usize, width: usize, height: usize) -> Self {
+        let (x, y) = (self.x.saturating_sub(margin), self.y.saturating_sub(margin));
+        Self { x, y, width: (self.right() + margin).min(width) - x, height: (self.bottom() + margin).min(height) - y }
+    }
+
+    pub fn contains(&self, other: &Region) -> bool {
+        other.x >= self.x && other.y >= self.y && other.right() <= self.right() && other.bottom() <= self.bottom()
+    }
+}
+
+impl Image {
+    /// A copy of `region` of this image.
+    pub fn crop(&self, region: Region) -> Image {
+        let pixels = (region.y..region.bottom())
+            .flat_map(|y| &self.pixels[y * self.width + region.x..y * self.width + region.right()])
+            .copied()
+            .collect();
+        Image { width: region.width, height: region.height, pixels }
+    }
+}
