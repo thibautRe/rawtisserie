@@ -89,7 +89,7 @@ import {
   Trash2,
   WandSparkles,
 } from 'lucide-react';
-import { Fragment, memo, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
@@ -494,6 +494,9 @@ function flipRatioText(text: string): string {
   return r ? `1:${text.trim()}` : text;
 }
 
+/** How long a preset preview stays after its menu item loses the highlight, ms. */
+const PREVIEW_REVERT_MS = 150;
+
 const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
 const BLEACH_LABELS: Record<Bleach, string> = {
@@ -546,13 +549,25 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   // While a preset menu item is highlighted, its preset is shown as a live change on top
   // of this recipe, which comes back when the menu closes.
   const previewBase = useRef<EditParams | null>(null);
+  // Going from one item to the next un-highlights the first before highlighting the
+  // next (and gaps or group labels can be in between): the recipe only comes back if
+  // nothing else is highlighted for a moment, so previews follow each other directly.
+  const revertTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(revertTimer.current), []);
   const preview = (change: ((p: EditParams) => EditParams) | null) => {
-    if (!change && !previewBase.current) return;
+    clearTimeout(revertTimer.current);
+    if (!change) {
+      revertTimer.current = setTimeout(() => {
+        if (previewBase.current) latest.current.onChange(previewBase.current);
+      }, PREVIEW_REVERT_MS);
+      return;
+    }
     const base = (previewBase.current ??= latest.current.params);
-    latest.current.onChange(change ? change(base) : base);
+    latest.current.onChange(change(base));
   };
   /** Ends a preview and returns the recipe from before it. */
   const endPreview = () => {
+    clearTimeout(revertTimer.current);
     const base = previewBase.current;
     previewBase.current = null;
     if (base) latest.current.onChange(base);
