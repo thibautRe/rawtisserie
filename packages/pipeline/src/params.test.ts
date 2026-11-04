@@ -378,10 +378,15 @@ test('retouch spots carry their shapes', () => {
     feather: 0,
     opacity: 1,
   };
-  const [a, first] = addSpot(defaultEditParams, 'retouch', { ...circle, center: [0.5, 0.5] }, {
-    mode: 'clone',
-    source: [0.1, 0],
-  });
+  const [a, first] = addSpot(
+    defaultEditParams,
+    'retouch',
+    { ...circle, center: [0.5, 0.5] },
+    {
+      mode: 'clone',
+      source: [0.1, 0],
+    },
+  );
   const [b, second] = addSpot(a, 'retouch', { ...circle, center: [0.2, 0.2] }, {});
   assert.deepEqual([first, second], [0, 1]);
   assert.deepEqual(Object.keys(b.shapes!), ['s1', 's2']);
@@ -397,7 +402,10 @@ test('retouch spots carry their shapes', () => {
 
   const moved = updateShape(b, 's2', { ...circle, center: [0.3, 0.3] });
   assert.deepEqual(moved.shapes!.s2!.type === 'ellipse' && moved.shapes!.s2!.center, [0.3, 0.3]);
-  assert.equal(updateSpot(moved, 'retouch', 1, { opacity: 0.5 }).modules.find((m) => m.kind === 'retouch')!.enabled, true);
+  assert.equal(
+    updateSpot(moved, 'retouch', 1, { opacity: 0.5 }).modules.find((m) => m.kind === 'retouch')!.enabled,
+    true,
+  );
 
   const removed = removeSpot(b, 'retouch', 0);
   assert.deepEqual(Object.keys(removed.shapes!), ['s2']);

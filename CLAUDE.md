@@ -11,8 +11,10 @@ See README.md for the architecture overview and commands.
 - Shapes live in the recipe's top-level `shapes` (absent when empty), in normalised sensor
   coordinates; lengths are fractions of the sensor's shorter side. `normalize` drops
   spots without their shape and shapes nothing uses, in both languages. Anything new that
-  refers to shapes (masks) must be counted in `shape_refs`/`shapeRefs`, or its shapes
-  get dropped, and styles must carry them (`styleFromRecipe`, `applyStyle`).
+  refers to shapes (masks) must be counted in Rust's `shape_refs` and TS's
+  `paramShapeRefs`/`mapShapeRefs`, or its shapes get dropped. Presets and styles carry
+  the shapes they use and rename them on apply through those two TS functions, so they
+  follow (an instance-level `mask` will need adding to them and to the preset payload).
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter

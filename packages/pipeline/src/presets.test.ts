@@ -20,6 +20,7 @@ import {
   applyModulePreset,
   applyStyle,
   normalizeModulePreset,
+  modulePresetPayload,
   normalizeStyle,
   PRESET_KINDS,
   presetGroupsOf,
@@ -57,13 +58,16 @@ test('a preset can hold part of a module', () => {
   // Applied elsewhere, it leaves the white balance alone.
   const other = updateModule(defaultEditParams, 'colorCalibration', { params: { temperature: 7000 } });
   const id = findModule(other, 'colorCalibration')!.id;
-  const applied = findModule(applyModulePreset(other, 'colorCalibration', id, mixer), 'colorCalibration')!.params;
+  const applied = findModule(
+    applyModulePreset(other, 'colorCalibration', id, { params: mixer }),
+    'colorCalibration',
+  )!.params;
   assert.equal(applied.temperature, 7000);
   assert.deepEqual(applied.red, [1.2, -0.1, -0.1]);
 });
 
 test('applying a preset to a kind without an instance adds one, switched on', () => {
-  const p = applyModulePreset(defaultEditParams, 'sharpen', 'sharpen', { amount: 0.8 });
+  const p = applyModulePreset(defaultEditParams, 'sharpen', 'sharpen', { params: { amount: 0.8 } });
   const sharpen = findModule(p, 'sharpen')!;
   assert.equal(sharpen.enabled, true);
   assert.deepEqual(sharpen.params, { ...defaultModuleParams.sharpen, amount: 0.8 });
@@ -161,5 +165,53 @@ test('styles carry the shapes of their retouch spots', () => {
   const replaced = applyStyle(other, style, 'replace');
   assert.deepEqual(replaced.shapes, { s1: at(0.3) });
   assert.equal(spotsOf(replaced, 'retouch')[0]!.mode, 'clone');
-  assert.equal(PRESET_KINDS.includes('retouch'), false);
+  assert.equal(PRESET_KINDS.includes('retouch'), true);
+});
+
+test('retouch presets carry their shapes', () => {
+  const at = (x: number): Shape => ({
+    type: 'ellipse',
+    center: [x, 0.5],
+    radii: [0.01, 0.01],
+    rotation: 0,
+    feather: 0,
+    opacity: 1,
+  });
+  const [one] = addSpot(defaultEditParams, 'retouch', at(0.2), { mode: 'clone', source: [0.05, 0] });
+  const [dust] = addSpot(one, 'retouch', at(0.4), {});
+  const payload = modulePresetPayload('retouch', findModule(dust, 'retouch')!.params, dust.shapes);
+  assert.deepEqual(payload.shapes, { s1: at(0.2), s2: at(0.4) });
+  // Stored and read back: the same; shapes nothing uses and spots without a shape go.
+  assert.deepEqual(normalizeModulePreset('retouch', JSON.parse(JSON.stringify(payload))), payload);
+  const junk = normalizeModulePreset('retouch', {
+    params: { spots: [{ shape: 's1' }, { shape: 'gone' }] },
+    shapes: { s1: at(0.1), unused: at(0.9), bad: { type: 'ellipse' } },
+  });
+  assert.deepEqual(
+    junk.params.spots!.map((s) => s.shape),
+    ['s1'],
+  );
+  assert.deepEqual(Object.keys(junk.shapes!), ['s1']);
+
+  // Applied to another photo's retouch instance: it replaces the spots, and the shape
+  // ids that are taken there get fresh ones.
+  const [other] = addSpot(defaultEditParams, 'retouch', at(0.8), {});
+  const [two] = addSpot(addInstance(other, 'retouch'), 'retouch-2', at(0.6), {});
+  const applied = applyModulePreset(two, 'retouch', 'retouch', payload);
+  assert.deepEqual(
+    spotsOf(applied, 'retouch').map((s) => applied.shapes![s.shape]),
+    [at(0.2), at(0.4)],
+  );
+  assert.equal(spotsOf(applied, 'retouch')[0]!.mode, 'clone');
+  assert.deepEqual(
+    spotsOf(applied, 'retouch-2').map((s) => applied.shapes![s.shape]),
+    [at(0.6)],
+  );
+  // The replaced spot's shape (at 0.8) is gone.
+  assert.deepEqual(Object.values(applied.shapes!).length, 3);
+  assert.deepEqual(normalizeEditParams(JSON.parse(JSON.stringify(applied))), applied);
+  // On a recipe without retouch, it adds an instance.
+  assert.deepEqual(applyModulePreset(defaultEditParams, 'retouch', 'retouch', payload).shapes, payload.shapes);
+  // Presets of other kinds have no shapes.
+  assert.equal('shapes' in modulePresetPayload('sharpen', defaultModuleParams.sharpen, dust.shapes), false);
 });

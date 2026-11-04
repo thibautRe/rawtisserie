@@ -429,7 +429,10 @@ white balance and is the most common target for masked instances.
 - Table: `presets(id, owner_id, name, kind: module|style, module_kind, payload jsonb,
 auto_apply jsonb, position)`.
 - A style that includes masked instances or retouch spots carries the shapes they
-  reference (see 4.3).
+  reference (see 4.3). So does a module preset (`ModulePresetPayload.shapes`): applying
+  either imports the shapes, renaming ids the recipe already uses. For 4.5, a preset
+  should optionally include the instance's `mask` ("Include mask" when saving, off by
+  default): parametric ranges and gradients travel well, drawn paths and strokes rarely.
 
 ### 4.3 Shapes: one format for masks and retouch (M, after 1.1)
 
@@ -525,8 +528,9 @@ version. In order of effort:
 > level of the converged result. Pipeline: the base (or region patch) is retouched in
 > place, and each spot keeps the pixels it overwrote, so changing the spots restores those
 > and reapplies. `GeometryKey::retouch` is the spots' hash. A region's patch covers what
-> the spots touching it read, transitively (`retouch::needed`; `tests/regions.rs`). There
-> are no module presets for retouch (spots belong to one image). Several instances are
+> the spots touching it read, transitively (`retouch::needed`; `tests/regions.rs`). Module
+> presets of retouch carry their shapes and replace the instance's spots: meant for
+> sensor dust on photos from one camera (spots are in sensor coordinates). Several instances are
 > allowed: their spots apply in list order, and removing or resetting one drops the
 > shapes only it used. Golden recipe `retouch.json`. Not done yet: wavelet scales, automatic source search (a new spot's
 > source goes beside it), the "visualise spots" view, and copying spots to other photos.
@@ -857,6 +861,14 @@ Ideas, roughly by value for effort:
   (findings so far: [PERFORMANCE.md](PERFORMANCE.md)).
   Point modules must not use transcendental functions per pixel; anything nontrivial
   gets baked into a lookup table.
+- **Rust tooling:** install `rustfmt` and `clippy` (`rustup component add rustfmt clippy`),
+  run `cargo fmt --all` and `cargo clippy --workspace --all-targets` once and fix what
+  they find (the retouch and shapes code was formatted by hand and never linted), then
+  add both to `npm test` or a pre-commit check so they stay clean.
+- **Slider perf budget:** `npm run test:perf -w @rawtisserie/web` is over its 50 %
+  main-thread budget on "primaries hue" (~52 %) and "equalizer mix" (~51–55 %), on the
+  code from before retouch too. Find what the main thread does in those drags (likely
+  their sections' restyling) or revisit the budget.
 - **Ansel parity:** for each port, record the upstream commit it follows (as
   `filmic.rs` does) and keep a short "deviations" list.
 - **Licensing:** filmic, colour primaries, the contrast equalizer and lens correction

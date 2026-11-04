@@ -578,8 +578,8 @@ function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}):
   }
 
   for (const [i, m] of modules.entries()) {
-    if (m.kind !== 'retouch' || m.params.spots.every((s) => s.shape in shapes)) continue;
-    modules[i] = { ...m, params: { ...m.params, spots: m.params.spots.filter((s) => s.shape in shapes) } };
+    const params = mapShapeRefs(m.kind, m.params, (id) => (id in shapes ? id : null));
+    if (params !== m.params) modules[i] = { ...m, params } as ModuleInstance;
   }
   const used = new Set(shapeRefs(modules));
   const kept = Object.keys(shapes)
@@ -592,7 +592,37 @@ function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}):
 
 /** The ids of the shapes that instances refer to (enabled or not), with repeats. */
 export function shapeRefs(modules: readonly ModuleInstance[]): string[] {
-  return modules.flatMap((m) => (m.kind === 'retouch' ? m.params.spots.map((s) => s.shape) : []));
+  return modules.flatMap((m) => paramShapeRefs(m.kind, m.params));
+}
+
+/**
+ * The ids of the shapes a module's parameters (or some of them, as in a preset) refer
+ * to, with repeats. This and `mapShapeRefs` are the only places that know where shape
+ * references are: anything new that refers to shapes (masks) goes in both.
+ */
+export function paramShapeRefs<K extends ModuleKind>(kind: K, params: Partial<ModuleParams[K]>): string[] {
+  if (kind === 'retouch') return ((params as Partial<ModuleParams['retouch']>).spots ?? []).map((s) => s.shape);
+  return [];
+}
+
+/**
+ * `params` with each shape reference `id` replaced by `f(id)`, or what refers to it
+ * dropped if that is null. The same object if nothing changes.
+ */
+export function mapShapeRefs<K extends ModuleKind, P extends Partial<ModuleParams[K]>>(
+  kind: K,
+  params: P,
+  f: (id: string) => string | null,
+): P {
+  if (paramShapeRefs(kind, params).every((id) => f(id) === id)) return params;
+  if (kind === 'retouch') {
+    const spots = ((params as Partial<ModuleParams['retouch']>).spots ?? []).flatMap((s) => {
+      const to = f(s.shape);
+      return to === null ? [] : [{ ...s, shape: to }];
+    });
+    return { ...params, spots };
+  }
+  return params;
 }
 
 /** `kind`, or `kind-2`, `kind-3`… : the first id that isn't taken. */
@@ -853,7 +883,7 @@ export function updateShape(params: EditParams, shapeId: string, shape: Shape): 
 }
 
 /** The recipe without the shapes nothing uses (and without `shapes` if none are left). */
-function withUsedShapes(params: EditParams): EditParams {
+export function withUsedShapes(params: EditParams): EditParams {
   const used = new Set(shapeRefs(params.modules));
   const all = Object.entries(params.shapes ?? {});
   const kept = all.filter(([id]) => used.has(id));
@@ -862,6 +892,7 @@ function withUsedShapes(params: EditParams): EditParams {
   return kept.length ? { ...rest, shapes: Object.fromEntries(kept) } : rest;
 }
 
-function sortedShapes(shapes: Record<string, Shape>): Record<string, Shape> {
+/** Shapes sorted by id (as Rust's `BTreeMap` serialises them). */
+export function sortedShapes(shapes: Record<string, Shape>): Record<string, Shape> {
   return Object.fromEntries(Object.entries(shapes).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }

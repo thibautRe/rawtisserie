@@ -19,17 +19,17 @@ import {
 } from '@chakra-ui/react';
 import {
   BUILTIN_PRESETS,
-  EDIT_PARAMS_VERSION,
   type EditParams,
   type ModuleKind,
   type ModuleParams,
+  type Shape,
   type ModulePreset,
   PRESET_GROUPS,
   type PresetGroup,
   type Style,
   type StyleMode,
   presetGroupsOf,
-  presetParams,
+  modulePresetPayload,
   styleFromRecipe,
 } from '@rawtisserie/pipeline';
 import { Bookmark, BookmarkPlus, ChevronDown, Palette, Plus, Trash2 } from 'lucide-react';
@@ -339,6 +339,7 @@ export function SavePresetDialog({
   kind,
   title,
   params,
+  shapes,
   existing,
   onClose,
   onSave,
@@ -347,6 +348,8 @@ export function SavePresetDialog({
   /** The instance's title. */
   title: string;
   params: ModuleParams[ModuleKind];
+  /** The recipe's shapes: the preset keeps those `params` use (retouch spots). */
+  shapes: Record<string, Shape> | undefined;
   existing: readonly ModulePreset[];
   onClose: () => void;
   onSave: (input: PresetInput) => void;
@@ -368,10 +371,7 @@ export function SavePresetDialog({
           type: 'module',
           moduleKind: kind,
           name: trimmed,
-          payload: {
-            version: EDIT_PARAMS_VERSION,
-            params: presetParams(kind, params, groups.length ? selected : undefined),
-          },
+          payload: modulePresetPayload(kind, params, shapes, groups.length ? selected : undefined),
         })
       }
     >

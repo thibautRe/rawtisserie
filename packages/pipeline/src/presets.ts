@@ -8,8 +8,10 @@
  * Parameters are only ever taken whole at the top level (an array, a colour primary), so
  * applying never has to merge inside a value.
  *
- * A style with retouch spots carries the shapes they use (`shapes`); applying it gives
- * them fresh ids where the recipe already has shapes with theirs.
+ * Presets and styles with retouch spots carry the shapes they use (`shapes`); applying
+ * them gives those fresh ids where the recipe already has shapes with theirs
+ * (`importShapes`). Where references are is only known to `paramShapeRefs` and
+ * `mapShapeRefs`, so masks will travel the same way.
  *
  * Payloads carry the `EDIT_PARAMS_VERSION` they were saved with. A recipe migration that
  * renames or reinterprets parameters must handle presets too (`normalizeModulePreset`,
@@ -28,13 +30,21 @@ import {
   defaultModuleParams,
   moduleParams,
   normalizeEditParams,
+  mapShapeRefs,
+  paramShapeRefs,
   shapeRefs,
+  sortedShapes,
   updateInstance,
+  withUsedShapes,
 } from './params.ts';
-import { type Shape, freshShapeId } from './shapes.ts';
+import { type Shape, freshShapeId, normalizeShape } from './shapes.ts';
 
-/** Kinds a module preset can be saved for. Geometry and retouch spots belong to one image. */
-export const PRESET_KINDS: readonly ModuleKind[] = MODULE_KINDS.filter((k) => k !== 'geometry' && k !== 'retouch');
+/**
+ * Kinds a module preset can be saved for. Geometry belongs to one image. Retouch spots
+ * are in sensor coordinates, so a preset puts them at the same place on the sensor:
+ * meant for dust, on photos from the same camera.
+ */
+export const PRESET_KINDS: readonly ModuleKind[] = MODULE_KINDS.filter((k) => k !== 'geometry');
 
 export interface PresetGroup<K extends ModuleKind> {
   label: string;
@@ -88,6 +98,8 @@ export interface ModulePresetPayload<K extends ModuleKind = ModuleKind> {
   version: number;
   /** Some or all of the kind's parameters. */
   params: Partial<ModuleParams[K]>;
+  /** The shapes `params` refer to (retouch spots); absent without any. */
+  shapes?: Record<string, Shape>;
 }
 
 /** A module instance in a style: it gets a fresh id when applied. */
@@ -147,10 +159,60 @@ export function presetGroupsOf(kind: ModuleKind, params: object): string[] {
     .map(([name]) => name);
 }
 
+/**
+ * The payload of a preset made from an instance's parameters: `groups` of them (all by
+ * default), with the shapes they use from `shapes` (the recipe's).
+ */
+export function modulePresetPayload<K extends ModuleKind>(
+  kind: K,
+  params: ModuleParams[K],
+  shapes: Record<string, Shape> | undefined,
+  groups?: readonly string[],
+): ModulePresetPayload<K> {
+  return withShapes(kind, presetParams(kind, params, groups), structuredClone(shapes ?? {}));
+}
+
 /** A stored module preset's payload (untrusted input), migrated and with only valid fields. */
 export function normalizeModulePreset<K extends ModuleKind>(kind: K, input: unknown): ModulePresetPayload<K> {
   const params = isObject(input) ? input.params : undefined;
-  return { version: EDIT_PARAMS_VERSION, params: presetParams(kind, params, 'given') };
+  const shapes: Record<string, Shape> = {};
+  for (const [id, value] of Object.entries(isObject(input) && isObject(input.shapes) ? input.shapes : {})) {
+    const shape = normalizeShape(value);
+    if (shape) shapes[id] = shape;
+  }
+  return withShapes(kind, presetParams(kind, params, 'given'), shapes);
+}
+
+/** A payload of `params` and the shapes of `available` they use; references to missing shapes are dropped. */
+function withShapes<K extends ModuleKind>(
+  kind: K,
+  params: Partial<ModuleParams[K]>,
+  available: Record<string, Shape>,
+): ModulePresetPayload<K> {
+  const kept = mapShapeRefs(kind, params, (id) => (id in available ? id : null));
+  const payload: ModulePresetPayload<K> = { version: EDIT_PARAMS_VERSION, params: kept };
+  const used = new Set(paramShapeRefs(kind, kept));
+  if (used.size) payload.shapes = sortedShapes(Object.fromEntries([...used].map((id) => [id, available[id]!])));
+  return payload;
+}
+
+/**
+ * The shapes of a recipe (`existing`) with `incoming` ones added: those whose id is
+ * taken get a fresh one. Returns them sorted, and the new id of each incoming shape.
+ */
+function importShapes(
+  existing: Record<string, Shape>,
+  incoming: Record<string, Shape> | undefined,
+): { shapes: Record<string, Shape>; rename: (id: string) => string } {
+  const shapes = { ...existing };
+  const renamed = new Map<string, string>();
+  const names = Object.keys(incoming ?? {});
+  for (const [id, shape] of Object.entries(incoming ?? {})) {
+    const to = id in shapes ? freshShapeId([...Object.keys(shapes), ...names]) : id;
+    renamed.set(id, to);
+    shapes[to] = structuredClone(shape);
+  }
+  return { shapes: sortedShapes(shapes), rename: (id) => renamed.get(id) ?? id };
 }
 
 /** A stored style's payload (untrusted input), migrated like a recipe. */
@@ -180,14 +242,20 @@ export function styleFromRecipe(recipe: EditParams, ids: Iterable<string>): Styl
   return payload;
 }
 
-/** Apply a module preset to one instance (adding it if it isn't there), and switch it on. */
+/**
+ * Apply a module preset to one instance (adding it if it isn't there), and switch it on.
+ * Its shapes come along; those the instance used before go if nothing else uses them.
+ */
 export function applyModulePreset<K extends ModuleKind>(
   recipe: EditParams,
   kind: K,
   id: string,
-  params: Partial<ModuleParams[K]>,
+  payload: Pick<ModulePresetPayload<K>, 'params' | 'shapes'>,
 ): EditParams {
-  return updateInstance(recipe, kind, id, { enabled: true, params: structuredClone(params) });
+  const { shapes, rename } = importShapes(recipe.shapes ?? {}, payload.shapes);
+  const params = mapShapeRefs(kind, structuredClone(payload.params), rename);
+  const next = updateInstance(recipe, kind, id, { enabled: true, params });
+  return withUsedShapes(Object.keys(shapes).length ? { ...next, shapes } : next);
 }
 
 /**
@@ -205,21 +273,11 @@ export function applyStyle(recipe: EditParams, style: StylePayload, mode: StyleM
   const kept = recipe.modules.filter((m) => !replaced(m));
   // The style's shapes, renamed where the recipe keeps a shape with the same id.
   const taken = new Set(shapeRefs(kept));
-  const rename = new Map<string, string>();
-  const shapes: Record<string, Shape> = Object.fromEntries(
-    Object.entries(recipe.shapes ?? {}).filter(([id]) => taken.has(id)),
-  );
-  for (const [id, shape] of Object.entries(style.shapes ?? {})) {
-    const to = id in shapes ? freshShapeId([...Object.keys(shapes), ...Object.keys(style.shapes ?? {})]) : id;
-    rename.set(id, to);
-    shapes[to] = structuredClone(shape);
-  }
+  const keptShapes = Object.fromEntries(Object.entries(recipe.shapes ?? {}).filter(([id]) => taken.has(id)));
+  const { shapes, rename } = importShapes(keptShapes, style.shapes);
   const added = style.modules.map((m) => {
     const copy = { ...structuredClone(m), id: '' } as ModuleInstance;
-    if (copy.kind === 'retouch') {
-      copy.params.spots = copy.params.spots.map((s) => ({ ...s, shape: rename.get(s.shape) ?? s.shape }));
-    }
-    return copy;
+    return { ...copy, params: mapShapeRefs(copy.kind, copy.params, rename) } as ModuleInstance;
   });
   return normalizeEditParams({ version: EDIT_PARAMS_VERSION, modules: [...kept, ...added], shapes });
 }

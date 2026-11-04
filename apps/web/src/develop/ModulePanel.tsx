@@ -60,6 +60,7 @@ import {
   PRESET_GROUPS,
   PRESET_KINDS,
   type ModulePreset,
+  type ModulePresetPayload,
   SINGLE_INSTANCE_KINDS,
   addInstance,
   applyModulePreset,
@@ -694,20 +695,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         canSave={canSave}
                         onApply={(preset) =>
                           latest.current.onCommit(
-                            applyModulePreset(
-                              endPreview(),
-                              kind,
-                              id,
-                              preset.payload.params as Partial<ModuleParams[K]>,
-                            ),
+                            applyModulePreset(endPreview(), kind, id, preset.payload as ModulePresetPayload<K>),
                             `${title}: preset ${preset.name}`,
                           )
                         }
                         onPreview={(preset) =>
                           preview(
-                            preset &&
-                              ((p) =>
-                                applyModulePreset(p, kind, id, preset.payload.params as Partial<ModuleParams[K]>)),
+                            preset && ((p) => applyModulePreset(p, kind, id, preset.payload as ModulePresetPayload<K>)),
                           )
                         }
                         onEndPreview={endPreview}
@@ -2016,6 +2010,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           params={
             params.modules.find((m) => m.id === savingPreset.id)?.params ?? defaultModuleParams[savingPreset.kind]
           }
+          shapes={params.shapes}
           existing={props.presets[savingPreset.kind] ?? NO_PRESETS}
           onClose={onSavePresetClose}
           onSave={onSavePreset}
