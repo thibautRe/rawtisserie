@@ -24,6 +24,8 @@ import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
 import type { IlluminantDetection } from './protocol.ts';
+import { DEFAULT_RETOUCH_UI, type RetouchUi } from './retouch.ts';
+import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
 import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
@@ -255,6 +257,16 @@ export function DeveloperView({
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
   const [detecting, setDetecting] = useState<string | null>(null);
+  const [retouchState, setRetouchUi] = useState<RetouchUi>(DEFAULT_RETOUCH_UI);
+
+  // The retouch instance being edited, or the first one if it was removed (undo, delete).
+  const retouchInstance = params.modules.some((m) => m.id === retouchState.instance)
+    ? retouchState.instance
+    : (findModule(params, 'retouch')?.id ?? DEFAULT_RETOUCH_UI.instance);
+  const retouchUi = useMemo(
+    () => (retouchInstance === retouchState.instance ? retouchState : { ...retouchState, instance: retouchInstance }),
+    [retouchState, retouchInstance],
+  );
 
   // ── Rendering ──
   const [viewport, size] = useElementSize<HTMLDivElement>();
@@ -549,6 +561,10 @@ export function DeveloperView({
   const onDetectIlluminant = useStableCallback(
     (id: string, method: IlluminantDetection) => void detectIlluminant(id, method),
   );
+  const onRetouchUi = useStableCallback((patch: Partial<RetouchUi>) => setRetouchUi((u) => ({ ...u, ...patch })));
+  const onShapeCommit = useStableCallback((p: EditParams, label: string) => commit(p, label));
+  // Spots are drawn over the image, unless it shows something else (crop, before).
+  const showSpots = retouchUi.editing && !cropDraft && !comparing;
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -691,6 +707,19 @@ export function DeveloperView({
                     : { display: 'none' }
                 }
               />
+              {showSpots && frame && layout && (
+                <ShapeOverlay
+                  params={params}
+                  mapping={frame.mapping}
+                  width={fitWidth}
+                  height={fitHeight}
+                  zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                  ui={retouchUi}
+                  onUi={onRetouchUi}
+                  onChange={onLiveChange}
+                  onCommit={onShapeCommit}
+                />
+              )}
               {cropDraft && !comparing && (
                 <CropOverlay
                   rect={cropDraft}
@@ -706,6 +735,27 @@ export function DeveloperView({
           {error && (
             <Text position="absolute" bottom="3" color="fg.error" textStyle="sm">
               {error}
+            </Text>
+          )}
+          {showSpots && retouchUi.tool !== 'select' && (
+            <Text
+              position="absolute"
+              bottom="4"
+              bg="bg.panel"
+              px="3"
+              py="1.5"
+              borderRadius="md"
+              boxShadow="lg"
+              textStyle="xs"
+              color="fg.muted"
+              pointerEvents="none"
+            >
+              {retouchUi.tool === 'path'
+                ? 'Click to add nodes, drag for curves · Enter or the first node to close'
+                : retouchUi.tool === 'brush'
+                  ? 'Paint a stroke'
+                  : 'Click or drag to add a spot'}
+              {' · Middle-drag to pan · Esc to stop'}
             </Text>
           )}
           {cropDraft && (
@@ -758,6 +808,8 @@ export function DeveloperView({
           autoTuning={autoTuning}
           onDetectIlluminant={onDetectIlluminant}
           detecting={detecting}
+          retouchUi={retouchUi}
+          onRetouchUi={onRetouchUi}
         />
       </Box>
       {creatingStyle && presets.save && (

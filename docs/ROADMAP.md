@@ -6,8 +6,8 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 (before M3); 3.1 with
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
 3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
-presets and styles (auto-apply rules to do); full-size colour drags on a worker pool (see
-Performance).
+presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
+together; full-size colour drags on a worker pool (see Performance).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -394,8 +394,9 @@ white balance and is the most common target for masked instances.
 - A module header menu with: duplicate instance, rename, delete, move up/down (within
   its kind). The data model already supports it after 1.1.
 - **Allowed for:** exposure, colour calibration, colour primaries, colour (sat/vib),
-  shadows/highlights, contrast equalizer, sharpen, blur.
-- **Not allowed for:** lens, geometry, filmic, retouch.
+  shadows/highlights, contrast equalizer, sharpen, blur, retouch (each instance has its
+  own spots; the overlay edits one instance at a time).
+- **Not allowed for:** lens, geometry, filmic.
 
 ### 4.2 Presets (M, after 1.1; better once M3 exists)
 
@@ -431,6 +432,28 @@ auto_apply jsonb, position)`.
   reference (see 4.3).
 
 ### 4.3 Shapes: one format for masks and retouch (M, after 1.1)
+
+> **Done**, with 4.4 as its first user (`shapes.rs` ↔ `packages/pipeline/src/shapes.ts`,
+> `develop/ShapeOverlay.tsx`). As built: `shapes` is left out of the JSON when empty, so
+> no version bump. `normalize` drops spots whose shape is missing and shapes that nothing
+> uses (`shape_refs`), in both languages. New ids are `s1`, `s2`… Lengths (radii,
+> feather, brush radius) are fractions of the sensor's shorter side, so circles stay
+> round; angles are radians, clockwise. Ellipse, gradient and path have `feather` (for
+> the gradient it is the transition width, `width` below). Brush points carry their own
+> hardness instead. Path nodes are `[x, y, inX, inY, outX, outY]` with absolute control
+> points. The transforms are `geometry::SensorMapping` (`Developer::sensor_mapping`, wasm
+> `sensorMapping`): the pipeline worker sends it with every frame (cached by the lens
+> and geometry instances), and TS mirrors it (`toSensor`/`fromSensor`). Lens distortion
+> is inverted by fixed-point iteration on its radial table. Rather than transforming radii
+> with a Jacobian, outlines are sampled densely in the sensor frame and every point is
+> mapped. The overlay is an SVG in the zoomed stage. It has tools for circle, ellipse,
+> path (click nodes, drag for curves, close on the first node or Enter) and brush; handles
+> for the radii (a circle stays one unless Alt is held), rotation, feather, and path nodes
+> and control points; drag a shape to move it, drag its dashed source. Gradients
+> rasterise, draw and edit, but there is no tool to create one yet (masks will need
+> it). Storage: brush strokes are simplified on release (RDP, 0.5 px) and coordinates
+> rounded to 1e-6. The `lz4` column and content-addressed objects aren't done. Styles
+> carry the shapes their spots use, renamed if the recipe already has those ids.
 
 Masks (4.5) and retouch (4.4) both need drawn shapes, so shapes are defined once, at the
 recipe level, and referenced by id. This is darktable's "forms" and mask manager.
@@ -492,6 +515,22 @@ version. In order of effort:
 
 ### 4.4 Retouch: spot removal (L, after 4.3; heal benefits from 3.3)
 
+> **Done** (`ops/retouch.rs`, the retouch section of `ModulePanel.tsx`). As built: heal,
+> clone, fill and blur, with opacity per spot. Fill takes a linear Rec.2020 colour (picked
+> as sRGB). Blur is a Gaussian in full-resolution pixels. Source offsets are rounded to
+> whole base pixels, as in Ansel, and a source outside the image reads its edge. Heal is
+> Ansel's: a Laplace solve on square roots, by red/black SOR. Here it starts from a
+> coarse-to-fine estimate and stops on the mean change per pixel: a 180 px radius
+> heal at full size takes ~35 ms instead of ~550 ms (native), within 0.4 of an 8-bit
+> level of the converged result. Pipeline: the base (or region patch) is retouched in
+> place, and each spot keeps the pixels it overwrote, so changing the spots restores those
+> and reapplies. `GeometryKey::retouch` is the spots' hash. A region's patch covers what
+> the spots touching it read, transitively (`retouch::needed`; `tests/regions.rs`). There
+> are no module presets for retouch (spots belong to one image). Several instances are
+> allowed: their spots apply in list order, and removing or resetting one drops the
+> shapes only it used. Golden recipe `retouch.json`. Not done yet: wavelet scales, automatic source search (a new spot's
+> source goes beside it), the "visualise spots" view, and copying spots to other photos.
+
 For dust spots, sensor and lens marks, hot spots and skin blemishes. It follows Ansel's
 `retouch.c`.
 
@@ -524,7 +563,8 @@ For dust spots, sensor and lens marks, hot spots and skin blemishes. It follows 
   by the retouch params. Sources outside the final crop are usable, and lens correction
   applies after the retouch. Previews work at binned resolution because the coordinates
   are normalised; radii are scaled by the render scale like other spatial parameters.
-- **Single instance** (the spot list is the multiplicity). Not maskable.
+- ~~Single instance (the spot list is the multiplicity).~~ Several instances, applied in
+  list order (e.g. dust, then skin). Not maskable.
 - **Tools:** auto source search (the nearby patch whose ring around the spot matches
   best); a "visualise spots" display (high-pass + threshold, to reveal dust in skies);
   copy spots to the selected photos in the library (meaningful because of the sensor

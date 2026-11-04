@@ -70,6 +70,13 @@ import {
   removeInstance,
   resetInstance,
   updateInstance,
+  SPOT_MODES,
+  type ShapeType,
+  type SpotMode,
+  defaultSpot,
+  removeSpot,
+  updateShape,
+  updateSpot,
 } from '@rawtisserie/pipeline';
 import {
   ArrowDown,
@@ -77,9 +84,16 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  Circle,
   Crop,
+  Egg,
   EllipsisVertical,
+  Eye,
+  EyeOff,
   FlipHorizontal2,
+  MousePointer2,
+  Paintbrush,
+  PenTool,
   Pencil,
   Pipette,
   Plus,
@@ -98,6 +112,7 @@ import type { PresetInput } from '../api/hooks.ts';
 import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
 import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './presets.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
+import { DEFAULT_RETOUCH_UI, type RetouchUi, type ShapeTool, hexToRec2020, rec2020ToHex } from './retouch.ts';
 import type { IlluminantDetection } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { sinhCurve, tracks } from './slider.ts';
@@ -132,6 +147,9 @@ interface Props {
   onDetectIlluminant: (id: string, method: IlluminantDetection) => void;
   /** The instance whose light is being measured. */
   detecting: string | null;
+  /** Retouch tools and selection, shared with the overlay on the image. */
+  retouchUi: RetouchUi;
+  onRetouchUi: (patch: Partial<RetouchUi>) => void;
 }
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
@@ -499,6 +517,30 @@ const PREVIEW_REVERT_MS = 150;
 
 const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
+/** Scroll a spot's row into view within its list (but not the panel). */
+const scrollIntoList = (row: HTMLDivElement | null) => {
+  const list = row?.parentElement;
+  if (!row || !list) return;
+  if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop;
+  else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight)
+    list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight;
+};
+
+const SPOT_MODE_LABELS: Record<SpotMode, string> = { heal: 'Heal', clone: 'Clone', fill: 'Fill', blur: 'Blur' };
+const SHAPE_LABELS: Record<ShapeType, string> = {
+  ellipse: 'ellipse',
+  gradient: 'gradient',
+  path: 'path',
+  brush: 'brush',
+};
+const SHAPE_TOOLS: [ShapeTool, typeof Circle, string][] = [
+  ['select', MousePointer2, 'Select and edit spots'],
+  ['circle', Circle, 'Circle: click, or drag for its size'],
+  ['ellipse', Egg, 'Ellipse: click, or drag for its size'],
+  ['path', PenTool, 'Path: click to add nodes (drag for curves); click the first node or press Enter to close'],
+  ['brush', Paintbrush, 'Brush: paint a stroke'],
+];
+
 const BLEACH_LABELS: Record<Bleach, string> = {
   none: 'None',
   low: 'Low',
@@ -512,7 +554,7 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * (`useStableCallback`); they are read through `latest` anyway.
  */
 export const ModulePanel = memo(function ModulePanel(props: Props) {
-  const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting } = props;
+  const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, retouchUi } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -700,6 +742,21 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       );
     });
   }
+
+  // What the retouch section shows of the spots' shapes: their types, and the selected
+  // one's feather. Not the shapes themselves, which change on every move of a spot drag.
+  const retouchShapes = (() => {
+    const types = params.modules
+      .flatMap((m) => (m.kind === 'retouch' ? [m.params.spots.map((x) => params.shapes?.[x.shape]?.type).join()] : []))
+      .join('|');
+    const edited = params.modules.find((m) => m.id === retouchUi.instance);
+    const id =
+      edited?.kind === 'retouch' && retouchUi.selected !== null
+        ? edited.params.spots[retouchUi.selected]?.shape
+        : undefined;
+    const selected = id === undefined ? undefined : params.shapes?.[id];
+    return `${types}/${selected && selected.type !== 'brush' ? selected.feather : ''}`;
+  })();
 
   // Lens correction strengths: 0 … 200 % of the camera's correction.
   const percent = { min: 0, max: 2, step: 0.01, scale: 100, format: (v: number) => `${Math.round(v * 100)} %` };
@@ -1700,6 +1757,247 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           )}
         </>
       ))}
+      {sections('retouch', [retouchUi, retouchShapes], (e) => {
+        const ui = retouchUi;
+        const setUi = (patch: Partial<RetouchUi>) => latest.current.onRetouchUi(patch);
+        // The overlay edits one instance at a time.
+        const editing = ui.editing && ui.instance === e.id;
+        const spots = e.values.spots;
+        const sel = editing && ui.selected !== null && ui.selected < spots.length ? ui.selected : null;
+        const spot = sel === null ? null : spots[sel]!;
+        const shape = spot ? params.shapes?.[spot.shape] : undefined;
+        const name = () => {
+          const m = latest.current.params.modules.find((x) => x.id === e.id);
+          return m ? instanceTitle(latest.current.params, m) : MODULE_TITLES.retouch;
+        };
+        /** What Esc does on the image: leave the tool, then the selection, then the overlay. */
+        const back = () => {
+          if (ui.tool !== 'select') setUi({ tool: 'select' });
+          else if (sel !== null) setUi({ selected: null });
+          else setUi({ editing: false });
+        };
+        /** Props for a slider bound to a field of the selected spot. */
+        const bindSpot = (index: number, key: 'opacity' | 'radius') => {
+          const with_ = (v: number) => updateSpot(latest.current.params, e.id, index, { [key]: v });
+          return {
+            value: spots[index]![key],
+            defaultValue: defaultSpot[key],
+            onChange: (v: number) => latest.current.onChange(with_(v)),
+            onCommit: (v: number) => latest.current.onCommit(with_(v)),
+          };
+        };
+        /** Props for a slider bound to the feather of the selected spot's shape. */
+        const bindFeather = (id: string) => {
+          const with_ = (v: number) => {
+            const current = latest.current.params.shapes?.[id];
+            return current && current.type !== 'brush'
+              ? updateShape(latest.current.params, id, { ...current, feather: v })
+              : latest.current.params;
+          };
+          return {
+            value: shape && shape.type !== 'brush' ? shape.feather : 0,
+            defaultValue: 0,
+            onChange: (v: number) => latest.current.onChange(with_(v)),
+            onCommit: (v: number) => latest.current.onCommit(with_(v), `${name()}: spot feather`),
+          };
+        };
+        return (
+          <>
+            <HStack justify="space-between">
+              <ButtonGroup size="xs" variant="outline" attached>
+                {SHAPE_TOOLS.map(([tool, Icon, label]) => {
+                  const on = editing && ui.tool === tool;
+                  return (
+                    <IconButton
+                      key={tool}
+                      aria-label={label}
+                      title={on ? `${label} (click again or Esc to leave)` : label}
+                      aria-pressed={on}
+                      variant={on ? 'solid' : 'outline'}
+                      colorPalette={on ? 'orange' : 'gray'}
+                      onClick={() =>
+                        on
+                          ? back()
+                          : setUi({ editing: true, instance: e.id, tool, selected: editing ? ui.selected : null })
+                      }
+                    >
+                      <Icon />
+                    </IconButton>
+                  );
+                })}
+              </ButtonGroup>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                aria-label={editing ? 'Hide spots on the image' : 'Show spots on the image'}
+                title={editing ? 'Hide spots on the image (Esc)' : 'Show spots on the image'}
+                onClick={() =>
+                  setUi(
+                    editing
+                      ? { editing: false, tool: 'select' }
+                      : { editing: true, instance: e.id, tool: 'select', selected: null },
+                  )
+                }
+              >
+                {editing ? <Eye /> : <EyeOff />}
+              </IconButton>
+            </HStack>
+            <NativeSelect.Root size="xs">
+              <NativeSelect.Field
+                value={ui.mode}
+                onChange={(ev) => setUi({ mode: ev.target.value as SpotMode })}
+                aria-label="Mode of new spots"
+              >
+                {SPOT_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    New spots: {SPOT_MODE_LABELS[mode]}
+                  </option>
+                ))}
+              </NativeSelect.Field>
+              <NativeSelect.Indicator />
+            </NativeSelect.Root>
+            {ui.tool === 'brush' && editing && (
+              <>
+                <ParamSlider
+                  label="Brush size"
+                  min={2}
+                  max={200}
+                  step={1}
+                  format={(v) => `${Math.round(v)} px`}
+                  value={ui.brushSize}
+                  defaultValue={DEFAULT_RETOUCH_UI.brushSize}
+                  onChange={(v) => setUi({ brushSize: v })}
+                  onCommit={(v) => setUi({ brushSize: v })}
+                />
+                <ParamSlider
+                  label="Brush hardness"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  scale={100}
+                  format={(v) => `${Math.round(v * 100)} %`}
+                  value={ui.brushHardness}
+                  defaultValue={DEFAULT_RETOUCH_UI.brushHardness}
+                  onChange={(v) => setUi({ brushHardness: v })}
+                  onCommit={(v) => setUi({ brushHardness: v })}
+                />
+              </>
+            )}
+            {spots.length === 0 ? (
+              <Text textStyle="2xs" color="fg.subtle">
+                Pick a shape, then click or drag on the image to add a spot
+              </Text>
+            ) : (
+              // Scrolls on its own: some images have many spots.
+              <Stack
+                gap="0"
+                maxH="44"
+                position="relative"
+                overflowY="auto"
+                borderWidth={spots.length > 7 ? '1px' : 0}
+                borderRadius="l2"
+              >
+                {spots.map((s, i) => (
+                  <HStack key={i} gap="0" ref={i === sel ? scrollIntoList : undefined}>
+                    <Button
+                      size="2xs"
+                      flex="1"
+                      justifyContent="flex-start"
+                      variant={i === sel ? 'subtle' : 'ghost'}
+                      colorPalette={i === sel ? 'orange' : 'gray'}
+                      onClick={() => setUi({ editing: true, instance: e.id, selected: i })}
+                    >
+                      {i + 1}. {SPOT_MODE_LABELS[s.mode]}
+                      <Text as="span" color="fg.subtle">
+                        {params.shapes?.[s.shape] ? SHAPE_LABELS[params.shapes[s.shape]!.type] : ''}
+                      </Text>
+                    </Button>
+                    <IconButton
+                      size="2xs"
+                      variant="ghost"
+                      aria-label={`Delete spot ${i + 1}`}
+                      onClick={() => {
+                        commit((p) => removeSpot(p, e.id, i), `${name()}: spot removed`);
+                        if (sel !== null && sel >= i) setUi({ selected: sel === i ? null : sel - 1 });
+                      }}
+                    >
+                      <Trash2 />
+                    </IconButton>
+                  </HStack>
+                ))}
+              </Stack>
+            )}
+            {spot && sel !== null && (
+              <Stack gap="1.5" key={sel}>
+                <NativeSelect.Root size="xs">
+                  <NativeSelect.Field
+                    value={spot.mode}
+                    onChange={(ev) =>
+                      commit(
+                        (p) => updateSpot(p, e.id, sel, { mode: ev.target.value as SpotMode }),
+                        `${name()}: spot mode`,
+                      )
+                    }
+                    aria-label="Mode of the selected spot"
+                  >
+                    {SPOT_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        Spot {sel + 1}: {SPOT_MODE_LABELS[mode]}
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+                <ParamSlider
+                  label="Opacity"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  scale={100}
+                  format={(v) => `${Math.round(v * 100)} %`}
+                  {...bindSpot(sel, 'opacity')}
+                />
+                {shape && shape.type !== 'brush' && (
+                  <ParamSlider
+                    label="Feather"
+                    min={0}
+                    max={0.1}
+                    step={0.001}
+                    scale={100}
+                    format={(v) => `${(v * 100).toFixed(1)} %`}
+                    {...bindFeather(spot.shape)}
+                  />
+                )}
+                {spot.mode === 'blur' && (
+                  <ParamSlider
+                    label="Blur radius"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    format={(v) => `${v.toFixed(1)} px`}
+                    {...bindSpot(sel, 'radius')}
+                  />
+                )}
+                {spot.mode === 'fill' && (
+                  <HStack justify="space-between">
+                    <Text textStyle="xs">Fill color</Text>
+                    <input
+                      type="color"
+                      aria-label="Fill color"
+                      value={rec2020ToHex(spot.color)}
+                      onChange={(ev) =>
+                        latest.current.onCommit(
+                          updateSpot(latest.current.params, e.id, sel, { color: hexToRec2020(ev.target.value) }),
+                        )
+                      }
+                    />
+                  </HStack>
+                )}
+              </Stack>
+            )}
+          </>
+        );
+      })}
       <RenameDialog
         title={`Rename ${renamed ? MODULE_TITLES[renamed.kind].toLowerCase() : 'module'}`}
         hint="Leave empty to number it automatically."

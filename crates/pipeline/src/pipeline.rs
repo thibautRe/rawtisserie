@@ -10,6 +10,7 @@ use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::calibration::{self, Detection};
 use crate::ops::clipping::{self, Overlays};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
+use crate::ops::retouch::{self, Saved, Stamp};
 use crate::ops::{equalizer, filmic, filters, geometry};
 use crate::params::{ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleKind};
 use crate::Result;
@@ -53,7 +54,8 @@ impl RenderSize {
 ///
 /// ```text
 ///  base        demosaic/bin, reference WB, camera → working       keyed by binning factor
-///   └ geometry  lens, orientation, straighten, crop, resample    keyed by lens + geometry + output size (3 sizes kept)
+///              then retouch spots, in place                       keyed by the spots and their shapes
+///   └ geometry  lens, orientation, straighten, crop, resample    keyed by the above + lens + geometry + output size (3 sizes kept)
 ///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters at this scale
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
 /// ```
@@ -62,6 +64,10 @@ impl RenderSize {
 /// "patch" of the base at the region's own binning factor, kept for nearby regions. Its
 /// geometry stage renders the region with a margin for the detail stages to read, so
 /// that it gives the same pixels as the whole image at that size would.
+///
+/// Retouching changes the base (or patch) in place, remembering what each spot
+/// overwrote: changing the spots puts those pixels back and applies the new ones. A
+/// patch covers what the spots touching its region read (`retouch::needed`).
 ///
 /// Clipping indicators are painted on the result when asked for. Sensor clipping
 /// needs a mask of saturated photosites, built on demand next to the base and
@@ -74,6 +80,8 @@ impl RenderSize {
 pub struct Developer {
     photo: RawPhoto,
     base: Option<(usize, Image)>,
+    /// The spots applied to the base.
+    base_retouch: Retouched,
     /// Part of a base image, for region renders.
     patch: Option<Patch>,
     /// Spatial-stage caches per output size (and region), most recently used first.
@@ -131,9 +139,31 @@ const PATCH_MARGIN: usize = 8;
 struct Patch {
     factor: usize,
     at: Region,
+    /// Retouched as `retouch` says.
     image: Image,
+    retouch: Retouched,
     /// Saturated photosites at the patch's pixels, built on demand.
     sensor_clip: Option<Mask>,
+}
+
+/// The retouch spots applied to an image in place, and what they overwrote.
+#[derive(Default)]
+struct Retouched {
+    /// `retouch::key` of the stamps; 0 for none.
+    key: u64,
+    saved: Vec<Saved>,
+}
+
+impl Retouched {
+    /// Make `img` (pixels `at` of a `frame`-sized base) retouched with `stamps`.
+    fn update(&mut self, img: &mut Image, at: Region, frame: (usize, usize), stamps: &[Stamp], key: u64, scale: f32) {
+        if self.key == key {
+            return;
+        }
+        retouch::restore(img, at, std::mem::take(&mut self.saved));
+        self.saved = retouch::apply(img, at, frame, stamps, scale);
+        self.key = key;
+    }
 }
 
 /// What the spatial stages give for a render size.
@@ -165,6 +195,8 @@ struct Slot {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct GeometryKey {
     base_factor: usize,
+    /// `retouch::key` of the spots applied to the base.
+    retouch: u64,
     transform: geometry::Transform,
     /// The whole fitted image.
     width: usize,
@@ -255,7 +287,16 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
-        Self { photo, base: None, patch: None, slots: Vec::new(), last_id: 0, point_ops: PointOpsCache::default(), sensor_clip: None }
+        Self {
+            photo,
+            base: None,
+            base_retouch: Retouched::default(),
+            patch: None,
+            slots: Vec::new(),
+            last_id: 0,
+            point_ops: PointOpsCache::default(),
+            sensor_clip: None,
+        }
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -269,6 +310,7 @@ impl Developer {
     /// Drop all cached intermediate images to free memory.
     pub fn release_cache(&mut self) {
         self.base = None;
+        self.base_retouch = Retouched::default();
         self.patch = None;
         self.slots.clear();
         self.point_ops = PointOpsCache::default();
@@ -284,6 +326,12 @@ impl Developer {
             angle: g.angle.clamp(-45.0, 45.0),
             crop: g.crop.sanitized(),
         }
+    }
+
+    /// Maps points between the output frame of `params` and the sensor frame, where
+    /// shapes live (both normalised).
+    pub fn sensor_mapping(&self, params: &EditParams) -> geometry::SensorMapping {
+        geometry::SensorMapping::new(&self.transform(params), self.photo.lens.as_ref(), self.photo.width as f32, self.photo.height as f32)
     }
 
     /// Output dimensions and scale (output pixels per full-resolution pixel).
@@ -355,7 +403,7 @@ impl Developer {
         if plan.patch {
             let factor = Self::binning(plan.scale);
             let base = demosaic::base_size(&self.photo, factor);
-            let gkey = GeometryKey { base_factor: factor, transform, width, height, region: plan.region };
+            let gkey = GeometryKey { base_factor: factor, retouch: 0, transform, width, height, region: plan.region };
             if self.slots[0].sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
                 // The slot's geometry may come from cache, built from another patch.
                 let bounds = geometry::source_bounds(base, &transform, self.photo.lens.as_ref(), width, height, plan.region);
@@ -370,7 +418,7 @@ impl Developer {
         }
 
         let base_factor = self.base.as_ref().expect("base was just built").0;
-        let gkey = GeometryKey { base_factor, transform, width, height, region: plan.region };
+        let gkey = GeometryKey { base_factor, retouch: 0, transform, width, height, region: plan.region };
         if self.sensor_clip.as_ref().map(|(f, _)| *f) != Some(base_factor) {
             self.sensor_clip = Some((base_factor, demosaic::clipped_photosites(&self.photo, base_factor)));
             for slot in &mut self.slots {
@@ -396,7 +444,8 @@ impl Developer {
         let plan = self.plan(params, size);
         let Some(base_factor) = self.plan_factor(&plan) else { return false };
         let (width, height) = plan.frame;
-        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height, region: plan.padded };
+        let retouch = retouch::key(&retouch::stamps(params));
+        let gkey = GeometryKey { base_factor, retouch, transform: self.transform(params), width, height, region: plan.padded };
         let Some(slot) = self.slots.iter().find(|s| s.frame == plan.frame && s.region == plan.region) else { return false };
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             return false;
@@ -410,7 +459,9 @@ impl Developer {
         let plan = self.plan(params, size);
         let base_factor = if plan.patch { Self::binning(plan.scale) } else { self.ensure_base(Self::binning(plan.scale)) };
         let (width, height) = plan.frame;
-        let gkey = GeometryKey { base_factor, transform: self.transform(params), width, height, region: plan.padded };
+        let stamps = retouch::stamps(params);
+        let retouch = retouch::key(&stamps);
+        let gkey = GeometryKey { base_factor, retouch, transform: self.transform(params), width, height, region: plan.padded };
 
         // Pick (or create) the cache slot for this output size, and make it the most recent.
         let slot = match self.slots.iter().position(|s| s.frame == plan.frame && s.region == plan.region) {
@@ -428,7 +479,7 @@ impl Developer {
             let slot = &mut self.slots[0];
             slot.detail = None;
             slot.geometry = None; // free before allocating
-            let img = self.geometry_stage(&gkey, plan.patch);
+            let img = self.geometry_stage(&gkey, plan.patch, &stamps);
             self.slots[0].geometry = Some((gkey, img));
             changed = true;
         }
@@ -466,17 +517,24 @@ impl Developer {
         (slot.id, img)
     }
 
-    /// Run the geometry stage for `key`, from the whole base or from a patch.
-    fn geometry_stage(&mut self, key: &GeometryKey, patch: bool) -> Image {
+    /// Run the geometry stage for `key`, from the whole base or from a patch, retouched
+    /// with `stamps` (whose key `key` has).
+    fn geometry_stage(&mut self, key: &GeometryKey, patch: bool, stamps: &[Stamp]) -> Image {
         let lens = self.photo.lens.as_ref();
+        let scale = 1.0 / key.base_factor as f32;
         if !patch {
-            let base = &self.base.as_ref().expect("base was just built").1;
+            let (factor, base) = self.base.as_mut().expect("base was just built");
+            let frame = (base.width, base.height);
+            self.base_retouch.update(base, Region::full(frame.0, frame.1), frame, stamps, key.retouch, 1.0 / *factor as f32);
             return geometry::apply(base, &key.transform, lens, key.width, key.height);
         }
         let base = demosaic::base_size(&self.photo, key.base_factor);
         let bounds = geometry::source_bounds(base, &key.transform, lens, key.width, key.height, key.region);
+        // With what the spots changing those pixels read.
+        let bounds = retouch::needed(stamps, base, scale, bounds);
         self.ensure_patch(key.base_factor, bounds);
-        let patch = self.patch.as_ref().expect("patch was just built");
+        let patch = self.patch.as_mut().expect("patch was just built");
+        patch.retouch.update(&mut patch.image, patch.at, base, stamps, key.retouch, scale);
         geometry::apply_region(&patch.image, patch.at, base, &key.transform, self.photo.lens.as_ref(), key.width, key.height, key.region)
     }
 
@@ -490,7 +548,7 @@ impl Developer {
         let (width, height) = demosaic::base_size(&self.photo, factor);
         let at = bounds.padded(bounds.width.max(bounds.height) / PATCH_MARGIN, width, height);
         let image = demosaic::develop_base_region(&self.photo, factor, at);
-        self.patch = Some(Patch { factor, at, image, sensor_clip: None });
+        self.patch = Some(Patch { factor, at, image, retouch: Retouched::default(), sensor_clip: None });
     }
 
     /// Binning factor for a render at `scale`: as much as possible while keeping the
@@ -520,7 +578,7 @@ impl Developer {
     /// xy chromaticity, or `None` without such an instance or anything to measure.
     pub fn detect_illuminant(&mut self, params: &EditParams, id: &str, size: RenderSize, method: Detection) -> Option<[f32; 2]> {
         let at = params.modules.iter().position(|m| m.id == id && m.module.kind() == ModuleKind::ColorCalibration)?;
-        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec() };
+        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
         let ops = self.point_ops.ops(&before, self.photo.as_shot_illuminant, None);
         // The spatial modules all come before calibration: same image, from cache.
         let img = self.spatial_image(params, size);

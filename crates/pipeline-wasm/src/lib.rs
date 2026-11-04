@@ -166,6 +166,14 @@ impl Developer {
         Ok(img.pixels[y0 * img.width..y1.max(y0) * img.width].iter().flatten().copied().collect())
     }
 
+    /// How points map between the output frame of these parameters and the sensor frame
+    /// (`SensorMappingData`), as JSON: what the editor needs to draw shapes.
+    #[wasm_bindgen(js_name = sensorMapping)]
+    pub fn sensor_mapping(&self, params_json: &str) -> Result<String, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        serde_json::to_string(&self.inner.sensor_mapping(&params).data()).map_err(js_err)
+    }
+
     /// The xy chromaticity of the as-shot light, or an empty array if unknown.
     #[wasm_bindgen(js_name = asShotIlluminant)]
     pub fn as_shot_illuminant(&self) -> Vec<f32> {

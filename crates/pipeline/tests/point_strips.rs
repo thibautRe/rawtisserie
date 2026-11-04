@@ -41,10 +41,12 @@ fn strips(dev: &mut Developer, params: &EditParams, n: usize) -> Vec<PointRender
 #[test]
 fn strips_match_the_full_render() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/recipes");
-    let mut dev = developer();
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         let case: Case = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        // A fresh developer, like the strips: a developer that rendered a recipe with the
+        // same filmic parameters before would use filmic's 3D table on the first pass.
+        let mut dev = developer();
         let mut parts = strips(&mut dev, &case.recipe, 5);
         // Twice: the second render of the same recipe goes through filmic's 3D table.
         for pass in 0..2 {

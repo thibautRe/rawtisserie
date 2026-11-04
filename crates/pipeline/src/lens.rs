@@ -24,14 +24,14 @@ pub struct LensProfile {
     /// Knot radii, as a fraction of the half-diagonal of the sensor's usable area,
     /// increasing. Between knots values are interpolated linearly; outside they are
     /// held constant.
-    knots: Vec<f32>,
+    pub(crate) knots: Vec<f32>,
     /// Source radius / corrected radius, for green, at each knot of the corrected image.
-    distortion: Vec<f32>,
+    pub(crate) distortion: Vec<f32>,
     /// Extra relative radius of red and blue against green (TCA), at each knot.
-    ca_red: Vec<f32>,
-    ca_blue: Vec<f32>,
+    pub(crate) ca_red: Vec<f32>,
+    pub(crate) ca_blue: Vec<f32>,
     /// Light falloff in EV, at each knot of the source image (positive: darker).
-    vignetting: Vec<f32>,
+    pub(crate) vignetting: Vec<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,6 +207,34 @@ impl Correction {
 
     pub fn centre(&self) -> (f32, f32) {
         (self.cx, self.cy)
+    }
+
+    /// Green's radial scale table and what indexes it: `(cx, cy, to_index, scale)`, for
+    /// mirroring [`map_green`](Self::map_green) elsewhere (the editor's overlay).
+    pub fn green_table(&self) -> (f32, f32, f32, &[f32]) {
+        (self.cx, self.cy, self.to_index, &self.scale[1])
+    }
+
+    /// Inverse of [`map_green`](Self::map_green): the point of the corrected image whose
+    /// green comes from source position `(x, y)`.
+    pub fn unmap_green(&self, x: f32, y: f32) -> (f32, f32) {
+        let (qx, qy) = (x - self.cx, y - self.cy);
+        let target = qx.hypot(qy);
+        if target == 0.0 {
+            return (x, y);
+        }
+        // Solve r · scale(r²) = target by fixed-point iteration: the scale varies slowly.
+        let scale_at = |r: f32| {
+            let pos = (r * r * self.to_index).min(TABLE_SIZE as f32);
+            let i = (pos as usize).min(TABLE_SIZE - 1);
+            self.scale[1][i] + (self.scale[1][i + 1] - self.scale[1][i]) * (pos - i as f32)
+        };
+        let mut r = target;
+        for _ in 0..24 {
+            r = target / scale_at(r);
+        }
+        let k = r / target;
+        (self.cx + qx * k, self.cy + qy * k)
     }
 
     /// Source position of green for a point of the corrected image.

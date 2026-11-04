@@ -22,7 +22,8 @@ interface GestureEvent extends UIEvent {
 /**
  * Zoom and pan the image shown in `windowRef` (`zoom.ts`), which must stay mounted: mouse wheel and touchpad
  * pinch zoom around the pointer, a middle click toggles between fit and 100 % centred on
- * the point clicked, and dragging (left or middle button) pans once zoomed in.
+ * the point clicked, and dragging (left or middle button) pans once zoomed in. A left
+ * button press on an element marked `data-no-pan` (shapes being edited) is left to it.
  *
  * Moving the view writes `stageRef`'s transform directly, without rendering React, so
  * the main thread stays free while the wheel turns. What it returns, the view to render
@@ -115,6 +116,7 @@ export function useZoom(
     let drag: { id: number; button: number; x: number; y: number; moved: boolean } | null = null;
     const down = (e: PointerEvent) => {
       if (drag || !(e.button === 1 || (e.button === 0 && s.view))) return;
+      if (e.button === 0 && e.target instanceof Element && e.target.closest('[data-no-pan]')) return;
       e.preventDefault();
       drag = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, moved: false };
       win.setPointerCapture(e.pointerId);

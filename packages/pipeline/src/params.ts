@@ -7,8 +7,13 @@
  */
 
 import type { PhotoMetadata } from './metadata.ts';
+import { type Shape, freshShapeId, normalizeShape } from './shapes.ts';
 
 export interface ModuleParams {
+  /** Spot removal, on the sensor frame before lens correction: applied in list order. */
+  retouch: {
+    spots: Spot[];
+  };
   /** Lens correction from the data embedded in the file. Strengths scale it: 0 = off, 1 = as specified, up to 2. */
   lens: {
     distortion: number;
@@ -158,6 +163,32 @@ export interface ModuleParams {
 
 export type ModuleKind = keyof ModuleParams;
 
+export const SPOT_MODES = ['heal', 'clone', 'fill', 'blur'] as const;
+export type SpotMode = (typeof SPOT_MODES)[number];
+
+/** A retouch spot: shape `shape` of the recipe (`EditParams.shapes`), filled according to `mode`. */
+export interface Spot {
+  shape: string;
+  mode: SpotMode;
+  /** Heal and clone: where the pixels come from, as an offset from the shape (normalised sensor coordinates). */
+  source: [number, number];
+  /** 0 … 1, on top of the shape's own opacity. */
+  opacity: number;
+  /** Fill: the colour, linear Rec.2020 (the base image's, balanced for D65 light). */
+  color: [number, number, number];
+  /** Blur: Gaussian sigma in full-resolution pixels. */
+  radius: number;
+}
+
+export const defaultSpot: Readonly<Spot> = Object.freeze<Spot>({
+  shape: '',
+  mode: 'heal',
+  source: [0, 0],
+  opacity: 1,
+  color: [0.18, 0.18, 0.18],
+  radius: 4,
+});
+
 /** The edit of one colour primary. */
 export interface Primary {
   /** Hue rotation, degrees, -180 … 180. */
@@ -198,6 +229,7 @@ export type Adaptation = (typeof ADAPTATIONS)[number];
 
 /** Module kinds, in pipeline order. */
 export const MODULE_KINDS = [
+  'retouch',
   'lens',
   'geometry',
   'blur',
@@ -230,6 +262,11 @@ export interface EditParams {
   version: number;
   /** In pipeline order. */
   modules: ModuleInstance[];
+  /**
+   * Drawn shapes by id (`shapes.ts`), referenced by retouch spots. Only referenced
+   * ones are kept, sorted by id; absent when there are none (as in Rust's JSON).
+   */
+  shapes?: Record<string, Shape>;
 }
 
 export interface CropRect {
@@ -252,6 +289,7 @@ export const EDIT_PARAMS_VERSION = 6;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
+  retouch: { spots: [] },
   lens: { distortion: 1, tca: 1, vignetting: 1 },
   geometry: { rotation: 0, flipHorizontal: false, angle: 0, crop: { x: 0, y: 0, width: 1, height: 1 } },
   blur: { radius: 0 },
@@ -359,7 +397,18 @@ export function normalizeEditParams(input: unknown): EditParams {
   const modules = version < 3 && !('modules' in raw) ? migrateV2(raw) : v3Modules(raw);
   // The base image used to be balanced as shot; now colour calibration does it.
   if (version < 6) modules.push({ ...instance('colorCalibration'), params: fromWhiteBalance(whiteBalance) });
-  return normalize(modules);
+  return normalize(modules, readShapes(raw.shapes));
+}
+
+/** Valid shapes of untrusted input (Rust refuses invalid ones; they are dropped here). */
+function readShapes(input: unknown): Record<string, Shape> {
+  if (!isObject(input)) return {};
+  const out: Record<string, Shape> = {};
+  for (const [id, value] of Object.entries(input)) {
+    const shape = normalizeShape(value);
+    if (shape) out[id] = shape;
+  }
+  return out;
 }
 
 function v3Modules(raw: Record<string, unknown>): ModuleInstance[] {
@@ -440,12 +489,12 @@ const REC709_FROM_XYZ = [
   [-0.969266, 1.8760108, 0.041556],
   [0.0556434, -0.2040259, 1.0572252],
 ];
-const REC2020_FROM_REC709 = [
+export const REC2020_FROM_REC709 = [
   [0.6274039, 0.329283, 0.0433131],
   [0.0690973, 0.9195404, 0.0113623],
   [0.0163914, 0.0880133, 0.8955953],
 ];
-const REC709_FROM_REC2020 = [
+export const REC709_FROM_REC2020 = [
   [1.660491, -0.5876411, -0.0728499],
   [-0.1245505, 1.1328999, -0.0083494],
   [-0.0181508, -0.1005789, 1.1187297],
@@ -482,6 +531,10 @@ function mixForRgbGains(gains: number[]): Mat3 {
 
 /** The parameters of a `kind` instance from untrusted input: missing or invalid fields get their defaults. */
 export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModuleParams[K] {
+  if (kind === 'retouch') {
+    const spots = isObject(input) && Array.isArray(input.spots) ? input.spots : [];
+    return { spots: spots.map(spotParams) } as ModuleParams[K];
+  }
   const params = merge(defaultModuleParams[kind], input as DeepPartial<ModuleParams[K]>);
   if (kind === 'filmic') {
     const f = params as ModuleParams['filmic'];
@@ -498,8 +551,18 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
   return params;
 }
 
-/** Unique non-empty ids, one instance of single-instance kinds, pipeline order. */
-function normalize(input: ModuleInstance[]): EditParams {
+/** A spot from untrusted input: missing or invalid fields get their defaults. */
+export function spotParams(input: unknown): Spot {
+  const p = merge(defaultSpot as Spot, input as DeepPartial<Spot>);
+  if (!SPOT_MODES.includes(p.mode)) p.mode = defaultSpot.mode;
+  return p;
+}
+
+/**
+ * Unique non-empty ids, one instance of single-instance kinds, pipeline order, no spots
+ * without their shape and no shapes that nothing uses. Mirrors `EditParams::normalize`.
+ */
+function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}): EditParams {
   const seen = new Set<ModuleKind>();
   const modules = input
     .filter((m) => !SINGLE_INSTANCE_KINDS.includes(m.kind) || (!seen.has(m.kind) && seen.add(m.kind)))
@@ -513,7 +576,23 @@ function normalize(input: ModuleInstance[]): EditParams {
     }
     ids.add(modules[i]!.id);
   }
-  return { version: EDIT_PARAMS_VERSION, modules };
+
+  for (const [i, m] of modules.entries()) {
+    if (m.kind !== 'retouch' || m.params.spots.every((s) => s.shape in shapes)) continue;
+    modules[i] = { ...m, params: { ...m.params, spots: m.params.spots.filter((s) => s.shape in shapes) } };
+  }
+  const used = new Set(shapeRefs(modules));
+  const kept = Object.keys(shapes)
+    .filter((id) => used.has(id))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); // by code unit, as Rust's BTreeMap
+  const params: EditParams = { version: EDIT_PARAMS_VERSION, modules };
+  if (kept.length) params.shapes = Object.fromEntries(kept.map((id) => [id, shapes[id]!]));
+  return params;
+}
+
+/** The ids of the shapes that instances refer to (enabled or not), with repeats. */
+export function shapeRefs(modules: readonly ModuleInstance[]): string[] {
+  return modules.flatMap((m) => (m.kind === 'retouch' ? m.params.spots.map((s) => s.shape) : []));
 }
 
 /** `kind`, or `kind-2`, `kind-3`… : the first id that isn't taken. */
@@ -667,8 +746,9 @@ export function addInstance(params: EditParams, id: string): EditParams {
   return { ...params, modules: params.modules.toSpliced(at + 1, 0, added) };
 }
 
+/** Remove an instance (and the shapes only it used). */
 export function removeInstance(params: EditParams, id: string): EditParams {
-  return { ...params, modules: params.modules.filter((m) => m.id !== id) };
+  return withUsedShapes({ ...params, modules: params.modules.filter((m) => m.id !== id) });
 }
 
 /** Swap an instance with the previous (-1) or next (+1) one of its kind, if there is one. */
@@ -686,7 +766,7 @@ export function moveInstance(params: EditParams, id: string, delta: -1 | 1): Edi
 /** Put the instances of a kind back as in the default recipe (removing them if it has none). */
 export function resetModule(params: EditParams, kind: ModuleKind): EditParams {
   const defaults = structuredClone(defaultEditParams.modules.filter((m) => m.kind === kind));
-  return normalize([...params.modules.filter((m) => m.kind !== kind), ...defaults]);
+  return normalize([...params.modules.filter((m) => m.kind !== kind), ...defaults], params.shapes);
 }
 
 /** Whether the instances of a kind differ from the default recipe's (ids aside). */
@@ -701,10 +781,12 @@ export function isModuleModified(params: EditParams, kind: ModuleKind): boolean 
  */
 export function resetInstance(params: EditParams, kind: ModuleKind, id: string): EditParams {
   if (params.modules.filter((m) => m.kind === kind).length <= 1) return resetModule(params, kind);
-  return updateInstance(params, kind, id, {
-    enabled: true,
-    params: instanceDefaults(kind, positionOf(params, kind, id)),
-  });
+  return withUsedShapes(
+    updateInstance(params, kind, id, {
+      enabled: true,
+      params: instanceDefaults(kind, positionOf(params, kind, id)),
+    }),
+  );
 }
 
 /** Whether `resetInstance` would change anything. */
@@ -719,4 +801,67 @@ export function isInstanceModified(params: EditParams, kind: ModuleKind, id: str
 
 export function isDefaultEdit(params: EditParams): boolean {
   return MODULE_KINDS.every((kind) => !isModuleModified(params, kind));
+}
+
+// ── Retouch spots ──
+// Spots belong to a retouch instance, by id. Editing them switches it on (adding it if
+// it isn't there yet, as editing any module does).
+
+/** The spots of retouch instance `id`. */
+export function spotsOf(params: EditParams, id: string): Spot[] {
+  const m = params.modules.find((x) => x.id === id);
+  return m?.kind === 'retouch' ? m.params.spots : [];
+}
+
+/** Add a spot with its shape to instance `id`; returns the recipe and the spot's index. */
+export function addSpot(
+  params: EditParams,
+  id: string,
+  shape: Shape,
+  spot: Partial<Omit<Spot, 'shape'>>,
+): [EditParams, number] {
+  const shapeId = freshShapeId(Object.keys(params.shapes ?? {}));
+  const spots = [...spotsOf(params, id), { ...structuredClone(defaultSpot as Spot), ...spot, shape: shapeId }];
+  const next = updateInstance(params, 'retouch', id, { enabled: true, params: { spots } });
+  return [{ ...next, shapes: sortedShapes({ ...params.shapes, [shapeId]: shape }) }, spots.length - 1];
+}
+
+/** Change spot `index` of instance `id`. */
+export function updateSpot(
+  params: EditParams,
+  id: string,
+  index: number,
+  patch: Partial<Omit<Spot, 'shape'>>,
+): EditParams {
+  const spots = spotsOf(params, id).map((s, i) => (i === index ? { ...s, ...patch } : s));
+  return updateInstance(params, 'retouch', id, { enabled: true, params: { spots } });
+}
+
+/** Remove spot `index` of instance `id`, and its shape unless something else uses it. */
+export function removeSpot(params: EditParams, id: string, index: number): EditParams {
+  const spots = spotsOf(params, id).filter((_, i) => i !== index);
+  return withUsedShapes(updateInstance(params, 'retouch', id, { params: { spots } }));
+}
+
+/** Replace shape `shapeId`, switching on the retouch instances that use it. */
+export function updateShape(params: EditParams, shapeId: string, shape: Shape): EditParams {
+  if (!params.shapes?.[shapeId]) return params;
+  const modules = params.modules.map((m) =>
+    m.kind === 'retouch' && !m.enabled && m.params.spots.some((s) => s.shape === shapeId) ? { ...m, enabled: true } : m,
+  );
+  return { ...params, modules, shapes: { ...params.shapes, [shapeId]: shape } };
+}
+
+/** The recipe without the shapes nothing uses (and without `shapes` if none are left). */
+function withUsedShapes(params: EditParams): EditParams {
+  const used = new Set(shapeRefs(params.modules));
+  const all = Object.entries(params.shapes ?? {});
+  const kept = all.filter(([id]) => used.has(id));
+  if (kept.length === all.length) return params;
+  const { shapes: _, ...rest } = params;
+  return kept.length ? { ...rest, shapes: Object.fromEntries(kept) } : rest;
+}
+
+function sortedShapes(shapes: Record<string, Shape>): Record<string, Shape> {
+  return Object.fromEntries(Object.entries(shapes).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }

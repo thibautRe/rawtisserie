@@ -5,6 +5,7 @@
  * When only the point operations need to run (colour edits), they are split across
  * a pool of workers, at full size even while dragging.
  */
+import type { EditParams, SensorMapping } from '@rawtisserie/pipeline';
 import init, { Developer } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import { PointPool } from './pointPool.ts';
@@ -28,6 +29,14 @@ const toBitmap = (data: Uint8Array, width: number, height: number) =>
 /** A region as the wasm module takes it. */
 const regionArg = (r: Region | null) => (r ? new Uint32Array([r.x, r.y, r.width, r.height]) : undefined);
 
+/** The last sensor mapping, by the lens and geometry instances it comes from. */
+let mapping: { key: string; value: SensorMapping } | null = null;
+function sensorMapping(dev: Developer, params: EditParams, json: string): SensorMapping {
+  const key = JSON.stringify(params.modules.filter((m) => m.kind === 'lens' || m.kind === 'geometry'));
+  if (mapping?.key !== key) mapping = { key, value: JSON.parse(dev.sensorMapping(json)) as SensorMapping };
+  return mapping.value;
+}
+
 // One message at a time: pool renders await their workers, and nothing else may touch
 // the developer meanwhile.
 let queue = Promise.resolve();
@@ -43,6 +52,7 @@ async function handle(msg: WorkerRequest) {
       developer?.free();
       developer = null;
       developer = new Developer(new Uint8Array(msg.bytes));
+      mapping = null;
       pool?.invalidate();
       post({ type: 'loaded', id: msg.id, metadata: JSON.parse(developer.metadata()), ms: performance.now() - started });
       return;
@@ -64,6 +74,7 @@ async function handle(msg: WorkerRequest) {
         frameHeight: frameHeight!,
       };
       const [sourceWidth, sourceHeight] = developer.outputSize(params, 0, 0);
+      const sensor = sensorMapping(developer, msg.params, params);
       // The scope shows the image, without the clipping indicators: drawn before them.
       const drawScope = (data: Uint8Array, width: number, height: number) => {
         const req = msg.scope;
@@ -85,6 +96,7 @@ async function handle(msg: WorkerRequest) {
             placement,
             sourceWidth: sourceWidth!,
             sourceHeight: sourceHeight!,
+            mapping: sensor,
             bitmap,
             scope: scope && { mode: scope.mode, bitmap: scopeBitmap! },
             ms: performance.now() - started,

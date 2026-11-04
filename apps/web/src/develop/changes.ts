@@ -1,6 +1,7 @@
 import { type EditParams, type ModuleInstance, type ModuleKind, defaultModuleParams } from '@rawtisserie/pipeline';
 
 export const MODULE_TITLES: Record<ModuleKind, string> = {
+  retouch: 'Retouch',
   lens: 'Lens correction',
   geometry: 'Geometry',
   blur: 'Blur',
@@ -78,6 +79,17 @@ export function describeChange(before: EditParams, after: EditParams): Change {
   const prev = new Map(before.modules.map((m) => [m.id, m]));
   const next = new Map(after.modules.map((m) => [m.id, m]));
   const ids = [...new Set([...prev.keys(), ...next.keys()])].filter((id) => !same(prev.get(id), next.get(id)));
+  if (ids.length === 0 && !same(before.shapes, after.shapes)) {
+    // Only shapes changed: they belong to the retouch instance whose spots use them.
+    const changed = Object.keys({ ...before.shapes, ...after.shapes }).filter(
+      (id) => !same(before.shapes?.[id], after.shapes?.[id]),
+    );
+    const owner = after.modules.find(
+      (m) => m.kind === 'retouch' && m.params.spots.some((s) => changed.includes(s.shape)),
+    );
+    const title = owner ? instanceTitle(after, owner) : MODULE_TITLES.retouch;
+    return { label: `${title}: spot edited`, moduleId: owner?.id ?? null, structural: false };
+  }
   if (ids.length === 0) {
     // Same instances: at most their order changed.
     const moved = after.modules.find((m, i) => before.modules[i]?.id !== m.id);

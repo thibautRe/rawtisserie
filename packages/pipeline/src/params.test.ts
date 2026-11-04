@@ -18,7 +18,14 @@ import {
   resetModule,
   updateInstance,
   updateModule,
+  addSpot,
+  defaultSpot,
+  removeSpot,
+  spotsOf,
+  updateShape,
+  updateSpot,
 } from './params.ts';
+import type { EllipseShape as Shape } from './shapes.ts';
 import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
 
 test('TypeScript defaults match the Rust defaults', () => {
@@ -130,6 +137,49 @@ const samples: unknown[] = [
       { kind: 'contrastEqualizer', label: 'fine', params: { edges: [1, 1, 1, 0.5, 0.5, 0.5] } },
     ],
   },
+  // Retouch spots and their shapes: spots without a shape and unused shapes go.
+  {
+    version: 6,
+    modules: [
+      { kind: 'exposure' },
+      {
+        kind: 'retouch',
+        params: {
+          spots: [
+            { shape: 's2', mode: 'clone', source: [0.1, -0.02], opacity: 0.5 },
+            { shape: 'missing' },
+            { shape: 's10', mode: 'fill', color: [0.5, 0.2, 0.1] },
+            { shape: 's1', mode: 'blur', radius: 8 },
+            { shape: 'a', source: [0.2, 0] },
+          ],
+        },
+      },
+      { kind: 'retouch', params: { spots: [{ shape: 'unused' }] } },
+    ],
+    shapes: {
+      unused: { type: 'ellipse', center: [0.1, 0.1], radii: [0.01, 0.01] },
+      s2: { type: 'ellipse', center: [0.4, 0.3], radii: [0.05, 0.03], rotation: 0.3, feather: 0.02, opacity: 0.9 },
+      s10: {
+        type: 'path',
+        points: [
+          [0.1, 0.1, 0.1, 0.1, 0.15, 0.05],
+          [0.2, 0.1, 0.2, 0.1, 0.2, 0.1],
+          [0.15, 0.2, 0.15, 0.2, 0.15, 0.2],
+        ],
+        feather: 0.01,
+      },
+      s1: {
+        type: 'brush',
+        points: [
+          [0.5, 0.5, 0.02, 0.5],
+          [0.6, 0.55, 0.03, 1],
+        ],
+      },
+      a: { type: 'gradient', anchor: [0.5, 0.2], angle: 1.2, feather: 0.1 },
+    },
+  },
+  { version: 6, modules: [{ kind: 'exposure' }], shapes: { s1: { type: 'ellipse', center: [0, 0], radii: [1, 1] } } },
+  { version: 6, modules: [{ kind: 'retouch', enabled: false, params: { spots: [{ shape: 's1' }] } }], shapes: null },
 ];
 
 test('normalizeEditParams matches Rust', () => {
@@ -317,4 +367,72 @@ test('develops a RAW file when RAWTISSERIE_SAMPLE is set', { skip: !process.env.
   assert.equal(jpeg[0], 0xff);
   assert.equal(jpeg[1], 0xd8);
   dev.free();
+});
+
+test('retouch spots carry their shapes', () => {
+  const circle: Shape = {
+    type: 'ellipse',
+    center: [0.5, 0.5],
+    radii: [0.02, 0.02],
+    rotation: 0,
+    feather: 0,
+    opacity: 1,
+  };
+  const [a, first] = addSpot(defaultEditParams, 'retouch', { ...circle, center: [0.5, 0.5] }, {
+    mode: 'clone',
+    source: [0.1, 0],
+  });
+  const [b, second] = addSpot(a, 'retouch', { ...circle, center: [0.2, 0.2] }, {});
+  assert.deepEqual([first, second], [0, 1]);
+  assert.deepEqual(Object.keys(b.shapes!), ['s1', 's2']);
+  assert.deepEqual(
+    spotsOf(b, 'retouch').map((s) => [s.shape, s.mode]),
+    [
+      ['s1', 'clone'],
+      ['s2', 'heal'],
+    ],
+  );
+  assert.equal(findModule(b, 'retouch')!.enabled, true);
+  assert.deepEqual(normalizeEditParams(JSON.parse(JSON.stringify(b))), b);
+
+  const moved = updateShape(b, 's2', { ...circle, center: [0.3, 0.3] });
+  assert.deepEqual(moved.shapes!.s2!.type === 'ellipse' && moved.shapes!.s2!.center, [0.3, 0.3]);
+  assert.equal(updateSpot(moved, 'retouch', 1, { opacity: 0.5 }).modules.find((m) => m.kind === 'retouch')!.enabled, true);
+
+  const removed = removeSpot(b, 'retouch', 0);
+  assert.deepEqual(Object.keys(removed.shapes!), ['s2']);
+  assert.equal(spotsOf(removed, 'retouch').length, 1);
+  assert.equal('shapes' in removeSpot(removed, 'retouch', 0), false);
+  // Resetting the module drops the spots and their shapes.
+  assert.deepEqual(resetModule(b, 'retouch'), defaultEditParams);
+  // A new spot doesn't reuse an id still in use.
+  const [c] = addSpot(removed, 'retouch', circle, {});
+  assert.deepEqual(Object.keys(c.shapes!), ['s1', 's2']);
+
+  // A second instance has its own spots; removing or resetting it drops its shapes only.
+  const two = addInstance(b, 'retouch');
+  const [d] = addSpot(two, 'retouch-2', circle, { mode: 'fill' });
+  assert.deepEqual(
+    spotsOf(d, 'retouch-2').map((s) => [s.shape, s.mode]),
+    [['s3', 'fill']],
+  );
+  assert.equal(spotsOf(d, 'retouch').length, 2);
+  assert.deepEqual(normalizeEditParams(JSON.parse(JSON.stringify(d))), d);
+  assert.deepEqual(Object.keys(removeInstance(d, 'retouch-2').shapes!), ['s1', 's2']);
+  assert.deepEqual(Object.keys(resetInstance(d, 'retouch', 'retouch').shapes!), ['s3']);
+});
+
+test('invalid shapes and spots are dropped or defaulted', () => {
+  const p = normalizeEditParams({
+    version: 6,
+    modules: [
+      {
+        kind: 'retouch',
+        params: { spots: [{ shape: 'ok', mode: 'smudge', opacity: 'full' }, { shape: 'bad' }, 'junk'] },
+      },
+    ],
+    shapes: { ok: { type: 'ellipse', center: [0.5, 0.5], radii: [0.1, 0.1] }, bad: { type: 'ellipse', center: [1] } },
+  });
+  assert.deepEqual(spotsOf(p, 'retouch'), [{ ...defaultSpot, shape: 'ok' }]);
+  assert.deepEqual(Object.keys(p.shapes!), ['ok']);
 });

@@ -1,0 +1,31 @@
+{
+  "size": 600,
+  "recipe": {
+    "version": 6,
+    "modules": [
+      { "kind": "retouch", "params": { "spots": [
+        { "shape": "heal", "mode": "heal", "source": [0.12, 0.04] },
+        { "shape": "clone", "mode": "clone", "source": [-0.1, 0.08], "opacity": 0.9 },
+        { "shape": "fill", "mode": "fill", "color": [0.4, 0.12, 0.05] },
+        { "shape": "blur", "mode": "blur", "radius": 20 },
+        { "shape": "gradient", "mode": "fill", "color": [0.05, 0.08, 0.2], "opacity": 0.5 }
+      ] } },
+      { "kind": "geometry", "params": { "angle": -2,
+          "crop": { "x": 0.05, "y": 0.05, "width": 0.9, "height": 0.9 } } },
+      { "kind": "exposure", "params": { "ev": 0.7 } },
+      { "kind": "colorCalibration" },
+      { "kind": "filmic" }
+    ],
+    "shapes": {
+      "heal": { "type": "ellipse", "center": [0.35, 0.4], "radii": [0.08, 0.05], "rotation": 0.5, "feather": 0.03 },
+      "clone": { "type": "ellipse", "center": [0.7, 0.3], "radii": [0.06, 0.06], "feather": 0.02 },
+      "fill": { "type": "path", "feather": 0.02, "points": [
+        [0.55, 0.6, 0.55, 0.6, 0.62, 0.52],
+        [0.72, 0.62, 0.72, 0.56, 0.72, 0.68],
+        [0.6, 0.78, 0.6, 0.78, 0.6, 0.78]
+      ] },
+      "blur": { "type": "brush", "points": [[0.15, 0.7, 0.03, 0.3], [0.25, 0.78, 0.05, 0.5], [0.4, 0.85, 0.03, 0.8]] },
+      "gradient": { "type": "gradient", "anchor": [0.5, 0.15], "angle": -1.5708, "feather": 0.2 }
+    }
+  }
+}

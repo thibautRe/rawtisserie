@@ -69,6 +69,7 @@ export class LocalRenderBackend implements RenderBackend {
       placement: r.placement,
       sourceWidth: r.sourceWidth,
       sourceHeight: r.sourceHeight,
+      mapping: r.mapping,
       scope: r.scope && { mode: r.scope.mode, image: r.scope.bitmap },
       ms: r.ms,
     };

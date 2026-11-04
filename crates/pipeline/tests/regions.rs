@@ -97,3 +97,67 @@ fn regions_have_their_own_cache() {
     assert!(dev.is_spatial_cached(&p, size) && dev.is_spatial_cached(&p, a));
     assert_eq!(dev.spatial_image_id(&p, size).0, whole);
 }
+
+#[test]
+fn retouched_regions_match() {
+    let dev = developer();
+    let mut p = EditParams::default_for(dev.metadata());
+    // Spots of every kind and shape, some with sources well outside the regions, one
+    // healing from where another one cloned to, and one across the sensor's edge.
+    let spots: EditParams = serde_json::from_value(serde_json::json!({
+        "version": 6,
+        "modules": [{ "kind": "retouch", "params": { "spots": [
+            { "shape": "a", "mode": "heal", "source": [0.2, 0.05] },
+            { "shape": "b", "mode": "clone", "source": [-0.15, 0.1], "opacity": 0.8 },
+            { "shape": "c", "mode": "heal", "source": [0.1, 0.0] },
+            { "shape": "d", "mode": "fill", "color": [0.3, 0.1, 0.05] },
+            { "shape": "e", "mode": "blur", "radius": 12 },
+            { "shape": "f", "mode": "heal", "source": [0.0, 0.3] }
+        ] } }],
+        "shapes": {
+            "a": { "type": "ellipse", "center": [0.4, 0.35], "radii": [0.03, 0.02], "rotation": 0.4, "feather": 0.01 },
+            "b": { "type": "ellipse", "center": [0.62, 0.3], "radii": [0.05, 0.05], "feather": 0.02 },
+            "c": { "type": "ellipse", "center": [0.37, 0.4], "radii": [0.04, 0.04], "feather": 0.01 },
+            "d": { "type": "path", "feather": 0.01, "points": [
+                [0.7, 0.6, 0.7, 0.6, 0.75, 0.55], [0.8, 0.62, 0.8, 0.62, 0.8, 0.62], [0.74, 0.72, 0.74, 0.72, 0.74, 0.72]
+            ] },
+            "e": { "type": "brush", "points": [[0.2, 0.7, 0.02, 0.5], [0.3, 0.75, 0.03, 0.5], [0.35, 0.8, 0.02, 0.8]] },
+            "f": { "type": "ellipse", "center": [0.98, 0.1], "radii": [0.04, 0.04] }
+        }
+    }))
+    .unwrap();
+    p.modules.extend(spots.modules);
+    p.shapes = spots.shapes;
+    p.normalize();
+    assert_eq!(p.shapes.len(), 6);
+    check("retouch", &p, RenderSize::fit(1200, 1200));
+    p.get_mut::<Geometry>().angle = -3.0;
+    p.get_mut::<Geometry>().rotation = 3;
+    check("retouch, rotated", &p, RenderSize::fit(1500, 1500));
+}
+
+#[test]
+fn moving_a_spot_restores_the_pixels_under_it() {
+    let mut dev = developer();
+    let base = EditParams::default_for(dev.metadata());
+    let size = RenderSize::fit(800, 800);
+    let before = dev.render(&base, size, Quality::Final);
+    let with = |x: f32| {
+        let mut p = base.clone();
+        let json = serde_json::json!({ "version": 6, "modules": [{ "kind": "retouch", "params": { "spots": [
+            { "shape": "s", "mode": "fill", "color": [1, 0, 0] }] } }],
+            "shapes": { "s": { "type": "ellipse", "center": [x, 0.5], "radii": [0.05, 0.05] } } });
+        let spot: EditParams = serde_json::from_value(json).unwrap();
+        p.modules.extend(spot.modules);
+        p.shapes = spot.shapes;
+        p.normalize();
+        p
+    };
+    let a = dev.render(&with(0.3), size, Quality::Final);
+    assert_ne!(a.data, before.data);
+    // Same developer: the base was retouched in place and must come back.
+    let b = dev.render(&with(0.7), size, Quality::Final);
+    let fresh = developer().render(&with(0.7), size, Quality::Final);
+    assert_eq!(b.data, fresh.data);
+    assert_eq!(dev.render(&base, size, Quality::Final).data, before.data);
+}

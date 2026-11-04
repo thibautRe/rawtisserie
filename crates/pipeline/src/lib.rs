@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! RAW bytes ─▶ decode ─▶ demosaic/bin ─▶ reference (D65) white balance ─▶ camera → working   (cached "base")
+//!          ─▶ retouch spots (sensor frame, in place on the base)
 //!          ─▶ geometry (lens, orientation, straighten, crop, resample)
 //!          ─▶ blur ─▶ sharpen ─▶ contrast equalizer
 //!          ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ … ─▶ tone mapping ─▶ sRGB output
@@ -24,6 +25,7 @@ pub mod metadata;
 pub mod ops;
 pub mod params;
 pub mod pipeline;
+pub mod shapes;
 
 pub use decode::RawPhoto;
 pub use image::{Image, Region, Rgba8};

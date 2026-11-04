@@ -50,6 +50,7 @@ at the end.
 
 ```
 RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
+    ─▶ retouch spots (heal, clone, fill, blur), in place on the base        cached: with the base
     ─▶ geometry (lens, orientation, straighten, crop, resample)             cached: per output size
     ─▶ blur ─▶ sharpen ─▶ contrast equalizer                                cached: per output size
     ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ shadows/highlights
@@ -97,7 +98,10 @@ Edit parameters are a versioned JSON recipe (`crates/pipeline/src/params.rs`, mi
 in `packages/pipeline/src/params.ts`): a list of module instances
 (`{ id, label, enabled, kind, params }`). The pipeline order is fixed by module kind, and
 instances of the same kind run in list order. Every field has a default, and older
-recipes (one section per module) are migrated when they're read.
+recipes (one section per module) are migrated when they're read. Drawn shapes (ellipses,
+gradients, Bézier paths, brush strokes) sit next to the modules in `shapes`, by id, and
+retouch spots refer to them (`crates/pipeline/src/shapes.rs` ↔
+`packages/pipeline/src/shapes.ts`).
 
 ## Getting started
 
@@ -202,6 +206,19 @@ relative to luminance instead of Lab, so exposure only shifts the residual, and 
 are decomposed separately, and a neutral one is skipped. Thresholds and edge weights
 are converted from Lab units at about 12 L* per EV and 50 a*b* per unit of colour.
 
+### Retouch
+
+`ops/retouch.rs` follows Ansel's `retouch` and `heal`: spots heal (copy the source, then
+blend it into the target's surroundings with a Laplace solve on square roots), clone,
+fill with a colour, or blur. They work on the base image, in the sensor frame, so they
+stay put when the crop, rotation or lens correction changes. The base is retouched in
+place, and each spot keeps the pixels it overwrote, so moving a spot only redoes the
+spots, not the demosaic. A zoomed-in region develops a patch that also covers what the
+spots touching it read. The heal solve starts from a coarse-to-fine estimate and stops on
+the mean change per pixel rather than Ansel's total; deviations are listed in the module.
+In the developer, the spots are drawn over the image (`develop/ShapeOverlay.tsx`) through
+the frame's sensor mapping, which the pipeline worker sends with each render.
+
 ## Keyboard shortcuts
 
 **Library**: `0`–`5` rate · `P` pick · `X` reject · `U` unflag · `6`–`9` colour labels ·
@@ -211,8 +228,9 @@ the original) · Delete deletes · Esc clears.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
 colour-assessment frame · hold `\` to compare with the unedited image · `C` crop
-(Enter applies, Esc cancels) · Esc closes an open menu, otherwise goes back to the
-library · double-click a slider to reset it · click its number to type a value · typed
+(Enter applies, Esc cancels) · retouch: Delete removes the selected spot, Enter closes a
+path, Esc cancels a path, then leaves the tool, the selection and the spots' overlay ·
+Esc closes an open menu, otherwise goes back to the library · double-click a slider to reset it · click its number to type a value · typed
 values can go past a slider's usual range · drags and arrows take Shift ×10 and Ctrl/⌘ ×0.1.
 
 ## Known limitations and next steps
@@ -234,13 +252,15 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
   the bands would make those cheap but costs ~60 MB per megapixel. Zoomed in at 100 %,
   its margin makes the first render of a view take about a second in the browser.
 - Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise, masks or XMP sidecar import/export yet.
+- Retouch has no wavelet scales, automatic source search or "visualise spots" view yet,
+  and the shape editor can't create gradients (masks will need them).
 - Storage is local disk; the storage module is small enough to swap for S3-compatible storage.
 
 ## Credits
 
-The filmic, colour calibration, colour primaries and contrast equalizer modules are
-ports of [Ansel](https://ansel.photos)'s `filmicrgb`, `channelmixerrgb`, `colorprimaries`
-and `atrous` by Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
+The filmic, colour calibration, colour primaries, contrast equalizer and retouch modules are
+ports of [Ansel](https://ansel.photos)'s `filmicrgb`, `channelmixerrgb`, `colorprimaries`,
+`atrous` and `retouch`/`heal` by Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
 embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). RAW decoding uses
 [rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
 [raw.pixls.us](https://raw.pixls.us) (CC0).

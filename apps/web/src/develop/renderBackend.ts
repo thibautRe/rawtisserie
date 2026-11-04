@@ -1,4 +1,4 @@
-import type { EditParams } from '@rawtisserie/pipeline';
+import type { EditParams, SensorMapping } from '@rawtisserie/pipeline';
 import type { IlluminantDetection, Overlays, Placement, Region } from './protocol.ts';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
@@ -13,6 +13,8 @@ export interface Frame {
   /** Size of the (cropped) image at full resolution, i.e. at 100 % zoom. */
   sourceWidth: number;
   sourceHeight: number;
+  /** How the image maps to the sensor frame, where shapes live (`shapes.ts`). */
+  mapping: SensorMapping;
   /** The scope of the render, if asked for; transferred to its canvas like `image`. */
   scope: { mode: ScopeMode; image: ImageBitmap } | null;
   ms: number;

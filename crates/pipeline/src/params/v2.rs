@@ -59,6 +59,6 @@ impl From<EditParams> for super::EditParams {
             push(true, v2.shadows_highlights.into());
         }
         push(v2.filmic.enabled, v2.filmic.params.into());
-        super::EditParams { version: super::CURRENT_VERSION, modules }
+        super::EditParams { version: super::CURRENT_VERSION, modules, shapes: Default::default() }
     }
 }

@@ -6,7 +6,13 @@ See README.md for the architecture overview and commands.
   `packages/pipeline/src/params.ts`. Change both together. `npm test -w @rawtisserie/pipeline`
   asserts the defaults match (it needs a fresh `npm run build:wasm`).
 - **Photo metadata** is mirrored the same way: `crates/pipeline/src/metadata.rs` ↔
-  `packages/pipeline/src/metadata.ts`.
+  `packages/pipeline/src/metadata.ts`. So are **drawn shapes** (`shapes.rs` ↔ `shapes.ts`)
+  and the sensor mapping (`geometry::SensorMapping` ↔ `toSensor`/`fromSensor`).
+- Shapes live in the recipe's top-level `shapes` (absent when empty), in normalised sensor
+  coordinates; lengths are fractions of the sensor's shorter side. `normalize` drops
+  spots without their shape and shapes nothing uses, in both languages. Anything new that
+  refers to shapes (masks) must be counted in `shape_refs`/`shapeRefs`, or its shapes
+  get dropped, and styles must carry them (`styleFromRecipe`, `applyStyle`).
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter
@@ -22,6 +28,10 @@ See README.md for the architecture overview and commands.
   condition blocks in first-seen order, and the `.dark` block must come last to win.
 - The pipeline is scene-referred linear Rec.2020 until tone mapping; spatial parameters
   are in full-resolution pixels and get scaled by the render scale.
+- Retouch runs on the base (or region patch) in place: `Retouched` keeps what each spot
+  overwrote and restores it when the spots change, and `GeometryKey::retouch` is the
+  spots' hash. A region's patch must cover what the spots touching it read
+  (`retouch::needed`); `tests/regions.rs` checks it.
 - `Developer` caches intermediate images (base → geometry → blur/sharpen) keyed by the
   parameters that affect them. A new spatial/geometry parameter must go into the
   matching cache key in `pipeline.rs`, or edits won't invalidate the cache. Per-pixel
@@ -55,9 +65,9 @@ See README.md for the architecture overview and commands.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
-- `ops/primaries.rs`, `ops/equalizer.rs` and `ops/calibration.rs` follow Ansel's
-  `colorprimaries.c`, `atrous.c` and `channelmixerrgb.c` (same license; deviations are
-  listed in the module docs). Upstream sources:
+- `ops/primaries.rs`, `ops/equalizer.rs`, `ops/calibration.rs` and `ops/retouch.rs`
+  follow Ansel's `colorprimaries.c`, `atrous.c`, `channelmixerrgb.c` and
+  `retouch.c`/`pixel/heal.c` (same license; deviations are listed in the module docs). Upstream sources:
   github.com/aurelienpierreeng/ansel, `src/iop/` and `src/pixel/colorequal_shared.c`.
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance

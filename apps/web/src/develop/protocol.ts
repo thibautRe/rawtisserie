@@ -1,4 +1,4 @@
-import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import type { EditParams, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 /** A part of a render, in its output pixels. */
@@ -64,6 +64,8 @@ export type WorkerResponse =
       /** Size of the (cropped) image at full resolution. */
       sourceWidth: number;
       sourceHeight: number;
+      /** How the rendered image maps to the sensor frame, where shapes live. */
+      mapping: SensorMapping;
       /** Ready to hand to the canvas without touching the pixels on the main thread. */
       bitmap: ImageBitmap;
       /** The scope asked for, if any. */

@@ -9,3 +9,4 @@ pub mod geometry;
 pub mod lut;
 pub mod point;
 pub mod primaries;
+pub mod retouch;

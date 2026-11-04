@@ -16,10 +16,13 @@
 
 mod v2;
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::metadata::PhotoMetadata;
+pub use crate::shapes::Shape;
 
 /// v2: the sigmoid tone mapper was replaced by filmic; shadows/highlights got their own section.
 /// v3: a list of module instances instead of one section per module.
@@ -34,6 +37,10 @@ pub struct EditParams {
     pub version: u32,
     /// In pipeline order (see [`EditParams::normalize`]).
     pub modules: Vec<ModuleInstance>,
+    /// Drawn shapes by id, referenced by retouch spots (and later masks). Only the
+    /// referenced ones are kept; left out of the JSON when there are none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub shapes: BTreeMap<String, Shape>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -131,6 +138,8 @@ macro_rules! modules {
 }
 
 modules! {
+    /// Spot removal, on the base image (sensor frame), before lens correction.
+    Retouch,
     /// Lens correction (distortion, TCA, vignetting), in the geometry stage. Single instance.
     Lens,
     /// Geometry stage: orientation, straighten, crop, resample. Single instance.
@@ -169,7 +178,7 @@ impl ModuleKind {
 /// exposure push, white balance as shot (colour calibration) and filmic.
 impl Default for EditParams {
     fn default() -> Self {
-        let mut params = Self { version: CURRENT_VERSION, modules: Vec::new() };
+        let mut params = Self { version: CURRENT_VERSION, modules: Vec::new(), shapes: BTreeMap::new() };
         params.add(Exposure::default());
         params.add(ColorCalibration::default());
         params.add(Filmic::default());
@@ -243,7 +252,8 @@ impl EditParams {
     }
 
     /// Make a recipe valid: unique non-empty ids, one instance of single-instance
-    /// kinds (the first), and pipeline order. Must match `normalizeEditParams` in TS.
+    /// kinds (the first), pipeline order, no spots without their shape and no shapes
+    /// that nothing uses. Must match `normalizeEditParams` in TS.
     pub fn normalize(&mut self) {
         self.version = CURRENT_VERSION;
         let mut seen = std::collections::HashSet::new();
@@ -259,6 +269,23 @@ impl EditParams {
             }
             ids.insert(self.modules[i].id.clone());
         }
+
+        let shapes = &self.shapes;
+        for m in &mut self.modules {
+            if let Module::Retouch(r) = &mut m.module {
+                r.spots.retain(|s| shapes.contains_key(&s.shape));
+            }
+        }
+        let used: std::collections::HashSet<String> = self.shape_refs().map(str::to_owned).collect();
+        self.shapes.retain(|id, _| used.contains(id));
+    }
+
+    /// The ids of the shapes the modules refer to (enabled or not), in order, with repeats.
+    pub fn shape_refs(&self) -> impl Iterator<Item = &str> {
+        self.modules.iter().flat_map(|m| match &m.module {
+            Module::Retouch(r) => r.spots.iter().map(|s| s.shape.as_str()).collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
     }
 }
 
@@ -297,7 +324,11 @@ impl TryFrom<Value> for EditParams {
                 .into_iter()
                 .map(|m| Ok(ModuleInstance { id: m.id, label: m.label, enabled: m.enabled, module: Module::from_json(m.kind, m.params)? }))
                 .collect::<serde_json::Result<_>>()?;
-            EditParams { version: CURRENT_VERSION, modules }
+            let shapes = match json.get("shapes") {
+                Some(Value::Null) | None => BTreeMap::new(),
+                Some(shapes) => BTreeMap::<String, Shape>::deserialize(shapes)?,
+            };
+            EditParams { version: CURRENT_VERSION, modules, shapes }
         } else {
             serde_json::from_value::<v2::EditParams>(json)?.into()
         };
@@ -362,6 +393,58 @@ fn migrate_filmic(json: &mut Value) {
     } else if let Some(filmic) = json.get_mut("filmic") {
         fix(filmic);
     }
+}
+
+/// Spot removal (roadmap 4.4), after Ansel's `retouch.c` (see [`crate::ops::retouch`]):
+/// each spot is a shape of the recipe and what to do inside it, applied in list order.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Retouch {
+    pub spots: Vec<Spot>,
+}
+
+impl Retouch {
+    pub fn is_identity(&self) -> bool {
+        self.spots.is_empty()
+    }
+}
+
+/// A retouch spot: shape `shape` of the recipe, filled according to `mode`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Spot {
+    /// Id of the shape in `EditParams::shapes`.
+    pub shape: String,
+    pub mode: SpotMode,
+    /// Heal and clone: where the pixels come from, as an offset from the shape in
+    /// normalised sensor coordinates.
+    pub source: [f32; 2],
+    /// 0 … 1, on top of the shape's own opacity.
+    pub opacity: f32,
+    /// Fill: the colour, linear Rec.2020 (the base image's, balanced for D65 light).
+    pub color: [f32; 3],
+    /// Blur: Gaussian sigma in full-resolution pixels.
+    pub radius: f32,
+}
+
+impl Default for Spot {
+    fn default() -> Self {
+        Self { shape: String::new(), mode: SpotMode::Heal, source: [0.0, 0.0], opacity: 1.0, color: [0.18, 0.18, 0.18], radius: 4.0 }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpotMode {
+    /// Copy the source, then match it to the target's surroundings (Poisson blend).
+    #[default]
+    Heal,
+    /// Copy the source as it is.
+    Clone,
+    /// Paint `color`.
+    Fill,
+    /// Blur what is there.
+    Blur,
 }
 
 /// Lens correction from the data embedded in the file (see [`crate::lens`]). Each

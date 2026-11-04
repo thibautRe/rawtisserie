@@ -9,8 +9,11 @@ import {
   normalizeEditParams,
   updateInstance,
   updateModule,
+  addSpot,
+  spotsOf,
   type ModuleKind,
 } from './params.ts';
+import type { Shape } from './shapes.ts';
 import {
   BUILTIN_PRESETS,
   PRESET_GROUPS,
@@ -18,6 +21,7 @@ import {
   applyStyle,
   normalizeModulePreset,
   normalizeStyle,
+  PRESET_KINDS,
   presetGroupsOf,
   presetParams,
   styleFromRecipe,
@@ -127,4 +131,35 @@ test('a style can be applied twice', () => {
   const ids = twice.modules.map((m) => m.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(twice.modules.filter((m) => m.kind === 'exposure').length, 5);
+});
+
+test('styles carry the shapes of their retouch spots', () => {
+  const at = (x: number): Shape => ({
+    type: 'ellipse',
+    center: [x, 0.5],
+    radii: [0.01, 0.01],
+    rotation: 0,
+    feather: 0,
+    opacity: 1,
+  });
+  const [withSpot] = addSpot(defaultEditParams, 'retouch', at(0.3), { mode: 'clone', source: [0.05, 0] });
+  const retouch = findModule(withSpot, 'retouch')!;
+  const style = styleFromRecipe(withSpot, [retouch.id]);
+  assert.deepEqual(style.shapes, { s1: at(0.3) });
+  assert.deepEqual(styleFromRecipe(withSpot, ['exposure']).shapes, undefined);
+  assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
+
+  // Appended to a recipe with its own spot: a second instance, its shape renamed.
+  const [other] = addSpot(defaultEditParams, 'retouch', at(0.8), {});
+  const appended = applyStyle(other, style, 'append');
+  assert.deepEqual(appended.shapes, { s1: at(0.8), s2: at(0.3) });
+  assert.deepEqual(
+    appended.modules.filter((m) => m.kind === 'retouch').map((m) => spotsOf(appended, m.id)[0]!.shape),
+    ['s1', 's2'],
+  );
+  // Replacing: the style's instance takes the place of the recipe's.
+  const replaced = applyStyle(other, style, 'replace');
+  assert.deepEqual(replaced.shapes, { s1: at(0.3) });
+  assert.equal(spotsOf(replaced, 'retouch')[0]!.mode, 'clone');
+  assert.equal(PRESET_KINDS.includes('retouch'), false);
 });

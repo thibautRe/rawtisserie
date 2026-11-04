@@ -92,6 +92,79 @@ impl Mapping {
     }
 }
 
+/// Maps points between the output frame and the sensor frame, both normalised (0 … 1
+/// across the width and the height): the output frame is the oriented, straightened and
+/// cropped image; the sensor frame is the base image, where shapes live
+/// (`crate::shapes`). The developer's overlay draws shapes with it.
+pub struct SensorMapping {
+    width: f32,
+    height: f32,
+    /// Output (normalised) → lens-corrected sensor frame (pixels).
+    map: Mapping,
+    lens: Option<Correction>,
+}
+
+/// [`SensorMapping`] as data, for mirroring it in TypeScript (`packages/pipeline/src/shapes.ts`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SensorMappingData {
+    /// Sensor size in pixels.
+    pub width: f32,
+    pub height: f32,
+    /// Output `(x, y)` (normalised) → `(u0 + x·a + y·c, v0 + x·b + y·d)`, sensor pixels
+    /// before lens correction, as `[u0, v0, a, b, c, d]`.
+    pub affine: [f32; 6],
+    pub lens: Option<LensData>,
+}
+
+/// Lens distortion (green) as a radial table: a point at offset `d` from `(cx, cy)`
+/// reads the source at `d · scale(|d|² · to_index)`, interpolated linearly.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LensData {
+    pub cx: f32,
+    pub cy: f32,
+    pub to_index: f32,
+    pub scale: Vec<f32>,
+}
+
+impl SensorMapping {
+    /// For a sensor of `width × height` pixels.
+    pub fn new(t: &Transform, profile: Option<&LensProfile>, width: f32, height: f32) -> Self {
+        Self { width, height, map: Mapping::new(width, height, t, 1, 1), lens: correction(t, profile, width, height) }
+    }
+
+    /// The sensor position of an output position.
+    pub fn to_sensor(&self, x: f32, y: f32) -> (f32, f32) {
+        let (u, v) = self.map.at(x, y);
+        let (u, v) = self.lens.as_ref().map_or((u, v), |l| l.map_green(u, v));
+        (u / self.width, v / self.height)
+    }
+
+    /// The output position of a sensor position.
+    pub fn from_sensor(&self, u: f32, v: f32) -> (f32, f32) {
+        let (u, v) = (u * self.width, v * self.height);
+        let (u, v) = self.lens.as_ref().map_or((u, v), |l| l.unmap_green(u, v));
+        let m = &self.map;
+        let det = m.du_dx * m.dv_dy - m.du_dy * m.dv_dx;
+        let (du, dv) = (u - m.u0, v - m.v0);
+        ((du * m.dv_dy - dv * m.du_dy) / det, (dv * m.du_dx - du * m.dv_dx) / det)
+    }
+
+    pub fn data(&self) -> SensorMappingData {
+        let m = &self.map;
+        SensorMappingData {
+            width: self.width,
+            height: self.height,
+            affine: [m.u0, m.v0, m.du_dx, m.dv_dx, m.du_dy, m.dv_dy],
+            lens: self.lens.as_ref().map(|l| {
+                let (cx, cy, to_index, scale) = l.green_table();
+                LensData { cx, cy, to_index, scale: scale.to_vec() }
+            }),
+        }
+    }
+}
+
 fn correction(t: &Transform, profile: Option<&LensProfile>, sw: f32, sh: f32) -> Option<Correction> {
     Correction::new(profile?, t.lens.as_ref()?, sw, sh)
 }
@@ -346,6 +419,45 @@ mod tests {
         let out = apply_mask(&mask, &transform(false, 1), None, 2, 3);
         let marked: Vec<bool> = (0..3).flat_map(|y| (0..2).map(move |x| (x, y))).map(|(x, y)| out.get(x, y)).collect();
         assert_eq!(marked, [false, false, false, true, false, false]);
+    }
+
+    #[test]
+    fn sensor_mapping_round_trips() {
+        use crate::lens::{LensProfile, LensSource};
+        let profile = LensProfile {
+            source: LensSource::Sony,
+            knots: vec![0.0, 0.5, 1.0],
+            distortion: vec![1.0, 0.98, 0.93],
+            ca_red: vec![0.0, 0.0, 0.0],
+            ca_blue: vec![0.0, 0.0, 0.0],
+            vignetting: vec![0.0, 0.0, 0.0],
+        };
+        let t = Transform {
+            lens: Some(Lens { distortion: 1.0, tca: 0.0, vignetting: 0.0 }),
+            orient: Orient { flip: true, quarter_turns: 1 },
+            angle: 4.0,
+            crop: Crop { x: 0.1, y: 0.2, width: 0.7, height: 0.6 },
+        };
+        for lens in [None, Some(&profile)] {
+            let m = SensorMapping::new(&t, lens, 6000.0, 4000.0);
+            for (x, y) in [(0.5, 0.5), (0.0, 0.0), (1.0, 0.3), (0.2, 0.9)] {
+                let (u, v) = m.to_sensor(x, y);
+                let (bx, by) = m.from_sensor(u, v);
+                assert!((bx - x).abs() < 1e-4 && (by - y).abs() < 1e-4, "{lens:?} ({x}, {y}) → ({u}, {v}) → ({bx}, {by})");
+            }
+        }
+        // Without lens correction or geometry, both frames are the same.
+        let m = SensorMapping::new(&transform(false, 0), None, 6000.0, 4000.0);
+        let (u, v) = m.to_sensor(0.25, 0.75);
+        assert!((u - 0.25).abs() < 1e-6 && (v - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sensor_mapping_follows_the_render() {
+        // A marked source pixel lands where `from_sensor` says (a quarter turn).
+        let (u, v) = SensorMapping::new(&transform(false, 1), None, 3.0, 2.0).from_sensor(1.5 / 3.0, 0.5 / 2.0);
+        // Source pixel 1 (top middle) is at (1, 1) of the 2 × 3 output: centre (1.5, 1.5).
+        assert!((u - 1.5 / 2.0).abs() < 1e-6 && (v - 1.5 / 3.0).abs() < 1e-6, "({u}, {v})");
     }
 
     #[test]
