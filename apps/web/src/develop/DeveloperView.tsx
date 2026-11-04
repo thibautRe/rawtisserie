@@ -17,13 +17,15 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExt
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
-import { CropOverlay, constrainAspect } from './CropOverlay.tsx';
+import { type CropAspect, FREE_ASPECT, aspectRatio, constrainAspect, flipCrop, isPortrait } from './aspect.ts';
+import { CropOverlay } from './CropOverlay.tsx';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
-import { ASPECTS, ModulePanel } from './ModulePanel.tsx';
+import { ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
 import type { IlluminantDetection } from './protocol.ts';
 import type { Frame, RenderBackend } from './renderBackend.ts';
+import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
@@ -247,8 +249,9 @@ export function DeveloperView({
   const [assessment, setAssessment] = useState(() => localStorage.getItem('developer.assessment') === '1');
   useEffect(() => localStorage.setItem('developer.assessment', assessment ? '1' : '0'), [assessment]);
   const [clipping, setClipping] = useClippingSettings();
+  const [scopes, setScopes] = useScopeSettings();
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
-  const [aspect, setAspect] = useState('free');
+  const [aspect, setAspect] = useState<CropAspect>(FREE_ASPECT);
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
   const [detecting, setDetecting] = useState<string | null>(null);
@@ -276,6 +279,24 @@ export function DeveloperView({
   // While a slider is being dragged, render a ~0.5 MP draft (the pipeline keeps its
   // caches for both sizes); the full-resolution render follows on release.
   const draft = live && !cropDraft && !zoom;
+  // Scopes of the fitted render, as wide as the sidebar allows (less its padding).
+  const [sidebar, sidebarSize] = useElementSize<HTMLDivElement>();
+  const scopeWidth = Math.max(0, sidebarSize.width - 16);
+  const scopeCssHeight = scopeHeight(scopes.mode, scopeWidth);
+  // Waveforms are binned per CSS pixel: at device pixels, the bins would be too sparse
+  // for the samples (a speckled trace).
+  const scopeDpr = scopes.mode === 'vectorscope' ? dpr : 1;
+  const scopeRequest = useMemo(
+    () =>
+      scopes.open && scopeWidth > 0
+        ? {
+            mode: scopes.mode,
+            width: Math.round(scopeWidth * scopeDpr),
+            height: Math.round(scopeCssHeight * scopeDpr),
+          }
+        : null,
+    [scopes.open, scopes.mode, scopeWidth, scopeCssHeight, scopeDpr],
+  );
   const { margin, frameWidth } = assessmentLayout(size, assessment);
   const job = useMemo(() => {
     const inset = 2 * (margin + frameWidth);
@@ -287,8 +308,8 @@ export function DeveloperView({
       sensor: clipping.sensor,
       stripes: clipping.zebra ? STRIPE_PX * dpr * scale : 0,
     };
-    return { params: fitEffective, width, height, scale, overlays };
-  }, [fitEffective, size.width, size.height, dpr, draft, margin, frameWidth, clipping]);
+    return { params: fitEffective, width, height, scale, overlays, scope: scopeRequest };
+  }, [fitEffective, size.width, size.height, dpr, draft, margin, frameWidth, clipping, scopeRequest]);
   const { frame, error, pending } = useRenderLoop(backend, job);
 
   // The image is seen through a window: the viewport, or the inside of the ISO 12646
@@ -347,6 +368,15 @@ export function DeveloperView({
     // thread never touches the pixels.
     c.getContext('bitmaprenderer')!.transferFromImageBitmap(frame.image);
   }, [frame]);
+  const scopeCanvas = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const scope = frame?.scope;
+    if (!scope || scope.image.width === 0) return;
+    const c = scopeCanvas.current;
+    // A scope of another mode (asked for before switching) is dropped.
+    if (c && scope.mode === scopes.mode) c.getContext('bitmaprenderer')!.transferFromImageBitmap(scope.image);
+    else scope.image.close();
+  }, [frame]); // eslint-disable-line react-hooks/exhaustive-deps
   const regionCanvas = useRef<HTMLCanvasElement>(null);
   useLayoutEffect(() => {
     const c = regionCanvas.current;
@@ -400,10 +430,6 @@ export function DeveloperView({
 
   // ── Crop ──
   const frameAspect = frame ? frame.fullWidth / frame.fullHeight : 1;
-  const aspectRatio = (value: string) => {
-    const a = ASPECTS.find((x) => x.value === value)?.ratio ?? null;
-    return a === 'original' ? frameAspect : a;
-  };
   const crop = findModule(params, 'geometry')?.params.crop ?? FULL_CROP;
   const startCrop = () => {
     if (cropDraft) return applyCrop();
@@ -414,12 +440,20 @@ export function DeveloperView({
     commit(updateModule(params, 'geometry', { enabled: true, params: { crop: cropDraft } }));
     setCropDraft(null);
   };
-  const changeAspect = (value: string) => {
-    setAspect(value);
-    const ratio = aspectRatio(value);
-    if (cropDraft) setCropDraft(constrainAspect(cropDraft, ratio, frameAspect));
+  /** Switch to `next`, fitting the crop (from `rect`, or the current one) to it. */
+  const setCropAspect = (next: CropAspect, rect?: CropRect) => {
+    setAspect(next);
+    const ratio = aspectRatio(next, frameAspect);
+    const base = rect ?? cropDraft;
+    if (base) setCropDraft(constrainAspect(base, ratio, frameAspect));
     else if (ratio) setCropDraft(constrainAspect(crop, ratio, frameAspect));
   };
+  // A preset keeps the crop's orientation; a typed ratio is taken as written.
+  const changeAspect = (preset: string) =>
+    setCropAspect({ ...aspect, preset, flipped: preset !== 'custom' && isPortrait(cropDraft ?? crop, frameAspect) });
+  const changeCustomAspect = (custom: string) => setCropAspect({ preset: 'custom', custom, flipped: false });
+  const flipAspect = () =>
+    setCropAspect({ ...aspect, flipped: !aspect.flipped }, flipCrop(cropDraft ?? crop, frameAspect));
 
   // ── Actions ──
   const exportJpeg = async (maxSize: number) => {
@@ -507,6 +541,8 @@ export function DeveloperView({
   const onLiveChange = useStableCallback((p: EditParams) => store.setLive(p));
   const onPanelCommit = useStableCallback(commit);
   const onAspectChange = useStableCallback(changeAspect);
+  const onCustomAspectChange = useStableCallback(changeCustomAspect);
+  const onFlipAspect = useStableCallback(flipAspect);
   const onStartCrop = useStableCallback(startCrop);
   const onAutoTuneFilmic = useStableCallback(() => void autoTuneFilmic());
   const onDetectIlluminant = useStableCallback(
@@ -568,15 +604,33 @@ export function DeveloperView({
 
   return (
     <Flex h="full" minH="0">
-      <Box as="aside" w="56" flexShrink={0} borderRightWidth="1px" bg="bg.panel" minH="0">
-        <HistoryPanel
-          original={original}
-          entries={history.entries}
-          end={history.end}
-          onSelect={onSelectEntry}
-          onCompress={onCompress}
+      <Flex
+        ref={sidebar}
+        as="aside"
+        direction="column"
+        w="56"
+        flexShrink={0}
+        borderRightWidth="1px"
+        bg="bg.panel"
+        minH="0"
+      >
+        <ScopePanel
+          settings={scopes}
+          onChange={setScopes}
+          width={scopeWidth}
+          height={scopeCssHeight}
+          canvasRef={scopeCanvas}
         />
-      </Box>
+        <Box flex="1" minH="0">
+          <HistoryPanel
+            original={original}
+            entries={history.entries}
+            end={history.end}
+            onSelect={onSelectEntry}
+            onCompress={onCompress}
+          />
+        </Box>
+      </Flex>
       <Flex direction="column" flex="1" minW="0">
         <Toolbar
           filename={filename}
@@ -639,7 +693,7 @@ export function DeveloperView({
               {cropDraft && !comparing && (
                 <CropOverlay
                   rect={cropDraft}
-                  aspect={aspectRatio(aspect)}
+                  aspect={aspectRatio(aspect, frameAspect)}
                   frameAspect={frameAspect}
                   onChange={setCropDraft}
                 />
@@ -696,6 +750,8 @@ export function DeveloperView({
           cropping={!!cropDraft}
           aspect={aspect}
           onAspectChange={onAspectChange}
+          onCustomAspectChange={onCustomAspectChange}
+          onFlipAspect={onFlipAspect}
           onStartCrop={onStartCrop}
           onAutoTuneFilmic={onAutoTuneFilmic}
           autoTuning={autoTuning}
