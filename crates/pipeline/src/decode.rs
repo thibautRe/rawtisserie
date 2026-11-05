@@ -1,7 +1,7 @@
 //! RAW decoding (via [rawler]) into a [`RawPhoto`]: sensor data plus everything
 //! needed to interpret it (levels, CFA layout, white balance, colour matrix).
 
-use rawler::decoders::{Orientation, RawDecodeParams};
+use rawler::decoders::RawDecodeParams;
 use rawler::imgop::xyz::Illuminant;
 use rawler::rawimage::RawPhotometricInterpretation;
 use rawler::rawsource::RawSource;
@@ -145,10 +145,8 @@ impl RawPhoto {
             ),
         };
 
-        let orientation = Orient::from_exif(match raw.orientation {
-            Orientation::Unknown => metadata.orientation.unwrap_or(1),
-            o => o.to_u16(),
-        });
+        // Resolved from the decoder and the EXIF tag by `metadata::extract`.
+        let orientation = Orient::from_exif(metadata.orientation.unwrap_or(1));
 
         Ok(Self {
             raw,

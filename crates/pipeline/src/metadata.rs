@@ -64,19 +64,18 @@ pub(crate) fn extract(source: &RawSource, raw: &RawImage) -> PhotoMetadata {
         ..Default::default()
     };
 
+    let raw_meta = rawler::get_decoder(source).and_then(|d| d.raw_metadata(source, &RawDecodeParams::default()));
+    let exif_orientation = raw_meta.as_ref().ok().and_then(|rm| rm.exif.orientation);
+    meta.orientation = resolve_orientation(raw.orientation.to_u16(), exif_orientation);
+
     let area = raw.crop_area.or(raw.active_area);
     let (w, h) = area.map(|r| (r.d.w, r.d.h)).unwrap_or((raw.width, raw.height));
-    let orientation = raw.orientation.to_u16();
-    let swap = matches!(orientation, 5..=8);
+    let swap = matches!(meta.orientation, Some(5..=8));
     if w > 0 && h > 0 {
         meta.width = Some(if swap { h } else { w } as u32);
         meta.height = Some(if swap { w } else { h } as u32);
     }
-    if (1..=8).contains(&orientation) {
-        meta.orientation = Some(orientation);
-    }
 
-    let raw_meta = rawler::get_decoder(source).and_then(|d| d.raw_metadata(source, &RawDecodeParams::default()));
     if let Ok(rm) = raw_meta {
         apply_exif(&mut meta, &rm.exif);
         meta.rating = rm.rating;
@@ -91,6 +90,17 @@ pub(crate) fn extract(source: &RawSource, raw: &RawImage) -> PhotoMetadata {
     let round = |v: f32| (v as f64 * 1e6).round() / 1e6;
     meta.as_shot_illuminant = crate::decode::as_shot_illuminant(raw).map(|xy| xy.map(round));
     meta
+}
+
+/// The orientation to develop with: the decoder's when it reads one, else the EXIF tag.
+/// rawler only reads it for a few formats (DNG, QTK) and reports `Normal` for all the
+/// others (ARW, CR2, NEF, …), so `Normal` from the decoder doesn't override the EXIF tag.
+fn resolve_orientation(decoder: u16, exif: Option<u16>) -> Option<u16> {
+    let valid = |o: &u16| (1..=8).contains(o);
+    Some(decoder)
+        .filter(|o| valid(o) && *o != 1)
+        .or(exif.filter(valid))
+        .or(Some(decoder).filter(valid))
 }
 
 /// [`extract`], plus the lens correction data embedded in the file.
@@ -120,10 +130,6 @@ fn apply_exif(meta: &mut PhotoMetadata, exif: &Exif) {
     meta.flash = exif.flash;
     meta.metering_mode = exif.metering_mode;
     meta.exposure_program = exif.exposure_program;
-    if meta.orientation.is_none() {
-        meta.orientation = exif.orientation.filter(|o| (1..=8).contains(o));
-    }
-
     let date = exif.date_time_original.as_deref().or(exif.create_date.as_deref());
     meta.captured_at = date.and_then(|d| {
         exif_datetime_to_iso(
@@ -200,5 +206,17 @@ mod tests {
         assert_eq!(exif_datetime_to_iso("2026:09:29 14:03:12\0", None, None).as_deref(), Some("2026-09-29T14:03:12"));
         assert_eq!(exif_datetime_to_iso("0000:00:00 00:00:00", None, None), None);
         assert_eq!(exif_datetime_to_iso("garbage", None, None), None);
+    }
+
+    #[test]
+    fn orientation_falls_back_to_exif() {
+        // rawler reports Normal for ARW etc.: the EXIF tag wins.
+        assert_eq!(resolve_orientation(1, Some(8)), Some(8));
+        assert_eq!(resolve_orientation(0, Some(6)), Some(6));
+        // A decoder that reads it (DNG) is trusted.
+        assert_eq!(resolve_orientation(6, Some(1)), Some(6));
+        assert_eq!(resolve_orientation(1, None), Some(1));
+        assert_eq!(resolve_orientation(1, Some(0)), Some(1));
+        assert_eq!(resolve_orientation(0, None), None);
     }
 }
