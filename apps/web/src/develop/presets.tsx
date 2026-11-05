@@ -28,7 +28,6 @@ import {
   type PresetGroup,
   type Style,
   type StyleMode,
-  presetGroupsOf,
   modulePresetPayload,
   styleFromRecipe,
 } from '@rawtisserie/pipeline';
@@ -103,15 +102,15 @@ export function usePresetLibrary(): PresetLibrary {
   return { modulePresets, styles, save: me ? save : null, remove };
 }
 
-/** What part of its module a preset sets, when it's limited to some of the groups. */
+/**
+ * What part of its module a preset sets, when it leaves some of the groups alone. Built-in
+ * presets set only a few parameters of a group, so this counts the groups they touch.
+ */
 function presetHint(preset: ModulePreset): string | null {
   const groups = groupsOf(preset.moduleKind);
-  const covered = presetGroupsOf(preset.moduleKind, preset.payload.params);
-  if (!covered.length || covered.length === groups.length) return null;
-  return groups
-    .filter(([name]) => covered.includes(name))
-    .map(([, g]) => g.label)
-    .join(', ');
+  const touched = groups.filter(([, g]) => g.keys.some((k) => k in preset.payload.params));
+  if (!touched.length || touched.length === groups.length) return null;
+  return touched.map(([, g]) => g.label).join(', ');
 }
 
 /**
@@ -152,7 +151,7 @@ export const PresetMenu = memo(
             {p.name}
           </Text>
           {hint && (
-            <Text textStyle="2xs" color="fg.subtle" truncate maxW="32">
+            <Text textStyle="2xs" color="fg.subtle" truncate maxW="48" title={hint}>
               {hint}
             </Text>
           )}
@@ -180,7 +179,7 @@ export const PresetMenu = memo(
         </Menu.Trigger>
         <Portal>
           <Menu.Positioner>
-            <Menu.Content minW="52" maxW="80">
+            <Menu.Content minW="72" maxW="md">
               {builtIn.length > 0 && (
                 <Menu.ItemGroup>
                   <Menu.ItemGroupLabel>Built-in</Menu.ItemGroupLabel>

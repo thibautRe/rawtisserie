@@ -1,5 +1,5 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react';
-import { menuAnatomy } from '@chakra-ui/react/anatomy';
+import { menuAnatomy, nativeSelectAnatomy } from '@chakra-ui/react/anatomy';
 
 const config = defineConfig({
   globalCss: {
@@ -29,6 +29,11 @@ const config = defineConfig({
       },
     },
     slotRecipes: {
+      // A muted fill: the outline variant's border barely shows on the panels.
+      nativeSelect: {
+        slots: nativeSelectAnatomy.keys(),
+        defaultVariants: { variant: 'subtle' },
+      },
       menu: {
         slots: menuAnatomy.keys(),
         base: {

@@ -211,3 +211,30 @@ export function illuminantFromXy(xy: Xy): Partial<Calibration> {
   const { temperature, illuminant } = closestIlluminant(xy);
   return { illuminant, temperature: kelvin(temperature), x: round(xy[0], 4), y: round(xy[1], 4), adaptation: 'cat16' };
 }
+
+/**
+ * Where the temperature slider starts for an "as shot" instance: the camera's light as a
+ * daylight or black body spectrum (black body below 4000 K, where CIE daylight isn't
+ * defined, or when it's the closer one). Null without an as-shot light.
+ */
+export function asShotTemperature(
+  asShot: Xy | null | undefined,
+): { illuminant: 'daylight' | 'blackBody'; temperature: number } | null {
+  if (!asShot) return null;
+  const { temperature, illuminant } = closestIlluminant(asShot);
+  const t = kelvin(temperature);
+  return { illuminant: illuminant === 'blackBody' || t < 4000 ? 'blackBody' : 'daylight', temperature: t };
+}
+
+/**
+ * The patch that sets an instance's temperature; an "as shot" one switches to the
+ * daylight or black body light of `asShotTemperature` first.
+ */
+export function setTemperature(
+  p: Calibration,
+  temperature: number,
+  asShot: Xy | null | undefined,
+): Partial<Calibration> {
+  const start = p.illuminant === 'asShot' ? asShotTemperature(asShot) : null;
+  return { ...(start && switchIlluminant(p, start.illuminant, asShot)), temperature };
+}

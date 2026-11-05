@@ -305,6 +305,13 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   }),
   builtIn('colorCalibration', 'mono-red', 'Monochrome: red filter', { grey: [0.7, 0.3, 0], normalizeGrey: true }),
   builtIn('colorCalibration', 'mono-green', 'Monochrome: green filter', { grey: [0.2, 0.7, 0.1], normalizeGrey: true }),
+  // Tungsten-balanced film (CineStill 800T and the like): white balance fixed for 3200 K
+  // lamps, so tungsten light renders neutral and daylight turns blue.
+  builtIn('colorCalibration', 'tungsten', 'Tungsten film (3200 K)', {
+    illuminant: 'blackBody',
+    temperature: 3200,
+    adaptation: 'cat16',
+  }),
   builtIn('color', 'vivid', 'Vivid', { saturation: 0.15, vibrance: 0.3 }),
   builtIn('color', 'muted', 'Muted', { saturation: -0.3, vibrance: 0 }),
   builtIn('filmic', 'high-contrast', 'High contrast', { contrast: 1.45 }),

@@ -33,15 +33,16 @@ import {
   TEMPERATURE_MIN,
   type Xy,
   blackBodyXy,
-  closestIlluminant,
   daylightXy,
   hueChromaToXy,
+  asShotTemperature,
   illuminantXy,
   mixerMatrix,
   mixerRows,
   mixerWhite,
   primariesFromMatrix,
   primariesToMatrix,
+  setTemperature,
   switchIlluminant,
   whitePreservingFromMatrix,
   whitePreservingToMatrix,
@@ -104,7 +105,7 @@ import {
   Trash2,
   WandSparkles,
 } from 'lucide-react';
-import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
@@ -365,6 +366,22 @@ const LED_LABELS: Record<Led, string> = {
 type Calibration = ModuleParams['colorCalibration'];
 
 /** Colour calibration's tabs, as Ansel's: the light, the mix, and what is done with it. */
+/**
+ * A select with its label on the left. The label isn't part of the options, so typing
+ * on the focused select jumps to the option starting with the typed letters.
+ */
+function SelectRow({ label, children }: { label: string; children: (id: string) => React.ReactNode }) {
+  const id = useId();
+  return (
+    <HStack gap="2" flex="1" minW="0">
+      <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+        <label htmlFor={id}>{label}</label>
+      </Text>
+      {children(id)}
+    </HStack>
+  );
+}
+
 const CALIBRATION_PAGES = ['illuminant', 'mixer', 'output'] as const;
 type CalibrationPage = (typeof CALIBRATION_PAGES)[number];
 const CALIBRATION_PAGE_LABELS = Object.fromEntries(
@@ -489,6 +506,7 @@ const TEMPERATURE_TRACK = `linear-gradient(to right, ${Array.from({ length: 11 }
 interface InstanceView {
   primary: PrimaryName;
   primariesAdvanced: boolean;
+  calibrationAdvanced: boolean;
   curve: EqualizerCurve;
   calibration: CalibrationPage;
   mixer: MixerView;
@@ -499,6 +517,7 @@ interface InstanceView {
 const DEFAULT_VIEW: InstanceView = {
   primary: 'red',
   primariesAdvanced: false,
+  calibrationAdvanced: false,
   curve: 'luma',
   calibration: 'illuminant',
   mixer: 'primaries',
@@ -924,7 +943,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         const page = e.view.calibration;
         const v = e.values;
         const light = illuminantXy(v, asShotIlluminant);
-        const cct = closestIlluminant(light);
+        const asShotStart = v.illuminant === 'asShot' ? asShotTemperature(asShotIlluminant) : null;
+        // Handlers read the instance and the as-shot light when called (sliders keep their first ones).
+        const temperaturePatch = (t: number) => setTemperature(e.current(), t, latest.current.asShotIlluminant);
         const adapts = v.illuminant === 'asShot' || v.adaptation !== 'none';
         const white = mixerWhite(v);
         const matrix = mixerMatrix(v);
@@ -970,48 +991,48 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             </Tabs.Root>
             {page === 'illuminant' && (
               <>
-                <NativeSelect.Root size="xs" disabled={v.illuminant === 'asShot'}>
-                  <NativeSelect.Field
-                    value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation}
-                    onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })}
-                    aria-label="Adaptation"
-                    title="Chromatic adaptation transform (as shot always uses CAT16)"
-                  >
-                    {ADAPTATIONS.map((a) => (
-                      <option key={a} value={a}>
-                        Adaptation: {ADAPTATION_LABELS[a]}
-                      </option>
-                    ))}
-                  </NativeSelect.Field>
-                  <NativeSelect.Indicator />
-                </NativeSelect.Root>
+                <SelectRow label="Adaptation">
+                  {(id) => (
+                    <NativeSelect.Root size="xs" flex="1" disabled={v.illuminant === 'asShot'}>
+                      <NativeSelect.Field
+                        id={id}
+                        value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation}
+                        onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })}
+                        title="Chromatic adaptation transform (as shot always uses CAT16)"
+                      >
+                        {ADAPTATIONS.map((a) => (
+                          <option key={a} value={a}>
+                            {ADAPTATION_LABELS[a]}
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                  )}
+                </SelectRow>
                 {adapts && (
                   <>
                     <HStack gap="1.5">
-                      <NativeSelect.Root size="xs" flex="1">
-                        <NativeSelect.Field
-                          value={v.illuminant}
-                          onChange={(ev) =>
-                            e.set(switchIlluminant(e.current(), ev.target.value as Illuminant, asShotIlluminant))
-                          }
-                          aria-label="Illuminant"
-                        >
-                          {ILLUMINANTS.map((i) => (
-                            <option key={i} value={i}>
-                              Illuminant: {ILLUMINANT_LABELS[i]}
-                            </option>
-                          ))}
-                        </NativeSelect.Field>
-                        <NativeSelect.Indicator />
-                      </NativeSelect.Root>
-                      <Box
-                        boxSize="5"
-                        flexShrink={0}
-                        borderRadius="sm"
-                        borderWidth="1px"
-                        bg={xyToCss(light)}
-                        title="The light's colour"
-                      />
+                      <SelectRow label="Illuminant">
+                        {(id) => (
+                          <NativeSelect.Root size="xs" flex="1">
+                            <NativeSelect.Field
+                              id={id}
+                              value={v.illuminant}
+                              onChange={(ev) =>
+                                e.set(switchIlluminant(e.current(), ev.target.value as Illuminant, asShotIlluminant))
+                              }
+                            >
+                              {ILLUMINANTS.map((i) => (
+                                <option key={i} value={i}>
+                                  {ILLUMINANT_LABELS[i]}
+                                </option>
+                              ))}
+                            </NativeSelect.Field>
+                            <NativeSelect.Indicator />
+                          </NativeSelect.Root>
+                        )}
+                      </SelectRow>
                       <Menu.Root
                         lazyMount
                         unmountOnExit
@@ -1039,16 +1060,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         </Portal>
                       </Menu.Root>
                     </HStack>
-                    <Text
-                      textStyle="2xs"
-                      color="fg.subtle"
-                      title="Correlated color temperature; it only describes the light well for daylight and black body spectra"
-                    >
-                      {cct.temperature > TEMPERATURE_MIN && cct.temperature < TEMPERATURE_MAX
-                        ? `CCT ${Math.round(cct.temperature)} K (${cct.illuminant === 'custom' ? 'not a daylight or black body light' : cct.illuminant === 'daylight' ? 'daylight' : 'black body'})`
-                        : 'CCT undefined'}
-                    </Text>
-                    {(v.illuminant === 'daylight' || v.illuminant === 'blackBody') && (
+                    {/* Under "as shot" too, at the camera light's temperature: dragging it
+                        switches to daylight or black body. The same slider stays mounted
+                        through the switch, so the drag goes on. */}
+                    {(v.illuminant === 'daylight' || v.illuminant === 'blackBody' || asShotStart) && (
                       <ParamSlider
                         label="Temperature"
                         min={TEMPERATURE_SOFT[0]}
@@ -1059,6 +1074,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         track={TEMPERATURE_TRACK}
                         format={(t) => `${t.toFixed(0)} K`}
                         {...e.bind('temperature')}
+                        value={asShotStart?.temperature ?? v.temperature}
+                        onChange={(t) => latest.current.onChange(e.edit(temperaturePatch(t)))}
+                        onCommit={(t) => latest.current.onCommit(e.edit(temperaturePatch(t)))}
                       />
                     )}
                     {v.illuminant === 'fluorescent' && (
@@ -1117,27 +1135,40 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     )}
                   </>
                 )}
-                <ParamSlider
-                  label="Gamut compression"
-                  min={0}
-                  max={5}
-                  hardMax={12}
-                  step={0.01}
-                  format={fmt.fixed2}
-                  {...e.bind('gamut')}
-                />
-                <Switch.Root
-                  size="xs"
-                  colorPalette="orange"
-                  checked={v.clip}
-                  onCheckedChange={(d) => e.set({ clip: d.checked })}
+                <Button
+                  size="2xs"
+                  variant="ghost"
+                  alignSelf="start"
+                  px="0"
+                  onClick={() => e.setView({ calibrationAdvanced: !e.view.calibrationAdvanced })}
                 >
-                  <Switch.HiddenInput />
-                  <Switch.Control />
-                  <Switch.Label textStyle="2xs" color="fg.muted">
-                    Clip negative RGB from gamut
-                  </Switch.Label>
-                </Switch.Root>
+                  {e.view.calibrationAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut handling
+                </Button>
+                {e.view.calibrationAdvanced && (
+                  <>
+                    <ParamSlider
+                      label="Gamut compression"
+                      min={0}
+                      max={5}
+                      hardMax={12}
+                      step={0.01}
+                      format={fmt.fixed2}
+                      {...e.bind('gamut')}
+                    />
+                    <Switch.Root
+                      size="xs"
+                      colorPalette="orange"
+                      checked={v.clip}
+                      onCheckedChange={(d) => e.set({ clip: d.checked })}
+                    >
+                      <Switch.HiddenInput />
+                      <Switch.Control />
+                      <Switch.Label textStyle="2xs" color="fg.muted">
+                        Clip negative RGB from gamut
+                      </Switch.Label>
+                    </Switch.Root>
+                  </>
+                )}
               </>
             )}
             {page === 'mixer' && (
@@ -1700,20 +1731,24 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             {...e.bind('angle')}
           />
           <HStack>
-            <NativeSelect.Root size="xs" flex="1">
-              <NativeSelect.Field
-                value={aspect.preset}
-                onChange={(e) => latest.current.onAspectChange(e.target.value)}
-                aria-label="Crop aspect ratio"
-              >
-                {ASPECTS.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    Aspect: {a.value === 'custom' ? a.label : aspectLabel(a.label, aspect.flipped)}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
+            <SelectRow label="Aspect">
+              {(id) => (
+                <NativeSelect.Root size="xs" flex="1">
+                  <NativeSelect.Field
+                    id={id}
+                    value={aspect.preset}
+                    onChange={(e) => latest.current.onAspectChange(e.target.value)}
+                  >
+                    {ASPECTS.map((a) => (
+                      <option key={a.value} value={a.value}>
+                        {a.value === 'custom' ? a.label : aspectLabel(a.label, aspect.flipped)}
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
+            </SelectRow>
             <IconButton
               size="xs"
               variant="outline"
@@ -1836,20 +1871,24 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 {editing ? <Eye /> : <EyeOff />}
               </IconButton>
             </HStack>
-            <NativeSelect.Root size="xs">
-              <NativeSelect.Field
-                value={ui.mode}
-                onChange={(ev) => setUi({ mode: ev.target.value as SpotMode })}
-                aria-label="Mode of new spots"
-              >
-                {SPOT_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    New spots: {SPOT_MODE_LABELS[mode]}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
+            <SelectRow label="New spots">
+              {(id) => (
+                <NativeSelect.Root size="xs" flex="1">
+                  <NativeSelect.Field
+                    id={id}
+                    value={ui.mode}
+                    onChange={(ev) => setUi({ mode: ev.target.value as SpotMode })}
+                  >
+                    {SPOT_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {SPOT_MODE_LABELS[mode]}
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
+            </SelectRow>
             {ui.tool === 'brush' && editing && (
               <>
                 <ParamSlider
@@ -1923,25 +1962,29 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             )}
             {spot && sel !== null && (
               <Stack gap="1.5" key={sel}>
-                <NativeSelect.Root size="xs">
-                  <NativeSelect.Field
-                    value={spot.mode}
-                    onChange={(ev) =>
-                      commit(
-                        (p) => updateSpot(p, e.id, sel, { mode: ev.target.value as SpotMode }),
-                        `${name()}: spot mode`,
-                      )
-                    }
-                    aria-label="Mode of the selected spot"
-                  >
-                    {SPOT_MODES.map((mode) => (
-                      <option key={mode} value={mode}>
-                        Spot {sel + 1}: {SPOT_MODE_LABELS[mode]}
-                      </option>
-                    ))}
-                  </NativeSelect.Field>
-                  <NativeSelect.Indicator />
-                </NativeSelect.Root>
+                <SelectRow label={`Spot ${sel + 1}`}>
+                  {(id) => (
+                    <NativeSelect.Root size="xs" flex="1">
+                      <NativeSelect.Field
+                        id={id}
+                        value={spot.mode}
+                        onChange={(ev) =>
+                          commit(
+                            (p) => updateSpot(p, e.id, sel, { mode: ev.target.value as SpotMode }),
+                            `${name()}: spot mode`,
+                          )
+                        }
+                      >
+                        {SPOT_MODES.map((mode) => (
+                          <option key={mode} value={mode}>
+                            {SPOT_MODE_LABELS[mode]}
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                  )}
+                </SelectRow>
                 <ParamSlider
                   label="Opacity"
                   min={0}

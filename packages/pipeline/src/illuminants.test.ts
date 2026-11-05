@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  asShotTemperature,
+  setTemperature,
   WHITE_XY,
   blackBodyXy,
   closestIlluminant,
@@ -62,4 +64,20 @@ test('detected lights become daylight, black body or custom', () => {
   assert.equal(d.illuminant, 'daylight');
   near(d.temperature!, 5200, 15);
   assert.equal(illuminantFromXy([0.3, 0.36]).illuminant, 'custom');
+});
+
+test('the temperature slider starts from the as-shot light', () => {
+  const p = defaultModuleParams.colorCalibration;
+  const asShot = daylightXy(5000)!;
+  const start = asShotTemperature(asShot)!;
+  assert.equal(start.illuminant, 'daylight');
+  assert.ok(Math.abs(start.temperature - 5000) < 20, `${start.temperature}`);
+  assert.equal(asShotTemperature(blackBodyXy(3200))!.illuminant, 'blackBody');
+  assert.equal(asShotTemperature(null), null);
+
+  // Moving it leaves "as shot" for that light, at the new temperature.
+  assert.deepEqual(setTemperature(p, 5500, asShot), { illuminant: 'daylight', adaptation: 'cat16', temperature: 5500 });
+  // Once switched, it only sets the temperature.
+  const daylight = { ...p, illuminant: 'daylight' as const, temperature: 5500 };
+  assert.deepEqual(setTemperature(daylight, 6000, asShot), { temperature: 6000 });
 });
