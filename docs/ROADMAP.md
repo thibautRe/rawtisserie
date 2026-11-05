@@ -8,6 +8,8 @@ Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries
 3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
 together; 4.5 (masks); full-size colour drags on a worker pool (see Performance).
+Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
+see [1.0 release scope](#10-release-scope).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -16,11 +18,15 @@ foundation, then builds features on top in milestones that each ship something u
 
 ```
 M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipping indicators, sliders, guided editing)
-                 ├─▶ M3 Image quality (lens correction, colour primaries, contrast equalizer)
-                 ├─▶ M4 Creative control (module instances, presets, shapes, retouch, masks)
-                 └─▶ M5 Compare
+                 ├─▶ M3 Image quality (lens correction, colour primaries, contrast equalizer,
+                 │                     denoise, lensfun, diffuse & sharpen, perspective)
+                 ├─▶ M4 Creative control (module instances, presets, shapes, retouch, masks,
+                 │                        tone curve, colour balance RGB, 3D LUT, frame)
+                 ├─▶ M5 Compare
+                 └─▶ M8 Library workflow (batch presets, folder/SD import, culling, batch export)
 M6 Cloud processing ── independent; can start any time (native renderer first)
 M7 Hosted service ──── storage, quotas, history size, local originals; 7.1 before a public launch
+M9 Branding ────────── independent; logo, typography, spinner, /develop page
 ```
 
 Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or more.
@@ -375,6 +381,103 @@ Ansel's `channelmixerrgb` (CAT16 white balance with illuminant, gamut compressio
 colourfulness/brightness/grey mixing). It replaces today's warmth/tint as the standard
 white balance and is the most common target for masked instances.
 
+### 3.5 Raw denoise (AI) (XL, before 1.0)
+
+A port of Ansel's "RAW Denoise (AI)" module: `src/iop/rawdenoiseai.c`, the CPU executor
+`src/common/nn_model.c`, and the design notes in `doc/rawdenoiseai.md` (last changed
+upstream at `57c1f08d81`, 2026-10-02). The models are trained in
+[ansel-denoise](https://github.com/aurelienpierreeng/ansel-denoise) (GPL-3.0).
+
+**What upstream does:**
+
+- **The network.** A small U-Net (3×3 convolutions with GELU; 4 levels down and up,
+  with skip connections). It **subtracts** an estimated noise layer from the raw
+  **CFA mosaic, before demosaic**, where the noise is still independent per photosite.
+- **Five input planes:** the mosaic, three one-hot CFA planes (so one set of weights
+  handles Bayer and X-Trans), and a σ map.
+- **The σ map:** σ = √(a·y + b), where (a, b) come from the camera's noise profile at
+  the photo's ISO, looked up in darktable/Ansel's `noiseprofiles.json`, with a generic
+  fallback for cameras that have no profile.
+- **Parameters:**
+  - strength (default 0.85), an opacity: `in + strength·(denoised − in)`;
+  - global correction (1.0);
+  - per-channel corrections R 2.82 / G 3.94 / B 2.96, which carry the profiles'
+    calibration (×2 for the Haar normalisation, times the demosaic attenuation);
+  - model version (v1);
+  - model size: large / half / quarter (default quarter);
+  - variant: single-scale or multiscale (default multiscale; a coarse chroma net on
+    the binned image guides the fine net).
+- **Weights:** `.anselnn` files (a magic number, a JSON header, raw float32 tensors),
+  from 1.9 MB (quarter single) to 38 MB (large multi). They are pinned by version: a
+  retrained model is a new version, so old edits never change. The sizes are separate
+  fits, not interchangeable. On X-Trans, quarter leaves a visible CFA pattern; prefer
+  half or large there.
+
+**What it means here:**
+
+- **Placement:** a new kind before `Retouch`, single instance, inside the base stage.
+  Today the base is demosaiced or **binned** from the mosaic (`demosaic::develop_base`).
+  Denoising must run on the full-resolution mosaic, so it needs a cached denoised
+  mosaic keyed by the denoise parameters, from which every base factor and region
+  patch is developed.
+- **Decision: previews.** Denoising the whole mosaic is the expensive part, and binning
+  already averages noise away at small scales. Options:
+  - always denoise the full mosaic (correct, slow first render);
+  - denoise only for 1:1 regions and exports, using the receptive field as the
+    region margin (fast, but previews differ from exports).
+
+  `tests/regions.rs` will settle what has to match.
+
+- **Executor:** port `nn_model.c` to Rust (convolutions, resampling, GELU), with no
+  runtime dependency, so it runs in wasm and natively. Check it against upstream's
+  parity fixtures (tolerance 2·10⁻⁴). Bench quarter, half and large at 24 and 61 MP.
+  Expect seconds in single-threaded wasm, which makes this the strongest case for P.2
+  explicit SIMD, P.5 wasm threads, WebGPU, and M6 (native, rayon). Determinism
+  matters: same file, parameters and model version must give the same pixels (golden
+  test).
+- **Model and profile files:** serve the `.anselnn` files and a slimmed
+  `noiseprofiles.json` as static, hash-verified assets, downloaded lazily the first
+  time the module is enabled. The recipe stores version, size and variant, as
+  upstream does. Metadata already has the ISO and camera model needed for the profile
+  lookup.
+- **Licensing:** code and weights are GPL-3.0, consistent with the other ports (see
+  Licensing).
+- **UI:** strength, model size (default by sensor type and device speed), variant, and
+  the corrections under an "advanced" fold. Show a progress state while the denoised
+  mosaic is computed.
+
+### 3.6 Lens correction via lensfun (L, before 1.0)
+
+The remaining part of 3.1: the lensfun database, then DNG opcodes and other makers'
+embedded data, plus the manual lens override. See the source list in 3.1.
+
+### 3.7 Diffuse and sharpen (L, before 1.0)
+
+A port of `diffuse.c` (Ansel's, or darktable's if it has diverged usefully). It uses
+multiscale anisotropic diffusion: sharpening, local contrast, deblurring, bloom and
+inpainting presets.
+
+- A spatial stage next to sharpen and the contrast equalizer, maskable. Iterations at
+  large radii are expensive: bench them, and report the `reach` for regions, which
+  can be large.
+- Size-dependent choices use the whole frame, as in `equalizer::apply_in_frame`.
+- Built-in presets matter more than the raw controls here (darktable ships ~20).
+
+### 3.8 Perspective correction and vertical alignment (L, before 1.0)
+
+For architecture and interiors, following darktable's `ashift.c` ("rotate and
+perspective").
+
+- **Model:** a homography in the geometry module (single instance), so the geometry
+  pass becomes "projective + radial polynomial", still one resample. Crop and the
+  sensor mapping must account for it; shapes stay in sensor coordinates and follow.
+- **Auto:** detect line segments (ashift uses LSD), then fit vertical, horizontal or
+  both. Manual: the user draws two or four guide lines (rectangle/lines tool, as in
+  darktable's newer versions).
+- **Auto-crop** to the largest frame without empty borders, like lens correction does.
+  A `GeometryKey` change re-renders everything after it, so the cache key must include
+  the new fields.
+
 ---
 
 ## M4 — Creative control
@@ -640,6 +743,63 @@ A module's mask combines drawn shapes (4.3) with parametric ranges:
 - **Budget:** each masked instance costs roughly one extra point-module evaluation per
   pixel. Track it with `examples/bench.rs`.
 
+### New modules for 1.0
+
+Each needs the usual steps for a new kind:
+
+- an entry in the `modules!` macro and in the TS `ModuleParams`, `MODULE_KINDS` and
+  `defaultModuleParams`;
+- a pipeline stage;
+- a golden recipe;
+- `PRESET_GROUPS` if it has distinct parts.
+
+A kind that's absent is off, so adding one needs no recipe version bump.
+
+### 4.6 Tone curve (M, before 1.0)
+
+Based on Ansel's or darktable's `rgbcurve.c` (or the older `tonecurve.c`). A point module
+before filmic, in scene-referred linear (curve on log-encoded values, like the
+equalizer's curves), with RGB / luminance-preserving modes. It's baked into a lookup
+table in `PointOps::new`, and the editor reuses `CurveEditor.tsx`. Maskable.
+
+### 4.7 Colour balance RGB (L, before 1.0)
+
+A port of `colorbalancergb.c`:
+
+- lift/gamma/gain and offset/power/slope wheels;
+- chroma, saturation and vibrance per luminance range;
+- contrast around a fulcrum;
+- perceptual saturation in its UCS space.
+
+A point module before filmic, and maskable. The per-pixel maths has powers and colour
+space conversions, so it needs LUTs or a fitted approximation to respect the point-op
+budget. Tabs (master / 4 ways / masks) become `PRESET_GROUPS`, and colour wheels are a
+new UI control.
+
+### 4.8 3D LUT (M, before 1.0)
+
+Following darktable's `lut3d.c`: `.cube` files first (then `.3dl` and Hald CLUT PNGs),
+with tetrahedral interpolation and a choice of input colour space/encoding.
+
+- Usually display-referred, so it goes after filmic. Check whether the fused point pass
+  supports a stage after filmic, or add one.
+- LUT files are user assets: store them like presets (per user, content-addressed). The
+  recipe refers to them by hash, styles carry them, and the public developer loads them
+  locally.
+
+### 4.9 Frame (S–M, before 1.0)
+
+Borders for export, like darktable's `borders.c` ("framing"):
+
+- border size as a fraction of the shorter side, or a target aspect ratio;
+- position of the image within the frame;
+- colour (with an image picker);
+- an optional thin inner line.
+
+The last stage, display-referred, and not maskable. It changes the output size, so
+check region renders, clipping indicators, overlays and shapes (they map to the image
+inside the frame). It could be shown only on export and in a "show frame" preview.
+
 ---
 
 ## M5 — Compare (M–L, after 1.2)
@@ -835,6 +995,79 @@ backend a configuration choice and the volume justifies it.
 
 ---
 
+## M8 — Library workflow (L overall, before 1.0)
+
+### 8.1 Apply a preset or style to a selection (S–M)
+
+Presets and styles are applied on the client and give a plain recipe. For a selection,
+the client fetches each version's current recipe and applies the preset or style. It
+then appends a history entry per version through a batch endpoint, in one transaction
+that bumps `revision`. The render queue re-renders the previews.
+
+- Undo per version through the history.
+- A shared default when applying a style to a mixed selection: append or replace.
+- Progress for large selections.
+
+### 8.2 Folder, recursive and SD card import, skipping known files (M)
+
+- **Browser first:** `<input webkitdirectory>` and drag and drop of folders are already
+  recursive. Filter to supported RAW extensions.
+- **Skip what's already uploaded before sending it:** the server only dedups by
+  `sha256` after the upload (`photos/routes.ts`), which wastes bandwidth on 25–120 MB
+  files. Add a "which of these hashes do I have?" endpoint, hashing on the client in a
+  worker. A quick prefilter (name + size + capture date) avoids hashing a whole card
+  each time.
+- **SD cards:** a card is just a folder in the browser. Remember imported card volumes
+  (DCIM path + file list) so a re-inserted card only shows new photos.
+- **Local client** (only if needed): auto-import on card insertion or watched folders
+  need a small desktop helper (Tauri, or a CLI). It shares the code with 7.8 (local
+  originals).
+- Resumable uploads, a queue that survives a reload, and a summary at the end
+  (imported / skipped / failed).
+
+### 8.3 Fullscreen preview for culling (M)
+
+A fullscreen loupe from the grid (Fullscreen API):
+
+- arrow keys to move;
+- shortcuts for rating, flag/reject and colour label, then auto-advance;
+- zoom to 100 % on a key;
+- a minimal overlay (filename, EXIF, rating).
+
+Preload the neighbours' previews. Previews may need a larger size than the grid uses
+(check the stored preview size, or decode the embedded JPEG from the RAW). This fits
+with M5's compare (two-up culling of a burst).
+
+### 8.4 Batch export (L)
+
+Export a selection as JPEG (later TIFF/AVIF) with a size, quality, naming pattern and
+output colour space, as a ZIP or per file.
+
+- **Where:** server-side jobs. Better after M6 step 1 (native multithreaded renderer);
+  until then, a client-side export with progress is possible for small selections.
+- **Jobs:** a `jobs` table (kind, owner, status, progress, result key, expiry). Results
+  go to storage (7.1) with a short-lived link and are deleted after N days.
+- **Notifications:** an in-app notification centre (polling or SSE) first. Email when
+  the job finishes needs transactional email, which the server doesn't send yet. It's
+  also useful for account flows and 7.5's quota warnings.
+
+---
+
+## M9 — Branding (M, before 1.0)
+
+- **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
+  image.
+- **Typography:** a more distinctive display face for headings and the wordmark. Keep a
+  very legible UI face for numbers and sliders (tabular figures), set as Chakra tokens.
+- **Spinner:** a branded loading indicator instead of the default one. Reuse it for
+  long loads (RAW decode, first render) with a progress hint.
+- **`/develop` page:** the public developer is the front door. Give it a proper landing
+  state (drop zone, short pitch, sample RAWs to try, link to sign up) and polish its
+  empty and loading states.
+- Check light and dark themes (`_light` before `_dark` in semantic tokens).
+
+---
+
 ## Performance
 
 > **Done** (2026-11-03): colour/tone drags render at full preview size on a pool of
@@ -912,6 +1145,18 @@ Ideas, roughly by value for effort:
   once cloud processing exists). The lensfun database is CC-BY-SA 3.0 and needs
   attribution.
 
+## 1.0 release scope
+
+Required before 1.0, on top of what's done:
+
+- **Modules:** 3.5 raw denoise (AI), 3.6 lensfun, 3.7 diffuse and sharpen, 3.8 perspective /
+  vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame.
+- **Library:** 8.1 presets on a selection, 8.2 folder/SD import skipping known files,
+  8.3 fullscreen culling, 8.4 batch export (with notifications).
+- **Branding:** M9.
+- Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
+  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules.
+
 ## Suggested order
 
 1. M1.1 + M1.2: foundations, one PR each.
@@ -923,9 +1168,14 @@ Ideas, roughly by value for effort:
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
-6. M5 compare.
-7. M6 cloud processing. Move it earlier if slow-hardware users are a near-term priority;
-   step 1 (the native renderer) is useful on its own.
-8. M7 hosted service, before opening sign-ups: 7.1 → 7.3 → 7.4 → 7.5 (and 7.6 with it),
+6. 1.0 work, quick wins first: 8.1 presets on a selection, 4.6 tone curve, 4.9 frame,
+   8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 3.8 perspective, 3.6 lensfun,
+   3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
+   step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,
+   bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
+7. M5 compare.
+8. M6 cloud processing. Move it earlier if slow-hardware users are a near-term priority;
+   step 1 (the native renderer) is useful on its own (and helps 8.4 and 3.5).
+9. M7 hosted service, before opening sign-ups: 7.1 → 7.3 → 7.4 → 7.5 (and 7.6 with it),
    then 7.9. 7.2 and 7.7 once storage and database costs are worth the complexity; 7.8
    can start any time (it doesn't need 7.1); 7.10 only at a few hundred TB.
