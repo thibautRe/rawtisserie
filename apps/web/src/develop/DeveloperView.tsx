@@ -24,7 +24,7 @@ import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
 import type { IlluminantDetection } from './protocol.ts';
-import { DEFAULT_RETOUCH_UI, type RetouchUi } from './retouch.ts';
+import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
 import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
@@ -257,16 +257,21 @@ export function DeveloperView({
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
   const [detecting, setDetecting] = useState<string | null>(null);
-  const [retouchState, setRetouchUi] = useState<RetouchUi>(DEFAULT_RETOUCH_UI);
+  const [shapeState, setShapeUi] = useState<ShapeUi>(DEFAULT_SHAPE_UI);
 
   // The retouch instance being edited, or the first one if it was removed (undo, delete).
-  const retouchInstance = params.modules.some((m) => m.id === retouchState.instance)
-    ? retouchState.instance
-    : (findModule(params, 'retouch')?.id ?? DEFAULT_RETOUCH_UI.instance);
-  const retouchUi = useMemo(
-    () => (retouchInstance === retouchState.instance ? retouchState : { ...retouchState, instance: retouchInstance }),
-    [retouchState, retouchInstance],
+  // A mask's instance may not exist yet (its kind has none): its first shape adds it.
+  const editedInstance =
+    shapeState.target === 'mask' || params.modules.some((m) => m.id === shapeState.instance)
+      ? shapeState.instance
+      : (findModule(params, 'retouch')?.id ?? DEFAULT_SHAPE_UI.instance);
+  const shapeUi = useMemo(
+    () => (editedInstance === shapeState.instance ? shapeState : { ...shapeState, instance: editedInstance }),
+    [shapeState, editedInstance],
   );
+  // The mask shown over the image, while its instance has one.
+  const shown = shapeUi.maskOverlay;
+  const maskOverlay = shown && params.modules.some((m) => m.id === shown.id && m.mask) ? shown : null;
 
   // ── Rendering ──
   const [viewport, size] = useElementSize<HTMLDivElement>();
@@ -320,9 +325,11 @@ export function DeveloperView({
       display: clipping.display ? { mode: clipping.mode } : null,
       sensor: clipping.sensor,
       stripes: clipping.zebra ? STRIPE_PX * dpr * scale : 0,
+      mask: comparing || cropDraft ? null : (maskOverlay?.id ?? null),
+      maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
     };
     return { params: fitEffective, width, height, scale, overlays, scope: scopeRequest };
-  }, [fitEffective, size.width, size.height, dpr, draft, margin, frameWidth, clipping, scopeRequest]);
+  }, [fitEffective, size.width, size.height, dpr, draft, margin, frameWidth, clipping, scopeRequest, maskOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
 
   // The image is seen through a window: the viewport, or the inside of the ISO 12646
@@ -351,9 +358,11 @@ export function DeveloperView({
       display: clipping.display ? { mode: clipping.mode } : null,
       sensor: clipping.sensor,
       stripes: clipping.zebra ? Math.max(1, (STRIPE_PX * dpr * scale) / enlarged) : 0,
+      mask: comparing || cropDraft ? null : (maskOverlay?.id ?? null),
+      maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
     };
     return { params: effective, width, height, region, scale, overlays };
-  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame: regionFrame, pending: regionPending } = useRenderLoop(backend, regionJob);
   // A region left from an earlier zoom may show an older recipe: zooming in again waits
   // for a new one.
@@ -561,10 +570,10 @@ export function DeveloperView({
   const onDetectIlluminant = useStableCallback(
     (id: string, method: IlluminantDetection) => void detectIlluminant(id, method),
   );
-  const onRetouchUi = useStableCallback((patch: Partial<RetouchUi>) => setRetouchUi((u) => ({ ...u, ...patch })));
+  const onShapeUi = useStableCallback((patch: Partial<ShapeUi>) => setShapeUi((u) => ({ ...u, ...patch })));
   const onShapeCommit = useStableCallback((p: EditParams, label: string) => commit(p, label));
-  // Spots are drawn over the image, unless it shows something else (crop, before).
-  const showSpots = retouchUi.editing && !cropDraft && !comparing;
+  // Shapes are drawn over the image, unless it shows something else (crop, before).
+  const showShapes = shapeUi.editing && !cropDraft && !comparing;
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -707,15 +716,15 @@ export function DeveloperView({
                     : { display: 'none' }
                 }
               />
-              {showSpots && frame && layout && (
+              {showShapes && frame && layout && (
                 <ShapeOverlay
                   params={params}
                   mapping={frame.mapping}
                   width={fitWidth}
                   height={fitHeight}
                   zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
-                  ui={retouchUi}
-                  onUi={onRetouchUi}
+                  ui={shapeUi}
+                  onUi={onShapeUi}
                   onChange={onLiveChange}
                   onCommit={onShapeCommit}
                 />
@@ -737,7 +746,7 @@ export function DeveloperView({
               {error}
             </Text>
           )}
-          {showSpots && retouchUi.tool !== 'select' && (
+          {showShapes && shapeUi.tool !== 'select' && (
             <Text
               position="absolute"
               bottom="4"
@@ -750,11 +759,13 @@ export function DeveloperView({
               color="fg.muted"
               pointerEvents="none"
             >
-              {retouchUi.tool === 'path'
+              {shapeUi.tool === 'path'
                 ? 'Click to add nodes, drag for curves · Enter or the first node to close'
-                : retouchUi.tool === 'brush'
+                : shapeUi.tool === 'brush'
                   ? 'Paint a stroke'
-                  : 'Click or drag to add a spot'}
+                  : shapeUi.tool === 'gradient'
+                    ? 'Drag from where it applies fully to where it stops'
+                    : `Click or drag to add a ${shapeUi.target === 'mask' ? 'shape' : 'spot'}`}
               {' · Middle-drag to pan · Esc to stop'}
             </Text>
           )}
@@ -808,8 +819,8 @@ export function DeveloperView({
           autoTuning={autoTuning}
           onDetectIlluminant={onDetectIlluminant}
           detecting={detecting}
-          retouchUi={retouchUi}
-          onRetouchUi={onRetouchUi}
+          shapeUi={shapeUi}
+          onShapeUi={onShapeUi}
         />
       </Box>
       {creatingStyle && presets.save && (

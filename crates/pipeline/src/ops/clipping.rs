@@ -5,13 +5,16 @@
 //!   the display range, measured on the 8-bit result (so exactly what is shown).
 //! * **Sensor clipping** flags pixels built from saturated photosites; the mask comes
 //!   from the base stage and is resampled through the geometry stage.
+//!
+//! The mask overlay (yellow, like Ansel's) shows where a masked instance applies; it is
+//! painted under the clipping indicators.
 
 use serde::Deserialize;
 
 use crate::image::{Mask, Region, Rgba8};
 
 /// What to paint over a render. The default paints nothing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Overlays {
     pub display: Option<DisplayClipping>,
@@ -19,6 +22,33 @@ pub struct Overlays {
     /// Diagonal stripes of this width (output pixels, may be fractional so that a
     /// reduced draft matches the full render) instead of solid colour; 0 = solid.
     pub stripes: f32,
+    /// Show the mask of this module instance (by id), or what `mask_view` says of it.
+    pub mask: Option<String>,
+    pub mask_view: MaskView,
+}
+
+/// What the mask overlay shows of an instance's mask, on the instance's input.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MaskView {
+    /// The whole mask, or one of its ranges alone.
+    pub part: MaskPart,
+    /// Instead of where it applies (in yellow), the values that part measures, in the
+    /// colours of its slider's track: the image's structure along that axis.
+    pub values: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MaskPart {
+    #[default]
+    Mask,
+    Luminance,
+    Saturation,
+    Hue,
+    Red,
+    Green,
+    Blue,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
@@ -51,6 +81,9 @@ pub enum ClipMode {
 }
 
 const OVER: [u8; 3] = [255, 0, 0];
+const MASK: [f32; 3] = [255.0, 214.0, 0.0];
+/// How much of the mask colour covers a pixel the mask fully selects.
+const MASK_OPACITY: f32 = 0.7;
 const UNDER: [u8; 3] = [0, 64, 255];
 const SENSOR: [u8; 3] = [255, 0, 255];
 
@@ -69,6 +102,27 @@ fn on_stripe(x: usize, y: usize, height: usize, stripes: f32, rising: bool) -> b
 
 fn srgb_eotf(v: f32) -> f32 {
     if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+}
+
+/// Tint `img` yellow by `values` (a mask over its pixels, 0 … 1).
+pub fn paint_mask(img: &mut Rgba8, values: &[f32]) {
+    debug_assert_eq!(values.len(), img.width * img.height);
+    for (px, &m) in img.data.chunks_exact_mut(4).zip(values) {
+        let a = m.clamp(0.0, 1.0) * MASK_OPACITY;
+        if a > 0.0 {
+            for c in 0..3 {
+                px[c] = (px[c] as f32 + (MASK[c] - px[c] as f32) * a + 0.5) as u8;
+            }
+        }
+    }
+}
+
+/// Replace `img`'s pixels with `colors` (8-bit sRGB, one per pixel).
+pub fn paint_colors(img: &mut Rgba8, colors: &[[u8; 3]]) {
+    debug_assert_eq!(colors.len(), img.width * img.height);
+    for (px, c) in img.data.chunks_exact_mut(4).zip(colors) {
+        px[..3].copy_from_slice(c);
+    }
 }
 
 pub fn paint(img: &mut Rgba8, overlays: &Overlays, sensor: Option<&Mask>) {

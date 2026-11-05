@@ -10,11 +10,22 @@ See README.md for the architecture overview and commands.
   and the sensor mapping (`geometry::SensorMapping` ↔ `toSensor`/`fromSensor`).
 - Shapes live in the recipe's top-level `shapes` (absent when empty), in normalised sensor
   coordinates; lengths are fractions of the sensor's shorter side. `normalize` drops
-  spots without their shape and shapes nothing uses, in both languages. Anything new that
-  refers to shapes (masks) must be counted in Rust's `shape_refs` and TS's
-  `paramShapeRefs`/`mapShapeRefs`, or its shapes get dropped. Presets and styles carry
-  the shapes they use and rename them on apply through those two TS functions, so they
-  follow (an instance-level `mask` will need adding to them and to the preset payload).
+  spots and drawn mask parts without their shape, and shapes nothing uses, in both
+  languages. Anything new that refers to shapes must be counted in Rust's `shape_refs`
+  and TS's `paramShapeRefs`/`mapShapeRefs` (module parameters) or
+  `maskShapeRefs`/`mapMaskShapeRefs` (an instance's mask), or its shapes get dropped.
+  Presets and styles carry the shapes they use and rename them on apply through those.
+- Masks (`ops/mask.rs`, `params::Mask` ↔ `Mask` in TS, mirrored like the params): an
+  instance's optional `mask`, absent from the JSON when there's none, kept only on
+  `ModuleKind::maskable` kinds (`MASKABLE_KINDS`). The drawn part is spatial: it's cached
+  per slot (`MasksKey`, by the resolved shapes and feather). A mask with ranges and a
+  feather (`Mask::feathers_whole`) is computed whole with the spatial stages, on the
+  module's input (`PointMasksKey`: the point modules before it). Both keys must stay in
+  `is_spatial_cached`, or the pool renders stale planes. The planes travel with the
+  spatial image (`Developer::spatial`, wasm `spatialMaskIds`/`spatialMaskRows`). Other
+  ranges, invert and opacity are per pixel (`MaskStage`, in the point pass). A masked
+  step leaves the fixed chain for `Chain::Steps`; keep both fast (`examples/bench.rs`
+  has mask cases).
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter

@@ -1,8 +1,9 @@
 /**
  * Splits the point operations of a render across a pool of workers (`point.worker.ts`),
  * from inside the pipeline worker. Each worker holds a horizontal strip of the
- * developer's cached spatial image (re-sent only when that image changes), so a colour
- * edit costs one message with the recipe per worker, and the strips render in parallel.
+ * developer's cached spatial image and of its masks' drawn planes (re-sent only when
+ * those change: they share the spatial image's id), so a colour edit costs one message
+ * with the recipe per worker, and the strips render in parallel.
  *
  * No shared memory: every worker runs its own instance of the wasm module, which needs
  * neither cross-origin isolation nor a threaded build.
@@ -91,9 +92,11 @@ export class PointPool {
     this.strips = [];
     for (let y0 = 0; y0 < height; y0 += rows) this.strips.push([y0, Math.min(height, y0 + rows)]);
     const asShot = Array.from(dev.asShotIlluminant());
+    const maskIds = dev.spatialMaskIds(params, maxWidth, maxHeight, region);
     this.strips.forEach(([y0, y1], i) => {
       const pixels = dev.spatialRows(params, maxWidth, maxHeight, y0, y1, region).buffer as ArrayBuffer;
-      this.post(i, { type: 'strip', width, height: y1 - y0, pixels, asShot }, [pixels]);
+      const masks = dev.spatialMaskRows(params, maxWidth, maxHeight, y0, y1, region).buffer as ArrayBuffer;
+      this.post(i, { type: 'strip', width, height: y1 - y0, pixels, asShot, maskIds, masks }, [pixels, masks]);
     });
     this.spatialId = id;
   }

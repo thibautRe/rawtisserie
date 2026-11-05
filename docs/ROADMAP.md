@@ -7,7 +7,7 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
 3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
-together; full-size colour drags on a worker pool (see Performance).
+together; 4.5 (masks); full-size colour drags on a worker pool (see Performance).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -575,6 +575,41 @@ For dust spots, sensor and lens marks, hot spots and skin blemishes. It follows 
   frame).
 
 ### 4.5 Masks (XL, after 4.1 and 4.3)
+
+> **Done** (`ops/mask.rs`, `params::Mask` ↔ `Mask` in `params.ts`, `develop/MaskEditor.tsx`).
+> As built: an instance's `mask` is left out of the JSON when absent (no version bump),
+> and only the spatial and point kinds before filmic keep one (`ModuleKind::maskable`).
+> The format is flat: `{ enabled, drawn: [{ shape, op }], luminance, saturation, hue, red, green, blue,
+feather, edgeAware, invert, opacity }`; there's no `combine`, drawn and parametric
+> always multiply, and the first shape's op is ignored. A mask switched off applies
+> everywhere. Saturation and hue are measured in CIE 1976 u′v′ (exposure-invariant, no
+> `pow`): saturation is CIELUV's s_uv (skin ≈ 0.6, sky ≈ 1), hue its angle around white
+> (red ≈ 12°, green ≈ 128°, blue ≈ 266°), and hues fade out for greys. Red, green and blue are the working space's channels, in EV from middle grey like luminance. Ranges are
+> smoothstep trapezoids; hue ranges wrap. The feather (guided filter on log luminance,
+> or a Gaussian) applies to the whole mask. Without ranges, only the drawn part needs
+> it, guided by the geometry stage, and ranges (none), invert and opacity stay in the
+> fused pass and the pool. With ranges and a feather (`Mask::feathers_whole`), the whole
+> mask is computed with the spatial stages on the module's input (for a point module,
+> the spatial image through the point modules before it), guided by it and cached by
+> those modules: its ranges, and edits before it, then re-render like spatial edits
+> (~200 ms at 2400 px native, the draft while dragging); invert and opacity stay per
+> pixel. Drawn parts are rasterised in the sensor frame at the render's scale (whole
+> and region renders get the same pixels), over the shapes' bounds, then resampled
+> through the geometry (exact positions on a 16 px grid, interpolated) and cached per
+> slot, keyed by their resolved shapes; a plane whose shapes didn't change is reused.
+> The pool gets the planes' strips with the image's. Masked spatial steps blend after
+> their stage, measured on their input. Costs at 2400×1600 (native): a masked point
+> slider +4 % over unmasked; moving a mask's shape ~50 ms; a 40 px edge-aware feather on
+> a full-frame gradient ~150 ms once. The yellow overlay (`Overlays::mask`) shows the
+> mask as the instance applies it, or one of its ranges alone, or the values a range
+> measures on the instance's input (luminance, saturation, hue, a channel) in the colours of its
+> slider's track (`Overlays::mask_view`). The editor: a mask button in each maskable module's
+> header (solid while a mask is on), a switch for the mask, the shape tools (now with a
+> gradient tool, for retouch too), an op per shape, range sliders with four handles (held past an end of the track, it widens under the pointer), feather/edge-aware, opacity and
+> invert. Module presets can include the mask ("Include the mask", off by default);
+> styles carry masks and their shapes. Golden recipe `masks.json`. Not done yet:
+> picking a range from the image (eyedropper), raster masks (painted bitmaps, AI
+> segmentation), and mask presets on their own.
 
 A module's mask combines drawn shapes (4.3) with parametric ranges:
 

@@ -66,6 +66,23 @@ Unless stated otherwise, numbers come from 2026-11-03, on an Intel i9-10885H lap
 - **Full-resolution demosaic reads each photosite once** (it used to normalise every
   neighbour again, ~20 times per pixel): patches and full-size exports are 2–3× faster,
   bit-identical.
+- **Masks** (roadmap 4.5). Native, 2400×1600, Sony ARW, with lens correction: a masked
+  point slider drags at +4 % over unmasked (~470 vs ~455 ms here); moving a mask's
+  shape costs ~50 ms over a point render; adding a 40 px edge-aware gradient ~250 ms
+  once. What got it there: the detail stage isn't redone when only masks change (its
+  key holds the masked steps' drawn parts); unchanged planes are reused; the guided
+  filter's box means run along rows in f32 with f64 running sums (the column pass was
+  cache-hostile, ~500 → ~150 ms); plane resampling maps positions exactly on a 16 px grid
+  aligned to the frame and interpolates (lens mapping per pixel was ~110 ms for a
+  full-frame gradient), skipping blocks that can't reach the shapes; a masked step runs
+  as mask values, then the step on a copy, then the blend (three independent loops);
+  the generic chain matches each step's type once per chunk rather than per pixel
+  (which also speeds up recipes with repeated kinds); and hue uses a 4096-entry table
+  over the "diamond angle" instead of `atan2`. A hue range is still the dearest part
+  (~+20 % of a point pass). A feathered mask with ranges is computed with the spatial
+  stages (its input through the point modules before it, then the guided filter): its
+  range sliders, and point sliders before it, cost ~+200 ms at 2400 px and fall back to
+  the draft while dragging.
 - **Incremental primaries table**: see above. It's bit-identical to a full build
   (`updates_match_full_builds`).
 

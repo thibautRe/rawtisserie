@@ -1,0 +1,42 @@
+{
+  "size": 600,
+  "recipe": {
+    "version": 6,
+    "modules": [
+      { "kind": "geometry", "params": { "angle": 3, "rotation": 1,
+          "crop": { "x": 0.05, "y": 0.1, "width": 0.85, "height": 0.8 } } },
+      { "kind": "sharpen", "params": { "amount": 3, "radius": 2 },
+        "mask": { "drawn": [{ "shape": "stroke" }], "feather": 12, "edgeAware": false } },
+      { "kind": "blur", "params": { "radius": 12 },
+        "mask": { "drawn": [{ "shape": "spot" }], "invert": true, "luminance": [-3, -1, 8, 10], "feather": 40 } },
+      { "kind": "exposure", "params": { "ev": 0.7 } },
+      { "id": "sky", "kind": "exposure", "label": "sky", "params": { "ev": -1.2 },
+        "mask": { "drawn": [{ "shape": "sky" }], "luminance": [-1, 0.5, 8, 10], "feather": 30 } },
+      { "id": "subject", "kind": "exposure", "label": "subject", "params": { "ev": 0.8 },
+        "mask": {
+          "drawn": [{ "shape": "spot" }, { "shape": "hole", "op": "difference" }, { "shape": "bar", "op": "exclusion" }],
+          "feather": 20, "edgeAware": false, "opacity": 0.8
+        } },
+      { "kind": "colorCalibration" },
+      { "kind": "color", "params": { "saturation": 0.8 },
+        "mask": { "drawn": [{ "shape": "sky" }, { "shape": "spot", "op": "intersection" }], "feather": 10 } },
+      { "kind": "color", "params": { "saturation": -1 },
+        "mask": { "saturation": [0, 0, 0.3, 0.6], "invert": true } },
+      { "kind": "colorPrimaries", "params": { "red": { "hue": 30, "saturation": 40 } },
+        "mask": { "hue": [330, 350, 30, 50] } },
+      { "kind": "filmic" }
+    ],
+    "shapes": {
+      "sky": { "type": "gradient", "anchor": [0.5, 0.35], "angle": -1.5708, "feather": 0.25 },
+      "spot": { "type": "ellipse", "center": [0.5, 0.55], "radii": [0.3, 0.2], "rotation": 0.3, "feather": 0.05 },
+      "hole": { "type": "ellipse", "center": [0.55, 0.55], "radii": [0.06, 0.06] },
+      "bar": { "type": "path", "feather": 0.01, "points": [
+        [0.2, 0.5, 0.2, 0.5, 0.2, 0.5],
+        [0.8, 0.5, 0.8, 0.5, 0.8, 0.5],
+        [0.8, 0.58, 0.8, 0.58, 0.8, 0.58],
+        [0.2, 0.58, 0.2, 0.58, 0.2, 0.58]
+      ] },
+      "stroke": { "type": "brush", "points": [[0.2, 0.3, 0.05, 0.4], [0.4, 0.4, 0.06, 0.6], [0.7, 0.35, 0.04, 0.8]] }
+    }
+  }
+}

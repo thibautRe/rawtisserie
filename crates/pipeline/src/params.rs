@@ -37,8 +37,8 @@ pub struct EditParams {
     pub version: u32,
     /// In pipeline order (see [`EditParams::normalize`]).
     pub modules: Vec<ModuleInstance>,
-    /// Drawn shapes by id, referenced by retouch spots (and later masks). Only the
-    /// referenced ones are kept; left out of the JSON when there are none.
+    /// Drawn shapes by id, referenced by retouch spots and masks. Only the referenced
+    /// ones are kept; left out of the JSON when there are none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub shapes: BTreeMap<String, Shape>,
 }
@@ -53,6 +53,10 @@ pub struct ModuleInstance {
     /// Serialised as `"kind"` and `"params"`.
     #[serde(flatten)]
     pub module: Module,
+    /// Where the instance applies (roadmap 4.5); everywhere without one. Only kinds that
+    /// [`ModuleKind::maskable`] keep theirs. Left out of the JSON when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<Mask>,
 }
 
 /// Implemented by the parameters of each module kind.
@@ -165,6 +169,22 @@ impl ModuleKind {
         matches!(self, ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
     }
 
+    /// Kinds whose instances can have a [`Mask`]: the spatial and point modules before
+    /// filmic. Must match `MASKABLE_KINDS` in TS.
+    pub fn maskable(self) -> bool {
+        matches!(
+            self,
+            ModuleKind::Blur
+                | ModuleKind::Sharpen
+                | ModuleKind::ContrastEqualizer
+                | ModuleKind::Exposure
+                | ModuleKind::ColorCalibration
+                | ModuleKind::Color
+                | ModuleKind::ShadowsHighlights
+                | ModuleKind::ColorPrimaries
+        )
+    }
+
     /// The camelCase name used in JSON, also the id of the first instance.
     pub fn name(self) -> String {
         match serde_json::to_value(self) {
@@ -237,7 +257,7 @@ impl EditParams {
         let kind = module.kind();
         let id = self.fresh_id(kind, |_| false);
         let i = self.modules.partition_point(|m| m.module.kind() <= kind);
-        self.modules.insert(i, ModuleInstance { id, label: None, enabled: true, module });
+        self.modules.insert(i, ModuleInstance { id, label: None, enabled: true, module, mask: None });
         i
     }
 
@@ -252,8 +272,9 @@ impl EditParams {
     }
 
     /// Make a recipe valid: unique non-empty ids, one instance of single-instance
-    /// kinds (the first), pipeline order, no spots without their shape and no shapes
-    /// that nothing uses. Must match `normalizeEditParams` in TS.
+    /// kinds (the first), pipeline order, masks only on maskable kinds, no spots or
+    /// drawn mask parts without their shape, and no shapes that nothing uses. Must match
+    /// `normalizeEditParams` in TS.
     pub fn normalize(&mut self) {
         self.version = CURRENT_VERSION;
         let mut seen = std::collections::HashSet::new();
@@ -275,16 +296,27 @@ impl EditParams {
             if let Module::Retouch(r) = &mut m.module {
                 r.spots.retain(|s| shapes.contains_key(&s.shape));
             }
+            if !m.module.kind().maskable() {
+                m.mask = None;
+            }
+            if let Some(mask) = &mut m.mask {
+                mask.drawn.retain(|d| shapes.contains_key(&d.shape));
+            }
         }
         let used: std::collections::HashSet<String> = self.shape_refs().map(str::to_owned).collect();
         self.shapes.retain(|id, _| used.contains(id));
     }
 
-    /// The ids of the shapes the modules refer to (enabled or not), in order, with repeats.
+    /// The ids of the shapes the modules refer to (enabled or not), in order, with
+    /// repeats: retouch spots, then the instance's mask.
     pub fn shape_refs(&self) -> impl Iterator<Item = &str> {
-        self.modules.iter().flat_map(|m| match &m.module {
-            Module::Retouch(r) => r.spots.iter().map(|s| s.shape.as_str()).collect::<Vec<_>>(),
-            _ => Vec::new(),
+        self.modules.iter().flat_map(|m| {
+            let spots = match &m.module {
+                Module::Retouch(r) => r.spots.iter().map(|s| s.shape.as_str()).collect::<Vec<_>>(),
+                _ => Vec::new(),
+            };
+            let mask = m.mask.iter().flat_map(|mask| mask.drawn.iter().map(|d| d.shape.as_str()));
+            spots.into_iter().chain(mask).collect::<Vec<_>>()
         })
     }
 }
@@ -302,6 +334,8 @@ struct RawInstance {
     kind: ModuleKind,
     #[serde(default)]
     params: Value,
+    #[serde(default)]
+    mask: Option<Mask>,
 }
 
 fn yes() -> bool {
@@ -322,7 +356,7 @@ impl TryFrom<Value> for EditParams {
             };
             let modules = raw
                 .into_iter()
-                .map(|m| Ok(ModuleInstance { id: m.id, label: m.label, enabled: m.enabled, module: Module::from_json(m.kind, m.params)? }))
+                .map(|m| Ok(ModuleInstance { id: m.id, label: m.label, enabled: m.enabled, module: Module::from_json(m.kind, m.params)?, mask: m.mask }))
                 .collect::<serde_json::Result<_>>()?;
             let shapes = match json.get("shapes") {
                 Some(Value::Null) | None => BTreeMap::new(),
@@ -335,7 +369,7 @@ impl TryFrom<Value> for EditParams {
         if version < 6 {
             // The base image used to be balanced as shot; now colour calibration does it.
             let calibration = ColorCalibration::from_white_balance(&white_balance);
-            params.modules.push(ModuleInstance { id: String::new(), label: None, enabled: true, module: calibration.into() });
+            params.modules.push(ModuleInstance { id: String::new(), label: None, enabled: true, module: calibration.into(), mask: None });
         }
         params.normalize();
         Ok(params)
@@ -393,6 +427,112 @@ fn migrate_filmic(json: &mut Value) {
     } else if let Some(filmic) = json.get_mut("filmic") {
         fix(filmic);
     }
+}
+
+/// Where a module instance applies (roadmap 4.5), 0 … 1 per pixel: its output is
+/// blended with its input by this amount. See [`crate::ops::mask`] for how it's evaluated.
+///
+/// The mask is the drawn part (shapes) times the parametric part (ranges measured on
+/// the module's input), feathered, then inverted if asked, times `opacity`. Without
+/// drawn shapes the drawn part is 1 everywhere; a range left out selects everything.
+/// Switched off, the instance applies everywhere.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Mask {
+    pub enabled: bool,
+    /// Shapes of the recipe, combined in order: the first one as it is, each next one
+    /// with its `op`.
+    pub drawn: Vec<DrawnShape>,
+    /// Feathered range `[a, b, c, d]` of luminance, in EV relative to middle grey: 0
+    /// below `a`, rising to 1 at `b`, 1 up to `c`, falling to 0 at `d`.
+    pub luminance: Option<[f32; 4]>,
+    /// The same on saturation: distance from white in CIE 1976 u′v′ (×13, as CIELUV's
+    /// s_uv); about 0.2 for skin, 1 for a saturated sky, 0 for greys.
+    pub saturation: Option<[f32; 4]>,
+    /// The same on hue, in degrees around white in u′v′ (red ≈ 10, yellow ≈ 80, green ≈
+    /// 130, blue ≈ 265); wraps around, so `[340, 350, 10, 20]` is a range. Greys have
+    /// no hue: they fade out below a saturation of 0.05.
+    pub hue: Option<[f32; 4]>,
+    /// The same on each channel of the working space (linear Rec.2020), in EV relative
+    /// to middle grey, like `luminance`.
+    pub red: Option<[f32; 4]>,
+    pub green: Option<[f32; 4]>,
+    pub blue: Option<[f32; 4]>,
+    /// Softens the mask's edges, in full-resolution pixels (0 = none).
+    pub feather: f32,
+    /// Feathering follows the image's edges (a guided filter), rather than a blur.
+    pub edge_aware: bool,
+    pub invert: bool,
+    /// 0 … 1.
+    pub opacity: f32,
+}
+
+impl Default for Mask {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            drawn: Vec::new(),
+            luminance: None,
+            saturation: None,
+            hue: None,
+            red: None,
+            green: None,
+            blue: None,
+            feather: 0.0,
+            edge_aware: true,
+            invert: false,
+            opacity: 1.0,
+        }
+    }
+}
+
+impl Mask {
+    /// Whether the mask selects everything fully (the instance applies as if unmasked).
+    pub fn is_identity(&self) -> bool {
+        !self.enabled
+            || (self.drawn.is_empty() && !self.has_ranges() && !self.invert && self.opacity >= 1.0)
+    }
+
+    pub fn has_ranges(&self) -> bool {
+        self.luminance.is_some() || self.saturation.is_some() || self.hue.is_some() || self.channels().iter().any(Option::is_some)
+    }
+
+    /// The red, green and blue ranges.
+    pub fn channels(&self) -> [Option<[f32; 4]>; 3] {
+        [self.red, self.green, self.blue]
+    }
+
+    /// Whether the feather applies to the parametric part too, so that the whole mask is
+    /// computed with the spatial stages (see `crate::ops::mask`).
+    pub fn feathers_whole(&self) -> bool {
+        self.feather > 0.0 && self.has_ranges()
+    }
+}
+
+/// A shape of a mask's drawn part.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DrawnShape {
+    /// Id of the shape in `EditParams::shapes`.
+    pub shape: String,
+    /// How it combines with the shapes before it (ignored for the first one).
+    pub op: ShapeOp,
+}
+
+/// How a drawn shape combines with what the shapes before it give (`a`, with the
+/// shape's alpha `b`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShapeOp {
+    /// `max(a, b)`.
+    #[default]
+    Union,
+    /// `a · b`.
+    Intersection,
+    /// `a · (1 − b)`.
+    Difference,
+    /// `a + b − 2ab`: one or the other, not both.
+    Exclusion,
 }
 
 /// Spot removal (roadmap 4.4), after Ansel's `retouch.c` (see [`crate::ops::retouch`]):
@@ -1082,6 +1222,35 @@ mod tests {
         assert_eq!((f.toe, f.shoulder), (10.0, 37.5));
         let f = filmic(r#"{"version":5,"modules":[{"kind":"filmic","params":{"toe":90}}]}"#);
         assert_eq!((f.toe, f.shoulder), (90.0, 10.0));
+    }
+
+    #[test]
+    fn masks_round_trip_and_normalize() {
+        let p = EditParams::from_json(
+            r#"{"version":6,"modules":[
+                {"kind":"exposure","mask":{"drawn":[{"shape":"a"},{"shape":"gone","op":"difference"},{"shape":"b","op":"intersection"}],"luminance":[-2,-1,1,2],"feather":8}},
+                {"kind":"exposure","mask":null},
+                {"kind":"filmic","mask":{"drawn":[{"shape":"c"}]}}],
+              "shapes":{
+                "a":{"type":"ellipse","center":[0.5,0.5],"radii":[0.1,0.1]},
+                "b":{"type":"gradient","anchor":[0.5,0.5]},
+                "c":{"type":"ellipse","center":[0.1,0.1],"radii":[0.1,0.1]}}}"#,
+        )
+        .unwrap();
+        let mask = p.modules[0].mask.as_ref().unwrap();
+        // Parts without their shape go; the rest keeps its defaults.
+        assert_eq!(mask.drawn, [DrawnShape { shape: "a".into(), op: ShapeOp::Union }, DrawnShape { shape: "b".into(), op: ShapeOp::Intersection }]);
+        assert_eq!((mask.luminance, mask.hue, mask.feather, mask.edge_aware, mask.opacity), (Some([-2.0, -1.0, 1.0, 2.0]), None, 8.0, true, 1.0));
+        assert_eq!(p.modules[1].mask, None);
+        // Filmic can't be masked: its mask goes, and so does the shape only it used.
+        assert_eq!(p.modules[2].mask, None);
+        assert_eq!(p.shapes.keys().collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(p.shape_refs().collect::<Vec<_>>(), ["a", "b"]);
+
+        let json = serde_json::to_value(&p).unwrap();
+        assert!(json["modules"][1].get("mask").is_none(), "left out when absent");
+        assert_eq!(json["modules"][0]["mask"]["drawn"][1], serde_json::json!({ "shape": "b", "op": "intersection" }));
+        assert_eq!(EditParams::from_json(&json.to_string()).unwrap(), p);
     }
 
     #[test]

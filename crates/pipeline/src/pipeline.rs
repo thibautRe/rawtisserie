@@ -2,17 +2,18 @@
 
 use crate::decode::{self, RawPhoto};
 use crate::demosaic;
-use crate::image::{Image, Mask, Region, Rgba8};
+use crate::image::{Image, Mask, Region, Rgb, Rgba8};
 use crate::metadata::PhotoMetadata;
 use std::rc::Rc;
 
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::calibration::{self, Detection};
-use crate::ops::clipping::{self, Overlays};
+use crate::ops::clipping::{self, MaskPart, MaskView, Overlays};
+use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
 use crate::ops::{equalizer, filmic, filters, geometry};
-use crate::params::{ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleKind};
+use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleInstance, ModuleKind};
 use crate::Result;
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
@@ -56,9 +57,15 @@ impl RenderSize {
 ///  base        demosaic/bin, reference WB, camera → working       keyed by binning factor
 ///              then retouch spots, in place                       keyed by the spots and their shapes
 ///   └ geometry  lens, orientation, straighten, crop, resample    keyed by the above + lens + geometry + output size (3 sizes kept)
-///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters at this scale
-///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass
+///      ├ masks  drawn parts of the instances' masks, feathered    keyed by the above + the masks' shapes and feather
+///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters (and masks) at this scale
+///         ├ masks of point modules feathered whole                keyed by the above + the point modules before them
+///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass, reading the masks
 /// ```
+///
+/// A mask's drawn part depends only on its shapes and the geometry, so it is cached
+/// with the spatial stages and handed to the point operations as planes next to the
+/// spatial image ([`spatial`](Developer::spatial)); its parametric part is per pixel.
 ///
 /// A render of a region (a zoomed-in view) develops only the photosites under it, in a
 /// "patch" of the base at the region's own binning factor, kept for nearby regions. Its
@@ -111,6 +118,8 @@ pub struct PointOpsCache {
 /// [`Developer`]'s spatial image, rendered in a worker of a pool.
 pub struct PointRenderer {
     image: Image,
+    /// The drawn planes of the masks over the same pixels.
+    masks: Vec<MaskPlane>,
     as_shot: Option<[f32; 2]>,
     cache: PointOpsCache,
 }
@@ -118,12 +127,18 @@ pub struct PointRenderer {
 impl PointRenderer {
     /// `as_shot`: the photo's as-shot light ([`RawPhoto::as_shot_illuminant`]).
     pub fn new(image: Image, as_shot: Option<[f32; 2]>) -> Self {
-        Self { image, as_shot, cache: PointOpsCache::default() }
+        Self::with_masks(image, Vec::new(), as_shot)
+    }
+
+    /// With the drawn planes of the masks over `image` (the same rows of
+    /// [`Developer::spatial`]'s).
+    pub fn with_masks(image: Image, masks: Vec<MaskPlane>, as_shot: Option<[f32; 2]>) -> Self {
+        Self { image, masks, as_shot, cache: PointOpsCache::default() }
     }
 
     /// Same pixels as [`Developer::render`] gives for these rows.
     pub fn render(&mut self, params: &EditParams, quality: Quality) -> Rgba8 {
-        self.cache.render_ops(params, self.as_shot, quality).render(&self.image)
+        self.cache.render_ops(params, self.as_shot, quality).render_masked(&self.image, &self.masks)
     }
 }
 
@@ -176,9 +191,19 @@ struct Plan {
     region: Region,
     /// Whether the region's pixels come from a patch rather than the whole base.
     patch: bool,
-    /// `region` plus what the detail steps read around it.
+    /// `region` plus what the detail steps and mask feathering read around it.
     padded: Region,
     steps: Vec<DetailStep>,
+    /// The drawn masks of the enabled instances, by id.
+    drawn: Vec<(String, Drawn)>,
+}
+
+impl Plan {
+    /// Whether the geometry stage's output goes through more spatial work: detail steps,
+    /// or a crop of the margin around the region.
+    fn has_detail(&self) -> bool {
+        !self.steps.is_empty() || self.padded != self.region
+    }
 }
 
 struct Slot {
@@ -187,7 +212,13 @@ struct Slot {
     /// Changes whenever the image the spatial stages give for this size does.
     id: u64,
     geometry: Option<(GeometryKey, Image)>,
-    detail: Option<(DetailKey, Image)>,
+    /// The drawn masks over `geometry`'s pixels, and the same cropped to `region`
+    /// (what the point operations read, unless `point_masks` has more).
+    masks: Option<(MasksKey, Vec<MaskPlane>, Vec<MaskPlane>)>,
+    detail: Option<Detail>,
+    /// With masks of point modules feathered whole: those and the drawn ones, over
+    /// `region` (what the point operations read).
+    point_masks: Option<(PointMasksKey, Vec<MaskPlane>)>,
     /// `sensor_clip` through the geometry stage.
     sensor_clip: Option<(GeometryKey, Mask)>,
 }
@@ -206,19 +237,61 @@ struct GeometryKey {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+struct MasksKey {
+    geometry: GeometryKey,
+    drawn: Vec<(String, Drawn)>,
+}
+
+/// The detail stage's output.
+struct Detail {
+    key: DetailKey,
+    /// Over the padded region, when it differs from `image`'s.
+    padded: Option<Image>,
+    /// Over the region.
+    image: Image,
+    /// The masks of the masked steps over the region (for the mask overlay).
+    step_masks: Vec<MaskPlane>,
+}
+
+/// What the masks of point modules feathered whole are computed from.
+#[derive(Clone, Debug, PartialEq)]
+struct PointMasksKey {
+    geometry: GeometryKey,
+    steps: Vec<DetailStep>,
+    drawn: Vec<(String, Drawn)>,
+    /// Each one's instance id, the enabled point modules before it, and its mask.
+    masks: Vec<(String, Vec<ModuleInstance>, params::Mask)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 struct DetailKey {
     geometry: GeometryKey,
     /// The active blur and sharpen instances, in pipeline order.
     steps: Vec<DetailStep>,
 }
 
-/// A spatial instance, with its parameters at the output size.
+/// A spatial instance, with its parameters at the output size, and its mask.
+#[derive(Clone, Debug, PartialEq)]
+struct DetailStep {
+    op: DetailOp,
+    mask: Option<Box<StepMask>>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum DetailStep {
+enum DetailOp {
     Blur { sigma: f32 },
     Sharpen { amount: f32, sigma: f32 },
     /// `scale`: output pixels per full-resolution pixel.
     Equalizer { params: ContrastEqualizer, scale: f32 },
+}
+
+/// The mask of a spatial instance (with its drawn part resolved, so that the key
+/// changes with its shapes).
+#[derive(Clone, Debug, PartialEq)]
+struct StepMask {
+    id: String,
+    mask: params::Mask,
+    drawn: Option<Drawn>,
 }
 
 impl PointOpsCache {
@@ -361,10 +434,19 @@ impl Developer {
         let (width, height, scale) = self.output_size(params, size);
         let region = clip_region(size.region, width, height);
         let steps = detail_steps(params, scale);
+        let drawn = mask::drawn_masks(params);
         let patch = size.region.is_some();
-        let padding = if patch { steps.iter().map(|s| s.margin((width, height))).sum::<usize>().next_multiple_of(32).min(MAX_PADDING) } else { 0 };
+        let padding = if patch {
+            let detail = steps.iter().map(|s| s.margin((width, height))).sum::<usize>();
+            let whole = params.modules.iter().filter(|m| m.enabled).filter_map(mask::active).filter(|m| m.feathers_whole());
+            let whole = whole.map(|m| mask::feather_margin(m.feather, m.edge_aware, scale));
+            let feather = drawn.iter().map(|(_, d)| d.margin(scale)).chain(whole).max().unwrap_or(0);
+            (detail + feather).next_multiple_of(32).min(MAX_PADDING)
+        } else {
+            0
+        };
         let padded = region.padded(padding, width, height);
-        Plan { frame: (width, height), scale, region, patch, padded, steps }
+        Plan { frame: (width, height), scale, region, patch, padded, steps, drawn }
     }
 
     /// Binning factor of the base or patch the geometry stage reads for `plan`: whole
@@ -374,7 +456,8 @@ impl Developer {
     }
     pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
         let ops = self.point_ops.render_ops(params, self.photo.as_shot_illuminant, quality);
-        ops.render(self.spatial_image(params, size))
+        let (_, img, masks) = self.spatial(params, size);
+        ops.render_masked(img, masks)
     }
 
     /// [`render`](Self::render), with clipping indicators painted on top.
@@ -384,8 +467,11 @@ impl Developer {
         img
     }
 
-    /// Paint clipping indicators on a render of `params` within `size`.
+    /// Paint clipping indicators (and the mask overlay) on a render of `params` within `size`.
     pub fn paint_overlays(&mut self, params: &EditParams, size: RenderSize, img: &mut Rgba8, overlays: &Overlays) {
+        if let Some(id) = overlays.mask.as_deref() {
+            self.paint_mask_view(params, id, size, overlays.mask_view, img);
+        }
         let (_, frame_height, _) = self.output_size(params, size);
         let region = self.output_region(params, size);
         let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
@@ -435,7 +521,7 @@ impl Developer {
 
     /// The output of the spatial stages (geometry, blur, sharpen), from cache when possible.
     pub fn spatial_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
-        self.spatial_image_id(params, size).1
+        self.spatial(params, size).1
     }
 
     /// Whether [`spatial_image`](Self::spatial_image) would come from cache, i.e. a
@@ -450,12 +536,27 @@ impl Developer {
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             return false;
         }
-        plan.steps.is_empty() || slot.detail.as_ref().is_some_and(|(k, _)| k.geometry == gkey && k.steps == plan.steps)
+        let masks = slot.masks.as_ref().map(|(k, ..)| k);
+        if masks.map_or(!plan.drawn.is_empty(), |k| k.geometry != gkey || k.drawn != plan.drawn) {
+            return false;
+        }
+        if plan.has_detail() && !slot.detail.as_ref().is_some_and(|d| d.key.geometry == gkey && d.key.steps == plan.steps) {
+            return false;
+        }
+        slot.point_masks.as_ref().map(|(k, _)| k) == point_masks_key(params, &plan, gkey).as_ref()
     }
 
     /// [`spatial_image`](Self::spatial_image), with an id that changes whenever the
     /// image does (so copies of it elsewhere can tell when they are stale).
     pub fn spatial_image_id(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image) {
+        let (id, img, _) = self.spatial(params, size);
+        (id, img)
+    }
+
+    /// [`spatial_image_id`](Self::spatial_image_id), with the drawn planes of the
+    /// enabled instances' masks over its pixels (by instance id): what the point
+    /// operations read. The id changes whenever either does.
+    pub fn spatial(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image, &[MaskPlane]) {
         let plan = self.plan(params, size);
         let base_factor = if plan.patch { Self::binning(plan.scale) } else { self.ensure_base(Self::binning(plan.scale)) };
         let (width, height) = plan.frame;
@@ -468,7 +569,7 @@ impl Developer {
             Some(i) => self.slots.remove(i),
             None => {
                 self.last_id += 1;
-                Slot { frame: plan.frame, region: plan.region, id: self.last_id, geometry: None, detail: None, sensor_clip: None }
+                Slot { frame: plan.frame, region: plan.region, id: self.last_id, geometry: None, masks: None, detail: None, point_masks: None, sensor_clip: None }
             }
         };
         self.slots.insert(0, slot);
@@ -478,43 +579,254 @@ impl Developer {
         if self.slots[0].geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             let slot = &mut self.slots[0];
             slot.detail = None;
+            slot.masks = None;
             slot.geometry = None; // free before allocating
             let img = self.geometry_stage(&gkey, plan.patch, &stamps);
             self.slots[0].geometry = Some((gkey, img));
             changed = true;
         }
 
+        // The region within the padded render.
+        let (r, p) = (plan.region, plan.padded);
+        let inner = Region { x: r.x - p.x, y: r.y - p.y, ..r };
+
+        let mkey = MasksKey { geometry: gkey, drawn: plan.drawn.clone() };
+        if self.slots[0].masks.as_ref().map(|(k, ..)| k) != Some(&mkey) {
+            // Planes whose shapes didn't change are kept (one mask is edited at a time).
+            let old = self.slots[0].masks.take().filter(|(k, ..)| k.geometry == gkey);
+            let reuse = |id: &str, drawn: &Drawn| {
+                let (k, planes, _) = old.as_ref()?;
+                let at = k.drawn.iter().position(|(i, d)| i == id && d == drawn)?;
+                Some(planes[at].alpha.clone())
+            };
+            let guide = &self.slots[0].geometry.as_ref().expect("geometry was just built").1;
+            let planes: Vec<MaskPlane> = mkey
+                .drawn
+                .iter()
+                .map(|(id, drawn)| MaskPlane { id: id.clone(), alpha: reuse(id, drawn).unwrap_or_else(|| self.drawn_plane(drawn, &plan, &gkey.transform, guide)) })
+                .collect();
+            let cropped = if inner == Region::full(p.width, p.height) { planes.clone() } else { planes.iter().map(|m| m.crop(p.width, inner)).collect() };
+            // Masked detail steps read them, but their key holds their drawn parts:
+            // the detail stage only runs again if those changed.
+            self.slots[0].masks = Some((mkey, planes, cropped));
+            changed = true;
+        }
+
+        let pkey = point_masks_key(params, &plan, gkey);
         let slot = &mut self.slots[0];
-        if plan.steps.is_empty() {
+        if !plan.has_detail() {
             changed |= slot.detail.take().is_some();
         } else {
-            let dkey = DetailKey { geometry: gkey, steps: plan.steps };
-            if slot.detail.as_ref().map(|(k, _)| k) != Some(&dkey) {
+            let dkey = DetailKey { geometry: gkey, steps: plan.steps.clone() };
+            if slot.detail.as_ref().map(|d| &d.key) != Some(&dkey) {
                 let mut img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
+                let planes = &slot.masks.as_ref().expect("masks were just built").1;
+                let mut step_masks = Vec::new();
                 for step in &dkey.steps {
-                    match *step {
-                        DetailStep::Blur { sigma } => filters::blur(&mut img, sigma),
-                        DetailStep::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
-                        DetailStep::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
+                    let before = step.mask.as_ref().map(|_| img.clone());
+                    match step.op {
+                        DetailOp::Blur { sigma } => filters::blur(&mut img, sigma),
+                        DetailOp::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
+                        DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
+                    }
+                    if let (Some(m), Some(before)) = (&step.mask, before) {
+                        // The mask is measured on the step's input.
+                        let plane = planes.iter().find(|q| q.id == m.id).map(|q| q.alpha.as_slice());
+                        let values = if m.mask.feathers_whole() {
+                            let stage = MaskStage::parametric(&m.mask);
+                            let mut v: Vec<f32> = before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q[k]))).collect();
+                            mask::feather(&mut v, &before, m.mask.feather, m.mask.edge_aware, plan.scale);
+                            v.into_iter().map(|a| stage.finish(a)).collect()
+                        } else {
+                            let stage = MaskStage::new(&m.mask, m.drawn.is_some());
+                            let drawn = |k: usize| if stage.drawn { plane.map_or(0.0, |q| q[k]) } else { 1.0 };
+                            before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn(k))).collect::<Vec<f32>>()
+                        };
+                        for ((px, input), a) in img.pixels.iter_mut().zip(&before.pixels).zip(&values) {
+                            *px = mask::blend(*input, *px, *a);
+                        }
+                        step_masks.push(MaskPlane { id: m.id.clone(), alpha: values }.crop(p.width, inner));
                     }
                 }
-                if plan.padded != plan.region {
-                    let (r, p) = (plan.region, plan.padded);
-                    img = img.crop(Region { x: r.x - p.x, y: r.y - p.y, ..r });
-                }
-                slot.detail = Some((dkey, img));
+                let (padded, image) = if plan.padded != plan.region { (Some(img.clone()), img.crop(inner)) } else { (None, img) };
+                slot.detail = Some(Detail { key: dkey, padded, image, step_masks });
                 changed = true;
             }
         }
+
+        if slot.point_masks.as_ref().map(|(k, _)| k) != pkey.as_ref() {
+            slot.point_masks = None;
+            if let Some(key) = pkey {
+                let planes = self.point_masks(&key, &plan, inner, params);
+                self.slots[0].point_masks = Some((key, planes));
+            }
+            changed = true;
+        }
         if changed {
             self.last_id += 1;
-            slot.id = self.last_id;
+            self.slots[0].id = self.last_id;
         }
+        let (img, masks) = self.output();
+        (self.slots[0].id, img, masks)
+    }
+
+    /// The most recent slot's spatial image and the planes the point operations read.
+    fn output(&self) -> (&Image, &[MaskPlane]) {
+        let slot = &self.slots[0];
         let img = match &slot.detail {
-            Some((_, img)) => img,
-            None => &slot.geometry.as_ref().expect("geometry was just built").1,
+            Some(d) => &d.image,
+            None => &slot.geometry.as_ref().expect("geometry was built").1,
         };
-        (slot.id, img)
+        let masks = match &slot.point_masks {
+            Some((_, planes)) => planes,
+            None => &slot.masks.as_ref().expect("masks were built").2,
+        };
+        (img, masks)
+    }
+
+    /// The masks of the point modules feathered whole (`key`), in pipeline order, each
+    /// measured on its input (the padded spatial image through the point modules before
+    /// it) and feathered steered by it; with the other drawn planes, cropped to `inner`.
+    fn point_masks(&self, key: &PointMasksKey, plan: &Plan, inner: Region, params: &EditParams) -> Vec<MaskPlane> {
+        let slot = &self.slots[0];
+        let img = match &slot.detail {
+            Some(d) => d.padded.as_ref().unwrap_or(&d.image),
+            None => &slot.geometry.as_ref().expect("geometry was built").1,
+        };
+        let mut planes = slot.masks.as_ref().expect("masks were built").1.clone();
+        for (id, before, m) in &key.masks {
+            let before = EditParams { version: params.version, modules: before.clone(), shapes: params.shapes.clone() };
+            let input = PointOps::with_filmic(&before, self.photo.as_shot_illuminant, None).adjust_image(img, &planes);
+            let at = planes.iter().position(|q| &q.id == id);
+            let stage = MaskStage::parametric(m);
+            let mut values: Vec<f32> = input.iter().enumerate().map(|(k, px)| stage.eval(*px, at.map_or(1.0, |i| planes[i].alpha[k]))).collect();
+            let guide = Image { width: img.width, height: img.height, pixels: input };
+            mask::feather(&mut values, &guide, m.feather, m.edge_aware, plan.scale);
+            let plane = MaskPlane { id: id.clone(), alpha: values };
+            match at {
+                Some(i) => planes[i] = plane,
+                None => planes.push(plane),
+            }
+        }
+        let (w, h) = (img.width, img.height);
+        if inner == Region::full(w, h) { planes } else { planes.iter().map(|q| q.crop(w, inner)).collect() }
+    }
+
+    /// A drawn mask over `plan`'s padded region: rasterised in the sensor frame at the
+    /// render's scale, through the geometry, feathered (steered by `guide`, the
+    /// geometry stage's output over the same pixels).
+    fn drawn_plane(&self, drawn: &Drawn, plan: &Plan, transform: &geometry::Transform, guide: &Image) -> Vec<f32> {
+        let (width, height) = plan.frame;
+        let lens = self.photo.lens.as_ref();
+        let frame = mask::raster_frame((self.photo.width, self.photo.height), plan.scale);
+        let bounds = geometry::source_bounds(frame, transform, lens, width, height, plan.padded);
+        let mut plane = match mask::rasterize(drawn, frame, bounds) {
+            Some((at, alpha)) => geometry::apply_plane_region(&alpha, at, frame, transform, lens, width, height, plan.padded),
+            None => vec![0.0; plan.padded.width * plan.padded.height],
+        };
+        mask::feather(&mut plane, guide, drawn.feather, drawn.edge_aware, plan.scale);
+        plane
+    }
+
+    /// Paint what `view` shows of instance `id`'s mask on `img`, a render of `params`
+    /// within `size`: where it (or one of its ranges alone) applies, in yellow, or the
+    /// values a range measures on the instance's input, in its slider's colours.
+    fn paint_mask_view(&mut self, params: &EditParams, id: &str, size: RenderSize, view: MaskView, img: &mut Rgba8) {
+        if view.part == MaskPart::Mask && !view.values {
+            if let Some(values) = self.mask_values(params, id, size) {
+                clipping::paint_mask(img, &values);
+            }
+            return;
+        }
+        let Some(input) = self.module_input(params, id, size) else { return };
+        if view.values {
+            let colors = mask::ValueColors::new();
+            let paint: Vec<[u8; 3]> = match view.part {
+                MaskPart::Mask | MaskPart::Luminance => input.iter().map(|c| colors.luminance(*c)).collect(),
+                MaskPart::Saturation => input.iter().map(|c| colors.saturation(*c)).collect(),
+                MaskPart::Hue => input.iter().map(|c| colors.hue(*c)).collect(),
+                MaskPart::Red | MaskPart::Green | MaskPart::Blue => {
+                    let i = view.part as usize - MaskPart::Red as usize;
+                    input.iter().map(|c| colors.channel(*c, i)).collect()
+                }
+            };
+            clipping::paint_colors(img, &paint);
+            return;
+        }
+        let Some(mask) = params.modules.iter().find(|m| m.id == id).and_then(|m| m.mask.as_ref()) else { return };
+        let only = |part: MaskPart, r: Option<[f32; 4]>| (view.part == part).then_some(r).flatten();
+        let alone = params::Mask {
+            luminance: only(MaskPart::Luminance, mask.luminance),
+            saturation: only(MaskPart::Saturation, mask.saturation),
+            hue: only(MaskPart::Hue, mask.hue),
+            red: only(MaskPart::Red, mask.red),
+            green: only(MaskPart::Green, mask.green),
+            blue: only(MaskPart::Blue, mask.blue),
+            ..params::Mask::default()
+        };
+        if alone.has_ranges() {
+            let stage = MaskStage::new(&alone, false);
+            clipping::paint_mask(img, &input.iter().map(|c| stage.eval(*c, 1.0)).collect::<Vec<_>>());
+        }
+    }
+
+    /// The input of instance `id` (of a maskable kind) over a render of `params` within
+    /// `size`: for a point module, the spatial image through the point modules before
+    /// it; for a spatial one, the spatial image (approximately its input).
+    fn module_input(&mut self, params: &EditParams, id: &str, size: RenderSize) -> Option<Vec<Rgb>> {
+        let at = params.modules.iter().position(|m| m.id == id)?;
+        let kind = params.modules[at].module.kind();
+        if !kind.maskable() {
+            return None;
+        }
+        let as_shot = self.photo.as_shot_illuminant;
+        self.spatial(params, size);
+        let (img, masks) = self.output();
+        if kind < ModuleKind::Exposure {
+            return Some(img.pixels.clone());
+        }
+        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
+        Some(PointOps::with_filmic(&before, as_shot, None).adjust_image(img, masks))
+    }
+
+    /// The mask of instance `id` over a render of `params` within `size`, 0 … 1 per
+    /// pixel, as the instance applies it (measured on its input). `None` unless the
+    /// instance is enabled with a mask (one that selects everything gives all 1s).
+    pub fn mask_values(&mut self, params: &EditParams, id: &str, size: RenderSize) -> Option<Vec<f32>> {
+        let at = params.modules.iter().position(|m| m.id == id)?;
+        let instance = &params.modules[at];
+        if !instance.enabled || !instance.module.kind().maskable() {
+            return None;
+        }
+        let Some(m) = mask::active(instance).cloned() else {
+            instance.mask.as_ref()?;
+            let r = self.output_region(params, size);
+            return Some(vec![1.0; r.width * r.height]);
+        };
+        let drawn = Drawn::of(params, &m).is_some();
+        let stage = MaskStage::new(&m, drawn);
+        let kind = instance.module.kind();
+        let as_shot = self.photo.as_shot_illuminant;
+        let spatial = kind < ModuleKind::Exposure;
+        self.spatial(params, size);
+        let (img, masks) = self.output();
+        if spatial {
+            // Kept by the detail stage, when the step is active.
+            let slot = &self.slots[0];
+            if let Some(values) = slot.detail.as_ref().and_then(|d| d.step_masks.iter().find(|q| q.id == id)) {
+                return Some(values.alpha.clone());
+            }
+            // The step is inactive (it would change nothing): measured on the spatial image.
+            // A mask feathered whole shows unfeathered there.
+            let stage = if m.feathers_whole() { MaskStage::new(&params::Mask { feather: 0.0, ..m.clone() }, drawn) } else { stage };
+            let plane = masks.iter().find(|q| q.id == id);
+            return Some(img.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q.alpha[k]))).collect());
+        }
+        // A point module's input: the point modules before it.
+        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
+        let input = PointOps::with_filmic(&before, as_shot, None).adjust_image(img, masks);
+        let plane = masks.iter().find(|q| q.id == id);
+        Some(input.iter().enumerate().map(|(k, px)| stage.eval(*px, if stage.drawn { plane.map_or(0.0, |q| q.alpha[k]) } else { 1.0 })).collect())
     }
 
     /// Run the geometry stage for `key`, from the whole base or from a patch, retouched
@@ -569,8 +881,8 @@ impl Developer {
     pub fn auto_tune_filmic(&mut self, params: &EditParams, size: RenderSize) -> Option<(f32, f32)> {
         let scaling = params.get::<Filmic>()?.dynamic_range_scaling;
         let ops = self.point_ops.ops(params, self.photo.as_shot_illuminant, None);
-        let img = self.spatial_image(params, size);
-        filmic::auto_tune(img.pixels.iter().map(|px| ops.adjust(*px)), scaling)
+        let (_, img, masks) = self.spatial(params, size);
+        filmic::auto_tune(ops.adjust_image(img, masks).into_iter(), scaling)
     }
 
     /// Estimate the scene's light on the input of colour calibration instance `id` (the
@@ -581,8 +893,9 @@ impl Developer {
         let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
         let ops = self.point_ops.ops(&before, self.photo.as_shot_illuminant, None);
         // The spatial modules all come before calibration: same image, from cache.
-        let img = self.spatial_image(params, size);
-        calibration::detect_illuminant(img, |px| ops.adjust(px), method)
+        let (_, img, masks) = self.spatial(params, size);
+        let input = Image { width: img.width, height: img.height, pixels: ops.adjust_image(img, masks) };
+        calibration::detect_illuminant(&input, |px| px, method)
     }
 
     /// Make sure a base image suitable for `factor` is cached; returns its actual factor.
@@ -611,33 +924,55 @@ fn clip_region(region: Option<Region>, width: usize, height: usize) -> Region {
     r
 }
 
+/// What the masks of the point modules feathered whole depend on, or `None` without any.
+fn point_masks_key(params: &EditParams, plan: &Plan, geometry: GeometryKey) -> Option<PointMasksKey> {
+    let is_point = |m: &ModuleInstance| m.enabled && m.module.kind() >= ModuleKind::Exposure;
+    let masks: Vec<_> = params
+        .modules
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| is_point(m))
+        .filter_map(|(i, m)| {
+            let mask = mask::active(m).filter(|mask| mask.feathers_whole())?;
+            // Invert and opacity apply afterwards, per pixel.
+            let mask = params::Mask { invert: false, opacity: 1.0, ..mask.clone() };
+            Some((m.id.clone(), params.modules[..i].iter().filter(|b| is_point(b)).cloned().collect(), mask))
+        })
+        .collect();
+    (!masks.is_empty()).then(|| PointMasksKey { geometry, steps: plan.steps.clone(), drawn: plan.drawn.clone(), masks })
+}
+
 impl DetailStep {
     /// How much of the render around a region the step needs for the region's pixels.
     fn margin(&self, frame: (usize, usize)) -> usize {
-        match *self {
-            DetailStep::Blur { sigma } | DetailStep::Sharpen { sigma, .. } => filters::reach(sigma),
-            DetailStep::Equalizer { params, scale } => equalizer::margin(&params, scale, frame),
+        match self.op {
+            DetailOp::Blur { sigma } | DetailOp::Sharpen { sigma, .. } => filters::reach(sigma),
+            DetailOp::Equalizer { params, scale } => equalizer::margin(&params, scale, frame),
         }
     }
 }
 
 /// The active blur, sharpen and equalizer instances, with their parameters at `scale`
-/// (spatial parameters are expressed in full-resolution pixels).
+/// (spatial parameters are expressed in full-resolution pixels) and their masks.
 fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
     params
         .modules
         .iter()
         .filter(|m| m.enabled)
-        .filter_map(|m| match &m.module {
-            Module::Blur(b) => Some(DetailStep::Blur { sigma: b.radius * scale }),
-            Module::Sharpen(s) => Some(DetailStep::Sharpen { amount: s.amount, sigma: s.radius * scale }),
-            Module::ContrastEqualizer(e) => Some(DetailStep::Equalizer { params: *e, scale }),
-            _ => None,
-        })
-        .filter(|step| match *step {
-            DetailStep::Blur { sigma } => filters::blur_active(sigma),
-            DetailStep::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
-            DetailStep::Equalizer { params, .. } => !params.is_identity(),
+        .filter_map(|m| {
+            let op = match &m.module {
+                Module::Blur(b) => DetailOp::Blur { sigma: b.radius * scale },
+                Module::Sharpen(s) => DetailOp::Sharpen { amount: s.amount, sigma: s.radius * scale },
+                Module::ContrastEqualizer(e) => DetailOp::Equalizer { params: *e, scale },
+                _ => return None,
+            };
+            let active = match op {
+                DetailOp::Blur { sigma } => filters::blur_active(sigma),
+                DetailOp::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
+                DetailOp::Equalizer { params, .. } => !params.is_identity(),
+            };
+            let mask = mask::active(m).map(|mask| Box::new(StepMask { id: m.id.clone(), mask: mask.clone(), drawn: Drawn::of(params, mask) }));
+            active.then_some(DetailStep { op, mask })
         })
         .collect()
 }

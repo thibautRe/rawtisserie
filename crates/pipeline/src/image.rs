@@ -139,6 +139,19 @@ impl Region {
         Self { x, y, width: (self.right() + margin).min(width) - x, height: (self.bottom() + margin).min(height) - y }
     }
 
+    /// The pixels in both, if any.
+    pub fn intersect(&self, other: &Region) -> Option<Region> {
+        let (x, y) = (self.x.max(other.x), self.y.max(other.y));
+        let (right, bottom) = (self.right().min(other.right()), self.bottom().min(other.bottom()));
+        (right > x && bottom > y).then(|| Region { x, y, width: right - x, height: bottom - y })
+    }
+
+    /// The smallest region holding both.
+    pub fn union(&self, other: &Region) -> Region {
+        let (x, y) = (self.x.min(other.x), self.y.min(other.y));
+        Region { x, y, width: self.right().max(other.right()) - x, height: self.bottom().max(other.bottom()) - y }
+    }
+
     pub fn contains(&self, other: &Region) -> bool {
         other.x >= self.x && other.y >= self.y && other.right() <= self.right() && other.bottom() <= self.bottom()
     }

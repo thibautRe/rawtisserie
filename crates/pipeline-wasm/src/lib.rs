@@ -166,6 +166,24 @@ impl Developer {
         Ok(img.pixels[y0 * img.width..y1.max(y0) * img.width].iter().flatten().copied().collect())
     }
 
+    /// The ids of the masks whose drawn planes come with the spatial stages' output (of
+    /// the region, as for `render`), as a JSON array: the order of `spatialMaskRows`.
+    #[wasm_bindgen(js_name = spatialMaskIds)]
+    pub fn spatial_mask_ids(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<String, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let (_, _, masks) = self.inner.spatial(&params, render_size(max_width, max_height, region)?);
+        serde_json::to_string(&masks.iter().map(|m| &m.id).collect::<Vec<_>>()).map_err(js_err)
+    }
+
+    /// Rows `y0..y1` of those drawn planes, one after the other (0 … 1 per pixel).
+    #[wasm_bindgen(js_name = spatialMaskRows)]
+    pub fn spatial_mask_rows(&mut self, params_json: &str, max_width: u32, max_height: u32, y0: u32, y1: u32, region: Option<Vec<u32>>) -> Result<Vec<f32>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let (_, img, masks) = self.inner.spatial(&params, render_size(max_width, max_height, region)?);
+        let (y0, y1) = ((y0 as usize).min(img.height), (y1 as usize).min(img.height));
+        Ok(masks.iter().flat_map(|m| m.alpha[y0 * img.width..y1.max(y0) * img.width].iter().copied()).collect())
+    }
+
     /// How points map between the output frame of these parameters and the sensor frame
     /// (`SensorMappingData`), as JSON: what the editor needs to draw shapes.
     #[wasm_bindgen(js_name = sensorMapping)]
@@ -236,16 +254,27 @@ pub struct PointRenderer {
 
 #[wasm_bindgen]
 impl PointRenderer {
-    /// `pixels`: interleaved linear RGB, `width × height`; `as_shot`: `[x, y]` or empty.
+    /// `pixels`: interleaved linear RGB, `width × height`; `as_shot`: `[x, y]` or empty;
+    /// `mask_ids_json` and `masks`: the drawn planes of the masks over the same rows
+    /// (`Developer.spatialMaskIds` and `spatialMaskRows`).
     #[wasm_bindgen(constructor)]
-    pub fn new(width: u32, height: u32, pixels: &[f32], as_shot: &[f32]) -> Result<PointRenderer, JsError> {
+    pub fn new(width: u32, height: u32, pixels: &[f32], as_shot: &[f32], mask_ids_json: &str, masks: &[f32]) -> Result<PointRenderer, JsError> {
         let (width, height) = (width as usize, height as usize);
         if pixels.len() != width * height * 3 {
             return Err(JsError::new("pixel count doesn't match the size"));
         }
+        let ids: Vec<String> = serde_json::from_str(mask_ids_json).map_err(js_err)?;
+        if masks.len() != ids.len() * width * height {
+            return Err(JsError::new("mask size doesn't match the size"));
+        }
+        let masks = ids
+            .into_iter()
+            .zip(masks.chunks_exact((width * height).max(1)))
+            .map(|(id, alpha)| pipeline::ops::mask::MaskPlane { id, alpha: alpha.to_vec() })
+            .collect();
         let image = pipeline::Image { width, height, pixels: pixels.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect() };
         let as_shot = <[f32; 2]>::try_from(as_shot).ok();
-        Ok(Self { inner: pipeline::pipeline::PointRenderer::new(image, as_shot) })
+        Ok(Self { inner: pipeline::pipeline::PointRenderer::with_masks(image, masks, as_shot) })
     }
 
     /// Interactive render of the strip to RGBA8.

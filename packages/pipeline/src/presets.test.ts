@@ -11,6 +11,9 @@ import {
   updateModule,
   addSpot,
   spotsOf,
+  addMaskShape,
+  maskOf,
+  updateMask,
   type ModuleKind,
 } from './params.ts';
 import type { Shape } from './shapes.ts';
@@ -214,4 +217,51 @@ test('retouch presets carry their shapes', () => {
   assert.deepEqual(applyModulePreset(defaultEditParams, 'retouch', 'retouch', payload).shapes, payload.shapes);
   // Presets of other kinds have no shapes.
   assert.equal('shapes' in modulePresetPayload('sharpen', defaultModuleParams.sharpen, dust.shapes), false);
+});
+
+test('masks travel with styles, and with presets when asked', () => {
+  const at = (x: number): Shape => ({
+    type: 'ellipse',
+    center: [x, 0.5],
+    radii: [0.1, 0.1],
+    rotation: 0,
+    feather: 0,
+    opacity: 1,
+  });
+  const [spotted] = addSpot(defaultEditParams, 'retouch', at(0.9), {});
+  const [masked] = addMaskShape(spotted, 'exposure', 'exposure', at(0.3));
+  const recipe = updateMask(masked, 'exposure', 'exposure', { luminance: [-2, -1, 1, 2] });
+  const mask = maskOf(recipe, 'exposure')!;
+  assert.deepEqual(mask.drawn, [{ shape: 's2', op: 'union' }]);
+
+  // A style keeps the mask and its shape; appended to a recipe using `s2`, it's renamed.
+  const style = styleFromRecipe(recipe, ['exposure']);
+  assert.deepEqual(style.shapes, { s2: at(0.3) });
+  assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
+  const [other] = addMaskShape(updateModule(defaultEditParams, 'color', {}), 'color', 'color', at(0.7));
+  const [taken] = addMaskShape(other, 'color', 'color', at(0.6));
+  const appended = applyStyle(taken, style, 'append');
+  const added = appended.modules.filter((m) => m.kind === 'exposure').at(-1)!;
+  assert.equal(added.mask!.drawn[0]!.shape, 's3');
+  assert.deepEqual(appended.shapes!.s3, at(0.3));
+  assert.deepEqual(added.mask!.luminance, [-2, -1, 1, 2]);
+
+  // A preset leaves the mask out unless asked.
+  const exposure = findModule(recipe, 'exposure')!;
+  const plain = modulePresetPayload('exposure', exposure.params, recipe.shapes);
+  assert.equal(plain.mask, undefined);
+  assert.equal(plain.shapes, undefined);
+  assert.deepEqual(maskOf(applyModulePreset(recipe, 'exposure', 'exposure', plain), 'exposure'), mask);
+  const withMask = modulePresetPayload('exposure', exposure.params, recipe.shapes, undefined, mask);
+  assert.deepEqual(withMask.shapes, { s2: at(0.3) });
+  assert.deepEqual(normalizeModulePreset('exposure', JSON.parse(JSON.stringify(withMask))), withMask);
+  // Applied elsewhere: the mask comes with its shape, renamed if its id is taken there.
+  const applied = applyModulePreset(taken, 'color', 'color', { ...withMask, params: {} });
+  assert.deepEqual(maskOf(applied, 'color')!.drawn, [{ shape: 's3', op: 'union' }]);
+  assert.deepEqual(applied.shapes, { s3: at(0.3) }, 'the old mask shapes go');
+  // Not on kinds that can't be masked.
+  assert.equal(
+    modulePresetPayload('filmic', defaultModuleParams.filmic, recipe.shapes, undefined, mask).mask,
+    undefined,
+  );
 });

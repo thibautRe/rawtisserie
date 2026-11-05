@@ -309,6 +309,84 @@ fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, at: Patch,
     }
 }
 
+/// `region` of the transformed one-channel `plane`, which holds pixels `plane_at` of a
+/// `frame`-sized source and is 0 outside them; sampled bilinearly at each output pixel's
+/// centre, through lens distortion (green). Masks use it: their drawn part is
+/// rasterised in the sensor frame and follows the image through the geometry stage.
+///
+/// Source positions are computed exactly on a grid of [`PLANE_BLOCK`] output pixels
+/// (aligned to the whole output, so that regions match it) and interpolated in
+/// between: lens distortion bends much less than a pixel over a block. Blocks that
+/// can't reach the plane are skipped.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_plane_region(
+    plane: &[f32],
+    plane_at: Region,
+    frame: (usize, usize),
+    t: &Transform,
+    profile: Option<&LensProfile>,
+    out_w: usize,
+    out_h: usize,
+    region: Region,
+) -> Vec<f32> {
+    debug_assert_eq!(plane.len(), plane_at.width * plane_at.height);
+    const B: usize = PLANE_BLOCK;
+    let (sw, sh) = (frame.0 as f32, frame.1 as f32);
+    let m = Mapping::new(sw, sh, t, out_w, out_h);
+    let lens = correction(t, profile, sw, sh);
+    let (pw, ph) = (plane_at.width as i64, plane_at.height as i64);
+    let tap = |x: i64, y: i64| if x >= 0 && y >= 0 && x < pw && y < ph { plane[(y * pw + x) as usize] } else { 0.0 };
+    // Source position of a grid node, in the plane's pixels (minus the half-pixel offset).
+    let node = |x: usize, y: usize| {
+        let (u, v) = m.at(x as f32, y as f32);
+        let (u, v) = lens.as_ref().map_or((u, v), |l| l.map_green(u, v));
+        (u - 0.5 - plane_at.x as f32, v - 0.5 - plane_at.y as f32)
+    };
+    let mut out = vec![0.0f32; region.width * region.height];
+    let (bx0, bx1) = (region.x / B, region.right().div_ceil(B));
+    let (by0, by1) = (region.y / B, region.bottom().div_ceil(B));
+    let mut top: Vec<(f32, f32)> = (bx0..=bx1).map(|bx| node(bx * B, by0 * B)).collect();
+    for by in by0..by1 {
+        let bottom: Vec<(f32, f32)> = (bx0..=bx1).map(|bx| node(bx * B, (by + 1) * B)).collect();
+        for bx in bx0..bx1 {
+            let k = bx - bx0;
+            let (a, b, c, d) = (top[k], top[k + 1], bottom[k], bottom[k + 1]);
+            // Skip blocks whose source lies wholly outside the plane (with room for the taps).
+            let (lo_u, hi_u) = (a.0.min(b.0).min(c.0).min(d.0), a.0.max(b.0).max(c.0).max(d.0));
+            let (lo_v, hi_v) = (a.1.min(b.1).min(c.1).min(d.1), a.1.max(b.1).max(c.1).max(d.1));
+            if hi_u < -2.0 || hi_v < -2.0 || lo_u > pw as f32 + 1.0 || lo_v > ph as f32 + 1.0 {
+                continue;
+            }
+            let (x0, x1) = ((bx * B).max(region.x), ((bx + 1) * B).min(region.right()));
+            let (y0, y1) = ((by * B).max(region.y), ((by + 1) * B).min(region.bottom()));
+            for y in y0..y1 {
+                let ty = (y - by * B) as f32 / B as f32 + 0.5 / B as f32;
+                let left = (a.0 + (c.0 - a.0) * ty, a.1 + (c.1 - a.1) * ty);
+                let right = (b.0 + (d.0 - b.0) * ty, b.1 + (d.1 - b.1) * ty);
+                let row = &mut out[(y - region.y) * region.width..];
+                for x in x0..x1 {
+                    let tx = (x - bx * B) as f32 / B as f32 + 0.5 / B as f32;
+                    let (fx, fy) = (left.0 + (right.0 - left.0) * tx, left.1 + (right.1 - left.1) * tx);
+                    if !(fx > -1.0 && fy > -1.0 && fx < pw as f32 && fy < ph as f32) {
+                        continue;
+                    }
+                    let (xf, yf) = (fx.floor(), fy.floor());
+                    let (sx, sy) = (fx - xf, fy - yf);
+                    let (xi, yi) = (xf as i64, yf as i64);
+                    let upper = tap(xi, yi) + (tap(xi + 1, yi) - tap(xi, yi)) * sx;
+                    let lower = tap(xi, yi + 1) + (tap(xi + 1, yi + 1) - tap(xi, yi + 1)) * sx;
+                    row[x - region.x] = upper + (lower - upper) * sy;
+                }
+            }
+        }
+        top = bottom;
+    }
+    out
+}
+
+/// Size of the blocks [`apply_plane_region`] interpolates source positions over.
+pub const PLANE_BLOCK: usize = 16;
+
 /// Render `out_w × out_h` pixels of the transformed `src` mask, by nearest sampling.
 pub fn apply_mask(src: &Mask, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Mask {
     let whole = Region::full(src.width, src.height);

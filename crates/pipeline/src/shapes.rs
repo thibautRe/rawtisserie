@@ -178,7 +178,13 @@ impl Shape {
 
     /// The shape's alpha over its [`bounds`](Self::bounds) in a `frame`-sized image.
     pub fn rasterize(&self, frame: (usize, usize)) -> Option<ShapeMask> {
-        let region = self.bounds(frame)?;
+        self.rasterize_in(frame, Region::full(frame.0, frame.1))
+    }
+
+    /// [`rasterize`](Self::rasterize), over the part of the bounds within `clip`. Each
+    /// pixel gets the same value as in the whole raster.
+    pub fn rasterize_in(&self, frame: (usize, usize), clip: Region) -> Option<ShapeMask> {
+        let region = self.bounds(frame)?.intersect(&clip)?;
         let f = Frame::new(frame);
         let opacity = self.opacity();
         let mut alpha = vec![0.0f32; region.width * region.height];

@@ -24,6 +24,13 @@ import {
   spotsOf,
   updateShape,
   updateSpot,
+  addMaskShape,
+  defaultMask,
+  maskOf,
+  maskParams,
+  removeMask,
+  removeMaskShape,
+  updateMask,
 } from './params.ts';
 import type { EllipseShape as Shape } from './shapes.ts';
 import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
@@ -179,6 +186,33 @@ const samples: unknown[] = [
     },
   },
   { version: 6, modules: [{ kind: 'exposure' }], shapes: { s1: { type: 'ellipse', center: [0, 0], radii: [1, 1] } } },
+  // Masks: drawn parts without their shape go, and masks on kinds that can't have one.
+  {
+    version: 6,
+    modules: [
+      {
+        kind: 'exposure',
+        mask: {
+          drawn: [{ shape: 'a' }, { shape: 'missing', op: 'difference' }, { shape: 'b', op: 'exclusion' }],
+          luminance: [-2, -1, 1.5, 3],
+          feather: 12.5,
+        },
+      },
+      { kind: 'exposure', mask: null },
+      { kind: 'color', params: { saturation: 0.5 }, mask: { hue: [340, 350, 10, 20], invert: true, opacity: 0.4 } },
+      { kind: 'sharpen', mask: { drawn: [{ shape: 'b', op: 'intersection' }], edgeAware: false } },
+      { kind: 'colorPrimaries', mask: {} },
+      { kind: 'colorCalibration', mask: { red: [-1, 0, 2, 3], blue: [-9, -8, -2, -1] } },
+      { kind: 'shadowsHighlights', mask: { enabled: false, luminance: [-6, -5, -2, -1], feather: 20 } },
+      { kind: 'filmic', mask: { drawn: [{ shape: 'c' }] } },
+      { kind: 'retouch', mask: { drawn: [{ shape: 'c' }] } },
+    ],
+    shapes: {
+      a: { type: 'ellipse', center: [0.5, 0.5], radii: [0.1, 0.2] },
+      b: { type: 'gradient', anchor: [0.5, 0.3], angle: -1.5 },
+      c: { type: 'ellipse', center: [0.2, 0.2], radii: [0.05, 0.05] },
+    },
+  },
   { version: 6, modules: [{ kind: 'retouch', enabled: false, params: { spots: [{ shape: 's1' }] } }], shapes: null },
 ];
 
@@ -443,4 +477,64 @@ test('invalid shapes and spots are dropped or defaulted', () => {
   });
   assert.deepEqual(spotsOf(p, 'retouch'), [{ ...defaultSpot, shape: 'ok' }]);
   assert.deepEqual(Object.keys(p.shapes!), ['ok']);
+});
+
+test('masks carry their shapes', () => {
+  const circle: Shape = { type: 'ellipse', center: [0.5, 0.5], radii: [0.1, 0.1], rotation: 0, feather: 0, opacity: 1 };
+  const two = addInstance(defaultEditParams, 'exposure');
+  const [a, s1] = addMaskShape(two, 'exposure', 'exposure-2', circle);
+  const [b, s2] = addMaskShape(a, 'exposure', 'exposure-2', { ...circle, center: [0.3, 0.3] }, 'difference');
+  assert.deepEqual([s1, s2], ['s1', 's2']);
+  assert.deepEqual(maskOf(b, 'exposure-2')!.drawn, [
+    { shape: 's1', op: 'union' },
+    { shape: 's2', op: 'difference' },
+  ]);
+  assert.deepEqual(normalizeEditParams(JSON.parse(JSON.stringify(b))), b);
+  assert.ok(isInstanceModified(b, 'exposure', 'exposure-2'), 'a mask is a change');
+
+  // Parametric parts and settings; the drawn part stays.
+  const c = updateMask(b, 'exposure', 'exposure-2', { luminance: [-1, 0, 2, 3], invert: true });
+  assert.deepEqual(maskOf(c, 'exposure-2'), {
+    ...defaultMask,
+    drawn: maskOf(b, 'exposure-2')!.drawn,
+    luminance: [-1, 0, 2, 3],
+    invert: true,
+  });
+  // Editing a mask switches its instance on; so does moving one of its shapes.
+  const off = updateInstance(c, 'exposure', 'exposure-2', { enabled: false });
+  assert.equal(updateMask(off, 'exposure', 'exposure-2', { opacity: 0.5 }).modules[1]!.enabled, true);
+  assert.equal(updateShape(off, 's1', { ...circle, center: [0.6, 0.6] }).modules[1]!.enabled, true);
+
+  // Removing a drawn part drops its shape; removing the mask drops them all.
+  assert.deepEqual(Object.keys(removeMaskShape(c, 'exposure', 'exposure-2', 0).shapes!), ['s2']);
+  const gone = removeMask(c, 'exposure-2');
+  assert.equal(maskOf(gone, 'exposure-2'), undefined);
+  assert.equal('shapes' in gone, false);
+  // So do resetting and removing the instance.
+  assert.equal('shapes' in resetInstance(c, 'exposure', 'exposure-2'), false);
+  assert.equal(maskOf(resetInstance(c, 'exposure', 'exposure-2'), 'exposure-2'), undefined);
+  assert.equal('shapes' in removeInstance(c, 'exposure-2'), false);
+  // Spots and masks share the shapes' ids.
+  const [d] = addSpot(c, 'retouch', circle, {});
+  assert.deepEqual(Object.keys(d.shapes!), ['s1', 's2', 's3']);
+  // Kinds that can't be masked keep none.
+  assert.equal(maskOf(updateMask(c, 'filmic', 'filmic', { invert: true }), 'filmic'), undefined);
+});
+
+test('invalid masks get their defaults', () => {
+  assert.deepEqual(
+    maskParams({
+      drawn: [{ shape: 'a', op: 'xor' }, 'junk', { op: 'union' }],
+      luminance: [1, 2, 3],
+      green: [1, 2],
+      opacity: 'x',
+    }),
+    {
+      ...defaultMask,
+      drawn: [
+        { shape: 'a', op: 'union' },
+        { shape: '', op: 'union' },
+      ],
+    },
+  );
 });

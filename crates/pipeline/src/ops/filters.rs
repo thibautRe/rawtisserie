@@ -53,7 +53,7 @@ pub fn sharpen(img: &mut Image, amount: f32, sigma: f32) {
     }
 }
 
-fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
+pub(crate) fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
     let mut tmp = vec![0.0f32; plane.len()];
     if sigma <= 4.0 {
         let kernel = gaussian_kernel(sigma);

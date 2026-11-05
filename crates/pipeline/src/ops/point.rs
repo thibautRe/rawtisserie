@@ -8,12 +8,17 @@
 //! Order: exposure → colour calibration → saturation/vibrance → shadows/highlights →
 //! colour primaries (all in linear Rec.2020, each kind possibly several times) →
 //! filmic (to display-linear sRGB primaries) → sRGB encoding.
+//!
+//! A masked instance (`crate::ops::mask`) blends its output with its input per pixel:
+//! its parametric part is evaluated here, on its input, and its drawn part is read from
+//! the planes that come with the spatial image ([`PointOps::render_masked`]).
 
 use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, REC709_FROM_REC2020, luminance, mul_vec, srgb_oetf};
 use crate::ops::calibration::CalibrationStage;
 use crate::image::{Image, Rgb, Rgba8};
 use crate::ops::filmic::Filmic;
 use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
+use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::ColorPrimariesStage;
 use std::rc::Rc;
 use crate::params::{self, EditParams, Module};
@@ -86,6 +91,16 @@ enum Step {
     /// Gain indexed by luminance.
     ShadowsHighlights(BitsLut<f32>),
     ColorPrimaries(Rc<ColorPrimariesStage>),
+    /// A masked instance.
+    Masked(Box<Masked>),
+}
+
+/// A step applied through a mask.
+struct Masked {
+    step: Step,
+    mask: MaskStage,
+    /// The instance's id: its drawn plane's, if it has a drawn part.
+    id: String,
 }
 
 impl Step {
@@ -105,14 +120,25 @@ impl Step {
             .then(|| Step::ShadowsHighlights(BitsLut::new(FLOOR, CEILING, FINE + 1, |y| shadows_highlights_gain(y, shadows, highlights))))
     }
 
+    /// The step on one pixel; masks take their drawn part as 1.
     #[inline]
     fn apply(&self, c: Rgb) -> Rgb {
+        self.apply_at(c, 1.0)
+    }
+
+    /// The step on one pixel where a mask's drawn part is `drawn`.
+    #[inline]
+    fn apply_at(&self, c: Rgb, drawn: f32) -> Rgb {
         match self {
             Step::Affine { offset, gain } => affine(c, offset, gain),
             Step::Calibration(stage) => stage.apply(c),
             &Step::Saturation { saturation, vibrance } => saturate(c, saturation, vibrance),
             Step::ShadowsHighlights(lut) => shadows_highlights(c, lut),
             Step::ColorPrimaries(stage) => stage.apply(c),
+            Step::Masked(m) => {
+                let a = m.mask.eval(c, drawn);
+                if a > 0.0 { mask::blend(c, m.step.apply(c), a) } else { c }
+            }
         }
     }
 
@@ -124,6 +150,8 @@ impl Step {
             Step::Saturation { .. } => 2,
             Step::ShadowsHighlights(_) => 3,
             Step::ColorPrimaries(_) => 4,
+            // Never in the fixed chain.
+            Step::Masked(_) => u8::MAX,
         }
     }
 }
@@ -153,10 +181,27 @@ fn shadows_highlights(c: Rgb, lut: &BitsLut<f32>) -> Rgb {
     c.map(|v| v * gain)
 }
 
+/// An unmasked step on many pixels: one loop per kind of step, so that the step's
+/// type is matched once rather than per pixel.
+#[inline]
+fn apply_unmasked(step: &Step, pixels: &mut [Rgb]) {
+    match step {
+        Step::Affine { offset, gain } => pixels.iter_mut().for_each(|c| *c = affine(*c, offset, gain)),
+        Step::Calibration(stage) => stage.apply_all(pixels),
+        &Step::Saturation { saturation, vibrance } => pixels.iter_mut().for_each(|c| *c = saturate(*c, saturation, vibrance)),
+        Step::ShadowsHighlights(lut) => pixels.iter_mut().for_each(|c| *c = shadows_highlights(*c, lut)),
+        Step::ColorPrimaries(stage) => pixels.iter_mut().for_each(|c| *c = stage.apply(*c)),
+        Step::Masked(_) => pixels.iter_mut().for_each(|c| *c = step.apply(*c)),
+    }
+}
+
 #[inline(never)]
 fn apply_steps(steps: &[Step], px: Rgb) -> Rgb {
     steps.iter().fold(px, |c, step| step.apply(c))
 }
+
+/// Most pixels [`PointOps::adjust_all`] takes at once.
+const MAX_CHUNK: usize = 64;
 
 /// The compiled point modules. Looping over steps costs ~7 % of the whole pass, so
 /// the usual shape (at most one step of each type, in order) gets a fixed chain.
@@ -174,7 +219,8 @@ enum Chain {
 
 impl Chain {
     fn new(steps: Vec<Step>) -> Self {
-        if !steps.windows(2).all(|w| w[0].rank() < w[1].rank()) {
+        let masked = steps.iter().any(|s| matches!(s, Step::Masked(_)));
+        if masked || !steps.windows(2).all(|w| w[0].rank() < w[1].rank()) {
             return Chain::Steps(steps);
         }
         let (mut affine, mut calibration, mut saturation, mut shadows_highlights, mut primaries) = (([0.0; 3], [1.0; 3]), None, None, None, None);
@@ -185,6 +231,7 @@ impl Chain {
                 Step::Saturation { saturation: s, vibrance } => saturation = Some((s, vibrance)),
                 Step::ShadowsHighlights(lut) => shadows_highlights = Some(lut),
                 Step::ColorPrimaries(stage) => primaries = Some(stage),
+                Step::Masked(_) => unreachable!("masked steps use the generic chain"),
             }
         }
         Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries }
@@ -247,6 +294,13 @@ impl PointOps {
                 Module::ColorPrimaries(cp) if !cp.is_identity() => Step::ColorPrimaries(primaries(cp)),
                 _ => continue,
             };
+            let step = match mask::active(instance) {
+                Some(m) => {
+                    let drawn = Drawn::of(p, m).is_some();
+                    Step::Masked(Box::new(Masked { step, mask: MaskStage::new(m, drawn), id: instance.id.clone() }))
+                }
+                None => step,
+            };
             // (x - o1)·g1 then (y - o2)·g2  =  (x - (o1 + o2/g1))·g1·g2
             if let (Some(Step::Affine { offset, gain }), Step::Affine { offset: o2, gain: g2 }) = (steps.last_mut(), &step) {
                 if gain.iter().all(|&g| g > 0.0) {
@@ -266,7 +320,9 @@ impl PointOps {
         }
     }
 
-    /// Scene-referred adjustments, in the working space (linear Rec.2020).
+    /// Scene-referred adjustments, in the working space (linear Rec.2020). Masks take
+    /// their drawn part as 1: use [`adjust_image`](Self::adjust_image) for an image with
+    /// its mask planes.
     #[inline(always)]
     pub fn adjust(&self, px: Rgb) -> Rgb {
         match &self.chain {
@@ -291,7 +347,10 @@ impl PointOps {
     /// loop has independent pixels for the CPU to overlap. One pixel through the whole
     /// chain is a long dependency chain (colour calibration alone has four matrix
     /// products and three divisions), which made the fused pass latency-bound.
-    fn adjust_all(&self, pixels: &mut [Rgb]) {
+    ///
+    /// `planes[i]` is the drawn plane of step `i` if it is masked with one; `start`, the
+    /// index of `pixels[0]` in those planes.
+    fn adjust_all(&self, pixels: &mut [Rgb], planes: &[Option<&[f32]>], start: usize) {
         match &self.chain {
             Chain::Fixed { affine: (offset, gain), calibration, saturation, shadows_highlights, primaries } => {
                 pixels.iter_mut().for_each(|c| *c = affine(*c, offset, gain));
@@ -309,14 +368,60 @@ impl PointOps {
                 }
             }
             Chain::Steps(steps) => {
-                for step in steps {
+                for (i, step) in steps.iter().enumerate() {
                     match step {
                         Step::Calibration(stage) => stage.apply_all(pixels),
-                        _ => pixels.iter_mut().for_each(|c| *c = step.apply(*c)),
+                        Step::Masked(m) => {
+                            // The mask, the step on a copy, then the blend: each a loop of
+                            // independent pixels, like the rest of the pass.
+                            let n = pixels.len();
+                            let mut alpha = [0.0f32; MAX_CHUNK];
+                            match planes.get(i).copied().flatten() {
+                                Some(plane) => m.mask.eval_all(pixels, &plane[start..start + n], &mut alpha[..n]),
+                                // A missing plane (none given) leaves the pixels alone.
+                                None if m.mask.drawn => continue,
+                                None => m.mask.eval_all(pixels, &[], &mut alpha[..n]),
+                            }
+                            if alpha[..n].iter().all(|&a| a <= 0.0) {
+                                continue;
+                            }
+                            let mut out = [[0.0f32; 3]; MAX_CHUNK];
+                            let out = &mut out[..n];
+                            out.copy_from_slice(pixels);
+                            apply_unmasked(&m.step, out);
+                            for ((c, o), &a) in pixels.iter_mut().zip(out.iter()).zip(&alpha[..n]) {
+                                *c = mask::blend(*c, *o, a);
+                            }
+                        }
+                        _ => apply_unmasked(step, pixels),
                     }
                 }
             }
         }
+    }
+
+    /// The drawn plane of each step, from `masks` (see [`adjust_all`](Self::adjust_all)).
+    fn planes<'a>(&self, masks: &'a [MaskPlane]) -> Vec<Option<&'a [f32]>> {
+        match &self.chain {
+            Chain::Fixed { .. } => Vec::new(),
+            Chain::Steps(steps) => steps
+                .iter()
+                .map(|s| match s {
+                    Step::Masked(m) if m.mask.drawn => masks.iter().find(|p| p.id == m.id).map(|p| p.alpha.as_slice()),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
+    /// [`adjust`](Self::adjust) on a whole image, with the drawn planes of its masks.
+    pub fn adjust_image(&self, img: &Image, masks: &[MaskPlane]) -> Vec<Rgb> {
+        let mut out = img.pixels.clone();
+        let planes = self.planes(masks);
+        for (i, chunk) in out.chunks_mut(MAX_CHUNK).enumerate() {
+            self.adjust_all(chunk, &planes, i * MAX_CHUNK);
+        }
+        out
     }
 
     /// An adjusted pixel to 8-bit sRGB.
@@ -334,15 +439,23 @@ impl PointOps {
         self.encode(self.adjust(px))
     }
 
-    /// Apply to a whole image and encode as 8-bit sRGB.
+    /// Apply to a whole image and encode as 8-bit sRGB. Masked instances with a drawn
+    /// part do nothing: see [`render_masked`](Self::render_masked).
     pub fn render(&self, img: &Image) -> Rgba8 {
-        const CHUNK: usize = 64;
+        self.render_masked(img, &[])
+    }
+
+    /// [`render`](Self::render), with the drawn planes of the masks over `img`'s pixels
+    /// (by instance id; see `Developer::spatial`).
+    pub fn render_masked(&self, img: &Image, masks: &[MaskPlane]) -> Rgba8 {
+        const CHUNK: usize = MAX_CHUNK;
+        let planes = self.planes(masks);
         let mut data = vec![255u8; img.pixels.len() * 4];
         let mut buffer = [[0.0f32; 3]; CHUNK];
-        for (pixels, out) in img.pixels.chunks(CHUNK).zip(data.chunks_mut(CHUNK * 4)) {
+        for (i, (pixels, out)) in img.pixels.chunks(CHUNK).zip(data.chunks_mut(CHUNK * 4)).enumerate() {
             let buffer = &mut buffer[..pixels.len()];
             buffer.copy_from_slice(pixels);
-            self.adjust_all(buffer);
+            self.adjust_all(buffer, &planes, i * CHUNK);
             for (c, out) in buffer.iter().zip(out.chunks_exact_mut(4)) {
                 out[..3].copy_from_slice(&self.encode(*c));
             }

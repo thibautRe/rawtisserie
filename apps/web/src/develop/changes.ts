@@ -1,4 +1,10 @@
-import { type EditParams, type ModuleInstance, type ModuleKind, defaultModuleParams } from '@rawtisserie/pipeline';
+import {
+  type EditParams,
+  type ModuleInstance,
+  type ModuleKind,
+  defaultModuleParams,
+  shapeRefs,
+} from '@rawtisserie/pipeline';
 
 export const MODULE_TITLES: Record<ModuleKind, string> = {
   retouch: 'Retouch',
@@ -71,6 +77,21 @@ function describeInstance(
   } else if (keys.length > 1) {
     parts.push(keys.map(([k]) => words(k)).join(', '));
   }
+  if (!same(before?.mask, after.mask)) {
+    if (!before?.mask) parts.push('mask added');
+    else if (!after.mask) parts.push('mask removed');
+    else {
+      const old = before.mask as unknown as Record<string, unknown>;
+      const changed = Object.entries(after.mask).filter(([k, v]) => !same(old[k], v));
+      const [k, v] = changed[0] ?? [];
+      const value = changed.length === 1 && k !== 'drawn' ? formatValue(v) : null;
+      parts.push(
+        changed.length === 1
+          ? `mask ${k === 'drawn' ? 'shapes' : words(k!)}${value === null ? '' : ` ${value}`}`
+          : 'mask',
+      );
+    }
+  }
   return { label: parts.length ? `${title}: ${parts.join(', ')}` : title, moduleId: m.id, structural: false };
 }
 
@@ -80,15 +101,14 @@ export function describeChange(before: EditParams, after: EditParams): Change {
   const next = new Map(after.modules.map((m) => [m.id, m]));
   const ids = [...new Set([...prev.keys(), ...next.keys()])].filter((id) => !same(prev.get(id), next.get(id)));
   if (ids.length === 0 && !same(before.shapes, after.shapes)) {
-    // Only shapes changed: they belong to the retouch instance whose spots use them.
+    // Only shapes changed: they belong to the instance whose spots or mask use them.
     const changed = Object.keys({ ...before.shapes, ...after.shapes }).filter(
       (id) => !same(before.shapes?.[id], after.shapes?.[id]),
     );
-    const owner = after.modules.find(
-      (m) => m.kind === 'retouch' && m.params.spots.some((s) => changed.includes(s.shape)),
-    );
+    const owner = after.modules.find((m) => shapeRefs([m]).some((id) => changed.includes(id)));
     const title = owner ? instanceTitle(after, owner) : MODULE_TITLES.retouch;
-    return { label: `${title}: spot edited`, moduleId: owner?.id ?? null, structural: false };
+    const what = owner && owner.kind !== 'retouch' ? 'mask shape' : 'spot';
+    return { label: `${title}: ${what} edited`, moduleId: owner?.id ?? null, structural: false };
   }
   if (ids.length === 0) {
     // Same instances: at most their order changed.

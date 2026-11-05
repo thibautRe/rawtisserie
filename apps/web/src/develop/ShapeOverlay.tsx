@@ -5,10 +5,12 @@ import {
   type Point,
   type SensorMapping,
   type Shape,
-  type Spot,
+  addMaskShape,
   addSpot,
   flattenPath,
   fromSensor,
+  maskOf,
+  removeMaskShape,
   removeSpot,
   shapeCenter,
   shapeOutline,
@@ -21,7 +23,48 @@ import {
 } from '@rawtisserie/pipeline';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
-import { CLICK_RADIUS_PX, type RetouchUi, defaultSource, displayScale, round } from './retouch.ts';
+import { CLICK_RADIUS_PX, type ShapeUi, defaultSource, displayScale, round } from './retouch.ts';
+
+/** One of the edited shapes: a retouch spot (with its source, for heal and clone) or a mask's drawn part. */
+interface Item {
+  shape: string;
+  source?: [number, number];
+}
+
+/** What the overlay edits: the spots of a retouch instance, or the drawn part of an instance's mask. */
+interface Target {
+  /** For history labels. */
+  noun: string;
+  items: (p: EditParams) => Item[];
+  /** `p` with a new item of `shape`, whose half size around `center` is `extent`. */
+  add: (p: EditParams, shape: Shape, center: Point, extent: Point) => EditParams;
+  remove: (p: EditParams, index: number) => EditParams;
+  setSource: (p: EditParams, index: number, source: [number, number]) => EditParams;
+}
+
+function target(ui: ShapeUi): Target {
+  if (ui.target === 'mask') {
+    return {
+      noun: 'mask shape',
+      items: (p) => (maskOf(p, ui.instance)?.drawn ?? []).map((d) => ({ shape: d.shape })),
+      add: (p, shape) => addMaskShape(p, ui.kind, ui.instance, shape, ui.maskOp)[0],
+      remove: (p, i) => removeMaskShape(p, ui.kind, ui.instance, i),
+      setSource: (p) => p,
+    };
+  }
+  return {
+    noun: 'spot',
+    items: (p) =>
+      spotsOf(p, ui.instance).map((s) => ({
+        shape: s.shape,
+        source: s.mode === 'heal' || s.mode === 'clone' ? s.source : undefined,
+      })),
+    add: (p, shape, center, extent) =>
+      addSpot(p, ui.instance, shape, { mode: ui.mode, source: defaultSource(center, extent) })[0],
+    remove: (p, i) => removeSpot(p, ui.instance, i),
+    setSource: (p, i, source) => updateSpot(p, ui.instance, i, { source }),
+  };
+}
 
 interface Props {
   params: EditParams;
@@ -31,8 +74,8 @@ interface Props {
   height: number;
   /** Screen pixels per CSS pixel of the fitted image (the zoom). */
   zoom: number;
-  ui: RetouchUi;
-  onUi: (patch: Partial<RetouchUi>) => void;
+  ui: ShapeUi;
+  onUi: (patch: Partial<ShapeUi>) => void;
   onChange: (p: EditParams) => void;
   /** Commit a change as its own history entry. */
   onCommit: (p: EditParams, label: string) => void;
@@ -55,6 +98,8 @@ type Drag =
       moved: boolean;
     }
   | { kind: 'create'; ellipse: boolean; base: EditParams; start: Point; moved: boolean; result: EditParams | null }
+  /** A gradient, from where it applies fully (`start`) to where it doesn't. */
+  | { kind: 'gradient'; base: EditParams; start: Point; moved: boolean; result: EditParams | null }
   | { kind: 'brush'; base: EditParams; points: BrushPoint[]; result: EditParams | null }
   /** Pulling the control points out of the path draft's last node. */
   | { kind: 'node'; start: Point; moved: boolean };
@@ -69,11 +114,12 @@ const CLOSE_PX = 8;
 const r6 = (p: Point): Point => [round(p[0]), round(p[1])];
 
 /**
- * Retouch spots drawn over the image, in the (zoomed) stage: each spot's shape, its
- * source for heal and clone, and handles on the selected one. Shapes are in sensor
- * coordinates and go through the frame's `mapping`, so they follow the crop, rotation
- * and lens correction. The shape tools add spots: a click or drag (circle, ellipse), a
- * stroke (brush), or nodes clicked in turn (path, closed on its first node or Enter).
+ * Retouch spots or mask shapes drawn over the image, in the (zoomed) stage: each shape,
+ * a spot's source for heal and clone, and handles on the selected one. Shapes are in
+ * sensor coordinates and go through the frame's `mapping`, so they follow the crop,
+ * rotation and lens correction. The shape tools add shapes: a click or drag (circle,
+ * ellipse, gradient), a stroke (brush), or nodes clicked in turn (path, closed on its
+ * first node or Enter).
  *
  * Lines and handles keep their size on screen: the stage is zoomed with a CSS transform,
  * which `vector-effect` doesn't undo, so their sizes are divided by the zoom.
@@ -114,8 +160,10 @@ export function ShapeOverlay(props: Props) {
   const title = () => {
     const { params, ui } = latest.current;
     const m = params.modules.find((x) => x.id === ui.instance);
-    return m ? instanceTitle(params, m) : MODULE_TITLES.retouch;
+    return m ? instanceTitle(params, m) : MODULE_TITLES[ui.kind];
   };
+  /** What is edited, as the overlay's props say now. */
+  const edited = () => target(latest.current.ui);
   /** An SVG path through sensor points. A single point (a brush dot) is a zero-length
    * segment, which round caps draw as a dot; a lone `M` would draw nothing. */
   const line = (points: Point[], closed: boolean): string =>
@@ -188,15 +236,10 @@ export function ShapeOverlay(props: Props) {
     return shape;
   };
 
-  /** Default spot settings for a new spot of half size `extent` around `center`. */
-  const newSpot = (center: Point, extent: Point): Partial<Spot> => ({
-    mode: latest.current.ui.mode,
-    source: defaultSource(center, extent),
-  });
-
   const commitNew = (recipe: EditParams) => {
-    latest.current.onCommit(recipe, `${title()}: spot added`);
-    latest.current.onUi({ selected: spotsOf(recipe, latest.current.ui.instance).length - 1 });
+    const t = edited();
+    latest.current.onCommit(recipe, `${title()}: ${t.noun} added`);
+    latest.current.onUi({ selected: t.items(recipe).length - 1 });
   };
 
   const closePath = () => {
@@ -212,13 +255,7 @@ export function ShapeOverlay(props: Props) {
     const xs = nodes.map((n) => n[0]);
     const ys = nodes.map((n) => n[1]);
     const extent: Point = [(Math.max(...xs) - Math.min(...xs)) / 2, (Math.max(...ys) - Math.min(...ys)) / 2];
-    const [recipe] = addSpot(
-      latest.current.params,
-      latest.current.ui.instance,
-      shape,
-      newSpot(shapeCenter(shape), extent),
-    );
-    commitNew(recipe);
+    commitNew(edited().add(latest.current.params, shape, shapeCenter(shape), extent));
   };
 
   // ── Pointer ──
@@ -257,6 +294,8 @@ export function ShapeOverlay(props: Props) {
     const base = latest.current.params;
     if (tool === 'circle' || tool === 'ellipse') {
       drag.current = { kind: 'create', ellipse: tool === 'ellipse', base, start: p, moved: false, result: null };
+    } else if (tool === 'gradient') {
+      drag.current = { kind: 'gradient', base, start: p, moved: false, result: null };
     } else if (tool === 'brush') {
       const { brushSize, brushHardness } = latest.current.ui;
       const point: BrushPoint = [p[0], p[1], lengthOf(brushSize, p), brushHardness];
@@ -282,14 +321,9 @@ export function ShapeOverlay(props: Props) {
     const { onChange } = latest.current;
     if (d.kind === 'brush') {
       const shape: Shape = { type: 'brush', points: d.points, opacity: 1 };
-      const [recipe] = addSpot(
-        d.base,
-        latest.current.ui.instance,
-        shape,
-        newSpot(shapeCenter(shape), [d.points[0]![2], d.points[0]![2]]),
-      );
-      d.result = recipe;
-      return onChange(recipe);
+      const r = d.points[0]![2];
+      d.result = edited().add(d.base, shape, shapeCenter(shape), [r, r]);
+      return onChange(d.result);
     }
     if (!p) return;
     if (d.kind === 'node') {
@@ -308,13 +342,17 @@ export function ShapeOverlay(props: Props) {
       d.result = create(d.base, d.start, r, d.ellipse);
       return onChange(d.result);
     }
+    if (d.kind === 'gradient') {
+      d.result = gradient(d.base, d.start, p);
+      return onChange(d.result);
+    }
     if (d.kind === 'move') {
       const shape = translateShape(d.shape, p[0] - d.start[0], p[1] - d.start[1]);
       return onChange(updateShape(d.base, d.id, roundShape(shape)));
     }
     if (d.kind === 'source') {
       const source: [number, number] = [round(d.source[0] + p[0] - d.start[0]), round(d.source[1] + p[1] - d.start[1])];
-      return onChange(updateSpot(d.base, latest.current.ui.instance, d.index, { source }));
+      return onChange(edited().setSource(d.base, d.index, source));
     }
     if (d.kind === 'handle') return onChange(updateShape(d.base, d.id, withHandle(d.shape, d.handle, p, d.free)));
   };
@@ -331,7 +369,31 @@ export function ShapeOverlay(props: Props) {
       opacity: 1,
     };
     const extent: Point = [(r * 1.25 * unit) / m.width, (r * 1.25 * unit) / m.height];
-    return addSpot(base, latest.current.ui.instance, shape, newSpot(center, extent))[0];
+    return edited().add(base, shape, center, extent);
+  };
+
+  /**
+   * A new gradient that applies fully at sensor point `from` and not at all at `to`;
+   * without `to` (a click), one rising towards the top of the screen over 150 px.
+   */
+  const gradient = (base: EditParams, from: Point, to?: Point): EditParams => {
+    if (!to) {
+      const [x, y] = disp(from);
+      const below = toSensor(latest.current.mapping, x / width, (y + 75 / zoom) / height);
+      const above = toSensor(latest.current.mapping, x / width, (y - 75 / zoom) / height);
+      return gradient(base, above, below);
+    }
+    // In sensor length units, pointing towards `from`.
+    const [dx, dy] = [((from[0] - to[0]) * m.width) / unit, ((from[1] - to[1]) * m.height) / unit];
+    const anchor: Point = r6([(from[0] + to[0]) / 2, (from[1] + to[1]) / 2]);
+    const shape: Shape = {
+      type: 'gradient',
+      anchor,
+      angle: round(Math.atan2(dy, dx)),
+      feather: round(Math.max(1e-3, Math.hypot(dx, dy))),
+      opacity: 1,
+    };
+    return edited().add(base, shape, anchor, [0, 0]);
   };
 
   const onMove = (e: React.PointerEvent) => {
@@ -372,6 +434,8 @@ export function ShapeOverlay(props: Props) {
         const recipe = d.result ?? create(d.base, d.start, lengthOf(CLICK_RADIUS_PX, d.start), d.ellipse);
         return commitNew(recipe);
       }
+      case 'gradient':
+        return commitNew(d.result ?? gradient(d.base, d.start));
       case 'brush': {
         const points = simplifyStroke(d.points, 0.5, [m.width, m.height]).map(
           ([x, y, r, h]) => [round(x), round(y), round(r), h] as BrushPoint,
@@ -383,7 +447,7 @@ export function ShapeOverlay(props: Props) {
           (Math.max(...xs) - Math.min(...xs)) / 2 + (points[0]![2] * unit) / m.width,
           (Math.max(...ys) - Math.min(...ys)) / 2 + (points[0]![2] * unit) / m.height,
         ];
-        return commitNew(addSpot(d.base, latest.current.ui.instance, shape, newSpot(shapeCenter(shape), extent))[0]);
+        return commitNew(edited().add(d.base, shape, shapeCenter(shape), extent));
       }
       case 'node':
         return;
@@ -391,14 +455,15 @@ export function ShapeOverlay(props: Props) {
         if (!d.moved) return;
         return onCommit(
           updateShape(d.base, d.id, roundShape(translateShape(d.shape, p[0] - d.start[0], p[1] - d.start[1]))),
-          `${title()}: spot moved`,
+          `${title()}: ${edited().noun} moved`,
         );
       case 'source':
         if (!d.moved) return;
         return onCommit(
-          updateSpot(d.base, latest.current.ui.instance, d.index, {
-            source: [round(d.source[0] + p[0] - d.start[0]), round(d.source[1] + p[1] - d.start[1])],
-          }),
+          edited().setSource(d.base, d.index, [
+            round(d.source[0] + p[0] - d.start[0]),
+            round(d.source[1] + p[1] - d.start[1]),
+          ]),
           `${title()}: source moved`,
         );
       case 'handle': {
@@ -407,7 +472,7 @@ export function ShapeOverlay(props: Props) {
         const word = typeof d.handle === 'object' ? 'path edited' : words[d.handle];
         return onCommit(
           updateShape(d.base, d.id, withHandle(d.shape, d.handle, p, d.free)),
-          `${title()}: spot ${word}`,
+          `${title()}: ${edited().noun} ${word}`,
         );
       }
     }
@@ -418,14 +483,15 @@ export function ShapeOverlay(props: Props) {
     const down = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
       const { ui, params, onUi, onCommit } = latest.current;
-      const selected = ui.selected !== null && ui.selected < spotsOf(params, ui.instance).length ? ui.selected : null;
+      const t = target(ui);
+      const selected = ui.selected !== null && ui.selected < t.items(params).length ? ui.selected : null;
       if (e.key === 'Escape') {
         if (draftRef.current) setDraft(null);
         else if (ui.tool !== 'select') onUi({ tool: 'select' });
         else if (selected !== null) onUi({ selected: null });
         else onUi({ editing: false });
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected !== null) {
-        onCommit(removeSpot(params, ui.instance, selected), `${title()}: spot removed`);
+        onCommit(t.remove(params, selected), `${title()}: ${t.noun} removed`);
         onUi({ selected: null });
       } else if (e.key === 'Enter' && draftRef.current) {
         closePath();
@@ -445,8 +511,8 @@ export function ShapeOverlay(props: Props) {
 
   // ── Drawing ──
 
-  const spots = spotsOf(params, ui.instance);
-  const selected = ui.selected !== null && ui.selected < spots.length ? ui.selected : null;
+  const items = target(ui).items(params);
+  const selected = ui.selected !== null && ui.selected < items.length ? ui.selected : null;
   const hit = HIT_PX / zoom;
   const handleR = HANDLE_PX / zoom;
   const noPan = { 'data-no-pan': '' };
@@ -546,16 +612,14 @@ export function ShapeOverlay(props: Props) {
     </g>
   );
 
-  const drawSpot = (spot: Spot, index: number) => {
-    const shape = params.shapes?.[spot.shape];
+  const drawItem = (item: Item, index: number) => {
+    const shape = params.shapes?.[item.shape];
     if (!shape) return null;
     const isSelected = index === selected;
     const color = isSelected ? ORANGE : 'white';
     const o = shapeOutline(shape, sensor);
     const edges = o.edge.map((l) => line(l, o.closed));
-    const hasSource = spot.mode === 'heal' || spot.mode === 'clone';
-    const [dx, dy] = spot.source;
-    const sourceShape = hasSource ? translateShape(shape, dx, dy) : null;
+    const sourceShape = item.source ? translateShape(shape, item.source[0], item.source[1]) : null;
     const so = sourceShape && shapeOutline(sourceShape, sensor);
     const brushWidth =
       shape.type === 'brush' && shape.points.length
@@ -604,7 +668,7 @@ export function ShapeOverlay(props: Props) {
             {so.edge.map((l, i) => outline(`source${i}`, line(l, so.closed), color, true))}
             {so.edge.map((l, i) => (
               <g key={`source-hit${i}`}>
-                {catcher(line(l, so.closed), startSource(index, spot.source), 'move', Math.max(hit, brushWidth))}
+                {catcher(line(l, so.closed), startSource(index, item.source!), 'move', Math.max(hit, brushWidth))}
               </g>
             ))}
           </>
@@ -624,9 +688,9 @@ export function ShapeOverlay(props: Props) {
         {edges.map((d, i) => outline(`edge${i}`, d, color))}
         {o.feather.map((l, i) => outline(`feather${i}`, line(l, o.closed), color, true))}
         {edges.map((d, i) => (
-          <g key={`hit${i}`}>{catcher(d, startMove(index, spot.shape, shape), 'move', Math.max(hit, brushWidth))}</g>
+          <g key={`hit${i}`}>{catcher(d, startMove(index, item.shape, shape), 'move', Math.max(hit, brushWidth))}</g>
         ))}
-        {isSelected && handles(spot.shape, shape)}
+        {isSelected && handles(item.shape, shape)}
       </g>
     );
   };
@@ -653,7 +717,7 @@ export function ShapeOverlay(props: Props) {
       onPointerUp={onUp}
       onPointerCancel={onUp}
     >
-      {spots.map(drawSpot)}
+      {items.map(drawItem)}
       {draft && (
         <g style={{ pointerEvents: 'none' }}>
           {draftLine && outline('draft', draftLine, ORANGE, true)}

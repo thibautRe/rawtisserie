@@ -1,43 +1,65 @@
 /**
- * Retouch editing in the developer: the state of the shape tools (shared by the module
- * panel and the overlay on the image), and the helpers behind them.
+ * Shape editing in the developer (retouch spots and mask shapes): the state of the shape
+ * tools (shared by the module panel and the overlay on the image), and the helpers
+ * behind them.
  */
 import {
+  type ModuleKind,
   type Point,
   REC2020_FROM_REC709,
   REC709_FROM_REC2020,
   type SensorMapping,
+  type ShapeOp,
   type SpotMode,
   fromSensor,
 } from '@rawtisserie/pipeline';
+import type { MaskView } from './protocol.ts';
 
-/** `select` edits existing spots; the others also add one with each click or stroke. */
-export type ShapeTool = 'select' | 'circle' | 'ellipse' | 'path' | 'brush';
+/** `select` edits existing shapes; the others also add one with each click, drag or stroke. */
+export type ShapeTool = 'select' | 'circle' | 'ellipse' | 'gradient' | 'path' | 'brush';
 
-export interface RetouchUi {
-  /** Spots are shown on the image and can be edited there. */
+/** Whose shapes the overlay edits: a retouch instance's spots, or an instance's mask. */
+export type ShapeTarget = 'retouch' | 'mask';
+
+export interface ShapeUi {
+  /** Shapes are shown on the image and can be edited there. */
   editing: boolean;
-  /** The retouch instance whose spots are shown and edited (it may not exist yet). */
+  target: ShapeTarget;
+  /** The instance whose spots or mask are shown and edited (it may not exist yet). */
   instance: string;
+  /** Its kind. */
+  kind: ModuleKind;
   tool: ShapeTool;
   /** How new spots fill their shape. */
   mode: SpotMode;
+  /** How new mask shapes combine with the others. */
+  maskOp: ShapeOp;
   /** Brush radius in CSS pixels on screen, and the solid share of it (0 … 1). */
   brushSize: number;
   brushHardness: number;
-  /** Index of the selected spot. */
+  /** Index of the selected spot or mask shape. */
   selected: number | null;
+  /** The instance whose mask is shown over the image, and what of it. */
+  maskOverlay: ({ id: string } & MaskView) | null;
 }
 
-export const DEFAULT_RETOUCH_UI: RetouchUi = {
+export const DEFAULT_SHAPE_UI: ShapeUi = {
   editing: false,
+  target: 'retouch',
   instance: 'retouch',
+  kind: 'retouch',
   tool: 'select',
   mode: 'heal',
+  maskOp: 'union',
   brushSize: 20,
   brushHardness: 0.6,
   selected: null,
+  maskOverlay: null,
 };
+
+/** Whether the overlay is editing the spots of retouch instance `id`, or the mask of instance `id`. */
+export const isEditing = (ui: ShapeUi, target: ShapeTarget, id: string) =>
+  ui.editing && ui.target === target && ui.instance === id;
 
 /** Radius of a spot placed with a click (no drag), in CSS pixels on screen. */
 export const CLICK_RADIUS_PX = 16;

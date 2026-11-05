@@ -52,6 +52,7 @@ at the end.
 RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
     ─▶ retouch spots (heal, clone, fill, blur), in place on the base        cached: with the base
     ─▶ geometry (lens, orientation, straighten, crop, resample)             cached: per output size
+       └ drawn parts of masks, through the same geometry, feathered          cached: per output size
     ─▶ blur ─▶ sharpen ─▶ contrast equalizer                                cached: per output size
     ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ shadows/highlights
     ─▶ colour primaries ─▶ filmic (AgX) ─▶ sRGB                             one fused pass, always re-run
@@ -96,11 +97,11 @@ updates per second) and fails over budget. It needs `npm run build:wasm`,
 
 Edit parameters are a versioned JSON recipe (`crates/pipeline/src/params.rs`, mirrored
 in `packages/pipeline/src/params.ts`): a list of module instances
-(`{ id, label, enabled, kind, params }`). The pipeline order is fixed by module kind, and
+(`{ id, label, enabled, kind, params, mask? }`). The pipeline order is fixed by module kind, and
 instances of the same kind run in list order. Every field has a default, and older
 recipes (one section per module) are migrated when they're read. Drawn shapes (ellipses,
 gradients, Bézier paths, brush strokes) sit next to the modules in `shapes`, by id, and
-retouch spots refer to them (`crates/pipeline/src/shapes.rs` ↔
+retouch spots and masks refer to them (`crates/pipeline/src/shapes.rs` ↔
 `packages/pipeline/src/shapes.ts`).
 
 ## Getting started
@@ -219,6 +220,24 @@ the mean change per pixel rather than Ansel's total; deviations are listed in th
 In the developer, the spots are drawn over the image (`develop/ShapeOverlay.tsx`) through
 the frame's sensor mapping, which the pipeline worker sends with each render.
 
+### Masks
+
+Any module before filmic (except retouch, lens and geometry) can have a mask
+(`ops/mask.rs`): drawn shapes combined with union, intersection, difference or
+exclusion, times smooth ranges of luminance, saturation, hue and each RGB channel measured on the
+module's input, feathered (a guided filter that follows the image's edges, or a blur),
+then inverted and scaled by an opacity. The drawn part only depends on the shapes and
+the geometry, so it is rasterised in the sensor frame, resampled with the image and
+cached with the spatial stages; the pool workers get it with their strip. Without a
+feather, the ranges are evaluated per pixel in the fused pass, so a masked colour slider
+costs about as much as an unmasked one. A feathered mask with ranges is computed whole
+with the spatial stages instead, on the module's input: edits before it then re-render
+like spatial edits. Spatial modules blend their output through the mask.
+The editor shows a mask (or one of its ranges alone) in yellow over the image, and can
+paint the module's input as luminance, saturation, hue or one channel in the colours of the range
+sliders' tracks, to see how the image is laid out along each. It edits a mask's shapes
+with the same overlay as retouch.
+
 ## Keyboard shortcuts
 
 **Library**: `0`–`5` rate · `P` pick · `X` reject · `U` unflag · `6`–`9` colour labels ·
@@ -228,8 +247,8 @@ the original) · Delete deletes · Esc clears.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
 colour-assessment frame · hold `\` to compare with the unedited image · `C` crop
-(Enter applies, Esc cancels) · retouch: Delete removes the selected spot, Enter closes a
-path, Esc cancels a path, then leaves the tool, the selection and the spots' overlay ·
+(Enter applies, Esc cancels) · retouch and masks: Delete removes the selected spot or
+shape, Enter closes a path, Esc cancels a path, then leaves the tool, the selection and the shapes' overlay ·
 Esc closes an open menu, otherwise goes back to the library · double-click a slider to reset it · click its number to type a value · typed
 values can go past a slider's usual range · drags and arrows take Shift ×10 and Ctrl/⌘ ×0.1.
 
@@ -251,9 +270,10 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
   luminance is edited, about twice that with colour. It re-runs on curve edits; caching
   the bands would make those cheap but costs ~60 MB per megapixel. Zoomed in at 100 %,
   its margin makes the first render of a view take about a second in the browser.
-- Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise, masks or XMP sidecar import/export yet.
-- Retouch has no wavelet scales, automatic source search or "visualise spots" view yet,
-  and the shape editor can't create gradients (masks will need them).
+- Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise or XMP sidecar import/export yet.
+- Retouch has no wavelet scales, automatic source search or "visualise spots" view yet.
+- Masks can't pick their ranges from the image yet, and there are no raster (painted or
+  AI) masks.
 - Storage is local disk; the storage module is small enough to swap for S3-compatible storage.
 
 ## Credits

@@ -3,7 +3,9 @@
 
 use std::time::Instant;
 
-use rawtisserie_pipeline::params::{Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, EditParams, Exposure, Filmic, Geometry, Illuminant, ShadowsHighlights, Sharpen};
+use rawtisserie_pipeline::params::{
+    Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Illuminant, Mask, ShadowsHighlights, Shape, Sharpen,
+};
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
 
@@ -81,11 +83,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     p.get_mut::<Exposure>().ev += 0.1;
     time("exposure slider with equalizer", &mut dev, &p);
 
-    let overlays = Overlays { display: Some(DisplayClipping::default()), sensor: true, stripes: 0.0 };
+    let overlays = Overlays { display: Some(DisplayClipping::default()), sensor: true, stripes: 0.0, ..Default::default() };
     for label in ["clipping indicators (first)", "clipping indicators"] {
         let t = Instant::now();
         let img = dev.render_with_overlays(&p, fit, Quality::Interactive, &overlays);
         println!("{label:<34} {:>7.1} ms  ({}×{})", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
+
+    // Masks: a gradient with an edge-aware feather and a luminance range on a second
+    // exposure, then a saturation boost through an ellipse.
+    p.shapes.insert("sky".into(), Shape::Gradient { anchor: [0.5, 0.4], angle: -1.57, feather: 0.2, opacity: 1.0 });
+    p.shapes.insert("spot".into(), Shape::Ellipse { center: [0.5, 0.55], radii: [0.2, 0.15], rotation: 0.0, feather: 0.03, opacity: 1.0 });
+    let sky = p.add(Exposure { ev: -1.0, black: 0.0 });
+    p.modules[sky].mask = Some(Mask { drawn: vec![DrawnShape { shape: "sky".into(), ..Default::default() }], luminance: Some([-1.0, 0.0, 8.0, 10.0]), feather: 40.0, ..Mask::default() });
+    time("mask added (drawn, guided)", &mut dev, &p);
+    for _ in 0..3 {
+        if let rawtisserie_pipeline::params::Module::Exposure(e) = &mut p.modules[sky].module {
+            e.ev -= 0.1;
+        }
+        time("masked exposure slider", &mut dev, &p);
+    }
+    for _ in 0..2 {
+        p.modules[sky].mask.as_mut().unwrap().luminance.as_mut().unwrap()[1] += 0.1;
+        time("mask range slider", &mut dev, &p);
+    }
+    let i = p.add(Color { saturation: 0.5, vibrance: 0.0 });
+    p.modules[i].mask = Some(Mask { drawn: vec![DrawnShape { shape: "spot".into(), ..Default::default() }], ..Mask::default() });
+    time("second mask added", &mut dev, &p);
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider with 2 masks", &mut dev, &p);
+    for _ in 0..2 {
+        if let Some(Shape::Ellipse { center, .. }) = p.shapes.get_mut("spot") {
+            center[0] += 0.01;
+        }
+        time("mask shape moved", &mut dev, &p);
     }
 
     // Zoomed in: a 1300×900 view at 70 % and 100 %, panned a little then a lot.

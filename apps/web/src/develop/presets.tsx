@@ -20,6 +20,7 @@ import {
 import {
   BUILTIN_PRESETS,
   type EditParams,
+  type Mask,
   type ModuleKind,
   type ModuleParams,
   type Shape,
@@ -338,6 +339,7 @@ export function SavePresetDialog({
   kind,
   title,
   params,
+  mask,
   shapes,
   existing,
   onClose,
@@ -347,7 +349,9 @@ export function SavePresetDialog({
   /** The instance's title. */
   title: string;
   params: ModuleParams[ModuleKind];
-  /** The recipe's shapes: the preset keeps those `params` use (retouch spots). */
+  /** The instance's mask, which the preset can include. */
+  mask: Mask | undefined;
+  /** The recipe's shapes: the preset keeps those `params` (and the mask) use. */
   shapes: Record<string, Shape> | undefined;
   existing: readonly ModulePreset[];
   onClose: () => void;
@@ -356,6 +360,8 @@ export function SavePresetDialog({
   const groups = groupsOf(kind);
   const [name, setName] = useState('');
   const [selected, setSelected] = useState(() => groups.map(([g]) => g));
+  // Off by default: ranges travel well between photos, drawn shapes rarely.
+  const [withMask, setWithMask] = useState(false);
   const trimmed = name.trim();
   const taken = existing.some((p) => !p.builtIn && p.name === trimmed);
   return (
@@ -370,11 +376,22 @@ export function SavePresetDialog({
           type: 'module',
           moduleKind: kind,
           name: trimmed,
-          payload: modulePresetPayload(kind, params, shapes, groups.length ? selected : undefined),
+          payload: modulePresetPayload(
+            kind,
+            params,
+            shapes,
+            groups.length ? selected : undefined,
+            withMask ? mask : undefined,
+          ),
         })
       }
     >
       <NameField value={name} onChange={setName} taken={taken} />
+      {mask && (
+        <CheckItem checked={withMask} onChange={setWithMask}>
+          Include the mask{mask.drawn.length ? ' (its shapes stay where they are on the sensor)' : ''}
+        </CheckItem>
+      )}
       {groups.length > 0 && (
         <Stack gap="2">
           <Text textStyle="xs" color="fg.muted">

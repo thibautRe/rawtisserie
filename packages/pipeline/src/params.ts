@@ -246,6 +246,85 @@ export const MODULE_KINDS = [
 /** Kinds whose extra instances are dropped on load. */
 export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry', 'filmic'];
 
+/** Kinds whose instances can have a mask: the spatial and point modules before filmic. Mirrors `ModuleKind::maskable`. */
+export const MASKABLE_KINDS: readonly ModuleKind[] = [
+  'blur',
+  'sharpen',
+  'contrastEqualizer',
+  'exposure',
+  'colorCalibration',
+  'color',
+  'shadowsHighlights',
+  'colorPrimaries',
+];
+
+export const SHAPE_OPS = ['union', 'intersection', 'difference', 'exclusion'] as const;
+/**
+ * How a drawn shape combines with what the shapes before it give (`a`, with the shape's
+ * alpha `b`): union `max(a, b)`, intersection `a·b`, difference `a·(1 − b)`, exclusion
+ * `a + b − 2ab`.
+ */
+export type ShapeOp = (typeof SHAPE_OPS)[number];
+
+/** A shape of a mask's drawn part. */
+export interface DrawnShape {
+  /** Id of the shape in `EditParams.shapes`. */
+  shape: string;
+  /** Ignored for the first shape. */
+  op: ShapeOp;
+}
+
+/** A feathered range `[a, b, c, d]`: 0 below `a`, rising to 1 at `b`, 1 up to `c`, falling to 0 at `d`. */
+export type MaskRange = [number, number, number, number];
+
+/**
+ * Where a module instance applies (roadmap 4.5), 0 … 1 per pixel: the drawn part
+ * (shapes) times the parametric part (ranges measured on the module's input), feathered,
+ * inverted if asked, times `opacity`. Mirrors `params::Mask`; see `ops/mask.rs`.
+ */
+export interface Mask {
+  /** Off, the instance applies everywhere. */
+  enabled: boolean;
+  /** Shapes of the recipe, combined in order (none: the drawn part is 1 everywhere). */
+  drawn: DrawnShape[];
+  /** Luminance, EV relative to middle grey; null selects everything. */
+  luminance: MaskRange | null;
+  /** Saturation: distance from white in CIE u′v′ ×13 (skin ≈ 0.5–0.7, a blue sky ≈ 1, greys 0). */
+  saturation: MaskRange | null;
+  /** Hue, degrees around white in u′v′ (red ≈ 12, yellow ≈ 86, green ≈ 128, blue ≈ 266); wraps around. */
+  hue: MaskRange | null;
+  /** Each channel of the working space (linear Rec.2020), EV relative to middle grey. */
+  red: MaskRange | null;
+  green: MaskRange | null;
+  blue: MaskRange | null;
+  /**
+   * Softens the mask's edges, full-resolution pixels. With ranges, the whole mask is
+   * computed with the spatial stages, so its ranges and the point modules before it
+   * re-render like spatial edits.
+   */
+  feather: number;
+  /** Feathering follows the image's edges (guided filter) rather than a blur. */
+  edgeAware: boolean;
+  invert: boolean;
+  /** 0 … 1. */
+  opacity: number;
+}
+
+export const defaultMask: Readonly<Mask> = Object.freeze<Mask>({
+  enabled: true,
+  drawn: [],
+  luminance: null,
+  saturation: null,
+  hue: null,
+  red: null,
+  green: null,
+  blue: null,
+  feather: 0,
+  edgeAware: true,
+  invert: false,
+  opacity: 1,
+});
+
 export type ModuleInstance<K extends ModuleKind = ModuleKind> = {
   [P in K]: {
     /** Unique within the recipe; stable across edits. */
@@ -255,6 +334,8 @@ export type ModuleInstance<K extends ModuleKind = ModuleKind> = {
     enabled: boolean;
     kind: P;
     params: ModuleParams[P];
+    /** Where it applies (maskable kinds only); absent: everywhere. */
+    mask?: Mask;
   };
 }[K];
 
@@ -263,8 +344,8 @@ export interface EditParams {
   /** In pipeline order. */
   modules: ModuleInstance[];
   /**
-   * Drawn shapes by id (`shapes.ts`), referenced by retouch spots. Only referenced
-   * ones are kept, sorted by id; absent when there are none (as in Rust's JSON).
+   * Drawn shapes by id (`shapes.ts`), referenced by retouch spots and masks. Only
+   * referenced ones are kept, sorted by id; absent when there are none (as in Rust's JSON).
    */
   shapes?: Record<string, Shape>;
 }
@@ -415,15 +496,45 @@ function v3Modules(raw: Record<string, unknown>): ModuleInstance[] {
   const modules: ModuleInstance[] = [];
   for (const m of Array.isArray(raw.modules) ? raw.modules : []) {
     if (!isObject(m) || !isKind(m.kind)) continue;
-    modules.push({
+    const instance = {
       id: typeof m.id === 'string' ? m.id : '',
       label: typeof m.label === 'string' ? m.label : null,
       enabled: typeof m.enabled === 'boolean' ? m.enabled : true,
       kind: m.kind,
       params: moduleParams(m.kind, m.params),
-    } as ModuleInstance);
+    } as ModuleInstance;
+    if (isObject(m.mask)) instance.mask = maskParams(m.mask);
+    modules.push(instance);
   }
   return modules;
+}
+
+/** A mask from untrusted input: missing or invalid fields get their defaults (Rust refuses those). */
+export function maskParams(input: unknown): Mask {
+  const p = isObject(input) ? input : {};
+  const range = (v: unknown): MaskRange | null =>
+    Array.isArray(v) && v.length === 4 && v.every((x) => typeof x === 'number' && Number.isFinite(x))
+      ? ([...v] as MaskRange)
+      : null;
+  const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+  const drawn = (Array.isArray(p.drawn) ? p.drawn : []).filter(isObject).map((d): DrawnShape => ({
+    shape: typeof d.shape === 'string' ? d.shape : '',
+    op: SHAPE_OPS.includes(d.op as ShapeOp) ? (d.op as ShapeOp) : 'union',
+  }));
+  return {
+    enabled: typeof p.enabled === 'boolean' ? p.enabled : defaultMask.enabled,
+    drawn,
+    luminance: range(p.luminance),
+    saturation: range(p.saturation),
+    hue: range(p.hue),
+    red: range(p.red),
+    green: range(p.green),
+    blue: range(p.blue),
+    feather: num(p.feather, defaultMask.feather),
+    edgeAware: typeof p.edgeAware === 'boolean' ? p.edgeAware : defaultMask.edgeAware,
+    invert: typeof p.invert === 'boolean' ? p.invert : defaultMask.invert,
+    opacity: num(p.opacity, defaultMask.opacity),
+  };
 }
 
 /**
@@ -559,8 +670,9 @@ export function spotParams(input: unknown): Spot {
 }
 
 /**
- * Unique non-empty ids, one instance of single-instance kinds, pipeline order, no spots
- * without their shape and no shapes that nothing uses. Mirrors `EditParams::normalize`.
+ * Unique non-empty ids, one instance of single-instance kinds, pipeline order, masks only
+ * on maskable kinds, no spots or drawn mask parts without their shape, and no shapes that
+ * nothing uses. Mirrors `EditParams::normalize`.
  */
 function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}): EditParams {
   const seen = new Set<ModuleKind>();
@@ -577,9 +689,17 @@ function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}):
     ids.add(modules[i]!.id);
   }
 
+  const exists = (id: string) => (id in shapes ? id : null);
   for (const [i, m] of modules.entries()) {
-    const params = mapShapeRefs(m.kind, m.params, (id) => (id in shapes ? id : null));
+    const params = mapShapeRefs(m.kind, m.params, exists);
     if (params !== m.params) modules[i] = { ...m, params } as ModuleInstance;
+    if (m.mask && !MASKABLE_KINDS.includes(m.kind)) {
+      const { mask: _, ...rest } = modules[i]!;
+      modules[i] = rest as ModuleInstance;
+    } else if (m.mask) {
+      const mask = mapMaskShapeRefs(m.mask, exists);
+      if (mask !== m.mask) modules[i] = { ...modules[i]!, mask };
+    }
   }
   const used = new Set(shapeRefs(modules));
   const kept = Object.keys(shapes)
@@ -590,15 +710,33 @@ function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}):
   return params;
 }
 
-/** The ids of the shapes that instances refer to (enabled or not), with repeats. */
+/** The ids of the shapes that instances refer to (enabled or not), with repeats: their parameters', then their mask's. */
 export function shapeRefs(modules: readonly ModuleInstance[]): string[] {
-  return modules.flatMap((m) => paramShapeRefs(m.kind, m.params));
+  return modules.flatMap((m) => [...paramShapeRefs(m.kind, m.params), ...maskShapeRefs(m.mask)]);
+}
+
+/** The ids of the shapes a mask's drawn part uses, with repeats. */
+export function maskShapeRefs(mask: Mask | null | undefined): string[] {
+  return mask ? mask.drawn.map((d) => d.shape) : [];
+}
+
+/** `mask` with each drawn shape `id` replaced by `f(id)`, or dropped if that is null. The same object if nothing changes. */
+export function mapMaskShapeRefs(mask: Mask, f: (id: string) => string | null): Mask {
+  if (mask.drawn.every((d) => f(d.shape) === d.shape)) return mask;
+  return {
+    ...mask,
+    drawn: mask.drawn.flatMap((d) => {
+      const to = f(d.shape);
+      return to === null ? [] : [{ ...d, shape: to }];
+    }),
+  };
 }
 
 /**
  * The ids of the shapes a module's parameters (or some of them, as in a preset) refer
- * to, with repeats. This and `mapShapeRefs` are the only places that know where shape
- * references are: anything new that refers to shapes (masks) goes in both.
+ * to, with repeats. This and `mapShapeRefs` (and `maskShapeRefs`/`mapMaskShapeRefs` for
+ * an instance's mask) are the only places that know where shape references are:
+ * anything new that refers to shapes goes in both.
  */
 export function paramShapeRefs<K extends ModuleKind>(kind: K, params: Partial<ModuleParams[K]>): string[] {
   if (kind === 'retouch') return ((params as Partial<ModuleParams['retouch']>).spots ?? []).map((s) => s.shape);
@@ -725,12 +863,15 @@ export function updateModule<K extends ModuleKind>(
   return updateInstance(params, kind, id, patch);
 }
 
-/** Update one instance immutably, adding it (enabled, with default parameters) after its kind if it isn't there. */
+/**
+ * Update one instance immutably, adding it (enabled, with default parameters) after its
+ * kind if it isn't there. `mask: null` removes its mask (its shapes stay: `withUsedShapes`).
+ */
 export function updateInstance<K extends ModuleKind>(
   params: EditParams,
   kind: K,
   id: string,
-  patch: { enabled?: boolean; label?: string | null; params?: Partial<ModuleParams[K]> },
+  patch: { enabled?: boolean; label?: string | null; params?: Partial<ModuleParams[K]>; mask?: Mask | null },
 ): EditParams {
   const existing = params.modules.find((m) => m.id === id) as ModuleInstance<K> | undefined;
   const base = existing ?? instance(kind, id);
@@ -740,6 +881,8 @@ export function updateInstance<K extends ModuleKind>(
     label: patch.label === undefined ? base.label : patch.label,
     params: { ...base.params, ...patch.params },
   } as ModuleInstance;
+  if (patch.mask === null) delete updated.mask;
+  else if (patch.mask && MASKABLE_KINDS.includes(kind)) updated.mask = patch.mask;
   if (existing) return { ...params, modules: params.modules.map((m) => (m === existing ? updated : m)) };
   const at = params.modules.findLastIndex((m) => rank(m.kind) <= rank(kind)) + 1;
   return { ...params, modules: params.modules.toSpliced(at, 0, updated) };
@@ -807,7 +950,8 @@ export function isModuleModified(params: EditParams, kind: ModuleKind): boolean 
 
 /**
  * Reset one instance. The only instance of its kind goes back to the default recipe
- * (`resetModule`); with several, it keeps its place and label and gets default parameters.
+ * (`resetModule`); with several, it keeps its place and label and gets default parameters
+ * and no mask.
  */
 export function resetInstance(params: EditParams, kind: ModuleKind, id: string): EditParams {
   if (params.modules.filter((m) => m.kind === kind).length <= 1) return resetModule(params, kind);
@@ -815,6 +959,7 @@ export function resetInstance(params: EditParams, kind: ModuleKind, id: string):
     updateInstance(params, kind, id, {
       enabled: true,
       params: instanceDefaults(kind, positionOf(params, kind, id)),
+      mask: null,
     }),
   );
 }
@@ -825,7 +970,9 @@ export function isInstanceModified(params: EditParams, kind: ModuleKind, id: str
   const m = params.modules.find((m) => m.id === id);
   return (
     !!m &&
-    (!m.enabled || JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id))))
+    (!m.enabled ||
+      !!m.mask ||
+      JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id))))
   );
 }
 
@@ -873,11 +1020,11 @@ export function removeSpot(params: EditParams, id: string, index: number): EditP
   return withUsedShapes(updateInstance(params, 'retouch', id, { params: { spots } }));
 }
 
-/** Replace shape `shapeId`, switching on the retouch instances that use it. */
+/** Replace shape `shapeId`, switching on the instances that use it (retouch spots, masks). */
 export function updateShape(params: EditParams, shapeId: string, shape: Shape): EditParams {
   if (!params.shapes?.[shapeId]) return params;
   const modules = params.modules.map((m) =>
-    m.kind === 'retouch' && !m.enabled && m.params.spots.some((s) => s.shape === shapeId) ? { ...m, enabled: true } : m,
+    !m.enabled && shapeRefs([m]).includes(shapeId) ? ({ ...m, enabled: true } as ModuleInstance) : m,
   );
   return { ...params, modules, shapes: { ...params.shapes, [shapeId]: shape } };
 }
@@ -895,4 +1042,49 @@ export function withUsedShapes(params: EditParams): EditParams {
 /** Shapes sorted by id (as Rust's `BTreeMap` serialises them). */
 export function sortedShapes(shapes: Record<string, Shape>): Record<string, Shape> {
   return Object.fromEntries(Object.entries(shapes).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+// ── Masks ──
+// A mask belongs to an instance, by id. Editing it switches the instance on (adding it if
+// it isn't there yet, as editing any module does).
+
+/** The mask of instance `id`, if it has one. */
+export function maskOf(params: EditParams, id: string): Mask | undefined {
+  return params.modules.find((m) => m.id === id)?.mask;
+}
+
+/**
+ * Change the mask of instance `id` (of kind `kind`), giving it one if it has none, and
+ * switch the instance on. Shapes no longer used go.
+ */
+export function updateMask(params: EditParams, kind: ModuleKind, id: string, patch: Partial<Mask>): EditParams {
+  const mask = { ...structuredClone(defaultMask as Mask), ...maskOf(params, id), ...patch };
+  return withUsedShapes(updateInstance(params, kind, id, { enabled: true, mask }));
+}
+
+/** Remove the mask of instance `id`, and its shapes unless something else uses them. */
+export function removeMask(params: EditParams, id: string): EditParams {
+  const m = params.modules.find((x) => x.id === id);
+  if (!m?.mask) return params;
+  return withUsedShapes(updateInstance(params, m.kind, id, { mask: null }));
+}
+
+/** Add a shape to the drawn part of instance `id`'s mask; returns the recipe and the shape's id. */
+export function addMaskShape(
+  params: EditParams,
+  kind: ModuleKind,
+  id: string,
+  shape: Shape,
+  op: ShapeOp = 'union',
+): [EditParams, string] {
+  const shapeId = freshShapeId(Object.keys(params.shapes ?? {}));
+  const drawn = [...(maskOf(params, id)?.drawn ?? []), { shape: shapeId, op }];
+  const withShape = { ...params, shapes: sortedShapes({ ...params.shapes, [shapeId]: shape }) };
+  return [updateMask(withShape, kind, id, { drawn }), shapeId];
+}
+
+/** Remove drawn part `index` of instance `id`'s mask (and its shape, unless something else uses it). */
+export function removeMaskShape(params: EditParams, kind: ModuleKind, id: string, index: number): EditParams {
+  const drawn = (maskOf(params, id)?.drawn ?? []).filter((_, i) => i !== index);
+  return updateMask(params, kind, id, { drawn });
 }

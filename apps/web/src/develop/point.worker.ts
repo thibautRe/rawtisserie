@@ -22,7 +22,14 @@ self.onmessage = async (event: MessageEvent<PointRequest>) => {
     if (msg.type === 'strip') {
       renderer?.free();
       renderer = null;
-      renderer = new PointRenderer(msg.width, msg.height, new Float32Array(msg.pixels), new Float32Array(msg.asShot));
+      renderer = new PointRenderer(
+        msg.width,
+        msg.height,
+        new Float32Array(msg.pixels),
+        new Float32Array(msg.asShot),
+        msg.maskIds,
+        new Float32Array(msg.masks),
+      );
       return;
     }
     if (!renderer) throw new Error('No strip loaded');

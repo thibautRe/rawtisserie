@@ -50,6 +50,7 @@ import {
   xyToCss,
   xyToHueChroma,
   type EditParams,
+  type MaskRange,
   EQUALIZER_CURVES,
   type EqualizerCurve,
   type ModuleInstance,
@@ -63,6 +64,7 @@ import {
   type ModulePreset,
   type ModulePresetPayload,
   SINGLE_INSTANCE_KINDS,
+  MASKABLE_KINDS,
   addInstance,
   applyModulePreset,
   defaultModuleParams,
@@ -79,6 +81,7 @@ import {
   removeSpot,
   updateShape,
   updateSpot,
+  updateMask,
 } from '@rawtisserie/pipeline';
 import {
   ArrowDown,
@@ -86,16 +89,9 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
-  Circle,
   Crop,
-  Egg,
   EllipsisVertical,
-  Eye,
-  EyeOff,
   FlipHorizontal2,
-  MousePointer2,
-  Paintbrush,
-  PenTool,
   Pencil,
   Pipette,
   Plus,
@@ -103,6 +99,7 @@ import {
   RotateCcwSquare,
   RotateCwSquare,
   Trash2,
+  VenetianMask,
   WandSparkles,
 } from 'lucide-react';
 import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
@@ -114,7 +111,10 @@ import type { PresetInput } from '../api/hooks.ts';
 import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
 import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './presets.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
-import { DEFAULT_RETOUCH_UI, type RetouchUi, type ShapeTool, hexToRec2020, rec2020ToHex } from './retouch.ts';
+import { type ShapeUi, hexToRec2020, isEditing, rec2020ToHex } from './retouch.ts';
+import { MaskEditor } from './MaskEditor.tsx';
+import type { RangeKey } from './masks.ts';
+import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
 import type { IlluminantDetection } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { sinhCurve, tracks } from './slider.ts';
@@ -150,8 +150,8 @@ interface Props {
   /** The instance whose light is being measured. */
   detecting: string | null;
   /** Retouch tools and selection, shared with the overlay on the image. */
-  retouchUi: RetouchUi;
-  onRetouchUi: (patch: Partial<RetouchUi>) => void;
+  shapeUi: ShapeUi;
+  onShapeUi: (patch: Partial<ShapeUi>) => void;
 }
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
@@ -216,6 +216,45 @@ const InstanceMenu = memo(
     </Menu.Root>
   ),
   (a, b) => a.title === b.title && a.position === b.position && a.count === b.count && a.disabled === b.disabled,
+);
+
+/**
+ * A module header's mask button: adds a mask, then shows or hides its settings. Solid
+ * while the mask is on, like an active shape tool. Memoised like `InstanceMenu`, without
+ * its handler, so that dragging a slider doesn't restyle it.
+ */
+const MaskButton = memo(
+  ({
+    title,
+    state,
+    open,
+    onClick,
+  }: {
+    title: string;
+    state: 'none' | 'on' | 'off';
+    open: boolean;
+    onClick: () => void;
+  }) => (
+    <IconButton
+      aria-label={state === 'none' ? `Add a mask to ${title}` : `${title} mask`}
+      title={
+        state === 'none'
+          ? 'Add a mask: apply the module only to parts of the image'
+          : open
+            ? 'Hide the mask settings'
+            : 'Show the mask settings'
+      }
+      size="2xs"
+      variant={state === 'on' ? 'solid' : state === 'off' ? 'subtle' : 'ghost'}
+      colorPalette={state === 'on' ? 'orange' : 'gray'}
+      aria-pressed={state === 'on'}
+      aria-expanded={state === 'none' ? undefined : open}
+      onClick={onClick}
+    >
+      <VenetianMask />
+    </IconButton>
+  ),
+  (a, b) => a.title === b.title && a.state === b.state && a.open === b.open,
 );
 
 /**
@@ -512,6 +551,10 @@ interface InstanceView {
   mixer: MixerView;
   /** Angles remembered while their magnitude is zero (see `MIXER_ANGLES`). */
   angles: Record<string, number>;
+  /** The mask editor is open (when the instance has a mask). */
+  maskOpen: boolean;
+  /** Mask ranges as they were when switched off, to bring back when switched on. */
+  maskRanges: Partial<Record<RangeKey, MaskRange>>;
 }
 
 const DEFAULT_VIEW: InstanceView = {
@@ -522,6 +565,8 @@ const DEFAULT_VIEW: InstanceView = {
   calibration: 'illuminant',
   mixer: 'primaries',
   angles: {},
+  maskOpen: true,
+  maskRanges: {},
 };
 
 /** A typed ratio the other way round (`51:48` → `48:51`), as shown once swapped. */
@@ -553,13 +598,6 @@ const SHAPE_LABELS: Record<ShapeType, string> = {
   path: 'path',
   brush: 'brush',
 };
-const SHAPE_TOOLS: [ShapeTool, typeof Circle, string][] = [
-  ['select', MousePointer2, 'Select and edit spots'],
-  ['circle', Circle, 'Circle: click, or drag for its size'],
-  ['ellipse', Egg, 'Ellipse: click, or drag for its size'],
-  ['path', PenTool, 'Path: click to add nodes (drag for curves); click the first node or press Enter to close'],
-  ['brush', Paintbrush, 'Brush: paint a stroke'],
-];
 
 const BLEACH_LABELS: Record<Bleach, string> = {
   none: 'None',
@@ -574,7 +612,7 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * (`useStableCallback`); they are read through `latest` anyway.
  */
 export const ModulePanel = memo(function ModulePanel(props: Props) {
-  const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, retouchUi } = props;
+  const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, shapeUi } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -689,15 +727,43 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     const count = list.length;
     const presets = props.presets[kind] ?? NO_PRESETS;
     const canSave = !!props.onSavePreset;
+    const maskable = MASKABLE_KINDS.includes(kind);
     return (count ? list : [undefined]).map((m, position) => {
       const id = m?.id ?? kind;
       const title = m ? instanceTitle(params, m) : MODULE_TITLES[kind];
+      // What the mask editor shows besides the instance: its shapes' types (not the
+      // shapes, which change on every move of a drag), and the shape tools' state while
+      // they edit this mask.
+      const maskTypes = m?.mask?.drawn.map((d) => params.shapes?.[d.shape]?.type);
+      const maskDeps = maskable
+        ? [
+            maskTypes?.join(),
+            isEditing(shapeUi, 'mask', id) ? shapeUi : null,
+            shapeUi.maskOverlay?.id === id ? shapeUi.maskOverlay : null,
+          ]
+        : [];
       return (
         <Section
           key={id}
-          deps={[m, position, count, title, views[id], presets, canSave, ...deps]}
+          deps={[m, position, count, title, views[id], presets, canSave, ...maskDeps, ...deps]}
           render={() => {
             const e = editor(kind, m, position);
+            const mask = m?.mask;
+            const maskButton = maskable && (
+              <MaskButton
+                title={title}
+                state={mask ? (mask.enabled ? 'on' : 'off') : 'none'}
+                open={e.view.maskOpen}
+                onClick={() => {
+                  // Read when clicked: the button keeps its first handler.
+                  const now = latest.current.params.modules.find((x) => x.id === id)?.mask;
+                  if (!now) {
+                    e.setView({ maskOpen: true });
+                    commit((p) => updateMask(p, kind, id, {}), `${title}: mask added`);
+                  } else e.setView({ maskOpen: !(views[id] ?? DEFAULT_VIEW).maskOpen });
+                }}
+              />
+            );
             return (
               <Module
                 title={title}
@@ -745,9 +811,38 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     )}
                   </>
                 }
-                actions={actions?.(e)}
+                actions={
+                  <>
+                    {maskButton}
+                    {actions?.(e)}
+                  </>
+                }
               >
                 {content(e)}
+                {mask && e.view.maskOpen && (
+                  <MaskEditor
+                    kind={kind}
+                    id={id}
+                    mask={mask}
+                    shapeTypes={maskTypes ?? []}
+                    ui={shapeUi}
+                    params={() => latest.current.params}
+                    title={() => {
+                      const now = latest.current.params.modules.find((x) => x.id === id);
+                      return now ? instanceTitle(latest.current.params, now) : MODULE_TITLES[kind];
+                    }}
+                    onChange={(p) => latest.current.onChange(p)}
+                    onCommit={(p, label) => latest.current.onCommit(p, label)}
+                    onUi={(patch) => latest.current.onShapeUi(patch)}
+                    remembered={e.view.maskRanges}
+                    onRemember={(key, range) =>
+                      setViews((v) => {
+                        const view = { ...DEFAULT_VIEW, ...v[id] };
+                        return { ...v, [id]: { ...view, maskRanges: { ...view.maskRanges, [key]: range } } };
+                      })
+                    }
+                  />
+                )}
               </Module>
             );
           }}
@@ -762,10 +857,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     const types = params.modules
       .flatMap((m) => (m.kind === 'retouch' ? [m.params.spots.map((x) => params.shapes?.[x.shape]?.type).join()] : []))
       .join('|');
-    const edited = params.modules.find((m) => m.id === retouchUi.instance);
+    const edited = params.modules.find((m) => m.id === shapeUi.instance);
     const id =
-      edited?.kind === 'retouch' && retouchUi.selected !== null
-        ? edited.params.spots[retouchUi.selected]?.shape
+      edited?.kind === 'retouch' && shapeUi.selected !== null
+        ? edited.params.spots[shapeUi.selected]?.shape
         : undefined;
     const selected = id === undefined ? undefined : params.shapes?.[id];
     return `${types}/${selected && selected.type !== 'brush' ? selected.feather : ''}`;
@@ -1786,11 +1881,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           )}
         </>
       ))}
-      {sections('retouch', [retouchUi, retouchShapes], (e) => {
-        const ui = retouchUi;
-        const setUi = (patch: Partial<RetouchUi>) => latest.current.onRetouchUi(patch);
+      {sections('retouch', [shapeUi, retouchShapes], (e) => {
+        const ui = shapeUi;
+        const setUi = (patch: Partial<ShapeUi>) => latest.current.onShapeUi(patch);
         // The overlay edits one instance at a time.
-        const editing = ui.editing && ui.instance === e.id;
+        const editing = isEditing(ui, 'retouch', e.id);
         const spots = e.values.spots;
         const sel = editing && ui.selected !== null && ui.selected < spots.length ? ui.selected : null;
         const spot = sel === null ? null : spots[sel]!;
@@ -1798,12 +1893,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         const name = () => {
           const m = latest.current.params.modules.find((x) => x.id === e.id);
           return m ? instanceTitle(latest.current.params, m) : MODULE_TITLES.retouch;
-        };
-        /** What Esc does on the image: leave the tool, then the selection, then the overlay. */
-        const back = () => {
-          if (ui.tool !== 'select') setUi({ tool: 'select' });
-          else if (sel !== null) setUi({ selected: null });
-          else setUi({ editing: false });
         };
         /** Props for a slider bound to a field of the selected spot. */
         const bindSpot = (index: number, key: 'opacity' | 'radius') => {
@@ -1832,45 +1921,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         };
         return (
           <>
-            <HStack justify="space-between">
-              <ButtonGroup size="xs" variant="outline" attached>
-                {SHAPE_TOOLS.map(([tool, Icon, label]) => {
-                  const on = editing && ui.tool === tool;
-                  return (
-                    <IconButton
-                      key={tool}
-                      aria-label={label}
-                      title={on ? `${label} (click again or Esc to leave)` : label}
-                      aria-pressed={on}
-                      variant={on ? 'solid' : 'outline'}
-                      colorPalette={on ? 'orange' : 'gray'}
-                      onClick={() =>
-                        on
-                          ? back()
-                          : setUi({ editing: true, instance: e.id, tool, selected: editing ? ui.selected : null })
-                      }
-                    >
-                      <Icon />
-                    </IconButton>
-                  );
-                })}
-              </ButtonGroup>
-              <IconButton
-                size="xs"
-                variant="ghost"
-                aria-label={editing ? 'Hide spots on the image' : 'Show spots on the image'}
-                title={editing ? 'Hide spots on the image (Esc)' : 'Show spots on the image'}
-                onClick={() =>
-                  setUi(
-                    editing
-                      ? { editing: false, tool: 'select' }
-                      : { editing: true, instance: e.id, tool: 'select', selected: null },
-                  )
-                }
-              >
-                {editing ? <Eye /> : <EyeOff />}
-              </IconButton>
-            </HStack>
+            <ShapeToolBar ui={ui} target="retouch" id={e.id} kind="retouch" noun="spots" onUi={setUi} />
             <SelectRow label="New spots">
               {(id) => (
                 <NativeSelect.Root size="xs" flex="1">
@@ -1889,33 +1940,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 </NativeSelect.Root>
               )}
             </SelectRow>
-            {ui.tool === 'brush' && editing && (
-              <>
-                <ParamSlider
-                  label="Brush size"
-                  min={2}
-                  max={200}
-                  step={1}
-                  format={(v) => `${Math.round(v)} px`}
-                  value={ui.brushSize}
-                  defaultValue={DEFAULT_RETOUCH_UI.brushSize}
-                  onChange={(v) => setUi({ brushSize: v })}
-                  onCommit={(v) => setUi({ brushSize: v })}
-                />
-                <ParamSlider
-                  label="Brush hardness"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  scale={100}
-                  format={(v) => `${Math.round(v * 100)} %`}
-                  value={ui.brushHardness}
-                  defaultValue={DEFAULT_RETOUCH_UI.brushHardness}
-                  onChange={(v) => setUi({ brushHardness: v })}
-                  onCommit={(v) => setUi({ brushHardness: v })}
-                />
-              </>
-            )}
+            {ui.tool === 'brush' && editing && <BrushSettings ui={ui} onUi={setUi} />}
             {spots.length === 0 ? (
               <Text textStyle="2xs" color="fg.subtle">
                 Pick a shape, then click or drag on the image to add a spot
@@ -1938,7 +1963,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                       justifyContent="flex-start"
                       variant={i === sel ? 'subtle' : 'ghost'}
                       colorPalette={i === sel ? 'orange' : 'gray'}
-                      onClick={() => setUi({ editing: true, instance: e.id, selected: i })}
+                      onClick={() =>
+                        setUi({ editing: true, target: 'retouch', instance: e.id, kind: 'retouch', selected: i })
+                      }
                     >
                       {i + 1}. {SPOT_MODE_LABELS[s.mode]}
                       <Text as="span" color="fg.subtle">
@@ -2053,6 +2080,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           params={
             params.modules.find((m) => m.id === savingPreset.id)?.params ?? defaultModuleParams[savingPreset.kind]
           }
+          mask={params.modules.find((m) => m.id === savingPreset.id)?.mask}
           shapes={params.shapes}
           existing={props.presets[savingPreset.kind] ?? NO_PRESETS}
           onClose={onSavePresetClose}

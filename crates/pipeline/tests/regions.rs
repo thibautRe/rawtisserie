@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
+use rawtisserie_pipeline::ops::clipping::{DisplayClipping, MaskPart, MaskView, Overlays};
 use rawtisserie_pipeline::params::{Blur, ContrastEqualizer, Geometry, Sharpen};
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
@@ -20,6 +20,8 @@ const OVERLAYS: Overlays = Overlays {
     display: Some(DisplayClipping { mode: rawtisserie_pipeline::ops::clipping::ClipMode::AnyChannel, upper: 0.9, lower_ev: -8.0 }),
     sensor: true,
     stripes: 5.0,
+    mask: None,
+    mask_view: MaskView { part: MaskPart::Mask, values: false },
 };
 
 fn crop(img: &Rgba8, r: Region) -> Vec<u8> {
@@ -160,4 +162,34 @@ fn moving_a_spot_restores_the_pixels_under_it() {
     let fresh = developer().render(&with(0.7), size, Quality::Final);
     assert_eq!(b.data, fresh.data);
     assert_eq!(dev.render(&base, size, Quality::Final).data, before.data);
+}
+
+#[test]
+fn masked_regions_match() {
+    let dev = developer();
+    let base = EditParams::default_for(dev.metadata());
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/recipes/masks.json");
+    let case: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut p: EditParams = serde_json::from_value(case["recipe"].clone()).unwrap();
+    // With the camera's lens correction too.
+    p.modules.extend(base.modules.into_iter().filter(|m| m.module.kind() == rawtisserie_pipeline::params::ModuleKind::Lens));
+    p.normalize();
+    check("masks", &p, RenderSize::fit(1200, 1200));
+    // Mask overlays as well: the mask, a range alone, and the values of each part.
+    let mut dev = developer();
+    let size = RenderSize::fit(1000, 1000);
+    let region = Region { x: 300, y: 200, width: 250, height: 200 };
+    let plain = dev.render(&p, size.with_region(region), Quality::Final);
+    let mut views = vec![("subject", MaskView::default()), ("sky", MaskView { part: MaskPart::Luminance, values: false })];
+    for part in [MaskPart::Luminance, MaskPart::Saturation, MaskPart::Hue, MaskPart::Red, MaskPart::Blue] {
+        views.push(("sky", MaskView { part, values: true }));
+    }
+    for (id, view) in views {
+        let overlays = Overlays { mask: Some(id.into()), mask_view: view, ..OVERLAYS };
+        let whole = dev.render_with_overlays(&p, size, Quality::Final, &overlays);
+        let part = dev.render_with_overlays(&p, size.with_region(region), Quality::Final, &overlays);
+        let worst = part.data.iter().zip(crop(&whole, region)).map(|(a, b)| a.abs_diff(b)).max().unwrap();
+        assert!(worst <= 1, "{view:?}: mask overlay differs by up to {worst} levels");
+        assert_ne!(part.data, plain.data, "{view:?}: the overlay shows");
+    }
 }
