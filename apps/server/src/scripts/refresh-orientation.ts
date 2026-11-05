@@ -103,7 +103,8 @@ for (const row of rows) {
       `${row.width}×${row.height} → ${read.width}×${read.height}`,
   );
   const turns = before === 1 ? TURNS[after] : undefined;
-  if (after !== before && turns === undefined) console.log('  mirrored or unexpected: recipes left as they are, check them');
+  if (after !== before && turns === undefined)
+    console.log('  mirrored or unexpected: recipes left as they are, check them');
   if (dryRun) continue;
   await db.tx(async (tx) => {
     await tx.query(sql`
