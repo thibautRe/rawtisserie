@@ -22,7 +22,7 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   and drag to pan. Module presets (built-in and
   your own, optionally limited to part of a module, e.g. colour calibration's mixer) and
   styles (a set of modules to apply to other photos) are in each module's header and
-  the toolbar.
+  the toolbar, and can be applied to a whole selection from the library.
   It runs **in your browser** on a WebAssembly build of the pixel pipeline.
 - **Headless rendering**: the same WebAssembly module runs on the server (in worker
   threads) to render thumbnails and previews from your saved edits.

@@ -2,6 +2,7 @@ import {
   Box,
   Button,
   ButtonGroup,
+  Center,
   Circle,
   Field,
   Grid,
@@ -14,17 +15,21 @@ import {
   Portal,
   RatingGroup,
   Separator,
+  Spinner,
   Stack,
   TagsInput,
   Text,
   Textarea,
 } from '@chakra-ui/react';
-import { Aperture, Check, Copy, Download, Trash2, X } from 'lucide-react';
+import { Aperture, Check, Copy, Download, Palette, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useBulkUpdate, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
 import { COLOR_LABELS, type ColorLabel, type Flag, type Photo, type PhotoPatch } from '../api/types.ts';
 import { formatBytes, formatExposureTime, toDateTimeLocal, versionLabel } from '../lib/format.ts';
+import { ApplyMenu } from './ApplyMenu.tsx';
+import type { BatchEdit } from './batchEdit.ts';
+import { useEditPreview } from './useEditPreview.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
 const PANEL_PROPS = {
@@ -38,10 +43,16 @@ const PANEL_PROPS = {
   gap: '4',
 } as const;
 
+/** The single-photo preview's box: the panel's width inside its padding, and its maximum height (CSS px). */
+const PREVIEW_WIDTH = 288;
+const PREVIEW_HEIGHT = 224;
+
 interface Actions {
   onDelete: (versions: Photo[]) => void;
   /** Duplicate the selected versions. */
   onDuplicate: (fromOriginal: boolean) => void;
+  /** Apply a preset or style to the selected versions. */
+  onApplyEdit: (edit: BatchEdit) => void;
 }
 
 /** Duplicate / Duplicate from original. */
@@ -206,17 +217,59 @@ function parseExposure(s: string): number | null {
   return numOrNull(s.replace(/[″"s]$/, ''));
 }
 
-function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo } & Actions) {
+function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit }: { photo: Photo } & Actions) {
   const { data: detail } = usePhoto(listPhoto.id);
-  const photo = detail ?? listPhoto;
+  // The render state comes from the list: it's polled while previews are rendered, the detail isn't.
+  const photo = detail
+    ? {
+        ...detail,
+        renderStatus: listPhoto.renderStatus,
+        renderError: listPhoto.renderError,
+        thumbUrl: listPhoto.thumbUrl,
+        previewUrl: listPhoto.previewUrl,
+      }
+    : listPhoto;
+  const preview = useEditPreview(detail, PREVIEW_WIDTH, PREVIEW_HEIGHT);
   const update = useUpdatePhoto();
   const navigate = useNavigate();
   const save = (patch: PhotoPatch) => update.mutate({ id: photo.id, patch });
 
   return (
     <Stack {...PANEL_PROPS}>
-      {photo.previewUrl && (
-        <Image src={photo.previewUrl} alt="" borderRadius="sm" maxH="56" objectFit="contain" bg="bg.muted" />
+      {(photo.previewUrl || photo.renderStatus === 'pending' || preview.active) && (
+        <Box position="relative" minH={photo.previewUrl ? undefined : '40'} bg="bg.muted" borderRadius="sm">
+          {photo.previewUrl && (
+            <Image
+              src={photo.previewUrl}
+              alt=""
+              borderRadius="sm"
+              maxH={`${PREVIEW_HEIGHT}px`}
+              w="full"
+              objectFit="contain"
+              opacity={photo.renderStatus === 'pending' || preview.status === 'loading' ? 0.6 : 1}
+              transition="opacity 0.15s"
+            />
+          )}
+          {/* Previews of the highlighted preset or style, while the apply menu is open. */}
+          <Box
+            asChild
+            position="absolute"
+            inset="0"
+            w="full"
+            h="full"
+            objectFit="contain"
+            bg="bg.muted"
+            borderRadius="sm"
+            visibility={preview.active ? 'visible' : 'hidden'}
+          >
+            <canvas ref={preview.canvasRef} />
+          </Box>
+          {(photo.renderStatus === 'pending' || preview.status === 'loading') && (
+            <Center position="absolute" inset="0" pointerEvents="none">
+              <Spinner color="orange.solid" />
+            </Center>
+          )}
+        </Box>
       )}
       <Box>
         <Text fontWeight="semibold" truncate title={photo.filename}>
@@ -244,6 +297,11 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate }: { photo: Photo
             <Download />
           </a>
         </IconButton>
+        <ApplyMenu onApply={onApplyEdit} onPreview={preview.onPreview} onOpenChange={preview.onOpenChange}>
+          <IconButton size="sm" variant="outline" aria-label="Apply a preset or style" title="Apply a preset or style">
+            <Palette />
+          </IconButton>
+        </ApplyMenu>
         <DuplicateMenu onDuplicate={onDuplicate}>
           <IconButton size="sm" variant="outline" aria-label="Duplicate">
             <Copy />
@@ -388,7 +446,7 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
 
 // ── Several photos ──────────────────────────────────────────────────────────
 
-function BulkPanel({ photos, onDelete, onDuplicate }: { photos: Photo[] } & Actions) {
+function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit }: { photos: Photo[] } & Actions) {
   const bulk = useBulkUpdate();
   const ids = photos.map((p) => p.id);
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
@@ -436,6 +494,11 @@ function BulkPanel({ photos, onDelete, onDuplicate }: { photos: Photo[] } & Acti
         </Button>
       </HStack>
       <Separator />
+      <ApplyMenu onApply={onApplyEdit}>
+        <Button size="sm" variant="outline">
+          <Palette /> Apply a preset or style to {photos.length}
+        </Button>
+      </ApplyMenu>
       <DuplicateMenu onDuplicate={onDuplicate}>
         <Button size="sm" variant="outline">
           <Copy /> Duplicate {photos.length}

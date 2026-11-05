@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { normalizeEditParams } from '@rawtisserie/pipeline';
+import { defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
 import { badRequest, conflict, notFound } from '../errors.ts';
+import type HistoryEntries from '../__generated__/history_entries.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
@@ -144,6 +145,17 @@ const HistoryChange = z.object({
   /** The `revision` the client based its changes on; a mismatch means someone else edited it. */
   baseRevision: z.number().int().optional(),
 });
+type HistoryChange = z.infer<typeof HistoryChange>;
+
+const Ids = z.object({ ids: z.array(z.uuid()).min(1).max(5000) });
+
+/** History changes to several versions (a preset or style applied to a selection, or its undo). */
+const BatchHistoryChange = z.object({
+  changes: z
+    .array(HistoryChange.extend({ id: z.uuid(), baseRevision: z.number().int() }))
+    .min(1)
+    .max(200),
+});
 
 export async function photoRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
   app.addHook('preHandler', requireUser);
@@ -253,7 +265,7 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
   /** Delete versions. A photo left without any version is deleted too, original file included. */
   app.post('/api/versions/delete', async (request) => {
     const user = currentUser(request);
-    const { ids } = z.object({ ids: z.array(z.uuid()).min(1).max(5000) }).parse(request.body);
+    const { ids } = Ids.parse(request.body);
     const { deleted, orphans } = await db.tx(async (tx) => {
       const deleted = (await tx.query(sql`
         DELETE FROM versions
@@ -344,56 +356,67 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
   app.post('/api/versions/:id/history', async (request) => {
     const user = currentUser(request);
     const { id } = Id.parse(request.params);
-    const { ops, baseRevision } = HistoryChange.parse(request.body);
-    await db.tx(async (tx) => {
-      const [current] = (await tx.query(sql`
-        SELECT v.history_end, v.revision,
-          (SELECT coalesce(max(seq), 0)::int FROM history_entries h WHERE h.version_id = v.id) AS count
-        FROM ${VERSIONS_FROM}
-        WHERE v.id = ${id} AND p.owner_id = ${user.id} FOR UPDATE OF v`)) as (Pick<
-        Versions,
-        'history_end' | 'revision'
-      > & {
-        count: number;
-      })[];
-      if (!current) throw notFound('Photo not found');
-      if (baseRevision !== undefined && baseRevision !== current.revision) {
-        throw conflict('This version changed elsewhere — reload');
-      }
-      let { count, history_end: end } = current;
-      for (const op of ops) {
-        if (op.type === 'splice') {
-          if (op.from > count + 1) throw badRequest(`Cannot splice history at ${op.from}: it has ${count} entries`);
-          await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq >= ${op.from}`);
-          if (op.entries.length) {
-            await historyEntries(tx).insert(
-              ...op.entries.map((e, i) => ({
-                version_id: id,
-                seq: op.from + i,
-                label: e.label,
-                recipe: normalizeEditParams(e.recipe),
-                ...(e.createdAt && { created_at: e.createdAt }),
-              })),
-            );
-          }
-          count = op.from - 1 + op.entries.length;
-        }
-        if (op.end > count) throw badRequest(`History has no entry ${op.end}`);
-        end = op.end;
-      }
-      await versions(tx).update(
-        { id },
-        {
-          history_end: end,
-          revision: current.revision + 1,
-          edited_at: new Date(),
-          render_status: 'pending',
-          updated_at: new Date(),
-        },
-      );
-    });
+    const change = HistoryChange.parse(request.body);
+    await db.tx((tx) => applyHistoryChange(tx, user.id, id, change));
     renderQueue.enqueue(id);
     return versionDetail(user.id, id);
+  });
+
+  /**
+   * The current recipe of each version (for editing them all from the library): the
+   * history entry at `history_end`, or the recipe a new image starts with. Versions that
+   * aren't found are left out. New uploads whose file hasn't been read yet are listed in
+   * `notReady` instead: their starting recipe (lens correction) isn't known, and the
+   * render queue only records it while their history is empty.
+   */
+  app.post('/api/versions/recipes', async (request) => {
+    const user = currentUser(request);
+    const { ids } = Ids.parse(request.body);
+    const rows = (await db.query(sql`
+      SELECT v.id, v.history_end, v.revision, h.recipe, p.exif,
+        p.exif IS NULL AND v.render_status = 'pending'
+          AND NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS not_ready
+      FROM ${VERSIONS_FROM}
+      LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
+      WHERE v.id = ANY(${ids}) AND p.owner_id = ${user.id}`)) as (Pick<Versions, 'id' | 'history_end' | 'revision'> &
+      Pick<HistoryEntries, 'recipe'> &
+      Pick<Photos, 'exif'> & { not_ready: boolean })[];
+    return {
+      versions: rows
+        .filter((r) => !r.not_ready)
+        .map((r) => ({
+          id: r.id,
+          historyEnd: r.history_end,
+          revision: r.revision,
+          recipe: r.recipe
+            ? normalizeEditParams(r.recipe)
+            : defaultRecipe({ lensCorrection: r.exif?.lensCorrection ?? null }),
+        })),
+      notReady: rows.filter((r) => r.not_ready).map((r) => r.id),
+    };
+  });
+
+  /**
+   * History changes to several versions, in one transaction. A version that changed
+   * since the client read it (`baseRevision`) is left alone and listed in `conflicts`,
+   * so the client can read it again and retry; the others are applied.
+   */
+  app.post('/api/versions/history', async (request) => {
+    const user = currentUser(request);
+    const { changes } = BatchHistoryChange.parse(request.body);
+    const { applied, conflicts } = await db.tx(async (tx) => {
+      const applied: { id: string; historyEnd: number; revision: number }[] = [];
+      const conflicts: string[] = [];
+      // In a fixed order, so concurrent batches lock rows the same way.
+      for (const change of changes.toSorted((a, b) => a.id.localeCompare(b.id))) {
+        const result = await applyHistoryChange(tx, user.id, change.id, change, { skipConflicts: true });
+        if (result) applied.push({ id: change.id, ...result });
+        else conflicts.push(change.id);
+      }
+      return { applied, conflicts };
+    });
+    for (const { id } of applied) renderQueue.enqueue(id);
+    return { applied, conflicts };
   });
 
   app.post('/api/versions/:id/rerender', async (request) => {
@@ -480,6 +503,62 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
 }
 
 type SQLColumn = 'camera_model' | 'lens';
+
+/**
+ * Apply history ops (see `HistoryOp`) to one version, inside `tx`, and mark it for
+ * re-rendering. A missing version or a `baseRevision` mismatch throws, or with
+ * `skipConflicts` returns null and changes nothing.
+ */
+async function applyHistoryChange(
+  tx: Queryable,
+  ownerId: string,
+  id: string,
+  { ops, baseRevision }: HistoryChange,
+  { skipConflicts = false } = {},
+): Promise<{ historyEnd: number; revision: number } | null> {
+  const [current] = (await tx.query(sql`
+    SELECT v.history_end, v.revision,
+      (SELECT coalesce(max(seq), 0)::int FROM history_entries h WHERE h.version_id = v.id) AS count
+    FROM ${VERSIONS_FROM}
+    WHERE v.id = ${id} AND p.owner_id = ${ownerId} FOR UPDATE OF v`)) as (Pick<Versions, 'history_end' | 'revision'> & {
+    count: number;
+  })[];
+  if (!current) {
+    if (skipConflicts) return null;
+    throw notFound('Photo not found');
+  }
+  if (baseRevision !== undefined && baseRevision !== current.revision) {
+    if (skipConflicts) return null;
+    throw conflict('This version changed elsewhere — reload');
+  }
+  let { count, history_end: end } = current;
+  for (const op of ops) {
+    if (op.type === 'splice') {
+      if (op.from > count + 1) throw badRequest(`Cannot splice history at ${op.from}: it has ${count} entries`);
+      await tx.query(sql`DELETE FROM history_entries WHERE version_id = ${id} AND seq >= ${op.from}`);
+      if (op.entries.length) {
+        await historyEntries(tx).insert(
+          ...op.entries.map((e, i) => ({
+            version_id: id,
+            seq: op.from + i,
+            label: e.label,
+            recipe: normalizeEditParams(e.recipe),
+            ...(e.createdAt && { created_at: e.createdAt }),
+          })),
+        );
+      }
+      count = op.from - 1 + op.entries.length;
+    }
+    if (op.end > count) throw badRequest(`History has no entry ${op.end}`);
+    end = op.end;
+  }
+  const revision = current.revision + 1;
+  await versions(tx).update(
+    { id },
+    { history_end: end, revision, edited_at: new Date(), render_status: 'pending', updated_at: new Date() },
+  );
+  return { historyEnd: end, revision };
+}
 
 /** Number versions 0, 1, 2… in the given order. */
 async function setPositions(tx: Queryable, ids: string[]) {

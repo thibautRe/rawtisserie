@@ -7,7 +7,8 @@ Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and histo
 Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
 3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
-together; 4.5 (masks); full-size colour drags on a worker pool (see Performance).
+together; 4.5 (masks); full-size colour drags on a worker pool (see Performance);
+8.1 (presets and styles on a selection).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 see [1.0 release scope](#10-release-scope).
 
@@ -998,6 +999,25 @@ backend a configuration choice and the volume justifies it.
 ## M8 — Library workflow (L overall, before 1.0)
 
 ### 8.1 Apply a preset or style to a selection (S–M)
+
+> **Done.** As built: the library panel's palette button (one photo) or "Apply a preset or
+> style to N" (several) lists styles (Apply or Append, once for the whole selection) and
+> module presets by module; a module preset goes to the first instance of its kind.
+> `POST /api/versions/recipes` gives the current recipes, and `POST /api/versions/history`
+> applies history ops to many versions in one transaction (the per-version endpoint's
+> logic, `applyHistoryChange`). Versions changed since they were read come back as
+> conflicts and are read again (3 tries). Uploads not read yet are held back: their
+> starting recipe (lens correction) isn't known. Chunks of 25 give the progress; the
+> toast's Undo steps each version back (versions edited since are left alone). Recipes
+> it wouldn't change get no entry.
+>
+> With one photo selected, hovering a style or preset previews it in the panel
+> (`library/useEditPreview.ts`): opening the menu loads the original in the in-browser
+> pipeline (~1.3 s for a 43 MB ARW, from cache or the local server; the download is most
+> of it on a slow link), then each hover renders in ~150–200 ms (instant when seen
+> before). Previews for a whole selection need small linear proxies per photo (stored
+> with the renders): opening 30 originals would mean >1 GB of downloads. Proxies would
+> also make the one-photo preview open at once; `openForPreview` is where they'd go.
 
 Presets and styles are applied on the client and give a plain recipe. For a selection,
 the client fetches each version's current recipe and applies the preset or style. It

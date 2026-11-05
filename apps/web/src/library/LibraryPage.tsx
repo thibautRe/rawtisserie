@@ -16,7 +16,14 @@ import {
 import { Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useBulkUpdate, useDeletePhotos, useDuplicateVersion, usePhotos, useUpload } from '../api/hooks.ts';
+import {
+  useBatchEdit,
+  useBulkUpdate,
+  useDeletePhotos,
+  useDuplicateVersion,
+  usePhotos,
+  useUpload,
+} from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVersionsDialog.tsx';
@@ -57,6 +64,7 @@ export function LibraryPage() {
   const del = useDeletePhotos();
   const duplicate = useDuplicateVersion();
   const upload = useUpload();
+  const batchEdit = useBatchEdit();
 
   useEffect(() => localStorage.setItem('library.cellSize', String(cellSize)), [cellSize]);
 
@@ -133,7 +141,7 @@ export function LibraryPage() {
   // Culling shortcuts, Lightroom/darktable style.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.altKey || document.querySelector('[role="dialog"]')) return;
+      if (isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
       const idx = photos.findIndex((p) => p.id === focusedId);
       const columns = Math.max(1, Math.floor((gridRef.current?.clientWidth ?? cellSize) / (cellSize + 8)));
       const move = (delta: number) => {
@@ -174,8 +182,18 @@ export function LibraryPage() {
       else return;
       e.preventDefault();
     };
+    // Keys pressed in an open dialog or menu are theirs: Escape closes it, and mustn't also
+    // clear the selection. Checked before they handle it (a menu closes on Escape at once).
+    const forOverlay = new WeakSet<KeyboardEvent>();
+    const claim = (e: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"], [role="menu"][data-state="open"]')) forOverlay.add(e);
+    };
+    window.addEventListener('keydown', claim, true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', claim, true);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [
     photos,
     focusedId,
@@ -353,6 +371,7 @@ export function LibraryPage() {
         selected={selectedPhotos}
         onDelete={setPendingDelete}
         onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
+        onApplyEdit={(edit) => batchEdit([...selection], edit)}
       />
 
       {dragging && (

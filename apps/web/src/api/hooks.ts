@@ -9,6 +9,8 @@ import {
 import type { ModuleKind, ModulePresetPayload, Preset, StylePayload } from '@rawtisserie/pipeline';
 import { useCallback } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
+import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdit.ts';
+import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import type { BulkPatch, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
 
@@ -217,6 +219,68 @@ export function useMoveVersion() {
       api.post<PhotoDetail>(`/api/versions/${id}/move`, { position }),
     onSettled: () => refreshVersions(qc),
   });
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Apply a preset or style to versions (`runBatchEdit`), with progress, a summary and an
+ * Undo in a toast. Previews are re-rendered by the server.
+ */
+export function useBatchEdit() {
+  const qc = useQueryClient();
+  return useCallback(
+    async (ids: string[], edit: BatchEdit) => {
+      if (!ids.length) return;
+      const toast = toaster.create({ type: 'loading', title: `${edit.label}…`, description: `0 of ${ids.length}` });
+      try {
+        const { edited, unchanged, notReady, failed } = await runBatchEdit(ids, edit, (done) =>
+          toaster.update(toast, { type: 'loading', title: `${edit.label}…`, description: `${done} of ${ids.length}` }),
+        );
+        const notes = [
+          unchanged && `${plural(unchanged, 'photo')} already had it`,
+          notReady && `${plural(notReady, 'photo')} still being imported: try again in a moment`,
+          failed && `${plural(failed, 'photo')} changed elsewhere or were deleted: not edited`,
+        ].filter(Boolean);
+        toaster.update(toast, {
+          type: failed || notReady ? 'warning' : 'success',
+          title: `${edit.label}: ${plural(edited.length, 'photo')} edited`,
+          description: notes.join('\n') || undefined,
+          closable: true,
+          duration: failed || notReady ? 10000 : 6000,
+          ...(edited.length && {
+            action: {
+              label: 'Undo',
+              onClick: () =>
+                void undoBatchEdit(edited)
+                  .then((undone) =>
+                    toaster.create({
+                      type: undone < edited.length ? 'warning' : 'info',
+                      title: `Undid ${edit.label} on ${plural(undone, 'photo')}`,
+                      description:
+                        undone < edited.length
+                          ? `${edited.length - undone} were edited since: undo them in the developer`
+                          : undefined,
+                    }),
+                  )
+                  .catch((err) => toaster.create({ type: 'error', title: 'Could not undo', description: String(err) }))
+                  .finally(() => refreshVersions(qc)),
+            },
+          }),
+        });
+      } catch (err) {
+        toaster.update(toast, {
+          type: 'error',
+          title: `Could not apply ${edit.label}`,
+          description: err instanceof Error ? err.message : undefined,
+          closable: true,
+        });
+      } finally {
+        refreshVersions(qc);
+      }
+    },
+    [qc],
+  );
 }
 
 export interface UploadResult {
