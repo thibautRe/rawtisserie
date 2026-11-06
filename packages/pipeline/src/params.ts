@@ -25,9 +25,19 @@ export interface ModuleParams {
     /** Clockwise quarter turns on top of the camera orientation, 0…3. */
     rotation: number;
     flipHorizontal: boolean;
-    /** Straighten angle in degrees, clockwise positive, -45 … 45. */
+    /** Straighten angle in degrees, clockwise positive, -45 … 45: the camera's roll. */
     angle: number;
-    /** Normalised to the oriented, straightened frame. */
+    /** Perspective, as a camera rotation: tilt in degrees, positive for a camera that pointed up, -40 … 40. */
+    vertical: number;
+    /** Pan in degrees, positive for a camera that pointed left, -40 … 40. */
+    horizontal: number;
+    /** Vertical shear after the rotation (`y += shear · x`), -0.5 … 0.5. */
+    shear: number;
+    /** Stretch after the correction: widths × 2^(aspect / 2), heights divided by it, -1 … 1. */
+    aspect: number;
+    /** How the corrected image is framed without empty borders. */
+    autoCrop: AutoCrop;
+    /** Normalised to the corrected (and auto-cropped) frame. */
     crop: CropRect;
   };
   blur: {
@@ -388,6 +398,13 @@ export interface EditParams {
   shapes?: Record<string, Shape>;
 }
 
+/**
+ * How geometry frames the straightened, perspective-corrected image: the largest
+ * rectangle of the uncorrected frame's aspect, of any aspect, or all of it with empty
+ * (black) borders (shown while perspective guides are edited).
+ */
+export type AutoCrop = 'aspect' | 'area' | 'off';
+
 export interface CropRect {
   x: number;
   y: number;
@@ -410,7 +427,17 @@ export const EDIT_PARAMS_VERSION = 6;
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
   retouch: { spots: [] },
   lens: { distortion: 1, tca: 1, vignetting: 1 },
-  geometry: { rotation: 0, flipHorizontal: false, angle: 0, crop: { x: 0, y: 0, width: 1, height: 1 } },
+  geometry: {
+    rotation: 0,
+    flipHorizontal: false,
+    angle: 0,
+    vertical: 0,
+    horizontal: 0,
+    shear: 0,
+    aspect: 0,
+    autoCrop: 'aspect',
+    crop: { x: 0, y: 0, width: 1, height: 1 },
+  },
   blur: { radius: 0 },
   sharpen: { amount: 0, radius: 1 },
   contrastEqualizer: {

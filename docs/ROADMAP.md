@@ -467,6 +467,25 @@ inpainting presets.
 
 ### 3.8 Perspective correction and vertical alignment (L, before 1.0)
 
+> **Done** (`ops/perspective.rs`, `ops/lines.rs`, `develop/GuideOverlay.tsx`). As built:
+> the correction is a camera rotation, not a free homography: the straighten angle is
+> the roll, `vertical` and `horizontal` the tilt and pan (degrees), then a shear and an
+> aspect stretch. The rotation keeps a corrected facade's proportions when the focal
+> length is right; files don't record the sensor size, so the EXIF focal length is
+> read as full frame (28 mm when unknown or under 8 mm) and `aspect` makes up for it.
+> The geometry pass is a homography when there's a perspective or the auto-crop isn't
+> the default; otherwise the old affine path runs unchanged (golden images didn't move).
+> Auto-crop: the largest rectangle of the frame's aspect, or of any aspect (a linear
+> program per aspect), or none (black borders, shown while guides are edited). Lines
+> are detected LSD-style (region growing on gradient orientation, not a port), pieces
+> merged when collinear, and those that agree on a plausible vanishing point (RANSAC)
+> preselected. Fits are closed-form: vanishing points from the lines' interpretation
+> planes, sent to infinity by the rotation; "both" aligns the verticals exactly and
+> shears the horizontals level. Guides are transient (not in the recipe): the user
+> toggles, draws, moves or removes them, and a fit runs again on each change; Apply
+> commits one history entry. `examples/perspective.rs` shows detection and the fit on
+> a photo.
+
 For architecture and interiors, following darktable's `ashift.c` ("rotate and
 perspective").
 
@@ -1286,7 +1305,7 @@ Required before 1.0, on top of what's done:
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options~~,
-   8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 4.10 tone equalizer, 3.8 perspective, 3.6 lensfun,
+   8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 4.10 tone equalizer, ~~3.8 perspective~~, 3.6 lensfun,
    3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
    step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

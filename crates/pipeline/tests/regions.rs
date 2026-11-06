@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, MaskPart, MaskView, Overlays};
-use rawtisserie_pipeline::params::{Blur, ContrastEqualizer, Geometry, Sharpen};
+use rawtisserie_pipeline::params::{AutoCrop, Blur, ContrastEqualizer, Geometry, Sharpen};
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
 fn developer() -> Developer {
@@ -31,9 +31,13 @@ fn crop(img: &Rgba8, r: Region) -> Vec<u8> {
 
 /// Render `params` whole and by regions, at `size`, and compare.
 fn check(name: &str, params: &EditParams, size: RenderSize) {
+    check_with(name, params, size, &OVERLAYS);
+}
+
+fn check_with(name: &str, params: &EditParams, size: RenderSize, overlays: &Overlays) {
     // A fresh developer: the whole render then uses the base at its own binning factor.
     let mut dev = developer();
-    let whole = dev.render_with_overlays(params, size, Quality::Final, &OVERLAYS);
+    let whole = dev.render_with_overlays(params, size, Quality::Final, overlays);
     let (w, h) = (whole.width, whole.height);
     let regions = [
         Region { x: w / 3, y: h / 4, width: w / 4, height: h / 3 },
@@ -43,7 +47,7 @@ fn check(name: &str, params: &EditParams, size: RenderSize) {
         Region { x: w - 40, y: 10, width: 200, height: 60 },
     ];
     for region in regions {
-        let img = dev.render_with_overlays(params, size.with_region(region), Quality::Final, &OVERLAYS);
+        let img = dev.render_with_overlays(params, size.with_region(region), Quality::Final, overlays);
         let want = region.clipped(w, h);
         assert_eq!((img.width, img.height), (want.width, want.height), "{name} {region:?}");
         assert_eq!(dev.output_region(params, size.with_region(region)), want);
@@ -70,6 +74,17 @@ fn regions_match_the_whole_render() {
     p.get_mut::<Blur>().radius = 30.0;
     p.get_mut::<ContrastEqualizer>().luma = [0.7, 0.6, 0.55, 0.5, 0.65, 0.7];
     check("detail", &p, RenderSize::fit(1500, 1500));
+
+    // Perspective: a homography, framed each way (black borders when not auto-cropped).
+    let g = p.get_mut::<Geometry>();
+    (g.vertical, g.horizontal, g.shear, g.aspect) = (14.0, -6.0, 0.04, 0.2);
+    // Without the display indicator: it thresholds the rendered values, and a pixel
+    // within the level of difference allowed can land on either side.
+    let overlays = Overlays { display: None, ..OVERLAYS };
+    for auto_crop in [AutoCrop::Aspect, AutoCrop::Area, AutoCrop::Off] {
+        p.get_mut::<Geometry>().auto_crop = auto_crop;
+        check_with(&format!("perspective, {auto_crop:?}"), &p, RenderSize::fit(1500, 1500), &overlays);
+    }
 }
 
 #[test]

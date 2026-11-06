@@ -17,6 +17,7 @@ import {
 import {
   ADAPTATIONS,
   type Adaptation,
+  type AutoCrop,
   BLEACH_LEVELS,
   type Bleach,
   FLUORESCENTS,
@@ -97,6 +98,7 @@ import {
   ChevronRight,
   Crop,
   EllipsisVertical,
+  Ruler,
   FlipHorizontal2,
   Pencil,
   Pipette,
@@ -122,7 +124,7 @@ import { type ShapeUi, hexToRec2020, isEditing, rec2020ToHex } from './retouch.t
 import { MaskEditor } from './MaskEditor.tsx';
 import type { RangeKey } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
-import type { IlluminantDetection, ToneCurveInput, ToneCurveView } from './protocol.ts';
+import type { IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { sinhCurve, tracks } from './slider.ts';
 
@@ -149,6 +151,14 @@ interface Props {
   /** Swap the crop's width and height. */
   onFlipAspect: () => void;
   onStartCrop: () => void;
+  /** Perspective guides are being edited over the image. */
+  guides: boolean;
+  /** Edit the perspective guides (or apply them, when they are being edited). */
+  onStartGuides: () => void;
+  /** Fit the perspective to the guides (detected first, when they aren't being edited). */
+  onFitPerspective: (mode: PerspectiveFit) => void;
+  /** The perspective fit running, if any. */
+  fittingPerspective: PerspectiveFit | null;
   /** Measure filmic's white/black relative exposures on the image. */
   onAutoTuneFilmic: () => void;
   autoTuning: boolean;
@@ -425,6 +435,87 @@ type Calibration = ModuleParams['colorCalibration'];
  * A select with its label on the left. The label isn't part of the options, so typing
  * on the focused select jumps to the option starting with the typed letters.
  */
+/**
+ * Geometry's perspective header (the guides button) and fit buttons. Memoised, like
+ * `InstanceMenu`: handlers go through `latest` and are left out when comparing, so that
+ * dragging the geometry sliders doesn't restyle these.
+ */
+const PerspectiveTools = memo(
+  ({
+    guides,
+    fitting,
+    onGuides,
+    onFit,
+  }: {
+    guides: boolean;
+    fitting: PerspectiveFit | null;
+    onGuides: () => void;
+    onFit: (mode: PerspectiveFit) => void;
+  }) => (
+    <>
+      <HStack justify="space-between" pt="1">
+        <Text textStyle="2xs" fontWeight="medium" color="fg.muted">
+          Perspective
+        </Text>
+        <Button
+          size="xs"
+          variant={guides ? 'solid' : 'outline'}
+          colorPalette={guides ? 'orange' : 'gray'}
+          title="Show the lines found in the image: pick those that should be straight, or draw your own"
+          onClick={onGuides}
+        >
+          <Ruler /> {guides ? 'Editing guides…' : 'Guides'}
+        </Button>
+      </HStack>
+      <HStack gap="2">
+        <Text textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+          Fit
+        </Text>
+        <ButtonGroup size="xs" variant="outline" attached flex="1">
+          {PERSPECTIVE_FITS.map((f) => (
+            <Button
+              key={f.mode}
+              flex="1"
+              title={f.hint}
+              loading={fitting === f.mode}
+              disabled={fitting !== null}
+              onClick={() => onFit(f.mode)}
+            >
+              {f.label}
+            </Button>
+          ))}
+        </ButtonGroup>
+      </HStack>
+    </>
+  ),
+  (a, b) => a.guides === b.guides && a.fitting === b.fitting,
+);
+
+/** Geometry's auto-crop mode ('off' is offered only when set). Memoised like `PerspectiveTools`. */
+const AutoCropSelect = memo(
+  ({ value, onChange }: { value: AutoCrop; onChange: (v: AutoCrop) => void }) => (
+    <SelectRow label="Auto-crop">
+      {(id) => (
+        <NativeSelect.Root size="xs" flex="1">
+          <NativeSelect.Field id={id} value={value} onChange={(ev) => onChange(ev.target.value as AutoCrop)}>
+            <option value="aspect">Keep the aspect ratio</option>
+            <option value="area">Largest area</option>
+            {value === 'off' && <option value="off">None (empty borders)</option>}
+          </NativeSelect.Field>
+          <NativeSelect.Indicator />
+        </NativeSelect.Root>
+      )}
+    </SelectRow>
+  ),
+  (a, b) => a.value === b.value,
+);
+
+const PERSPECTIVE_FITS: readonly { mode: PerspectiveFit; label: string; hint: string }[] = [
+  { mode: 'vertical', label: 'Vertical', hint: 'Make the vertical guides vertical (and parallel)' },
+  { mode: 'horizontal', label: 'Horizontal', hint: 'Make the horizontal guides horizontal (and parallel)' },
+  { mode: 'both', label: 'Both', hint: 'Make the vertical guides vertical and the horizontal ones horizontal' },
+];
+
 function SelectRow({ label, children }: { label: string; children: (id: string) => React.ReactNode }) {
   const id = useId();
   return (
@@ -679,6 +770,7 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  */
 export const ModulePanel = memo(function ModulePanel(props: Props) {
   const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, shapeUi } = props;
+  const { guides, fittingPerspective } = props;
   const { toneInputs, fittingTone, toneView } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
@@ -2006,7 +2098,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         </>
       ))}
 
-      {sections('geometry', [cropping, aspect], (e) => (
+      {sections('geometry', [cropping, aspect, guides, fittingPerspective], (e) => (
         <>
           <HStack justify="space-between">
             <ButtonGroup size="xs" variant="outline" attached>
@@ -2041,6 +2133,24 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             format={(v) => `${v.toFixed(1)}°`}
             {...e.bind('angle')}
           />
+          <PerspectiveTools
+            guides={guides}
+            fitting={fittingPerspective}
+            onGuides={() => latest.current.onStartGuides()}
+            onFit={(mode) => latest.current.onFitPerspective(mode)}
+          />
+          <ParamSlider label="Vertical" min={-40} max={40} step={0.1} format={degrees} {...e.bind('vertical')} />
+          <ParamSlider label="Horizontal" min={-40} max={40} step={0.1} format={degrees} {...e.bind('horizontal')} />
+          <ParamSlider
+            label="Shear"
+            min={-0.5}
+            max={0.5}
+            step={0.005}
+            format={(v) => v.toFixed(3)}
+            {...e.bind('shear')}
+          />
+          <ParamSlider label="Aspect" min={-1} max={1} step={0.01} format={fmt.fixed2} {...e.bind('aspect')} />
+          <AutoCropSelect value={e.values.autoCrop} onChange={(autoCrop) => e.set({ autoCrop })} />
           <HStack>
             <SelectRow label="Aspect">
               {(id) => (

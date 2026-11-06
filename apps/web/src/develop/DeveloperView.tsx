@@ -27,7 +27,8 @@ import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
-import type { IlluminantDetection, ToneCurveInput, ToneCurveView } from './protocol.ts';
+import { GuideOverlay } from './GuideOverlay.tsx';
+import type { GuideLine, IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView } from './protocol.ts';
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
@@ -67,6 +68,8 @@ const MAX_PREVIEW = 3200;
 /** Rendering takes ~70 ns per pixel, so this allows ~25 image updates per second during a drag. */
 const DRAFT_PIXELS = 500_000;
 const FULL_CROP: CropRect = { x: 0, y: 0, width: 1, height: 1 };
+/** Perspective guides are detected on a render within this size (device pixels). */
+const GUIDES_MAX = 1600;
 /** Width of the zebra stripes, in CSS pixels. */
 const STRIPE_PX = 4;
 /** The toast offering to undo a truncation or compression of the history. */
@@ -252,6 +255,13 @@ export function DeveloperView({
   const [clipping, setClipping] = useClippingSettings();
   const [scopes, setScopes] = useScopeSettings();
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
+  // Perspective guides while they are edited (null otherwise): the whole corrected image
+  // shows, and fits change the live recipe until applied.
+  const [guides, setGuides] = useState<GuideLine[] | null>(null);
+  const [detectingLines, setDetectingLines] = useState(false);
+  // The last fit while editing guides: run again whenever they change.
+  const [guideFit, setGuideFit] = useState<PerspectiveFit | null>(null);
+  const [fittingPerspective, setFittingPerspective] = useState<PerspectiveFit | null>(null);
   const [aspect, setAspect] = useState<CropAspect>(FREE_ASPECT);
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
@@ -291,19 +301,24 @@ export function DeveloperView({
   const stage = useRef<HTMLDivElement>(null);
   const zoomLayout = useRef<ZoomLayout | null>(null);
   const { view: zoom, zoomTo } = useZoom(zoomWindow, stage, zoomLayout, !cropDraft);
+  /** Crop or guides: the image shows uncropped, without overlays. */
+  const framing = cropDraft !== null || guides !== null;
   // Zoomed in, the fitted render is mostly hidden: it stays at the committed recipe
   // while a slider is dragged, so that only the visible region is rendered.
   const fitParams = zoom && live ? committed : params;
   const withView = (p: EditParams) => {
     if (comparing) return defaultEditParams;
     if (cropDraft) return updateModule(p, 'geometry', { params: { crop: FULL_CROP } });
+    // All of the corrected image, borders included, so that every guide shows.
+    if (guides) return updateModule(p, 'geometry', { params: { crop: FULL_CROP, autoCrop: 'off' } });
     return p;
   };
-  const effective = useMemo(() => withView(params), [params, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
-  const fitEffective = useMemo(() => withView(fitParams), [fitParams, comparing, cropDraft !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const effective = useMemo(() => withView(params), [params, comparing, cropDraft !== null, guides !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fitEffective = useMemo(() => withView(fitParams), [fitParams, comparing, cropDraft !== null, guides !== null]); // eslint-disable-line react-hooks/exhaustive-deps
   // While a slider is being dragged, render a ~0.5 MP draft (the pipeline keeps its
-  // caches for both sizes); the full-resolution render follows on release.
-  const draft = live && !cropDraft && !zoom;
+  // caches for both sizes); the full-resolution render follows on release. Fitted
+  // guides are a live change too, but not a drag.
+  const draft = live && !framing && !zoom;
   // Scopes of the fitted render, as wide as the sidebar allows (less its padding).
   const [sidebar, sidebarSize] = useElementSize<HTMLDivElement>();
   const scopeWidth = Math.max(0, sidebarSize.width - 16);
@@ -333,9 +348,9 @@ export function DeveloperView({
       display: clipping.display ? { mode: clipping.mode } : null,
       sensor: clipping.sensor,
       stripes: clipping.zebra ? STRIPE_PX * dpr * scale : 0,
-      mask: comparing || cropDraft ? null : (maskOverlay?.id ?? null),
+      mask: comparing || framing ? null : (maskOverlay?.id ?? null),
       maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
-      toneCurve: comparing || cropDraft ? null : toneOverlay,
+      toneCurve: comparing || framing ? null : toneOverlay,
     };
     return { params: fitEffective, width, height, scale, overlays, scope: scopeRequest };
   }, [
@@ -379,9 +394,9 @@ export function DeveloperView({
       display: clipping.display ? { mode: clipping.mode } : null,
       sensor: clipping.sensor,
       stripes: clipping.zebra ? Math.max(1, (STRIPE_PX * dpr * scale) / enlarged) : 0,
-      mask: comparing || cropDraft ? null : (maskOverlay?.id ?? null),
+      mask: comparing || framing ? null : (maskOverlay?.id ?? null),
       maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
-      toneCurve: comparing || cropDraft ? null : toneOverlay,
+      toneCurve: comparing || framing ? null : toneOverlay,
     };
     return { params: effective, width, height, region, scale, overlays };
   }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay, toneOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -456,11 +471,13 @@ export function DeveloperView({
   const goto = (seq: number) => {
     dismissUndo();
     setCropDraft(null);
+    setGuides(null);
     store.goto(seq);
   };
   const compress = () => {
     dismissUndo();
     setCropDraft(null);
+    setGuides(null);
     const snapshot = store.snapshot();
     store.compress();
     offerUndo('History compressed', snapshot);
@@ -477,6 +494,7 @@ export function DeveloperView({
   const crop = findModule(params, 'geometry')?.params.crop ?? FULL_CROP;
   const startCrop = () => {
     if (cropDraft) return applyCrop();
+    if (guides) applyGuides();
     setCropDraft(crop);
   };
   const applyCrop = () => {
@@ -498,6 +516,93 @@ export function DeveloperView({
   const changeCustomAspect = (custom: string) => setCropAspect({ preset: 'custom', custom, flipped: false });
   const flipAspect = () =>
     setCropAspect({ ...aspect, flipped: !aspect.flipped }, flipCrop(cropDraft ?? crop, frameAspect));
+
+  // ── Perspective ──
+  const detectGuides = async () => {
+    setDetectingLines(true);
+    try {
+      const lines = await backend.detectLines(
+        params,
+        Math.min(job.width, GUIDES_MAX),
+        Math.min(job.height, GUIDES_MAX),
+      );
+      // Unless the guides were closed meanwhile.
+      setGuides((g) => g && lines);
+      if (!lines.length)
+        toaster.create({ type: 'info', title: 'No straight lines found', description: 'Draw some on the image.' });
+    } catch (err) {
+      toaster.create({
+        type: 'error',
+        title: 'Line detection failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setDetectingLines(false);
+    }
+  };
+  const startGuides = () => {
+    if (guides) return applyGuides();
+    if (cropDraft) applyCrop();
+    setGuides([]);
+    setGuideFit(null);
+    void detectGuides();
+  };
+  /** Commit the fitted correction, if any, and close the guides. */
+  const applyGuides = () => {
+    if (store.getState().live !== committed) commit(undefined, 'Perspective');
+    setGuides(null);
+  };
+  const cancelGuides = () => {
+    if (store.getState().live !== committed) store.setLive(committed);
+    setGuides(null);
+  };
+  /**
+   * Fit the correction to the selected guides (`lines`, or those being edited, or else
+   * the detected ones). While guides are edited, it's a live change, applied with them;
+   * otherwise it's committed.
+   */
+  const fitPerspective = async (mode: PerspectiveFit, lines = guides) => {
+    setFittingPerspective(mode);
+    try {
+      const source =
+        lines ?? (await backend.detectLines(params, Math.min(job.width, GUIDES_MAX), Math.min(job.height, GUIDES_MAX)));
+      const fit = await backend.fitPerspective(
+        params,
+        source.filter((l) => l.selected),
+        mode,
+      );
+      if (!fit) {
+        const kind = mode === 'both' ? 'vertical or horizontal' : mode;
+        throw new Error(`It needs ${kind} guides: select or draw some.`);
+      }
+      const round = (v: number, k: number) => Math.round(v * k) / k;
+      const correction = {
+        angle: round(fit.angle, 100),
+        vertical: round(fit.vertical, 100),
+        horizontal: round(fit.horizontal, 100),
+        shear: round(fit.shear, 1000),
+      };
+      // The recipe may have changed while fitting.
+      const next = updateModule(store.getState().live, 'geometry', { enabled: true, params: correction });
+      if (lines) {
+        store.setLive(next);
+        setGuideFit(mode);
+      } else commit(next, `Perspective (${mode})`);
+    } catch (err) {
+      toaster.create({
+        type: 'error',
+        title: 'Perspective fit failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setFittingPerspective(null);
+    }
+  };
+  const changeGuides = (lines: GuideLine[]) => {
+    setGuides(lines);
+    if (guideFit) void fitPerspective(guideFit, lines);
+  };
+  const selectGuides = (selected: boolean) => guides && changeGuides(guides.map((l) => ({ ...l, selected })));
 
   // ── Actions ──
   const exportSetup = useExportSetup();
@@ -641,6 +746,7 @@ export function DeveloperView({
   const [creatingStyle, setCreatingStyle] = useState(false);
   const onApplyStyle = useStableCallback((style: Style, mode: StyleMode) => {
     setCropDraft(null);
+    setGuides(null);
     commit(applyStyle(params, style.payload, mode), `Style: ${style.name}${mode === 'append' ? ' (appended)' : ''}`);
   });
   const onCreateStyle = useStableCallback(() => setCreatingStyle(true));
@@ -659,6 +765,9 @@ export function DeveloperView({
   const onCustomAspectChange = useStableCallback(changeCustomAspect);
   const onFlipAspect = useStableCallback(flipAspect);
   const onStartCrop = useStableCallback(startCrop);
+  const onStartGuides = useStableCallback(startGuides);
+  const onFitPerspective = useStableCallback((mode: PerspectiveFit) => void fitPerspective(mode));
+  const onGuidesChange = useStableCallback(changeGuides);
   const onAutoTuneFilmic = useStableCallback(() => void autoTuneFilmic());
   const onDetectIlluminant = useStableCallback(
     (id: string, method: IlluminantDetection) => void detectIlluminant(id, method),
@@ -671,7 +780,7 @@ export function DeveloperView({
   const onShapeUi = useStableCallback((patch: Partial<ShapeUi>) => setShapeUi((u) => ({ ...u, ...patch })));
   const onShapeCommit = useStableCallback((p: EditParams, label: string) => commit(p, label));
   // Shapes are drawn over the image, unless it shows something else (crop, before).
-  const showShapes = shapeUi.editing && !cropDraft && !comparing;
+  const showShapes = shapeUi.editing && !framing && !comparing;
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -701,6 +810,8 @@ export function DeveloperView({
       else if (!mod && key === 'o') setClipping({ display: !clipping.display });
       else if (key === 'enter' && cropDraft) applyCrop();
       else if (key === 'escape' && cropDraft) setCropDraft(null);
+      else if (key === 'enter' && guides) applyGuides();
+      else if (key === 'escape' && guides) cancelGuides();
       // Not on key repeat, so that holding Esc doesn't go past a menu it closes, and not
       // during an export or auto-tune, which leaving would abort.
       else if (key === 'escape' && onBack && !e.repeat && !exporting && !autoTuning) {
@@ -841,6 +952,16 @@ export function DeveloperView({
                   onCommit={onShapeCommit}
                 />
               )}
+              {guides && !comparing && frame && layout && (
+                <GuideOverlay
+                  lines={guides}
+                  mapping={frame.mapping}
+                  width={fitWidth}
+                  height={fitHeight}
+                  zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                  onChange={onGuidesChange}
+                />
+              )}
               {cropDraft && !comparing && (
                 <CropOverlay
                   rect={cropDraft}
@@ -880,6 +1001,33 @@ export function DeveloperView({
                     : `Click or drag to add a ${shapeUi.target === 'mask' ? 'shape' : 'spot'}`}
               {' · Middle-drag to pan · Esc to stop'}
             </Text>
+          )}
+          {guides && (
+            <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
+              <Text textStyle="xs" color="fg.muted" px="2">
+                {detectingLines
+                  ? 'Looking for lines…'
+                  : `${guides.filter((l) => l.selected).length} of ${guides.length} selected · Click to select · Drag to draw · Right-click to remove`}
+              </Text>
+              <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => selectGuides(true)}>
+                All
+              </Button>
+              <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => selectGuides(false)}>
+                None
+              </Button>
+              <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => changeGuides([])}>
+                Clear
+              </Button>
+              <Button size="xs" variant="ghost" loading={detectingLines} onClick={() => void detectGuides()}>
+                Detect
+              </Button>
+              <Button size="xs" variant="ghost" onClick={cancelGuides}>
+                <X /> Cancel
+              </Button>
+              <Button size="xs" colorPalette="orange" onClick={applyGuides}>
+                <Check /> Apply
+              </Button>
+            </HStack>
           )}
           {cropDraft && (
             <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
@@ -927,6 +1075,10 @@ export function DeveloperView({
           onCustomAspectChange={onCustomAspectChange}
           onFlipAspect={onFlipAspect}
           onStartCrop={onStartCrop}
+          guides={guides !== null}
+          onStartGuides={onStartGuides}
+          onFitPerspective={onFitPerspective}
+          fittingPerspective={fittingPerspective}
           onAutoTuneFilmic={onAutoTuneFilmic}
           autoTuning={autoTuning}
           onDetectIlluminant={onDetectIlluminant}

@@ -6,8 +6,11 @@ import {
   type PhotoMetadata,
 } from '@rawtisserie/pipeline';
 import type {
+  GuideLine,
   IlluminantDetection,
   Overlays,
+  PerspectiveCorrection,
+  PerspectiveFit,
   Region,
   ToneCurveInput,
   WorkerRequest,
@@ -145,6 +148,30 @@ export class LocalRenderBackend implements RenderBackend {
       maxHeight,
     });
     return r.input;
+  }
+
+  async detectLines(params: EditParams, maxWidth: number, maxHeight: number): Promise<GuideLine[]> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'detectedLines' }>>({
+      type: 'detectLines',
+      params,
+      maxWidth,
+      maxHeight,
+    });
+    return r.lines;
+  }
+
+  async fitPerspective(
+    params: EditParams,
+    lines: GuideLine[],
+    mode: PerspectiveFit,
+  ): Promise<PerspectiveCorrection | null> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'fittedPerspective' }>>({
+      type: 'fitPerspective',
+      params,
+      lines,
+      mode,
+    });
+    return r.fit;
   }
 
   dispose() {

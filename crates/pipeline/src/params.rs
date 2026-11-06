@@ -1115,10 +1115,24 @@ pub struct Geometry {
     pub rotation: u8,
     /// Mirror horizontally, after rotation.
     pub flip_horizontal: bool,
-    /// Straighten angle in degrees (clockwise positive), -45 … +45. The image is
-    /// scaled up just enough that no empty corners appear.
+    /// Straighten angle in degrees (clockwise positive), -45 … +45: the camera's roll,
+    /// undone before the perspective correction.
     pub angle: f32,
-    /// Crop rectangle, normalised to the oriented and straightened frame.
+    /// Perspective correction, as a camera rotation (see [`crate::ops::perspective`]):
+    /// tilt in degrees, positive for a camera that pointed up (verticals converging
+    /// towards the top), -40 … +40.
+    pub vertical: f32,
+    /// Pan in degrees, positive for a camera that pointed left (horizontals converging
+    /// towards the left), -40 … +40.
+    pub horizontal: f32,
+    /// Vertical shear after the rotation (`y += shear · x`), -0.5 … +0.5.
+    pub shear: f32,
+    /// Stretch after the correction: widths are scaled by `2^(aspect / 2)` and heights
+    /// by its inverse, -1 … +1.
+    pub aspect: f32,
+    /// How the corrected image is framed so that no empty borders show.
+    pub auto_crop: AutoCrop,
+    /// Crop rectangle, normalised to the corrected (and auto-cropped) frame.
     pub crop: Crop,
 }
 
@@ -1128,9 +1142,28 @@ impl Default for Geometry {
             rotation: 0,
             flip_horizontal: false,
             angle: 0.0,
+            vertical: 0.0,
+            horizontal: 0.0,
+            shear: 0.0,
+            aspect: 0.0,
+            auto_crop: AutoCrop::default(),
             crop: Crop::default(),
         }
     }
+}
+
+/// How [`Geometry`] frames the straightened and perspective-corrected image.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutoCrop {
+    /// The largest rectangle of the uncorrected frame's aspect within the image.
+    #[default]
+    Aspect,
+    /// The largest rectangle of any aspect within the image.
+    Area,
+    /// All of the corrected image, with empty borders (black). The developer shows
+    /// this while perspective guides are edited.
+    Off,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

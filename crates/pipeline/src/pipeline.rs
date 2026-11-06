@@ -14,6 +14,8 @@ use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
 use crate::ops::tone_curve::{self, InputHistogram};
+use crate::ops::lines::{self, GuideLine, Segment};
+use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
 use crate::ops::{equalizer, filmic, filters, geometry};
 use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleInstance, ModuleKind};
 use crate::Result;
@@ -405,8 +407,57 @@ impl Developer {
             lens: self.photo.lens.as_ref().and(params.get::<Lens>().copied()),
             orient: self.photo.orientation.then(g.rotation % 4, g.flip_horizontal),
             angle: g.angle.clamp(-45.0, 45.0),
+            perspective: Perspective::new(g, self.focal_length()),
+            auto_crop: g.auto_crop,
             crop: g.crop.sanitized(),
         }
+    }
+
+    /// The focal length as a multiple of the frame's long side. Files don't record the
+    /// sensor size, so it's read as a full-frame one (36 mm across the long side); 28 mm
+    /// when it's unknown or too short for full frame (a small sensor's).
+    fn focal_length(&self) -> f32 {
+        let mm = self.photo.metadata.focal_length.filter(|f| f.is_finite() && *f >= 8.0).unwrap_or(28.0);
+        mm as f32 / 36.0
+    }
+
+    /// `params` with the geometry reduced to its orientation: the frame perspective
+    /// guides are detected and fitted in.
+    fn unwarped(params: &EditParams) -> EditParams {
+        let g = params.get::<Geometry>().cloned().unwrap_or_default();
+        let mut plain = params.clone();
+        *plain.get_mut::<Geometry>() = Geometry { rotation: g.rotation, flip_horizontal: g.flip_horizontal, ..Geometry::default() };
+        plain
+    }
+
+    /// Straight lines for perspective correction, detected on the image before
+    /// straightening and perspective (oriented, lens-corrected, uncropped) as rendered
+    /// within `size`. Endpoints are in the sensor frame (normalised), as shapes'.
+    pub fn detect_lines(&mut self, params: &EditParams, size: RenderSize) -> Vec<Segment> {
+        let plain = Self::unwarped(params);
+        let (width, height, scale) = self.output_size(&plain, size);
+        let transform = self.transform(&plain);
+        self.ensure_base(Self::binning(scale));
+        let (_, base) = self.base.as_ref().expect("base was just built");
+        let img = geometry::apply(base, &transform, self.photo.lens.as_ref(), width, height);
+        let found = lines::detect(&img, self.focal_length() * width.max(height) as f32, 0.04 * width.max(height) as f32);
+        let mapping = self.sensor_mapping(&plain);
+        let to_sensor = |p: (f32, f32)| mapping.to_sensor(p.0 / width as f32, p.1 / height as f32);
+        found.into_iter().map(|s| Segment { a: to_sensor(s.a), b: to_sensor(s.b), ..s }).collect()
+    }
+
+    /// Fit the perspective correction (and the straighten angle) to guide lines, whose
+    /// endpoints are in the sensor frame (normalised): see [`perspective::fit`].
+    pub fn fit_perspective(&self, params: &EditParams, guides: &[GuideLine], mode: FitMode) -> Option<Fit> {
+        let plain = Self::unwarped(params);
+        let mapping = self.sensor_mapping(&plain);
+        let (ow, oh) = self.transform(&plain).oriented_size(self.photo.width as f32, self.photo.height as f32);
+        let centred = |p: (f32, f32)| {
+            let (x, y) = mapping.from_sensor(p.0, p.1);
+            (((x - 0.5) * ow) as f64, ((y - 0.5) * oh) as f64)
+        };
+        let guides: Vec<Guide> = guides.iter().map(|g| Guide { a: centred(g.a), b: centred(g.b), vertical: g.vertical }).collect();
+        perspective::fit(&guides, mode, (self.focal_length() * ow.max(oh)) as f64)
     }
 
     /// Maps points between the output frame of `params` and the sensor frame, where
@@ -1014,3 +1065,4 @@ fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
         })
         .collect()
 }
+

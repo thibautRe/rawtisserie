@@ -279,6 +279,26 @@ impl Developer {
         Ok(result.map(|h| [h.fit.as_slice(), &[h.bins.len() as f32], &h.bins.concat()].concat()).unwrap_or_default())
     }
 
+    /// Straight lines for perspective guides, detected on the image before straightening
+    /// and perspective as rendered at this size: a JSON array of `{a, b, vertical,
+    /// selected}`, endpoints `[x, y]` in the sensor frame (normalised).
+    #[wasm_bindgen(js_name = detectLines)]
+    pub fn detect_lines(&mut self, params_json: &str, max_width: u32, max_height: u32) -> Result<String, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        serde_json::to_string(&self.inner.detect_lines(&params, RenderSize::fit(max_width, max_height))).map_err(js_err)
+    }
+
+    /// The perspective correction that straightens guide lines (a JSON array of `{a, b,
+    /// vertical}` as `detectLines` gives) in `mode` (`vertical`, `horizontal` or `both`):
+    /// `{angle, vertical, horizontal, shear}` as JSON, or `null` without enough lines.
+    #[wasm_bindgen(js_name = fitPerspective)]
+    pub fn fit_perspective(&self, params_json: &str, lines_json: &str, mode: &str) -> Result<String, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let lines: Vec<pipeline::ops::lines::GuideLine> = serde_json::from_str(lines_json).map_err(js_err)?;
+        let mode = serde_json::from_value(serde_json::Value::String(mode.into())).map_err(js_err)?;
+        serde_json::to_string(&self.inner.fit_perspective(&params, &lines, mode)).map_err(js_err)
+    }
+
     /// Free the cached demosaiced image (it is rebuilt on the next render).
     #[wasm_bindgen(js_name = releaseCache)]
     pub fn release_cache(&mut self) {

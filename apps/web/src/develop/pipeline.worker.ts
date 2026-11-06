@@ -9,7 +9,15 @@ import type { EditParams, SensorMapping } from '@rawtisserie/pipeline';
 import init, { Developer } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import { PointPool } from './pointPool.ts';
-import type { Overlays, Placement, Region, WorkerRequest, WorkerResponse } from './protocol.ts';
+import type {
+  GuideLine,
+  Overlays,
+  PerspectiveCorrection,
+  Placement,
+  Region,
+  WorkerRequest,
+  WorkerResponse,
+} from './protocol.ts';
 import { computeScope } from './scopes.ts';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -159,6 +167,14 @@ async function handle(msg: WorkerRequest) {
       const bins = Array.from({ length: count }, (_, k) => Array.from(r.subarray(3 + k * size, 3 + (k + 1) * size)));
       const input = count ? { fit: [r[0]!, r[1]!] as [number, number], bins } : null;
       post({ type: 'toneCurveInput', id: msg.id, input, ms: performance.now() - started });
+    } else if (msg.type === 'detectLines') {
+      const lines = JSON.parse(developer.detectLines(params, msg.maxWidth, msg.maxHeight)) as GuideLine[];
+      post({ type: 'detectedLines', id: msg.id, lines, ms: performance.now() - started });
+    } else if (msg.type === 'fitPerspective') {
+      const fit = JSON.parse(
+        developer.fitPerspective(params, JSON.stringify(msg.lines), msg.mode),
+      ) as PerspectiveCorrection | null;
+      post({ type: 'fittedPerspective', id: msg.id, fit, ms: performance.now() - started });
     } else if (msg.type === 'export') {
       const file = developer.renderExport(params, JSON.stringify(msg.options), JSON.stringify(msg.metadata));
       // Full-resolution renders are large: drop the cache so the next preview rebuilds a small one.

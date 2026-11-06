@@ -15,7 +15,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   channel mixing), saturation and vibrance, shadows/highlights, colour primaries and a
   contrast equalizer (ports of Ansel's), filmic tone mapping (a port of Ansel's filmic
   rgb with its AgX colour science), sharpening, blur,
-  rotation/flip, straightening and cropping. The image sits on a
+  rotation/flip, straightening, perspective correction (fitted to detected or drawn
+  guide lines) and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
   display (O) and sensor (Shift+O) clipping indicators. Zoom with the mouse wheel or a
   touchpad pinch (fit to 800 %), middle click for 100 % at the pointer (again for fit),
@@ -55,7 +56,7 @@ at the end.
 ```
 RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
     ─▶ retouch spots (heal, clone, fill, blur), in place on the base        cached: with the base
-    ─▶ geometry (lens, orientation, straighten, crop, resample)             cached: per output size
+    ─▶ geometry (lens, orientation, straighten, perspective, crop, resample) cached: per output size
        └ drawn parts of masks, through the same geometry, feathered          cached: per output size
     ─▶ blur ─▶ sharpen ─▶ contrast equalizer                                cached: per output size
     ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ shadows/highlights

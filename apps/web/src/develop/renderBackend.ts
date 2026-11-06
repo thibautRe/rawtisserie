@@ -1,5 +1,14 @@
 import type { EditParams, ExportMetadata, ExportOptions, SensorMapping } from '@rawtisserie/pipeline';
-import type { IlluminantDetection, Overlays, Placement, Region, ToneCurveInput } from './protocol.ts';
+import type {
+  GuideLine,
+  IlluminantDetection,
+  Overlays,
+  PerspectiveCorrection,
+  PerspectiveFit,
+  Placement,
+  Region,
+  ToneCurveInput,
+} from './protocol.ts';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 export interface Frame {
@@ -62,5 +71,12 @@ export interface RenderBackend {
     maxWidth: number,
     maxHeight: number,
   ): Promise<ToneCurveInput | null>;
+  /**
+   * Straight lines for perspective guides, on the image before straightening and
+   * perspective as rendered within `maxWidth × maxHeight`; some selected already.
+   */
+  detectLines(params: EditParams, maxWidth: number, maxHeight: number): Promise<GuideLine[]>;
+  /** The correction that straightens the selected `lines` (`mode`), or null without enough of them. */
+  fitPerspective(params: EditParams, lines: GuideLine[], mode: PerspectiveFit): Promise<PerspectiveCorrection | null>;
   dispose(): void;
 }

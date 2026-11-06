@@ -86,8 +86,14 @@ test('the sensor mapping round-trips, with lens distortion', () => {
   // A quarter turn with a crop, as Rust gives it for a 6000 × 4000 sensor.
   const affine: SensorMapping['affine'] = [600, 3600, 0, -2400, 4200, 0];
   const scale = Array.from({ length: 1025 }, (_, i) => 1 - 0.06 * (i / 1024));
-  for (const lens of [null, { cx: 3000, cy: 2000, toIndex: 1024 / (1.1 * 3605 ** 2), scale }]) {
-    const m: SensorMapping = { width: 6000, height: 4000, affine, lens };
+  const lenses = [null, { cx: 3000, cy: 2000, toIndex: 1024 / (1.1 * 3605 ** 2), scale }];
+  // With perspective too (a homography).
+  const perspectives: SensorMapping['perspective'][] = [
+    [0, 0],
+    [0.12, -0.05],
+  ];
+  for (const [lens, perspective] of lenses.flatMap((l) => perspectives.map((p) => [l, p] as const))) {
+    const m: SensorMapping = { width: 6000, height: 4000, affine, perspective, lens };
     for (const [x, y] of [
       [0.5, 0.5],
       [0, 0],
@@ -97,6 +103,12 @@ test('the sensor mapping round-trips, with lens distortion', () => {
       close(fromSensor(m, u, v), [x, y], 1e-5);
     }
   }
-  const identity: SensorMapping = { width: 10, height: 10, affine: [0, 0, 10, 0, 0, 10], lens: null };
+  const identity: SensorMapping = {
+    width: 10,
+    height: 10,
+    affine: [0, 0, 10, 0, 0, 10],
+    perspective: [0, 0],
+    lens: null,
+  };
   close(toSensor(identity, 0.3, 0.6), [0.3, 0.6]);
 });

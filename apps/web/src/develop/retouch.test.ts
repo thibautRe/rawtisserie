@@ -17,6 +17,12 @@ test('new spots copy from beside them, inside the frame', () => {
 
 test('displayScale measures the sensor in screen pixels', () => {
   // A 6000 × 4000 sensor shown whole at 600 × 400: the short side is 400 px.
-  const m: SensorMapping = { width: 6000, height: 4000, affine: [0, 0, 6000, 0, 0, 4000], lens: null };
+  const m: SensorMapping = {
+    width: 6000,
+    height: 4000,
+    affine: [0, 0, 6000, 0, 0, 4000],
+    perspective: [0, 0],
+    lens: null,
+  };
   assert.ok(Math.abs(displayScale(m, [0.5, 0.5], 600, 400) - 400) < 1e-3);
 });

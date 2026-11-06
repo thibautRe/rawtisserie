@@ -56,6 +56,13 @@ See README.md for the architecture overview and commands.
   matching cache key in `pipeline.rs`, or edits won't invalidate the cache. Per-pixel
   operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep
   it cheap: precompute in `PointOps::new` and use lookup tables, not `powf`/`exp` per pixel.
+- Geometry (`ops/geometry.rs`) maps output pixels to the base through a homography
+  (`Mapping`, `wx`/`wy` the projective terms), built from `ops/perspective.rs`'s warp
+  and framing. Without perspective and with the default auto-crop it takes the old
+  affine path, bit for bit: keep it that way, or golden images move. The warp is built
+  at whatever resolution the frame is (the full sensor for `SensorMapping`, the binned
+  base for renders): its parameters must be relative (the focal length is a multiple
+  of the long side), or renders and guides disagree. `tests/perspective.rs` checks it.
 - Zoomed-in views render a region (`RenderSize::with_region`) from a patch of the base.
   Spatial stages that read neighbours must report how far (`reach`, or the equalizer's
   `margin`) so the region gets that margin, and size-dependent choices must use the whole frame, not the region

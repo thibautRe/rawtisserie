@@ -260,8 +260,13 @@ export interface SensorMapping {
   /** Sensor size in pixels. */
   width: number;
   height: number;
-  /** Output (x, y) → (u0 + x·a + y·c, v0 + x·b + y·d), sensor pixels before lens correction: `[u0, v0, a, b, c, d]`. */
+  /**
+   * Output (x, y) → ((u0 + x·a + y·c) / w, (v0 + x·b + y·d) / w), sensor pixels before lens
+   * correction: `[u0, v0, a, b, c, d]`…
+   */
   affine: [number, number, number, number, number, number];
+  /** …with w = 1 + x·g + y·h: `[g, h]` (zeros without perspective). */
+  perspective: [number, number];
   /** Lens distortion (green): offset `d` from (cx, cy) reads the source at `d · scale(|d|² · toIndex)`. */
   lens: { cx: number; cy: number; toIndex: number; scale: number[] } | null;
 }
@@ -277,8 +282,10 @@ function lensScale(lens: NonNullable<SensorMapping['lens']>, r2: number): number
 /** The sensor position of an output position (both normalised). Mirrors `SensorMapping::to_sensor`. */
 export function toSensor(m: SensorMapping, x: number, y: number): Point {
   const [u0, v0, a, b, c, d] = m.affine;
-  let u = u0 + x * a + y * c;
-  let v = v0 + x * b + y * d;
+  const [g, h] = m.perspective;
+  const w = 1 + x * g + y * h;
+  let u = (u0 + x * a + y * c) / w;
+  let v = (v0 + x * b + y * d) / w;
   if (m.lens) {
     const [dx, dy] = [u - m.lens.cx, v - m.lens.cy];
     const s = lensScale(m.lens, dx * dx + dy * dy);
@@ -300,7 +307,11 @@ export function fromSensor(m: SensorMapping, su: number, sv: number): Point {
       [u, v] = [m.lens.cx + (qx * r) / target, m.lens.cy + (qy * r) / target];
     }
   }
-  const [u0, v0, a, b, c, d] = m.affine;
+  // u·w = u0 + x·a + y·c (and v) is linear in x and y.
+  const [u0, v0, a0, b0, c0, d0] = m.affine;
+  const [g, h] = m.perspective;
+  const [a, c] = [a0 - u * g, c0 - u * h];
+  const [b, d] = [b0 - v * g, d0 - v * h];
   const det = a * d - c * b;
   const [du, dv] = [u - u0, v - v0];
   return [(du * d - dv * c) / det, (dv * a - du * b) / det];

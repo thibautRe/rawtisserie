@@ -1,13 +1,15 @@
-//! Lens correction, orientation, straightening, cropping and resampling — done in a
-//! single inverse-mapping pass from output pixels back into the base image.
+//! Lens correction, orientation, straightening, perspective, cropping and resampling —
+//! done in a single inverse-mapping pass from output pixels back into the base image.
 //!
-//! Output pixel → (crop, straighten, orientation: affine) → lens-corrected sensor
-//! frame → (lens correction: radial, per channel) → base image.
+//! Output pixel → (crop, auto-crop, perspective, straighten, orientation: a homography,
+//! affine without perspective) → lens-corrected sensor frame → (lens correction:
+//! radial, per channel) → base image.
 
+use super::perspective::{self, Framing, Mat3, Perspective};
 use crate::decode::Orient;
 use crate::image::{Image, Mask, Region};
 use crate::lens::{Correction, LensProfile};
-use crate::params::{Crop, Lens};
+use crate::params::{AutoCrop, Crop, Lens};
 
 /// Everything needed to map the (sensor-oriented) base image into the output frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -17,6 +19,8 @@ pub struct Transform {
     pub orient: Orient,
     /// Straighten angle, degrees, clockwise positive.
     pub angle: f32,
+    pub perspective: Perspective,
+    pub auto_crop: AutoCrop,
     pub crop: Crop,
 }
 
@@ -26,11 +30,33 @@ impl Transform {
         if self.orient.swaps_axes() { (h, w) } else { (w, h) }
     }
 
+    /// The perspective warp (oriented frame → corrected frame, centred) and what of it
+    /// is shown, unless the image is at most straightened within its own aspect: then
+    /// the whole chain is affine, and computed as such.
+    fn warp(&self, ow: f32, oh: f32) -> Option<(Mat3, Framing)> {
+        if self.perspective.is_identity() && self.auto_crop == AutoCrop::Aspect {
+            return None;
+        }
+        let warp = self.perspective.warp(self.angle, ow as f64, oh as f64);
+        Some((warp, perspective::framing(&warp, ow as f64, oh as f64, self.auto_crop)))
+    }
+
+    /// Size of the corrected (and auto-cropped) frame, in source pixels, for a source of `w × h`.
+    pub fn frame_size(&self, w: f32, h: f32) -> (f32, f32) {
+        let (ow, oh) = self.oriented_size(w, h);
+        self.warp(ow, oh).map_or((ow, oh), |(_, f)| (f.frame.0 as f32, f.frame.1 as f32))
+    }
+
     /// Size of the cropped region, in source pixels, for a source of `w × h`.
     pub fn cropped_size(&self, w: f32, h: f32) -> (f32, f32) {
-        let (ow, oh) = self.oriented_size(w, h);
+        let (fw, fh) = self.frame_size(w, h);
         let crop = self.crop.sanitized();
-        (ow * crop.width, oh * crop.height)
+        (fw * crop.width, fh * crop.height)
+    }
+
+    /// The source size outside which output pixels are black, if they can show it.
+    fn clip(&self, sw: f32, sh: f32) -> Option<(f32, f32)> {
+        (self.auto_crop == AutoCrop::Off).then_some((sw, sh))
     }
 
     /// Scale applied when straightening so that no empty corners show.
@@ -41,8 +67,9 @@ impl Transform {
     }
 }
 
-/// Output pixel → source pixel coordinates. The whole chain (crop, straighten,
-/// orientation) is affine, so it is stored as an origin and two steps.
+/// Output pixel → source pixel coordinates: `((u0 + x·du_dx + y·du_dy) / w, (v0 +
+/// x·dv_dx + y·dv_dy) / w)` with `w = 1 + x·wx + y·wy`. Without perspective, the chain
+/// (crop, straighten, orientation) is affine: `wx = wy = 0`.
 #[derive(Clone, Copy, Debug)]
 struct Mapping {
     u0: f32,
@@ -51,23 +78,16 @@ struct Mapping {
     dv_dx: f32,
     du_dy: f32,
     dv_dy: f32,
+    wx: f32,
+    wy: f32,
 }
 
 impl Mapping {
     fn new(sw: f32, sh: f32, t: &Transform, out_w: usize, out_h: usize) -> Self {
         let (ow, oh) = t.oriented_size(sw, sh);
         let crop = t.crop.sanitized();
-        let scale = t.straighten_scale(ow, oh);
-        let (sin, cos) = (-t.angle.to_radians()).sin_cos();
-        let (cx, cy) = (ow / 2.0, oh / 2.0);
-
-        // Output pixel → base image, as a chain of maps that are each affine.
-        let map = |x: f32, y: f32| -> (f32, f32) {
-            let (fx, fy) = ((crop.x + x / out_w as f32 * crop.width) * ow, (crop.y + y / out_h as f32 * crop.height) * oh);
-            // Output frame → oriented frame (undo straighten: rotate back and shrink).
-            let (dx, dy) = ((fx - cx) / scale, (fy - cy) / scale);
-            let (u, v) = (dx * cos - dy * sin + cx, dx * sin + dy * cos + cy);
-            // Oriented frame → sensor frame (undo the quarter turns, then the flip).
+        // Oriented frame → sensor frame (undo the quarter turns, then the flip).
+        let unorient = |u: f32, v: f32| -> (f32, f32) {
             let (mut u, mut v, mut w, mut h) = (u, v, ow, oh);
             for _ in 0..t.orient.quarter_turns {
                 // inverse of a clockwise turn: (u, v) in a w×h frame came from (v, w - u) in h×w.
@@ -79,22 +99,75 @@ impl Mapping {
             }
             (u, v)
         };
+        let (cx, cy) = (ow / 2.0, oh / 2.0);
+
+        if let Some((warp, framing)) = t.warp(ow, oh) {
+            // Output pixel → corrected frame (centred): the crop within the framing.
+            let fr = framing;
+            let (cw, ch) = (crop.width as f64 * fr.width, crop.height as f64 * fr.height);
+            let shown = [
+                [cw / out_w as f64, 0.0, fr.x + crop.x as f64 * fr.width],
+                [0.0, ch / out_h as f64, fr.y + crop.y as f64 * fr.height],
+                [0.0, 0.0, 1.0],
+            ];
+            // Oriented frame (centred) → sensor frame: affine.
+            let at = |x: f32, y: f32| {
+                let (u, v) = unorient(cx + x, cy + y);
+                (u as f64, v as f64)
+            };
+            let (o, ex, ey) = (at(0.0, 0.0), at(1.0, 0.0), at(0.0, 1.0));
+            let to_sensor = [[ex.0 - o.0, ey.0 - o.0, o.0], [ex.1 - o.1, ey.1 - o.1, o.1], [0.0, 0.0, 1.0]];
+            let unwarp = perspective::invert(&warp).expect("rotations, shears and stretches are invertible");
+            let m = perspective::mul(&perspective::mul(&to_sensor, &unwarp), &shown);
+            let n = |v: f64| (v / m[2][2]) as f32;
+            return Self {
+                u0: n(m[0][2]),
+                v0: n(m[1][2]),
+                du_dx: n(m[0][0]),
+                dv_dx: n(m[1][0]),
+                du_dy: n(m[0][1]),
+                dv_dy: n(m[1][1]),
+                wx: n(m[2][0]),
+                wy: n(m[2][1]),
+            };
+        }
+
+        let scale = t.straighten_scale(ow, oh);
+        let (sin, cos) = (-t.angle.to_radians()).sin_cos();
+        // Output pixel → base image, as a chain of maps that are each affine.
+        let map = |x: f32, y: f32| -> (f32, f32) {
+            let (fx, fy) = ((crop.x + x / out_w as f32 * crop.width) * ow, (crop.y + y / out_h as f32 * crop.height) * oh);
+            // Output frame → oriented frame (undo straighten: rotate back and shrink).
+            let (dx, dy) = ((fx - cx) / scale, (fy - cy) / scale);
+            unorient(dx * cos - dy * sin + cx, dx * sin + dy * cos + cy)
+        };
         // …so the whole chain is affine: evaluate it once, then step through it.
         let (u0, v0) = map(0.0, 0.0);
         let (ux, vx) = map(1.0, 0.0);
         let (uy, vy) = map(0.0, 1.0);
-        Self { u0, v0, du_dx: ux - u0, dv_dx: vx - v0, du_dy: uy - u0, dv_dy: vy - v0 }
+        Self { u0, v0, du_dx: ux - u0, dv_dx: vx - v0, du_dy: uy - u0, dv_dy: vy - v0, wx: 0.0, wy: 0.0 }
     }
 
     #[inline]
     fn at(&self, x: f32, y: f32) -> (f32, f32) {
-        (self.u0 + x * self.du_dx + y * self.du_dy, self.v0 + x * self.dv_dx + y * self.dv_dy)
+        let k = 1.0 / (1.0 + x * self.wx + y * self.wy);
+        ((self.u0 + x * self.du_dx + y * self.du_dy) * k, (self.v0 + x * self.dv_dx + y * self.dv_dy) * k)
+    }
+
+    /// The output position of source position `(u, v)`.
+    fn inverse(&self, u: f32, v: f32) -> (f32, f32) {
+        // u·w = u0 + x·du_dx + y·du_dy (and v) is linear in x and y.
+        let (a, c) = (self.du_dx - u * self.wx, self.du_dy - u * self.wy);
+        let (b, d) = (self.dv_dx - v * self.wx, self.dv_dy - v * self.wy);
+        let det = a * d - c * b;
+        let (du, dv) = (u - self.u0, v - self.v0);
+        ((du * d - dv * c) / det, (dv * a - du * b) / det)
     }
 }
 
 /// Maps points between the output frame and the sensor frame, both normalised (0 … 1
-/// across the width and the height): the output frame is the oriented, straightened and
-/// cropped image; the sensor frame is the base image, where shapes live
+/// across the width and the height): the output frame is the oriented, straightened,
+/// perspective-corrected and cropped image; the sensor frame is the base image, where shapes live
 /// (`crate::shapes`). The developer's overlay draws shapes with it.
 pub struct SensorMapping {
     width: f32,
@@ -111,9 +184,11 @@ pub struct SensorMappingData {
     /// Sensor size in pixels.
     pub width: f32,
     pub height: f32,
-    /// Output `(x, y)` (normalised) → `(u0 + x·a + y·c, v0 + x·b + y·d)`, sensor pixels
-    /// before lens correction, as `[u0, v0, a, b, c, d]`.
+    /// Output `(x, y)` (normalised) → `((u0 + x·a + y·c) / w, (v0 + x·b + y·d) / w)`,
+    /// sensor pixels before lens correction, as `[u0, v0, a, b, c, d]`…
     pub affine: [f32; 6],
+    /// …with `w = 1 + x·g + y·h`, as `[g, h]` (zeros without perspective).
+    pub perspective: [f32; 2],
     pub lens: Option<LensData>,
 }
 
@@ -145,10 +220,7 @@ impl SensorMapping {
     pub fn from_sensor(&self, u: f32, v: f32) -> (f32, f32) {
         let (u, v) = (u * self.width, v * self.height);
         let (u, v) = self.lens.as_ref().map_or((u, v), |l| l.unmap_green(u, v));
-        let m = &self.map;
-        let det = m.du_dx * m.dv_dy - m.du_dy * m.dv_dx;
-        let (du, dv) = (u - m.u0, v - m.v0);
-        ((du * m.dv_dy - dv * m.du_dy) / det, (dv * m.du_dx - du * m.dv_dx) / det)
+        self.map.inverse(u, v)
     }
 
     pub fn data(&self) -> SensorMappingData {
@@ -157,6 +229,7 @@ impl SensorMapping {
             width: self.width,
             height: self.height,
             affine: [m.u0, m.v0, m.du_dx, m.dv_dx, m.du_dy, m.dv_dy],
+            perspective: [m.wx, m.wy],
             lens: self.lens.as_ref().map(|l| {
                 let (cx, cy, to_index, scale) = l.green_table();
                 LensData { cx, cy, to_index, scale: scale.to_vec() }
@@ -191,21 +264,22 @@ pub fn apply_region(
 ) -> Image {
     debug_assert_eq!((src.width, src.height), (src_at.width, src_at.height));
     let (sw, sh) = (base.0 as f32, base.1 as f32);
-    let (ow, oh) = t.oriented_size(sw, sh);
+    let (fw, fh) = t.frame_size(sw, sh);
     let crop = t.crop.sanitized();
     let m = Mapping::new(sw, sh, t, out_w, out_h);
     let at = Patch { x0: region.x as f32, y0: region.y as f32, u0: src_at.x as f32, v0: src_at.y as f32 };
+    let clip = t.clip(sw, sh);
 
     // Source pixels per output pixel. The base image is binned to within 2× of the
     // output, so plain bilinear is enough unless we shrink by more than 1.5×.
-    let ratio = (crop.width * ow / out_w as f32).max(crop.height * oh / out_h as f32);
+    let ratio = (crop.width * fw / out_w as f32).max(crop.height * fh / out_h as f32);
     let ss = if ratio > 1.5 { (ratio.ceil() as usize).clamp(2, 4) } else { 1 };
     let inv_ss = 1.0 / ss as f32;
     let norm = 1.0 / (ss * ss) as f32;
 
     let mut out = Image::new(region.width, region.height);
     if let Some(lens) = correction(t, profile, sw, sh) {
-        apply_lens(src, &m, &lens, ss, at, &mut out);
+        apply_lens(src, &m, &lens, ss, at, clip, &mut out);
         return out;
     }
     for (y, row) in out.pixels.chunks_exact_mut(region.width.max(1)).enumerate() {
@@ -216,6 +290,9 @@ pub fn apply_region(
                     let fx = at.x0 + x as f32 + (sx as f32 + 0.5) * inv_ss;
                     let fy = at.y0 + y as f32 + (sy as f32 + 0.5) * inv_ss;
                     let (u, v) = m.at(fx, fy);
+                    if clip.is_some_and(|(w, h)| !(u >= 0.0 && v >= 0.0 && u <= w && v <= h)) {
+                        continue;
+                    }
                     let s = src.sample_bilinear(u - at.u0, v - at.v0);
                     acc[0] += s[0];
                     acc[1] += s[1];
@@ -244,7 +321,7 @@ pub fn source_bounds(base: (usize, usize), t: &Transform, profile: Option<&LensP
     let (sw, sh) = (base.0 as f32, base.1 as f32);
     let m = Mapping::new(sw, sh, t, out_w, out_h);
     let lens = correction(t, profile, sw, sh);
-    // The chain maps straight lines to straight lines, except for lens distortion,
+    // The chain (a homography) maps straight lines to straight lines, except for lens distortion,
     // which is smooth: points along the border are enough.
     const STEPS: usize = 32;
     let (x0, y0, x1, y1) = (region.x as f32, region.y as f32, region.right() as f32, region.bottom() as f32);
@@ -274,7 +351,9 @@ pub fn source_bounds(base: (usize, usize), t: &Transform, profile: Option<&LensP
 /// [`apply_region`]'s loop with lens correction: each channel is read at its own position
 /// (unless there's no TCA), and scaled by the vignetting gain. The correction is
 /// evaluated once per output pixel, at its centre, and shared by its subsamples.
-fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, at: Patch, out: &mut Image) {
+/// Subsamples whose (green) source lies outside `clip` are black.
+#[allow(clippy::too_many_arguments)]
+fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, at: Patch, clip: Option<(f32, f32)>, out: &mut Image) {
     let inv_ss = 1.0 / ss as f32;
     let norm = 1.0 / (ss * ss) as f32;
     let out_w = out.width;
@@ -290,6 +369,12 @@ fn apply_lens(src: &Image, m: &Mapping, lens: &Correction, ss: usize, at: Patch,
                     let fy = at.y0 + y as f32 + (sy as f32 + 0.5) * inv_ss;
                     let (u, v) = m.at(fx, fy);
                     let (dx, dy) = (u - cx, v - cy);
+                    if let Some((w, h)) = clip {
+                        let (gu, gv) = (cx + dx * scales[1], cy + dy * scales[1]);
+                        if !(gu >= 0.0 && gv >= 0.0 && gu <= w && gv <= h) {
+                            continue;
+                        }
+                    }
                     // Positions in the whole source first, then in the patch (exactly, as the
                     // origin is a whole number), so that patches read what the whole would.
                     if lens.tca {
@@ -410,11 +495,16 @@ pub fn apply_mask_region(
     let lens = correction(t, profile, sw, sh);
     let (min_x, min_y) = (src_at.x as f32, src_at.y as f32);
     let (max_x, max_y) = (min_x + src.width as f32 - 1.0, min_y + src.height as f32 - 1.0);
+    let clip = t.clip(sw, sh);
     let mut out = Mask::new(region.width, region.height);
     for y in 0..region.height {
         for x in 0..region.width {
             let (u, v) = m.at((region.x + x) as f32 + 0.5, (region.y + y) as f32 + 0.5);
             let (u, v) = lens.as_ref().map_or((u, v), |l| l.map_green(u, v));
+            // Outside the source, as the image (black), rather than clamped to the patch.
+            if clip.is_some_and(|(w, h)| !(u >= 0.0 && v >= 0.0 && u < w && v < h)) {
+                continue;
+            }
             let (u, v) = (u.clamp(min_x, max_x) as usize - src_at.x, v.clamp(min_y, max_y) as usize - src_at.y);
             if src.get(u, v) {
                 out.set(x, y);
@@ -446,6 +536,8 @@ mod tests {
             lens: None,
             orient: Orient { flip, quarter_turns },
             angle: 0.0,
+            perspective: Perspective { vertical: 0.0, horizontal: 0.0, shear: 0.0, aspect: 0.0, focal: 0.7 },
+            auto_crop: AutoCrop::Aspect,
             crop: Crop::default(),
         }
     }
@@ -515,19 +607,47 @@ mod tests {
             orient: Orient { flip: true, quarter_turns: 1 },
             angle: 4.0,
             crop: Crop { x: 0.1, y: 0.2, width: 0.7, height: 0.6 },
+            ..transform(false, 0)
         };
-        for lens in [None, Some(&profile)] {
-            let m = SensorMapping::new(&t, lens, 6000.0, 4000.0);
-            for (x, y) in [(0.5, 0.5), (0.0, 0.0), (1.0, 0.3), (0.2, 0.9)] {
-                let (u, v) = m.to_sensor(x, y);
-                let (bx, by) = m.from_sensor(u, v);
-                assert!((bx - x).abs() < 1e-4 && (by - y).abs() < 1e-4, "{lens:?} ({x}, {y}) → ({u}, {v}) → ({bx}, {by})");
+        let tilted = Transform {
+            perspective: Perspective { vertical: 12.0, horizontal: -6.0, shear: 0.05, aspect: 0.2, focal: 0.7 },
+            ..t
+        };
+        let framed = [AutoCrop::Aspect, AutoCrop::Area, AutoCrop::Off].map(|auto_crop| Transform { auto_crop, ..tilted });
+        for t in [t, tilted].iter().chain(&framed) {
+            for lens in [None, Some(&profile)] {
+                let m = SensorMapping::new(t, lens, 6000.0, 4000.0);
+                for (x, y) in [(0.5, 0.5), (0.0, 0.0), (1.0, 0.3), (0.2, 0.9)] {
+                    let (u, v) = m.to_sensor(x, y);
+                    let (bx, by) = m.from_sensor(u, v);
+                    assert!((bx - x).abs() < 1e-4 && (by - y).abs() < 1e-4, "{lens:?} ({x}, {y}) → ({u}, {v}) → ({bx}, {by})");
+                }
             }
         }
         // Without lens correction or geometry, both frames are the same.
         let m = SensorMapping::new(&transform(false, 0), None, 6000.0, 4000.0);
         let (u, v) = m.to_sensor(0.25, 0.75);
         assert!((u - 0.25).abs() < 1e-6 && (v - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn perspective_is_the_same_at_any_resolution() {
+        // The render maps from a binned base, the sensor mapping (guides, shapes, fits)
+        // from the full sensor: both must put an output point at the same place.
+        let t = Transform {
+            perspective: Perspective { vertical: 13.0, horizontal: -5.0, shear: 0.03, aspect: 0.1, focal: 0.7 },
+            angle: 2.0,
+            ..transform(false, 1)
+        };
+        for auto_crop in [AutoCrop::Aspect, AutoCrop::Area, AutoCrop::Off] {
+            let t = Transform { auto_crop, ..t };
+            let full = Mapping::new(6000.0, 4000.0, &t, 300, 450);
+            let binned = Mapping::new(1500.0, 1000.0, &t, 300, 450);
+            for (x, y) in [(0.0, 0.0), (300.0, 0.0), (150.0, 225.0), (20.0, 440.0)] {
+                let (a, b) = (full.at(x, y), binned.at(x, y));
+                assert!((a.0 / 4.0 - b.0).abs() < 1e-2 && (a.1 / 4.0 - b.1).abs() < 1e-2, "{auto_crop:?} ({x}, {y}): {a:?} / 4 vs {b:?}");
+            }
+        }
     }
 
     #[test]

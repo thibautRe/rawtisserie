@@ -45,7 +45,33 @@ export type WorkerRequest =
       maxWidth: number;
       maxHeight: number;
     }
-  | { type: 'toneCurveInput'; id: number; params: EditParams; instance: string; maxWidth: number; maxHeight: number };
+  | { type: 'toneCurveInput'; id: number; params: EditParams; instance: string; maxWidth: number; maxHeight: number }
+  | { type: 'detectLines'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
+  | { type: 'fitPerspective'; id: number; params: EditParams; lines: GuideLine[]; mode: PerspectiveFit };
+
+/**
+ * A perspective guide: a line that should become vertical or horizontal, endpoints in
+ * the sensor frame (normalised), like shapes. `selected` ones are fitted; `drawn` ones
+ * the user drew (the others were detected).
+ */
+export interface GuideLine {
+  a: [number, number];
+  b: [number, number];
+  vertical: boolean;
+  selected: boolean;
+  drawn?: boolean;
+}
+
+/** Which guides a perspective fit straightens. */
+export type PerspectiveFit = 'vertical' | 'horizontal' | 'both';
+
+/** What a perspective fit sets in the geometry module. */
+export interface PerspectiveCorrection {
+  angle: number;
+  vertical: number;
+  horizontal: number;
+  shear: number;
+}
 
 /** What a tone curve instance reads on its input (`Developer::tone_curve_input`). */
 export interface ToneCurveInput {
@@ -85,6 +111,8 @@ export type WorkerResponse =
   | { type: 'autoTunedFilmic'; id: number; white: number | null; black: number | null; ms: number }
   | { type: 'detectedIlluminant'; id: number; xy: [number, number] | null; ms: number }
   | { type: 'toneCurveInput'; id: number; input: ToneCurveInput | null; ms: number }
+  | { type: 'detectedLines'; id: number; lines: GuideLine[]; ms: number }
+  | { type: 'fittedPerspective'; id: number; fit: PerspectiveCorrection | null; ms: number }
   | { type: 'error'; id: number; message: string };
 
 /** From the pipeline worker to a worker of its pool (`pointPool.ts`). */
