@@ -5,6 +5,7 @@ import Fastify, { type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
 import { authPlugin, authRoutes } from './auth/routes.ts';
 import { config } from './config.ts';
+import { exportRoutes } from './exports/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
 import { presetRoutes } from './presets/routes.ts';
 import { fileExists } from './photos/storage.ts';
@@ -44,6 +45,7 @@ export async function buildApp() {
   await app.register(authRoutes);
   await app.register(photoRoutes, { renderQueue });
   await app.register(presetRoutes);
+  await app.register(exportRoutes);
 
   app.get('/api/health', async () => ({ ok: true }));
 

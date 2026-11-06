@@ -11,10 +11,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 jpeg-encoder.workspace = true
+flate2 = "1"
+png = "0.18"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["js"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
-png = "0.18"

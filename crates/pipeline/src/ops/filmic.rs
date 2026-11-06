@@ -6,14 +6,16 @@
 //! * auto hardness (the display power is derived from the dynamic range),
 //! * colour science v8 "AgX": the curve runs per channel in an *inset* rendering
 //!   space, an *outset* matrix re-expands the result, hue is then recovered in
-//!   Kirk/Filmlight Ych, and the result is gamut-mapped to the display (sRGB).
+//!   Kirk/Filmlight Ych, and the result is gamut-mapped to the output space (sRGB for
+//!   previews, the export's colour space for exports, like Ansel's export profile).
 //!
 //! Ansel works in a D50-adapted Rec.2020 and converts to D65 with CAT16 before going
 //! to LMS; our working space is Rec.2020 D65, so we go straight from XYZ D65.
 //! Highlight reconstruction (deprecated in Ansel) is not ported.
 
-use crate::color::{self, Mat3, XYZ_FROM_REC709, mul, mul_vec};
+use crate::color::{self, Mat3, mul, mul_vec};
 use crate::image::Rgb;
+use crate::output::ColorSpace;
 use crate::params::{Bleach, Filmic as FilmicParams};
 
 // ── Colour spaces ───────────────────────────────────────────────────────────
@@ -383,7 +385,7 @@ fn clip_chroma_black(coeffs: [f32; 3], cos_h: f32, sin_h: f32) -> f32 {
 // ── The module ──────────────────────────────────────────────────────────────
 
 /// Filmic, compiled for one set of parameters. Input: scene-linear Rec.2020;
-/// output: display-linear Rec.709/sRGB primaries, in gamut.
+/// output: display-linear RGB in the output space's primaries, in gamut.
 pub struct Filmic {
     pub spline: Spline,
     inset: Mat3,
@@ -400,7 +402,13 @@ pub struct Filmic {
 }
 
 impl Filmic {
+    /// For sRGB output.
     pub fn new(p: &FilmicParams) -> Self {
+        Self::for_space(p, ColorSpace::Srgb)
+    }
+
+    /// Gamut-mapped to `space`.
+    pub fn for_space(p: &FilmicParams, space: ColorSpace) -> Self {
         let spline = Spline::new(p);
         let xyz_to_2020 = color::invert(&XYZ_FROM_REC2020).expect("invertible");
         let b = bracket_constants(p.bleach);
@@ -408,7 +416,6 @@ impl Filmic {
             .zip(displaced_primaries(&XYZ_FROM_REC2020, &xyz_to_2020, b.outset, b.outset_rotation).and_then(|m| color::invert(&m)))
             .unwrap_or((color::IDENTITY, color::IDENTITY));
         let lms_to_xyz = color::invert(&LMS_FROM_XYZ).expect("invertible");
-        let xyz_to_709 = color::invert(&XYZ_FROM_REC709).expect("invertible");
         Self {
             display_black: spline.display_black(),
             display_white: spline.display_white(),
@@ -416,8 +423,8 @@ impl Filmic {
             inset,
             outset,
             to_lms: mul(&LMS_FROM_XYZ, &XYZ_FROM_REC2020),
-            lms_to_display: mul(&xyz_to_709, &lms_to_xyz),
-            display_to_lms: mul(&LMS_FROM_XYZ, &XYZ_FROM_REC709),
+            lms_to_display: mul(&space.rgb_from_xyz(), &lms_to_xyz),
+            display_to_lms: mul(&LMS_FROM_XYZ, &space.xyz_from_rgb()),
             luma: XYZ_FROM_REC2020[1],
             beta_hue: 0.5 * (p.hue_preservation.clamp(-100.0, 100.0) / 100.0 + 1.0),
         }
@@ -498,7 +505,7 @@ impl Filmic {
         ych_to_rgb(Ych { y, c: chroma, ..ych }, m).map(|v| v.clamp(0.0, self.display_white))
     }
 
-    /// Scene-linear Rec.2020 → display-linear Rec.709, in gamut.
+    /// Scene-linear Rec.2020 → display-linear output RGB, in gamut.
     pub fn apply(&self, pix: Rgb, curve: impl Fn(f32) -> f32) -> Rgb {
         self.apply_compressed(self.prepare(pix), curve)
     }

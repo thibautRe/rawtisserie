@@ -54,7 +54,6 @@ pub fn default_recipe(metadata_json: &str) -> Result<String, JsError> {
     serde_json::to_string(&EditParams::default_for(&metadata)).map_err(js_err)
 }
 
-/// A recipe of any version, migrated to the current one and normalised, as JSON.
 /// Layout of a `width × height` image in a frame (`Frame` JSON):
 /// `[width, height, x, y, lineOffset, lineWidth]`.
 #[wasm_bindgen(js_name = frameLayout)]
@@ -64,6 +63,16 @@ pub fn frame_layout(frame_json: &str, width: u32, height: u32) -> Result<Vec<u32
     Ok([l.width, l.height, l.x, l.y, l.line_offset, l.line_width].map(|v| v as u32).to_vec())
 }
 
+/// Export options and metadata (`ExportOptions`, `ExportMetadata` JSON) as Rust reads
+/// them, as JSON: `[options, metadata]`. For the TS tests.
+#[wasm_bindgen(js_name = normalizeExport)]
+pub fn normalize_export(options_json: &str, metadata_json: &str) -> Result<Vec<String>, JsError> {
+    let options: pipeline::export::ExportOptions = serde_json::from_str(options_json).map_err(js_err)?;
+    let metadata: pipeline::export::ExportMetadata = serde_json::from_str(metadata_json).map_err(js_err)?;
+    Ok(vec![serde_json::to_string(&options).map_err(js_err)?, serde_json::to_string(&metadata).map_err(js_err)?])
+}
+
+/// A recipe of any version, migrated to the current one and normalised, as JSON.
 #[wasm_bindgen(js_name = normalizeParams)]
 pub fn normalize_params(params_json: &str) -> Result<String, JsError> {
     let params = EditParams::from_json(params_json).map_err(js_err)?;
@@ -220,14 +229,23 @@ impl Developer {
         Ok(())
     }
 
-    /// Final-quality render, encoded as a JPEG file, in a frame (`Frame` JSON) if given:
-    /// the framed image fits the bounds.
+    /// Final-quality render within `max_width × max_height`, encoded as a JPEG file
+    /// (sRGB, no metadata): library previews.
     #[wasm_bindgen(js_name = renderJpeg)]
-    pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8, frame_json: Option<String>) -> Result<Vec<u8>, JsError> {
+    pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8) -> Result<Vec<u8>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        let frame: Option<Frame> = frame_json.as_deref().map(serde_json::from_str).transpose().map_err(js_err)?;
-        let img = pipeline::frame::render(&mut self.inner, &params, max_width, max_height, frame.as_ref());
+        let img = self.inner.render(&params, RenderSize::fit(max_width, max_height), Quality::Final);
         pipeline::encode::jpeg(&img, quality).map_err(js_err)
+    }
+
+    /// An export: `ExportOptions` JSON (format, colour space, size, frame…) and
+    /// `ExportMetadata` JSON (what goes in the file's EXIF and XMP). Returns the file.
+    #[wasm_bindgen(js_name = renderExport)]
+    pub fn render_export(&mut self, params_json: &str, options_json: &str, metadata_json: &str) -> Result<Vec<u8>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let options: pipeline::export::ExportOptions = serde_json::from_str(options_json).map_err(js_err)?;
+        let metadata: pipeline::export::ExportMetadata = serde_json::from_str(metadata_json).map_err(js_err)?;
+        pipeline::export::render(&mut self.inner, &params, &options, &metadata).map_err(js_err)
     }
 
     /// Filmic auto-tune on the image as rendered at this size: `[white, black]`

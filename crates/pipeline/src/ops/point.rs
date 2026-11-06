@@ -7,13 +7,14 @@
 //!
 //! Order: exposure → colour calibration → saturation/vibrance → shadows/highlights →
 //! colour primaries → tone curve (all in linear Rec.2020, each kind possibly several times) →
-//! filmic (to display-linear sRGB primaries) → sRGB encoding.
+//! filmic (to display-linear output primaries) → encoding. The output space is sRGB
+//! except for exports ([`PointOps::for_space`]).
 //!
 //! A masked instance (`crate::ops::mask`) blends its output with its input per pixel:
 //! its parametric part is evaluated here, on its input, and its drawn part is read from
 //! the planes that come with the spatial image ([`PointOps::render_masked`]).
 
-use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, REC709_FROM_REC2020, luminance, mul_vec, srgb_oetf};
+use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, luminance, mul_vec};
 use crate::ops::calibration::CalibrationStage;
 use crate::image::{Image, Rgb, Rgba8};
 use crate::ops::filmic::Filmic;
@@ -21,6 +22,7 @@ use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
 use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::ColorPrimariesStage;
 use crate::ops::tone_curve::ToneCurveStage;
+use crate::output::ColorSpace;
 use std::rc::Rc;
 use crate::params::{self, EditParams, Module};
 
@@ -40,26 +42,33 @@ pub const FILMIC_LUT_SIZE: usize = 65;
 /// colour transform baked into a 3D table over log-encoded RGB.
 pub struct FilmicStage {
     filmic: Filmic,
+    space: ColorSpace,
     curve: BitsLut<f32>,
     lut: Option<Lut3d>,
     lut_max: f32,
 }
 
 impl FilmicStage {
+    /// For sRGB output.
     pub fn new(p: &crate::params::Filmic, lut_size: Option<usize>) -> Self {
-        let filmic = Filmic::new(p);
+        Self::for_space(p, lut_size, ColorSpace::Srgb)
+    }
+
+    /// Gamut-mapped to `space`, and its table (if any) encoded for it.
+    pub fn for_space(p: &crate::params::Filmic, lut_size: Option<usize>, space: ColorSpace) -> Self {
+        let filmic = Filmic::for_space(p, space);
         let curve = BitsLut::new(FLOOR, CEILING, FINE, |v| filmic.spline.tone_map(v));
         // From 2 EV below the black point (displayed as black anyway) to 4 EV above
         // the white point; brighter pixels take the exact path.
         let grey = MIDDLE_GREY.log2();
         let lut = lut_size.map(|n| {
-            // Stored sRGB-encoded: interpolation error is then perceptually uniform.
+            // Stored encoded: interpolation error is then perceptually uniform.
             Lut3d::new(n, grey + p.black_exposure - 2.0, grey + p.white_exposure + 4.0, |c| {
-                filmic.apply_compressed(c, |v| curve.eval(v)).map(srgb_oetf)
+                filmic.apply_compressed(c, |v| curve.eval(v)).map(|v| space.oetf(v))
             })
         });
         let lut_max = lut.as_ref().map_or(0.0, Lut3d::max_input);
-        Self { filmic, curve, lut, lut_max }
+        Self { filmic, space, curve, lut, lut_max }
     }
 
     pub fn has_lut(&self) -> bool {
@@ -71,7 +80,7 @@ impl FilmicStage {
         self.filmic.apply_compressed(self.filmic.prepare(px), |v| self.curve.eval(v))
     }
 
-    /// 8-bit sRGB output, through the 3D table when possible.
+    /// 8-bit encoded output, through the 3D table when possible.
     #[inline]
     fn apply_u8(&self, px: Rgb, encode: &BitsLut<u8>) -> [u8; 3] {
         let c = self.filmic.prepare(px);
@@ -250,9 +259,10 @@ pub struct PointOps {
     /// The enabled point modules before filmic, in pipeline order.
     chain: Chain,
     filmic: Option<Rc<FilmicStage>>,
-    /// Used when filmic is off: clip in Rec.709.
-    to_rec709: Mat3,
-    /// Display-linear → 8-bit sRGB.
+    space: ColorSpace,
+    /// Used when filmic is off: clip in the output space.
+    to_output: Mat3,
+    /// Display-linear → 8-bit encoded.
     encode: BitsLut<u8>,
 }
 
@@ -324,12 +334,30 @@ impl PointOps {
             steps.push(step);
         }
 
+        let space = filmic.as_ref().map_or(ColorSpace::Srgb, |f| f.space);
         Self {
             chain: Chain::new(steps),
             filmic,
-            to_rec709: REC709_FROM_REC2020,
-            encode: BitsLut::new(FLOOR, 1.0, FINE, |v| (srgb_oetf(v) * 255.0 + 0.5) as u8),
+            space,
+            to_output: space.from_working(),
+            encode: BitsLut::new(FLOOR, 1.0, FINE, |v| (space.oetf(v) * 255.0 + 0.5) as u8),
         }
+    }
+
+    /// Output to `space` rather than sRGB. A filmic stage given to the constructor
+    /// must be for that space ([`FilmicStage::for_space`]).
+    pub fn for_space(mut self, space: ColorSpace) -> Self {
+        assert!(self.filmic.as_ref().is_none_or(|f| f.space == space), "filmic is for another output space");
+        if space != self.space {
+            self.space = space;
+            self.to_output = space.from_working();
+            self.encode = BitsLut::new(FLOOR, 1.0, FINE, |v| (space.oetf(v) * 255.0 + 0.5) as u8);
+        }
+        self
+    }
+
+    pub fn space(&self) -> ColorSpace {
+        self.space
     }
 
     /// Scene-referred adjustments, in the working space (linear Rec.2020). Masks take
@@ -345,13 +373,18 @@ impl PointOps {
         }
     }
 
-    /// One pixel: scene-linear Rec.2020 → display-linear sRGB primaries.
+    /// One pixel: scene-linear Rec.2020 → display-linear output primaries.
     #[inline]
     pub fn display(&self, px: Rgb) -> Rgb {
-        let c = self.adjust(px);
+        self.to_display(self.adjust(px))
+    }
+
+    /// An adjusted pixel to display-linear output primaries, exactly.
+    #[inline]
+    fn to_display(&self, c: Rgb) -> Rgb {
         match &self.filmic {
             Some(f) => f.apply(c),
-            None => mul_vec(&self.to_rec709, c).map(|v| v.clamp(0.0, 1.0)),
+            None => mul_vec(&self.to_output, c).map(|v| v.clamp(0.0, 1.0)),
         }
     }
 
@@ -439,22 +472,22 @@ impl PointOps {
         out
     }
 
-    /// An adjusted pixel to 8-bit sRGB.
+    /// An adjusted pixel to 8 bits, encoded.
     #[inline]
     fn encode(&self, c: Rgb) -> [u8; 3] {
         match &self.filmic {
             Some(f) => f.apply_u8(c, &self.encode),
-            None => mul_vec(&self.to_rec709, c).map(|v| self.encode.eval(v.clamp(0.0, 1.0))),
+            None => mul_vec(&self.to_output, c).map(|v| self.encode.eval(v.clamp(0.0, 1.0))),
         }
     }
 
-    /// One pixel, all the way to 8-bit sRGB.
+    /// One pixel, all the way to 8 bits, encoded.
     #[inline]
     pub fn apply(&self, px: Rgb) -> [u8; 3] {
         self.encode(self.adjust(px))
     }
 
-    /// Apply to a whole image and encode as 8-bit sRGB. Masked instances with a drawn
+    /// Apply to a whole image and encode to 8 bits. Masked instances with a drawn
     /// part do nothing: see [`render_masked`](Self::render_masked).
     pub fn render(&self, img: &Image) -> Rgba8 {
         self.render_masked(img, &[])
@@ -476,6 +509,24 @@ impl PointOps {
             }
         }
         Rgba8 { width: img.width, height: img.height, data }
+    }
+
+    /// Rows `rows` of `img` (with the drawn planes of its masks), exactly, as encoded
+    /// output values in [0, 1]: what exports quantise to 8 or 16 bits, row-major.
+    pub fn render_encoded_rows(&self, img: &Image, masks: &[MaskPlane], rows: std::ops::Range<usize>, out: &mut Vec<Rgb>) {
+        const CHUNK: usize = MAX_CHUNK;
+        let planes = self.planes(masks);
+        let start = rows.start * img.width;
+        let pixels = &img.pixels[start..rows.end * img.width];
+        out.clear();
+        out.reserve(pixels.len());
+        let mut buffer = [[0.0f32; 3]; CHUNK];
+        for (i, pixels) in pixels.chunks(CHUNK).enumerate() {
+            let buffer = &mut buffer[..pixels.len()];
+            buffer.copy_from_slice(pixels);
+            self.adjust_all(buffer, &planes, start + i * CHUNK);
+            out.extend(buffer.iter().map(|&c| self.to_display(c).map(|v| self.space.oetf(v))));
+        }
     }
 }
 

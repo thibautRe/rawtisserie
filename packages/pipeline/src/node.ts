@@ -9,6 +9,7 @@ export {
   defaultRecipe as defaultRecipeWasm,
   normalizeParams,
   frameLayout,
+  normalizeExport,
 } from '../wasm/pipeline.js';
 
 let initialized = false;

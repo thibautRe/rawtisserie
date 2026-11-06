@@ -9,9 +9,9 @@ Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
 together; 4.5 (masks); full-size colour drags on a worker pool (see Performance);
 8.1 (presets and styles on a selection); 4.6 (tone curve); 4.9 (frame, as an export
-option).
+option); 8.5 (export options).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
-see [1.0 release scope](#10-release-scope).
+4.10 (tone equalizer) added to it on 2026-11-06; see [1.0 release scope](#10-release-scope).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -848,7 +848,7 @@ The last stage, display-referred, and not maskable. It changes the output size, 
 check region renders, clipping indicators, overlays and shapes (they map to the image
 inside the frame). It could be shown only on export and in a "show frame" preview.
 
-### 4.10 Tone equalizer (L, after 4.6; not yet in the 1.0 scope)
+### 4.10 Tone equalizer (L, after 4.6, before 1.0)
 
 A port of Ansel's `toneequal.c`: exposure corrections by tone, like the tone curve, but
 read from a smoothed luminance mask instead of each pixel's own value. Lifting the
@@ -1147,25 +1147,27 @@ output colour space, as a ZIP or per file.
 
 ---
 
-### 8.5 Export options (M, before 1.0)
+### 8.5 Export options (M, before 1.0) — done
 
-The export dialog (with 4.9's frame) has the size (presets or a custom long edge) and
-JPEG quality. Still to add, shared with 8.4:
+The export dialog has, on top of 4.9's frame and the size:
 
-- **Output colour space and ICC profile:** exports are sRGB with no embedded profile
-  today. Offer sRGB, Display P3, Adobe RGB and Rec.2020: the last stage (after filmic)
-  converts to the chosen primaries and transfer function, filmic's gamut mapping
-  targets them, and the file embeds the matching ICC profile (an APP2 `ICC_PROFILE`
-  segment for JPEG; bundle the standard profiles). Embed sRGB's too, so that
-  colour-managed viewers don't have to guess. Golden tests stay sRGB.
-- **Formats:** 16-bit TIFF and PNG for further editing, AVIF/JPEG XL later (8.4).
-- **Metadata:** copy EXIF (camera, lens, exposure, date, GPS optional), plus rating
-  and tags as XMP; an option to strip everything.
-- **Naming:** a filename pattern (`{name}`, `{date}`, `{version}`, …), shared with 8.4.
-- **Other bounds:** width × height, short edge, megapixels; output sharpening for
-  the export size.
-- **Export presets:** named sets of these settings (e.g. "Instagram 4:5 with frame"),
-  per user, instead of only the last one remembered in `localStorage`.
+- **Formats:** JPEG, and PNG and TIFF (deflate, predictor) in 8 or 16 bits.
+- **Output colour space:** sRGB, Display P3, Adobe RGB, Rec.2020 (`output::ColorSpace`).
+  Filmic's gamut mapping targets the chosen primaries (as Ansel does with the export
+  profile), and the file embeds a generated v2 ICC profile (`export::icc`), sRGB's too.
+  Previews and golden tests stay sRGB.
+- **Metadata:** EXIF (camera, lens, exposure, date and offset, GPS) from the file's
+  metadata with the library's corrections, and XMP (title, description, rating, label,
+  keywords, creator, rights). All, all but location, copyright only, or none.
+- **Size:** full, long edge, short edge, width × height, megapixels; the frame is
+  included. **Output sharpening** (low, standard, high) at the export size.
+- **File names:** a pattern (`{name}`, `{version}`, `{date}`, `{time}`, `{title}`,
+  `{camera}`, `{lens}`, `{iso}`, `{rating}`), in `exportFilename`.
+- **Export presets** and the last export's settings are per user, on the server
+  (`export_presets`, `users.export_settings`); without an account, the last settings
+  stay in `localStorage`.
+
+Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 
 ## M9 — Branding (M, before 1.0)
 
@@ -1264,14 +1266,13 @@ Ideas, roughly by value for effort:
 Required before 1.0, on top of what's done:
 
 - **Modules:** 3.5 raw denoise (AI), 3.6 lensfun, 3.7 diffuse and sharpen, 3.8 perspective /
-  vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame.
+  vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame, 4.10 tone equalizer (guided mask).
 - **Library:** 8.1 presets on a selection, 8.2 folder/SD import skipping known files,
   8.3 fullscreen culling, 8.4 batch export (with notifications), 8.5 export options
   (colour space/ICC at least).
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 4.10 tone
-  equalizer.
+  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules.
 
 ## Suggested order
 
@@ -1284,8 +1285,8 @@ Required before 1.0, on top of what's done:
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
-6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame~~, 8.5 export colour space,
-   8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 3.8 perspective, 3.6 lensfun,
+6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options~~,
+   8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 4.10 tone equalizer, 3.8 perspective, 3.6 lensfun,
    3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
    step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

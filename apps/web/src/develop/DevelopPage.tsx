@@ -9,6 +9,7 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
+import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
 import type { HistoryOp, HistorySnapshot } from './history.ts';
 import { VersionMenu } from './VersionMenu.tsx';
 import { LocalRenderBackend } from './localRenderBackend.ts';
@@ -119,6 +120,7 @@ export function LocalDevelopPage() {
           backend={backend}
           filename={loaded.file.name}
           metadata={loaded.metadata}
+          exportInfo={fileExportInfo(loaded.file.name, loaded.metadata)}
           original={defaultEditParams}
           initialHistory={autoApplied(loaded.metadata)}
           actions={(history) => (
@@ -275,6 +277,7 @@ export function LibraryDevelopPage() {
       backend={backend}
       filename={photo.filename}
       metadata={metadata}
+      exportInfo={photoExportInfo(photo, metadata)}
       original={defaultEditParams}
       initialHistory={{
         entries: photo.history.map((h) => ({ ...h, recipe: normalizeEditParams(h.recipe) })),

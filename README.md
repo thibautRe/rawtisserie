@@ -23,9 +23,11 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   your own, optionally limited to part of a module, e.g. colour calibration's mixer) and
   styles (a set of modules to apply to other photos) are in each module's header and
   the toolbar, and can be applied to a whole selection from the library.
-  JPEG export at full resolution or a chosen long edge, at a chosen quality, optionally in a frame (border,
-  aspect ratio, line around the photo). It runs **in your browser** on a WebAssembly
-  build of the pixel pipeline.
+  Export to JPEG, or 16-bit PNG or TIFF, in sRGB, Display P3, Adobe RGB or Rec.2020
+  (with its ICC profile), at a chosen size with optional output sharpening, a frame
+  (border, aspect ratio, line around the photo), EXIF/XMP metadata and a file name
+  pattern; export presets are kept per user. It runs **in your browser** on a
+  WebAssembly build of the pixel pipeline.
 - **Headless rendering**: the same WebAssembly module runs on the server (in worker
   threads) to render thumbnails and previews from your saved edits.
 - **Public developer**: `/develop` works without an account. Files are processed
@@ -35,7 +37,7 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
 
 ```
 crates/
-  pipeline/        Rust: RAW decoding (rawler), demosaic, scene-referred pipeline, JPEG encoding
+  pipeline/        Rust: RAW decoding (rawler), demosaic, scene-referred pipeline, export encoding
   pipeline-wasm/   wasm-bindgen bindings (one .wasm for the browser and Node)
 packages/
   pipeline/        @rawtisserie/pipeline: TS types (EditParams, PhotoMetadata) + wasm loaders

@@ -1,12 +1,16 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
 import {
   type CropRect,
+  EXPORT_FORMATS,
   type EditParams,
+  type ExportSettings,
   type PhotoMetadata,
   type Style,
   type StyleMode,
   applyStyle,
   defaultEditParams,
+  exportFilename,
+  exportOptions,
   findModule,
   illuminantFromXy,
   updateInstance,
@@ -27,7 +31,9 @@ import type { IlluminantDetection, ToneCurveInput, ToneCurveView } from './proto
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
-import { ExportDialog, type ExportRequest } from './ExportDialog.tsx';
+import { ExportDialog } from './ExportDialog.tsx';
+import type { ExportInfo } from './exportInfo.ts';
+import { useExportSetup } from './useExportSettings.ts';
 import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
@@ -40,6 +46,8 @@ interface Props {
   backend: RenderBackend;
   filename: string;
   metadata: PhotoMetadata;
+  /** What exports write in their metadata and file names can refer to. */
+  exportInfo: ExportInfo;
   /** The recipe of the unedited image (history entry 0). */
   original: EditParams;
   initialHistory: HistorySnapshot;
@@ -209,7 +217,7 @@ const Toolbar = memo(function Toolbar({
         <SplitSquareHorizontal /> Before
       </Button>
       <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…" onClick={onExport}>
-        <Download /> Export JPEG
+        <Download /> Export
       </Button>
       {actions}
     </HStack>
@@ -220,6 +228,7 @@ export function DeveloperView({
   backend,
   filename,
   metadata,
+  exportInfo,
   original,
   initialHistory,
   save,
@@ -491,14 +500,17 @@ export function DeveloperView({
     setCropAspect({ ...aspect, flipped: !aspect.flipped }, flipCrop(cropDraft ?? crop, frameAspect));
 
   // ── Actions ──
-  const exportJpeg = async ({ maxSize, quality, frame }: ExportRequest) => {
+  const exportSetup = useExportSetup();
+  const exportPhoto = async (settings: ExportSettings) => {
     setExporting(true);
+    exportSetup.remember(settings);
     try {
-      const blob = await backend.exportJpeg(params, maxSize, frame, quality);
+      const format = EXPORT_FORMATS.find((f) => f.value === settings.format)!;
+      const blob = await backend.export(params, exportOptions(settings), exportInfo.metadata);
       const url = URL.createObjectURL(blob);
       const a = Object.assign(document.createElement('a'), {
         href: url,
-        download: `${filename.replace(/\.[^.]+$/, '')}.jpg`,
+        download: exportFilename(settings.filename, exportInfo.filename, format.extension),
       });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
@@ -520,7 +532,7 @@ export function DeveloperView({
   ); // eslint-disable-line react-hooks/exhaustive-deps
   const openExport = useStableCallback(() => setExportOpen(true));
   const closeExport = useStableCallback(() => setExportOpen(false));
-  const onExport = useStableCallback((request: ExportRequest) => void exportJpeg(request));
+  const onExport = useStableCallback((settings: ExportSettings) => void exportPhoto(settings));
 
   // Filmic auto-tune, measured on the full-size preview (with the current crop).
   const autoTuneFilmic = async () => {
@@ -765,8 +777,13 @@ export function DeveloperView({
           open={exportOpen}
           source={canvas}
           imageSize={exportImageSize}
+          initial={exportSetup.initial}
+          presets={exportSetup.presets}
+          filenameFields={exportInfo.filename}
           onClose={closeExport}
           onExport={onExport}
+          onSavePreset={exportSetup.savePreset}
+          onDeletePreset={exportSetup.deletePreset}
         />
 
         <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">

@@ -1,4 +1,10 @@
-import type { EditParams, Frame as ExportFrame, PhotoMetadata } from '@rawtisserie/pipeline';
+import {
+  EXPORT_FORMATS,
+  type EditParams,
+  type ExportMetadata,
+  type ExportOptions,
+  type PhotoMetadata,
+} from '@rawtisserie/pipeline';
 import type {
   IlluminantDetection,
   Overlays,
@@ -82,15 +88,15 @@ export class LocalRenderBackend implements RenderBackend {
     };
   }
 
-  async exportJpeg(params: EditParams, maxSize: number, frame: ExportFrame | null, quality = 92): Promise<Blob> {
+  async export(params: EditParams, options: ExportOptions, metadata: ExportMetadata): Promise<Blob> {
     const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({
       type: 'export',
       params,
-      maxSize,
-      quality,
-      frame,
+      options,
+      metadata,
     });
-    return new Blob([r.jpeg], { type: 'image/jpeg' });
+    const type = EXPORT_FORMATS.find((f) => f.value === options.format)?.mimeType ?? 'application/octet-stream';
+    return new Blob([r.file], { type });
   }
 
   async autoTuneFilmic(

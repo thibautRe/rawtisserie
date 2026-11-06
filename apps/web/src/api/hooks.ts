@@ -6,7 +6,14 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import type { ModuleKind, ModulePresetPayload, Preset, StylePayload } from '@rawtisserie/pipeline';
+import type {
+  ExportPreset,
+  ExportSettings,
+  ModuleKind,
+  ModulePresetPayload,
+  Preset,
+  StylePayload,
+} from '@rawtisserie/pipeline';
 import { useCallback } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
 import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdit.ts';
@@ -370,5 +377,62 @@ export function useDeletePreset() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/presets/${id}`),
     onSuccess: (_, id) => qc.setQueryData<Preset[]>(['presets'], (list = []) => list.filter((p) => p.id !== id)),
+  });
+}
+
+// ── Export settings ─────────────────────────────────────────────────────────
+
+interface ExportSettingsResponse {
+  /** The last settings exported with, or null before the first export. */
+  settings: ExportSettings | null;
+  presets: ExportPreset[];
+}
+
+/** The user's last export settings and their export presets (nothing without an account). */
+export function useExportSettings() {
+  const { data: me } = useMe();
+  return useQuery({
+    queryKey: ['export-settings'],
+    queryFn: () => api.get<ExportSettingsResponse>('/api/export-settings'),
+    enabled: !!me,
+    staleTime: Infinity,
+  });
+}
+
+/** Remember the settings of an export, for the next one. */
+export function useSaveLastExportSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: ExportSettings) =>
+      api.put<{ settings: ExportSettings }>('/api/export-settings', { settings }),
+    onSuccess: ({ settings }) =>
+      qc.setQueryData<ExportSettingsResponse>(['export-settings'], (data) => data && { ...data, settings }),
+  });
+}
+
+const presetsOf = (qc: QueryClient, update: (presets: ExportPreset[]) => ExportPreset[]) =>
+  qc.setQueryData<ExportSettingsResponse>(
+    ['export-settings'],
+    (data) => data && { ...data, presets: update(data.presets) },
+  );
+
+/** Save an export preset. One with the same name is replaced. */
+export function useSaveExportPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; settings: ExportSettings }) =>
+      api.post<ExportPreset>('/api/export-presets', input),
+    onSuccess: (preset) =>
+      presetsOf(qc, (list) =>
+        [...list.filter((p) => p.id !== preset.id), preset].sort((a, b) => a.name.localeCompare(b.name)),
+      ),
+  });
+}
+
+export function useDeleteExportPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/export-presets/${id}`),
+    onSuccess: (_, id) => presetsOf(qc, (list) => list.filter((p) => p.id !== id)),
   });
 }

@@ -7,8 +7,11 @@ See README.md for the architecture overview and commands.
   asserts the defaults match (it needs a fresh `npm run build:wasm`).
 - **Photo metadata** is mirrored the same way: `crates/pipeline/src/metadata.rs` ↔
   `packages/pipeline/src/metadata.ts`. So are **drawn shapes** (`shapes.rs` ↔ `shapes.ts`)
-  and the sensor mapping (`geometry::SensorMapping` ↔ `toSensor`/`fromSensor`), and the
-  export frame (`frame.rs` ↔ `frame.ts`, layout compared in `frame.test.ts`).
+  and the sensor mapping (`geometry::SensorMapping` ↔ `toSensor`/`fromSensor`), the
+  export frame (`frame.rs` ↔ `frame.ts`, layout compared in `frame.test.ts`), and export
+  options and metadata (`export/` ↔ `export.ts`; `export.test.ts` checks Rust reads them
+  back unchanged). Saved export settings are `ExportSettings` (TS only), normalised by
+  `normalizeExportSettings` on the server and in the app.
 - Shapes live in the recipe's top-level `shapes` (absent when empty), in normalised sensor
   coordinates; lengths are fractions of the sensor's shorter side. `normalize` drops
   spots and drawn mask parts without their shape, and shapes nothing uses, in both
@@ -41,7 +44,9 @@ See README.md for the architecture overview and commands.
 - Chakra UI v3: in semantic tokens, declare `_light` before `_dark`. Chakra emits the
   condition blocks in first-seen order, and the `.dark` block must come last to win.
 - The pipeline is scene-referred linear Rec.2020 until tone mapping; spatial parameters
-  are in full-resolution pixels and get scaled by the render scale.
+  are in full-resolution pixels and get scaled by the render scale. Tone mapping lands
+  in the output space: sRGB for previews, the export's (`output::ColorSpace`) for
+  exports (`PointOps::for_space`, `FilmicStage::for_space`).
 - Retouch runs on the base (or region patch) in place: `Retouched` keeps what each spot
   overwrote and restores it when the spots change, and `GeometryKey::retouch` is the
   spots' hash. A region's patch must cover what the spots touching it read

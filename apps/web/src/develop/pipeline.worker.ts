@@ -160,17 +160,11 @@ async function handle(msg: WorkerRequest) {
       const input = count ? { fit: [r[0]!, r[1]!] as [number, number], bins } : null;
       post({ type: 'toneCurveInput', id: msg.id, input, ms: performance.now() - started });
     } else if (msg.type === 'export') {
-      const jpeg = developer.renderJpeg(
-        params,
-        msg.maxSize,
-        msg.maxSize,
-        msg.quality,
-        msg.frame ? JSON.stringify(msg.frame) : undefined,
-      );
+      const file = developer.renderExport(params, JSON.stringify(msg.options), JSON.stringify(msg.metadata));
       // Full-resolution renders are large: drop the cache so the next preview rebuilds a small one.
       developer.releaseCache();
-      post({ type: 'exported', id: msg.id, jpeg: jpeg.buffer as ArrayBuffer, ms: performance.now() - started }, [
-        jpeg.buffer as ArrayBuffer,
+      post({ type: 'exported', id: msg.id, file: file.buffer as ArrayBuffer, ms: performance.now() - started }, [
+        file.buffer as ArrayBuffer,
       ]);
     }
   } catch (err) {

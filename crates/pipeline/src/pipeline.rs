@@ -4,6 +4,7 @@ use crate::decode::{self, RawPhoto};
 use crate::demosaic;
 use crate::image::{Image, Mask, Region, Rgb, Rgba8};
 use crate::metadata::PhotoMetadata;
+use crate::output::ColorSpace;
 use std::rc::Rc;
 
 use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
@@ -302,6 +303,12 @@ impl PointOpsCache {
         self.ops(params, as_shot, filmic)
     }
 
+    /// Final-quality point operations with output to `space` (exports).
+    pub fn export_ops(&mut self, params: &EditParams, as_shot: Option<[f32; 2]>, space: ColorSpace) -> PointOps {
+        let filmic = params.get::<Filmic>().map(|f| Rc::new(FilmicStage::for_space(f, None, space)));
+        self.ops(params, as_shot, filmic).for_space(space)
+    }
+
     /// The point operations, with colour primaries tables from cache when possible.
     fn ops(&mut self, params: &EditParams, as_shot: Option<[f32; 2]>, filmic: Option<Rc<FilmicStage>>) -> PointOps {
         let cache = std::mem::take(&mut self.primaries);
@@ -459,6 +466,12 @@ impl Developer {
         let ops = self.point_ops.render_ops(params, self.photo.as_shot_illuminant, quality);
         let (_, img, masks) = self.spatial(params, size);
         ops.render_masked(img, masks)
+    }
+
+    /// Final-quality point operations with output to `space`, for [`spatial`](Self::spatial)'s
+    /// image (see [`crate::export`]).
+    pub fn export_ops(&mut self, params: &EditParams, space: ColorSpace) -> PointOps {
+        self.point_ops.export_ops(params, self.photo.as_shot_illuminant, space)
     }
 
     /// [`render`](Self::render), with clipping indicators painted on top.

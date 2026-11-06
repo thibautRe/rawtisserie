@@ -1,4 +1,4 @@
-import type { EditParams, Frame, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
+import type { EditParams, ExportMetadata, ExportOptions, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 /** A part of a render, in its output pixels. */
@@ -34,7 +34,7 @@ export type WorkerRequest =
       /** Also draw this scope of the render (`scopes.ts`), without the overlays. */
       scope: ScopeRequest | null;
     }
-  | { type: 'export'; id: number; params: EditParams; maxSize: number; quality: number; frame: Frame | null }
+  | { type: 'export'; id: number; params: EditParams; options: ExportOptions; metadata: ExportMetadata }
   | { type: 'autoTuneFilmic'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
   | {
       type: 'detectIlluminant';
@@ -81,7 +81,7 @@ export type WorkerResponse =
       scope: { mode: ScopeMode; bitmap: ImageBitmap } | null;
       ms: number;
     }
-  | { type: 'exported'; id: number; jpeg: ArrayBuffer; ms: number }
+  | { type: 'exported'; id: number; file: ArrayBuffer; ms: number }
   | { type: 'autoTunedFilmic'; id: number; white: number | null; black: number | null; ms: number }
   | { type: 'detectedIlluminant'; id: number; xy: [number, number] | null; ms: number }
   | { type: 'toneCurveInput'; id: number; input: ToneCurveInput | null; ms: number }
