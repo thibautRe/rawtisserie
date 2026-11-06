@@ -19,6 +19,7 @@ pub mod color;
 pub mod decode;
 pub mod demosaic;
 pub mod encode;
+pub mod frame;
 pub mod image;
 pub mod lens;
 pub mod metadata;

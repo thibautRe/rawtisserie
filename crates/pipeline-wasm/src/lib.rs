@@ -4,6 +4,7 @@
 //! and by the Node server to render thumbnails headlessly. Edit parameters and
 //! metadata cross the boundary as JSON strings; pixels as byte arrays.
 
+use rawtisserie_pipeline::frame::Frame;
 use rawtisserie_pipeline::ops::clipping::Overlays;
 use rawtisserie_pipeline::{self as pipeline, EditParams, Quality, RenderSize};
 use wasm_bindgen::prelude::*;
@@ -54,6 +55,15 @@ pub fn default_recipe(metadata_json: &str) -> Result<String, JsError> {
 }
 
 /// A recipe of any version, migrated to the current one and normalised, as JSON.
+/// Layout of a `width × height` image in a frame (`Frame` JSON):
+/// `[width, height, x, y, lineOffset, lineWidth]`.
+#[wasm_bindgen(js_name = frameLayout)]
+pub fn frame_layout(frame_json: &str, width: u32, height: u32) -> Result<Vec<u32>, JsError> {
+    let frame: Frame = serde_json::from_str(frame_json).map_err(js_err)?;
+    let l = frame.layout(width as usize, height as usize);
+    Ok([l.width, l.height, l.x, l.y, l.line_offset, l.line_width].map(|v| v as u32).to_vec())
+}
+
 #[wasm_bindgen(js_name = normalizeParams)]
 pub fn normalize_params(params_json: &str) -> Result<String, JsError> {
     let params = EditParams::from_json(params_json).map_err(js_err)?;
@@ -210,11 +220,13 @@ impl Developer {
         Ok(())
     }
 
-    /// Final-quality render, encoded as a JPEG file.
+    /// Final-quality render, encoded as a JPEG file, in a frame (`Frame` JSON) if given:
+    /// the framed image fits the bounds.
     #[wasm_bindgen(js_name = renderJpeg)]
-    pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8) -> Result<Vec<u8>, JsError> {
+    pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8, frame_json: Option<String>) -> Result<Vec<u8>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        let img = self.inner.render(&params, RenderSize::fit(max_width, max_height), Quality::Final);
+        let frame: Option<Frame> = frame_json.as_deref().map(serde_json::from_str).transpose().map_err(js_err)?;
+        let img = pipeline::frame::render(&mut self.inner, &params, max_width, max_height, frame.as_ref());
         pipeline::encode::jpeg(&img, quality).map_err(js_err)
     }
 

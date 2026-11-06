@@ -8,7 +8,8 @@ Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries
 3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
 together; 4.5 (masks); full-size colour drags on a worker pool (see Performance);
-8.1 (presets and styles on a selection); 4.6 (tone curve).
+8.1 (presets and styles on a selection); 4.6 (tone curve); 4.9 (frame, as an export
+option).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 see [1.0 release scope](#10-release-scope).
 
@@ -357,7 +358,7 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
   then only re-weight and recompose the bands. Preview sizes skip bands finer than a
   pixel, as Ansel does.
 - **UI:** a reusable SVG curve-editor component (frequency axis, draggable nodes,
-  double-click to reset). The tone equalizer could reuse it later.
+  double-click to reset). The tone equalizer (4.10) could reuse it later.
 
 ### 3.4 Colour calibration (M, optional but useful before M4)
 
@@ -784,7 +785,7 @@ A kind that's absent is off, so adding one needs no recipe version bump.
 > "Lift shadows" (they don't set the range). Golden recipe `tone_curve.json`. Not
 > done: a histogram before the instance has been created (the wand creates it), picking
 > a node from the image, and a local (edge-preserving) variant like the tone
-> equalizer's.
+> equalizer's (see 4.10).
 
 Based on Ansel's or darktable's `rgbcurve.c` (or the older `tonecurve.c`). A point module
 before filmic, in scene-referred linear (curve on log-encoded values, like the
@@ -818,6 +819,24 @@ with tetrahedral interpolation and a choice of input colour space/encoding.
 
 ### 4.9 Frame (S–M, before 1.0)
 
+> **Done** as an export option rather than a module (`crates/pipeline/src/frame.rs` ↔
+> `packages/pipeline/src/frame.ts`, `ExportDialog.tsx`). A frame isn't part of the look
+> and nobody needs it while developing, so it stays out of the recipe: it's applied
+> to the encoded sRGB render, and previews, regions, overlays and shapes don't know
+> about it. As built: a border (fraction of the photo's shorter side), an optional
+> aspect ratio of the framed image (the crop tool's list: XPan, A-series paper and custom,
+> which accepts paper sizes such as A4 and starts from the current ratio;
+> the image's orientation or forced portrait/landscape) with the photo's position in
+> the extra space, a colour (white,
+> grey, black or any), and an optional line around the photo (width, gap, colour).
+> The framed image fits the export size: `frame::fit` searches for the widest photo
+> that fits (`tests/frame.rs`). The export menu became a dialog with a preview drawn
+> from the developer's canvas; the settings are remembered (`localStorage`), so a
+> series gets the same frame, and 8.4 batch export can reuse them. Not done: picking
+> the colour from the image, and per-photo frames (styles can't carry it). A "show
+> frame" view while developing could come with editor layout options, next to the
+> Ctrl/⌘+B assessment mode, if it turns out to be wanted.
+
 Borders for export, like darktable's `borders.c` ("framing"):
 
 - border size as a fraction of the shorter side, or a target aspect ratio;
@@ -828,6 +847,33 @@ Borders for export, like darktable's `borders.c` ("framing"):
 The last stage, display-referred, and not maskable. It changes the output size, so
 check region renders, clipping indicators, overlays and shapes (they map to the image
 inside the frame). It could be shown only on export and in a "show frame" preview.
+
+### 4.10 Tone equalizer (L, after 4.6; not yet in the 1.0 scope)
+
+A port of Ansel's `toneequal.c`: exposure corrections by tone, like the tone curve, but
+read from a smoothed luminance mask instead of each pixel's own value. Lifting the
+shadows then moves a whole shadow area by about the same number of stops and keeps
+the texture inside it (the tone curve flattens or stretches it). That makes it the tool
+for compressing dynamic range, and it replaces the README's "shadows/highlights is
+global" gap.
+
+- **Mask:** luminance (one of Ansel's norms) blurred by a guided filter on log
+  luminance, edge-aware, with Ansel's controls: smoothing radius, edge refinement,
+  mask exposure and contrast compensation (the wand already fits these for the tone
+  curve, see 4.6). Masks' feather has a guided filter on log luminance to start from.
+- **Pipeline:** the mask is spatial, so it's computed with the spatial stages on the
+  module's input (the point modules before it, as `Mask::feathers_whole` does) and
+  cached by its own key, which must go into `is_spatial_cached` so the pool doesn't
+  render a stale one. The correction itself (mask → gain) is a point op with a lookup
+  table, and must stay in the fused pass and the pool. Regions need the filter's
+  `reach`, and the radius is a fraction of the frame, not the region.
+- **UI:** the tone curve's editor (`CurveEditor.tsx`, nodes as EV offsets over a range,
+  histogram behind, "show on the image" toggle), with the histogram of the mask rather
+  than of the pixels, and a mask preview. Picking a node from the image is more useful
+  here than on the curve.
+- Maskable, a golden recipe, `bench.rs` cases (the filter at 2400 px and full size).
+- Alternative: a "local" mode of the tone curve rather than a new kind. A separate kind
+  is simpler to explain and keeps the tone curve's RGB modes out of it.
 
 ---
 
@@ -1101,6 +1147,26 @@ output colour space, as a ZIP or per file.
 
 ---
 
+### 8.5 Export options (M, before 1.0)
+
+The export dialog (with 4.9's frame) has the size (presets or a custom long edge) and
+JPEG quality. Still to add, shared with 8.4:
+
+- **Output colour space and ICC profile:** exports are sRGB with no embedded profile
+  today. Offer sRGB, Display P3, Adobe RGB and Rec.2020: the last stage (after filmic)
+  converts to the chosen primaries and transfer function, filmic's gamut mapping
+  targets them, and the file embeds the matching ICC profile (an APP2 `ICC_PROFILE`
+  segment for JPEG; bundle the standard profiles). Embed sRGB's too, so that
+  colour-managed viewers don't have to guess. Golden tests stay sRGB.
+- **Formats:** 16-bit TIFF and PNG for further editing, AVIF/JPEG XL later (8.4).
+- **Metadata:** copy EXIF (camera, lens, exposure, date, GPS optional), plus rating
+  and tags as XMP; an option to strip everything.
+- **Naming:** a filename pattern (`{name}`, `{date}`, `{version}`, …), shared with 8.4.
+- **Other bounds:** width × height, short edge, megapixels; output sharpening for
+  the export size.
+- **Export presets:** named sets of these settings (e.g. "Instagram 4:5 with frame"),
+  per user, instead of only the last one remembered in `localStorage`.
+
 ## M9 — Branding (M, before 1.0)
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
@@ -1200,10 +1266,12 @@ Required before 1.0, on top of what's done:
 - **Modules:** 3.5 raw denoise (AI), 3.6 lensfun, 3.7 diffuse and sharpen, 3.8 perspective /
   vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame.
 - **Library:** 8.1 presets on a selection, 8.2 folder/SD import skipping known files,
-  8.3 fullscreen culling, 8.4 batch export (with notifications).
+  8.3 fullscreen culling, 8.4 batch export (with notifications), 8.5 export options
+  (colour space/ICC at least).
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules.
+  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 4.10 tone
+  equalizer.
 
 ## Suggested order
 
@@ -1216,7 +1284,7 @@ Required before 1.0, on top of what's done:
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
-6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve~~, 4.9 frame,
+6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame~~, 8.5 export colour space,
    8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 3.8 perspective, 3.6 lensfun,
    3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
    step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,

@@ -20,6 +20,8 @@ export const ASPECTS = [
   { value: '5:4', label: '5:4', ratio: 5 / 4 },
   { value: '4:3', label: '4:3', ratio: 4 / 3 },
   { value: '7:5', label: '7:5', ratio: 7 / 5 },
+  // ISO 216 paper (A4, A3…, and the B series): √2, which halving keeps.
+  { value: 'iso', label: 'ISO paper (A4, A3…)', ratio: Math.SQRT2 },
   { value: '3:2', label: '3:2', ratio: 3 / 2 },
   { value: '16:9', label: '16:9', ratio: 16 / 9 },
   // The Hasselblad XPan's 24×65 mm panoramic frame.
@@ -27,8 +29,17 @@ export const ASPECTS = [
   { value: 'custom', label: 'Custom…', ratio: 'custom' },
 ] as const;
 
-/** Parse a typed ratio: `51:48`, `16/9`, `16x9`, `16*9` or a plain number such as `2.39`. */
+/** Paper sizes that can be typed as a ratio, long side over short side. */
+const PAPERS: Record<string, number> = { letter: 11 / 8.5, legal: 14 / 8.5, tabloid: 17 / 11 };
+
+/**
+ * Parse a typed ratio: `51:48`, `16/9`, `16x9`, `16*9`, a plain number such as `2.39`,
+ * or a paper size (`A4`, `B5`, `letter`…), landscape.
+ */
 export function parseAspect(text: string): number | null {
+  const paper = text.trim().toLowerCase();
+  if (/^[abc]\d{1,2}$/.test(paper)) return Math.SQRT2;
+  if (PAPERS[paper]) return PAPERS[paper];
   const num = String.raw`(\d+(?:[.,]\d+)?|[.,]\d+)`;
   const m = new RegExp(String.raw`^\s*${num}\s*(?:[:/x×*]\s*${num}\s*)?$`, 'i').exec(text);
   if (!m) return null;
@@ -85,3 +96,24 @@ function place(rect: CropRect, w: number, h: number): CropRect {
 
 /** Whether the crop is taller than wide, in pixels. */
 export const isPortrait = (rect: CropRect, frameAspect: number) => rect.height > rect.width * frameAspect;
+
+/**
+ * A ratio (> 0) as text for a custom ratio field, landscape: a preset's within 0.3 %,
+ * else a small fraction within 0.2 % (`7:6`), else the closest preset's.
+ */
+export function aspectText(ratio: number): string {
+  const r = Math.max(ratio, 1 / ratio);
+  const presets = ASPECTS.flatMap((a) =>
+    typeof a.ratio === 'number'
+      ? [{ ratio: a.ratio, text: a.value === 'iso' ? 'A4' : a.value === 'xpan' ? '65:24' : a.value }]
+      : [],
+  );
+  const err = (x: number) => Math.abs(Math.log(x / r));
+  const closest = presets.reduce((best, p) => (err(p.ratio) < err(best.ratio) ? p : best));
+  if (err(closest.ratio) < 0.003) return closest.text;
+  for (let d = 1; d <= 10; d++) {
+    const n = Math.round(r * d);
+    if (err(n / d) < 0.002) return `${n}:${d}`;
+  }
+  return closest.text;
+}

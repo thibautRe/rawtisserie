@@ -2084,6 +2084,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               // crop. The key resets it when the ratio changes elsewhere (e.g. swapped).
               key={`${aspect.custom}-${aspect.flipped}`}
               size="xs"
+              variant="subtle"
               defaultValue={aspect.flipped ? flipRatioText(aspect.custom) : aspect.custom}
               placeholder="Ratio, e.g. 51:48 or 16/9"
               aria-label="Custom crop aspect ratio"

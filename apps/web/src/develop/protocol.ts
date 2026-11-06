@@ -1,4 +1,4 @@
-import type { EditParams, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
+import type { EditParams, Frame, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 /** A part of a render, in its output pixels. */
@@ -34,7 +34,7 @@ export type WorkerRequest =
       /** Also draw this scope of the render (`scopes.ts`), without the overlays. */
       scope: ScopeRequest | null;
     }
-  | { type: 'export'; id: number; params: EditParams; maxSize: number; quality: number }
+  | { type: 'export'; id: number; params: EditParams; maxSize: number; quality: number; frame: Frame | null }
   | { type: 'autoTuneFilmic'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
   | {
       type: 'detectIlluminant';

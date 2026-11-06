@@ -1,4 +1,4 @@
-import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import type { EditParams, Frame as ExportFrame, PhotoMetadata } from '@rawtisserie/pipeline';
 import type {
   IlluminantDetection,
   Overlays,
@@ -82,12 +82,13 @@ export class LocalRenderBackend implements RenderBackend {
     };
   }
 
-  async exportJpeg(params: EditParams, maxSize: number, quality = 92): Promise<Blob> {
+  async exportJpeg(params: EditParams, maxSize: number, frame: ExportFrame | null, quality = 92): Promise<Blob> {
     const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({
       type: 'export',
       params,
       maxSize,
       quality,
+      frame,
     });
     return new Blob([r.jpeg], { type: 'image/jpeg' });
   }

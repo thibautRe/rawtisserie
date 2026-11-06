@@ -4,3 +4,4 @@ export * from './illuminants.ts';
 export * from './mixer.ts';
 export * from './presets.ts';
 export * from './shapes.ts';
+export * from './frame.ts';

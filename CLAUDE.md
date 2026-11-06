@@ -7,7 +7,8 @@ See README.md for the architecture overview and commands.
   asserts the defaults match (it needs a fresh `npm run build:wasm`).
 - **Photo metadata** is mirrored the same way: `crates/pipeline/src/metadata.rs` ↔
   `packages/pipeline/src/metadata.ts`. So are **drawn shapes** (`shapes.rs` ↔ `shapes.ts`)
-  and the sensor mapping (`geometry::SensorMapping` ↔ `toSensor`/`fromSensor`).
+  and the sensor mapping (`geometry::SensorMapping` ↔ `toSensor`/`fromSensor`), and the
+  export frame (`frame.rs` ↔ `frame.ts`, layout compared in `frame.test.ts`).
 - Shapes live in the recipe's top-level `shapes` (absent when empty), in normalised sensor
   coordinates; lengths are fractions of the sensor's shorter side. `normalize` drops
   spots and drawn mask parts without their shape, and shapes nothing uses, in both

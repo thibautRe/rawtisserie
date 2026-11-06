@@ -1,4 +1,4 @@
-import { Box, Button, Center, Flex, HStack, IconButton, Menu, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
+import { Box, Button, Center, Flex, HStack, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
 import {
   type CropRect,
   type EditParams,
@@ -27,6 +27,7 @@ import type { IlluminantDetection, ToneCurveInput, ToneCurveView } from './proto
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
+import { ExportDialog, type ExportRequest } from './ExportDialog.tsx';
 import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
@@ -164,7 +165,8 @@ const Toolbar = memo(function Toolbar({
   onUndo: () => void;
   onRedo: () => void;
   onCompare: (on: boolean) => void;
-  onExport: (maxSize: number) => void;
+  /** Opens the export dialog. */
+  onExport: () => void;
 }) {
   const exif = [
     [metadata.make, metadata.model].filter(Boolean).join(' '),
@@ -206,23 +208,9 @@ const Toolbar = memo(function Toolbar({
       >
         <SplitSquareHorizontal /> Before
       </Button>
-      <Menu.Root onSelect={(d) => onExport(Number(d.value))}>
-        <Menu.Trigger asChild>
-          <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…">
-            <Download /> Export JPEG
-          </Button>
-        </Menu.Trigger>
-        <Portal>
-          <Menu.Positioner>
-            <Menu.Content>
-              <Menu.Item value="0">Full resolution</Menu.Item>
-              <Menu.Item value="3840">Long edge 3840 px</Menu.Item>
-              <Menu.Item value="2048">Long edge 2048 px</Menu.Item>
-              <Menu.Item value="1080">Long edge 1080 px</Menu.Item>
-            </Menu.Content>
-          </Menu.Positioner>
-        </Portal>
-      </Menu.Root>
+      <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…" onClick={onExport}>
+        <Download /> Export JPEG
+      </Button>
       {actions}
     </HStack>
   );
@@ -503,10 +491,10 @@ export function DeveloperView({
     setCropAspect({ ...aspect, flipped: !aspect.flipped }, flipCrop(cropDraft ?? crop, frameAspect));
 
   // ── Actions ──
-  const exportJpeg = async (maxSize: number) => {
+  const exportJpeg = async ({ maxSize, quality, frame }: ExportRequest) => {
     setExporting(true);
     try {
-      const blob = await backend.exportJpeg(params, maxSize);
+      const blob = await backend.exportJpeg(params, maxSize, frame, quality);
       const url = URL.createObjectURL(blob);
       const a = Object.assign(document.createElement('a'), {
         href: url,
@@ -525,7 +513,14 @@ export function DeveloperView({
     }
   };
 
-  const onExport = useStableCallback((maxSize: number) => void exportJpeg(maxSize));
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportImageSize = useMemo(
+    () => (frame ? { width: frame.sourceWidth, height: frame.sourceHeight } : null),
+    [frame?.sourceWidth, frame?.sourceHeight],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
+  const openExport = useStableCallback(() => setExportOpen(true));
+  const closeExport = useStableCallback(() => setExportOpen(false));
+  const onExport = useStableCallback((request: ExportRequest) => void exportJpeg(request));
 
   // Filmic auto-tune, measured on the full-size preview (with the current crop).
   const autoTuneFilmic = async () => {
@@ -671,6 +666,8 @@ export function DeveloperView({
     const down = (e: KeyboardEvent) => {
       // An open menu or dialog closes on Esc (in the capture phase): that's all this press does.
       if (e.key === 'Escape' && e.defaultPrevented) return;
+      // The export dialog is modal: the shortcuts would act on the photo behind it.
+      if (exportOpen) return;
       const field =
         e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ? e.target : null;
       // Esc leaves a field first (it may also be closing a native dropdown), except a
@@ -762,6 +759,13 @@ export function DeveloperView({
           onUndo={onUndo}
           onRedo={onRedo}
           onCompare={setComparing}
+          onExport={openExport}
+        />
+        <ExportDialog
+          open={exportOpen}
+          source={canvas}
+          imageSize={exportImageSize}
+          onClose={closeExport}
           onExport={onExport}
         />
 

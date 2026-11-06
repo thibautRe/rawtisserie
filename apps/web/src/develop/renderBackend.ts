@@ -1,4 +1,4 @@
-import type { EditParams, SensorMapping } from '@rawtisserie/pipeline';
+import type { EditParams, Frame as ExportFrame, SensorMapping } from '@rawtisserie/pipeline';
 import type { IlluminantDetection, Overlays, Placement, Region, ToneCurveInput } from './protocol.ts';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
@@ -39,7 +39,8 @@ export interface RenderBackend {
     region?: Region | null,
     scope?: ScopeRequest | null,
   ): Promise<Frame>;
-  exportJpeg(params: EditParams, maxSize: number, quality?: number): Promise<Blob>;
+  /** A final-quality JPEG within `maxSize` (0: full resolution), framed if `frame` is given. */
+  exportJpeg(params: EditParams, maxSize: number, frame: ExportFrame | null, quality?: number): Promise<Blob>;
   /** Filmic white/black relative exposures measured on the image, or null. */
   autoTuneFilmic(
     params: EditParams,
