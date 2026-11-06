@@ -12,6 +12,16 @@ interface Props {
   left: string;
   right: string;
   label: string;
+  /** The curve's colour (orange by default). */
+  color?: string;
+  /** Other curves, drawn faintly behind. */
+  others?: readonly { values: readonly number[]; color: string }[];
+  /** Drawn behind the curve: heights 0 … 1, evenly spread from the left end to the right one. */
+  histogram?: readonly number[];
+  /** Called when a node gets focus (pressed, or picked with the arrow keys) or loses it. */
+  onFocusChange?: (node: number | null) => void;
+  /** Describes the focused node (by index) and its value, shown under the curve. */
+  format?: (node: number, value: number) => string;
   disabled?: boolean;
   onChange: (values: number[]) => void;
   onCommit: (values: number[]) => void;
@@ -26,10 +36,29 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  * Drag nodes of a curve up and down. A press anywhere grabs the nearest node;
  * double-click resets it. Arrow keys move the focused node (Shift: ×10).
  */
-export function CurveEditor({ values, defaults, neutral, left, right, label, disabled, onChange, onCommit }: Props) {
+export function CurveEditor({
+  values,
+  defaults,
+  neutral,
+  left,
+  right,
+  label,
+  color,
+  others = [],
+  histogram,
+  format,
+  onFocusChange,
+  disabled,
+  onChange,
+  onCommit,
+}: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const dragging = useRef<{ node: number; values: number[] } | null>(null);
-  const [focused, setFocused] = useState<number | null>(null);
+  const [focused, setFocusedState] = useState<number | null>(null);
+  const setFocused = (node: number | null) => {
+    setFocusedState(node);
+    if (node !== focused) onFocusChange?.(node);
+  };
 
   const px = (i: number) => PAD + (i / (values.length - 1)) * (W - 2 * PAD);
   const py = (v: number) => PAD + (1 - v) * (H - 2 * PAD);
@@ -88,10 +117,11 @@ export function CurveEditor({ values, defaults, neutral, left, right, label, dis
   };
 
   const samples = 64;
-  const path = Array.from({ length: samples + 1 }, (_, k) => {
-    const x = k / samples;
-    return `${k === 0 ? 'M' : 'L'}${(PAD + x * (W - 2 * PAD)).toFixed(1)},${py(curveAt(values, x)).toFixed(1)}`;
-  }).join(' ');
+  const path = (nodes: readonly number[]) =>
+    Array.from({ length: samples + 1 }, (_, k) => {
+      const x = k / samples;
+      return `${k === 0 ? 'M' : 'L'}${(PAD + x * (W - 2 * PAD)).toFixed(1)},${py(curveAt(nodes, x)).toFixed(1)}`;
+    }).join(' ');
 
   return (
     <Box opacity={disabled ? 0.5 : 1}>
@@ -131,6 +161,17 @@ export function CurveEditor({ values, defaults, neutral, left, right, label, dis
               strokeWidth="1"
             />
           ))}
+          {histogram && histogram.length > 1 && (
+            <path
+              d={`M${PAD},${H - PAD} ${histogram
+                .map(
+                  (h, k) => `L${(PAD + (k / (histogram.length - 1)) * (W - 2 * PAD)).toFixed(1)},${py(h).toFixed(1)}`,
+                )
+                .join(' ')} L${W - PAD},${H - PAD} Z`}
+              fill="var(--chakra-colors-fg)"
+              fillOpacity={0.1}
+            />
+          )}
           <line
             x1={PAD}
             x2={W - PAD}
@@ -140,14 +181,17 @@ export function CurveEditor({ values, defaults, neutral, left, right, label, dis
             strokeDasharray="3 3"
             strokeWidth="1"
           />
-          <path d={path} fill="none" stroke="var(--chakra-colors-orange-solid)" strokeWidth="1.5" />
+          {others.map((o, i) => (
+            <path key={i} d={path(o.values)} fill="none" stroke={o.color} strokeOpacity={0.45} strokeWidth="1" />
+          ))}
+          <path d={path(values)} fill="none" stroke={color ?? 'var(--chakra-colors-orange-solid)'} strokeWidth="1.5" />
           {values.map((v, i) => (
             <circle
               key={i}
               cx={px(i)}
               cy={py(v)}
               r={focused === i ? 4 : 3}
-              fill={v === defaults[i] ? 'var(--chakra-colors-fg-muted)' : 'var(--chakra-colors-orange-fg)'}
+              fill={v === defaults[i] ? 'var(--chakra-colors-fg-muted)' : (color ?? 'var(--chakra-colors-orange-fg)')}
             />
           ))}
         </svg>
@@ -156,6 +200,11 @@ export function CurveEditor({ values, defaults, neutral, left, right, label, dis
         <Text textStyle="2xs" color="fg.subtle">
           {left}
         </Text>
+        {format && focused !== null && (
+          <Text textStyle="2xs" color="fg.muted">
+            {format(focused, values[focused]!)}
+          </Text>
+        )}
         <Text textStyle="2xs" color="fg.subtle">
           {right}
         </Text>

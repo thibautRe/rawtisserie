@@ -93,6 +93,23 @@ const samples: unknown[] = [
     version: 5,
     modules: [{ kind: 'filmic' }, { kind: 'lens', params: { tca: 0 } }, { kind: 'lens', params: { tca: 2 } }],
   },
+  {
+    version: 6,
+    modules: [
+      { kind: 'toneCurve', params: { rgb: [0, 0, -0.25, -0.5, 0, 0.125, 0.5, 0.75, 0] } },
+      {
+        kind: 'toneCurve',
+        label: 'cross',
+        params: {
+          channels: 'independent',
+          preserveColors: 'power',
+          range: [-6.5, 2.4],
+          red: [0, 0, 0, 0, 0.25, 0, 0, 0, 0],
+        },
+      },
+      { kind: 'toneCurve', enabled: false, params: { preserveColors: 'none', green: [0, 0, 0, 0, 0, 0, 0, 0, 1.5] } },
+    ],
+  },
   // Every kind with its defaults.
   { version: 5, modules: MODULE_KINDS.map((kind) => ({ kind })) },
   { version: 6, modules: MODULE_KINDS.map((kind) => ({ kind })) },

@@ -12,7 +12,7 @@ import {
   removeMaskShape,
   updateMask,
 } from '@rawtisserie/pipeline';
-import { ScanEye, SwatchBook, Trash2 } from 'lucide-react';
+import { Eye, ScanEye, Trash2 } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import {
   type Handle,
@@ -207,7 +207,7 @@ function RangeSlider({
             title={`Show the module’s input as ${c.label.toLowerCase()}, in the colours of this track`}
             onClick={() => onView(view === 'values' ? null : 'values')}
           >
-            <SwatchBook />
+            <Eye />
           </IconButton>
         </HStack>
       </HStack>

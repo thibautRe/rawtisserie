@@ -22,6 +22,7 @@ const OVERLAYS: Overlays = Overlays {
     stripes: 5.0,
     mask: None,
     mask_view: MaskView { part: MaskPart::Mask, values: false },
+    tone_curve: None,
 };
 
 fn crop(img: &Rgba8, r: Region) -> Vec<u8> {
@@ -192,4 +193,14 @@ fn masked_regions_match() {
         assert!(worst <= 1, "{view:?}: mask overlay differs by up to {worst} levels");
         assert_ne!(part.data, plain.data, "{view:?}: the overlay shows");
     }
+    // The tone curve overlay too, with a node tinted.
+    p.add(rawtisserie_pipeline::params::ToneCurve { range: [-4.0, 3.0], ..Default::default() });
+    let id = p.modules.iter().rev().find(|m| m.module.kind() == rawtisserie_pipeline::params::ModuleKind::ToneCurve).unwrap().id.clone();
+    let view = rawtisserie_pipeline::ops::clipping::ToneCurveView { id, channel: None, node: Some(4) };
+    let overlays = Overlays { tone_curve: Some(view), ..OVERLAYS };
+    let whole = dev.render_with_overlays(&p, size, Quality::Final, &overlays);
+    let part = dev.render_with_overlays(&p, size.with_region(region), Quality::Final, &overlays);
+    let worst = part.data.iter().zip(crop(&whole, region)).map(|(a, b)| a.abs_diff(b)).max().unwrap();
+    assert!(worst <= 1, "tone curve overlay differs by up to {worst} levels");
+    assert_ne!(part.data, plain.data, "the tone curve overlay shows");
 }

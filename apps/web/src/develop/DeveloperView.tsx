@@ -23,7 +23,7 @@ import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
-import type { IlluminantDetection } from './protocol.ts';
+import type { IlluminantDetection, ToneCurveInput, ToneCurveView } from './protocol.ts';
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
@@ -91,6 +91,8 @@ function useElementSize<T extends HTMLElement>() {
 
 /** Show the spinner once the image has waited this long for a new render. */
 const SPINNER_DELAY_MS = 500;
+/** How long commits must settle before tone curve inputs are measured again. */
+const TONE_MEASURE_DELAY_MS = 500;
 
 /**
  * In a corner of the image while a render is overdue: after `SPINNER_DELAY_MS` without
@@ -257,6 +259,9 @@ export function DeveloperView({
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
   const [detecting, setDetecting] = useState<string | null>(null);
+  // What each tone curve instance reads on its input, by id (see `measureToneCurves`).
+  const [toneInputs, setToneInputs] = useState<Readonly<Record<string, ToneCurveInput>>>({});
+  const [fittingTone, setFittingTone] = useState<string | null>(null);
   const [shapeState, setShapeUi] = useState<ShapeUi>(DEFAULT_SHAPE_UI);
 
   // The retouch instance being edited, or the first one if it was removed (undo, delete).
@@ -272,6 +277,12 @@ export function DeveloperView({
   // The mask shown over the image, while its instance has one.
   const shown = shapeUi.maskOverlay;
   const maskOverlay = shown && params.modules.some((m) => m.id === shown.id && m.mask) ? shown : null;
+  // What a tone curve reads, shown over the image instead (one overlay at a time).
+  const [toneView, setToneView] = useState<ToneCurveView | null>(null);
+  const toneOverlay = toneView && params.modules.some((m) => m.id === toneView.id) ? toneView : null;
+  useEffect(() => {
+    if (shapeUi.maskOverlay) setToneView(null);
+  }, [shapeUi.maskOverlay]);
 
   // ── Rendering ──
   const [viewport, size] = useElementSize<HTMLDivElement>();
@@ -327,9 +338,22 @@ export function DeveloperView({
       stripes: clipping.zebra ? STRIPE_PX * dpr * scale : 0,
       mask: comparing || cropDraft ? null : (maskOverlay?.id ?? null),
       maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
+      toneCurve: comparing || cropDraft ? null : toneOverlay,
     };
     return { params: fitEffective, width, height, scale, overlays, scope: scopeRequest };
-  }, [fitEffective, size.width, size.height, dpr, draft, margin, frameWidth, clipping, scopeRequest, maskOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    fitEffective,
+    size.width,
+    size.height,
+    dpr,
+    draft,
+    margin,
+    frameWidth,
+    clipping,
+    scopeRequest,
+    maskOverlay,
+    toneOverlay,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
 
   // The image is seen through a window: the viewport, or the inside of the ISO 12646
@@ -360,9 +384,10 @@ export function DeveloperView({
       stripes: clipping.zebra ? Math.max(1, (STRIPE_PX * dpr * scale) / enlarged) : 0,
       mask: comparing || cropDraft ? null : (maskOverlay?.id ?? null),
       maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
+      toneCurve: comparing || cropDraft ? null : toneOverlay,
     };
     return { params: effective, width, height, region, scale, overlays };
-  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay, toneOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame: regionFrame, pending: regionPending } = useRenderLoop(backend, regionJob);
   // A region left from an earlier zoom may show an older recipe: zooming in again waits
   // for a new one.
@@ -543,6 +568,67 @@ export function DeveloperView({
     }
   };
 
+  // Tone curves show what they read on their input. It's measured again (on the
+  // full-size preview, like the detections above) once commits settle, for each enabled
+  // instance whose input may have changed: the modules before it, the shapes, what it
+  // reads and the size. The worker renders one thing at a time, so not while dragging.
+  const toneKeys = useMemo(
+    () =>
+      committed.modules.flatMap((m, i) =>
+        m.kind === 'toneCurve' && m.enabled
+          ? [
+              [
+                m.id,
+                JSON.stringify([
+                  committed.modules.slice(0, i),
+                  committed.shapes,
+                  m.params.channels,
+                  m.params.preserveColors,
+                  job.width,
+                  job.height,
+                ]),
+              ] as const,
+            ]
+          : [],
+      ),
+    [committed, job.width, job.height],
+  );
+  const toneMeasured = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (live) return;
+    const stale = toneKeys.filter(([id, key]) => toneMeasured.current.get(id) !== key);
+    if (!stale.length) return;
+    const timer = setTimeout(async () => {
+      for (const [id, key] of stale) {
+        toneMeasured.current.set(id, key);
+        const input = await backend.toneCurveInput(committed, id, job.width, job.height).catch(() => null);
+        setToneInputs(({ [id]: _, ...rest }) => (input ? { ...rest, [id]: input } : rest));
+      }
+    }, TONE_MEASURE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [toneKeys, live]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fit tone curve instance `id`'s nodes to its input (adding the instance if needed).
+  const fitToneCurve = async (id: string) => {
+    setFittingTone(id);
+    try {
+      const recipe = updateInstance(params, 'toneCurve', id, { enabled: true });
+      const input = await backend.toneCurveInput(recipe, id, job.width, job.height);
+      if (!input) throw new Error('Nothing to measure');
+      setToneInputs((t) => ({ ...t, [id]: input }));
+      const range = input.fit.map((v) => Math.round(v * 10) / 10);
+      commit(updateInstance(recipe, 'toneCurve', id, { params: { range } }));
+    } catch (err) {
+      toaster.create({
+        type: 'error',
+        title: 'Fitting failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setFittingTone(null);
+    }
+  };
+
   // ── Presets and styles ──
   const presets = usePresetLibrary();
   const [creatingStyle, setCreatingStyle] = useState(false);
@@ -570,6 +656,11 @@ export function DeveloperView({
   const onDetectIlluminant = useStableCallback(
     (id: string, method: IlluminantDetection) => void detectIlluminant(id, method),
   );
+  const onFitToneCurve = useStableCallback((id: string) => void fitToneCurve(id));
+  const onToneView = useStableCallback((view: ToneCurveView | null) => {
+    setToneView(view);
+    if (view && shapeUi.maskOverlay) setShapeUi((u) => ({ ...u, maskOverlay: null }));
+  });
   const onShapeUi = useStableCallback((patch: Partial<ShapeUi>) => setShapeUi((u) => ({ ...u, ...patch })));
   const onShapeCommit = useStableCallback((p: EditParams, label: string) => commit(p, label));
   // Shapes are drawn over the image, unless it shows something else (crop, before).
@@ -819,6 +910,11 @@ export function DeveloperView({
           autoTuning={autoTuning}
           onDetectIlluminant={onDetectIlluminant}
           detecting={detecting}
+          toneInputs={toneInputs}
+          onFitToneCurve={onFitToneCurve}
+          fittingTone={fittingTone}
+          toneView={toneOverlay}
+          onToneView={onToneView}
           shapeUi={shapeUi}
           onShapeUi={onShapeUi}
         />

@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Illuminant, Mask, ShadowsHighlights, Shape, Sharpen,
+    Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Illuminant, Mask, ShadowsHighlights, Shape, Sharpen, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -71,6 +71,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     time("primaries release", &mut dev, &p);
     p.get_mut::<Exposure>().ev += 0.1;
     time("exposure slider with primaries", &mut dev, &p);
+
+    // Tone curve: drag a node (a point module, at full size), then each mode.
+    for i in 0..3 {
+        p.get_mut::<ToneCurve>().rgb[5] = 0.1 * (i + 1) as f32;
+        time("tone curve drag", &mut dev, &p);
+    }
+    p.get_mut::<ToneCurve>().preserve_colors = rawtisserie_pipeline::params::RgbNorm::None;
+    time("tone curve per channel", &mut dev, &p);
+    p.get_mut::<ToneCurve>().channels = rawtisserie_pipeline::params::CurveChannels::Independent;
+    p.get_mut::<ToneCurve>().red[6] = 0.2;
+    time("tone curve independent", &mut dev, &p);
+    p.get_mut::<ToneCurve>().channels = rawtisserie_pipeline::params::CurveChannels::Linked;
+    p.get_mut::<ToneCurve>().preserve_colors = rawtisserie_pipeline::params::RgbNorm::Luminance;
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider with tone curve", &mut dev, &p);
 
     // Contrast equalizer: drag a curve node at draft size, release.
     for i in 0..3 {

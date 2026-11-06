@@ -238,6 +238,17 @@ impl Developer {
         Ok(result.map(Vec::from).unwrap_or_default())
     }
 
+    /// What tone curve instance `id` reads on its input, as rendered at this size:
+    /// `[fitLow, fitHigh, count, ...bins]`: the range that fits it, then `count`
+    /// histograms over `HISTOGRAM_RANGE` (one per curve in use) one after the other; or
+    /// an empty array if nothing could be measured.
+    #[wasm_bindgen(js_name = toneCurveInput)]
+    pub fn tone_curve_input(&mut self, params_json: &str, id: &str, max_width: u32, max_height: u32) -> Result<Vec<f32>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let result = self.inner.tone_curve_input(&params, id, RenderSize::fit(max_width, max_height));
+        Ok(result.map(|h| [h.fit.as_slice(), &[h.bins.len() as f32], &h.bins.concat()].concat()).unwrap_or_default())
+    }
+
     /// Free the cached demosaiced image (it is rebuilt on the next render).
     #[wasm_bindgen(js_name = releaseCache)]
     pub fn release_cache(&mut self) {

@@ -50,8 +50,9 @@ impl Band {
 
 /// A Catmull-Rom curve through evenly spaced nodes, clamped to [0, 1], like Ansel's
 /// `dt_draw_curve` (one-sided tangents at the ends).
-pub fn curve(nodes: &[f32; EQUALIZER_NODES], x: f32) -> f32 {
-    let n = EQUALIZER_NODES;
+/// Also the tone curve's. Mirrors `curveAt` in `apps/web/src/develop/curve.ts`.
+pub fn curve(nodes: &[f32], x: f32) -> f32 {
+    let n = nodes.len();
     let h = 1.0 / (n - 1) as f32;
     let x = x.clamp(0.0, 1.0);
     let i = ((x / h) as usize).min(n - 2);

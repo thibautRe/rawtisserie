@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addInstance, addMaskShape, defaultEditParams, updateMask, updateShape } from '@rawtisserie/pipeline';
+import {
+  addInstance,
+  addMaskShape,
+  defaultEditParams,
+  updateMask,
+  updateModule,
+  updateShape,
+} from '@rawtisserie/pipeline';
 import { describeChange } from './changes.ts';
 
 test('mask changes are labelled', () => {
@@ -25,4 +32,11 @@ test('mask changes are labelled', () => {
     moduleId: 'exposure-2',
     structural: false,
   });
+});
+
+test('tone curve changes name the curve', () => {
+  const linked = updateModule(defaultEditParams, 'toneCurve', { params: { rgb: [0, 0, 0, 0, 0, 0, 0.5, 0, 0] } });
+  assert.equal(describeChange(defaultEditParams, linked).label, 'Tone curve: on, curve');
+  const blue = updateModule(linked, 'toneCurve', { params: { blue: [0, 0, 0, 0, 0, 0, 0, 0.2, 0] } });
+  assert.equal(describeChange(linked, blue).label, 'Tone curve: blue curve');
 });

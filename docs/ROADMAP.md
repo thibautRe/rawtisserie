@@ -8,7 +8,7 @@ Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries
 3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
 together; 4.5 (masks); full-size colour drags on a worker pool (see Performance);
-8.1 (presets and styles on a selection).
+8.1 (presets and styles on a selection); 4.6 (tone curve).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 see [1.0 release scope](#10-release-scope).
 
@@ -758,6 +758,34 @@ A kind that's absent is off, so adding one needs no recipe version bump.
 
 ### 4.6 Tone curve (M, before 1.0)
 
+> **Done** (`ops/tone_curve.rs`, the tone curve section of `ModulePanel.tsx`). As built:
+> Ansel's `rgbcurve.c` model (RGB linked or independent; linked either per channel or
+> scaling the pixel by `curve(norm) / norm`, with Ansel's norms), drawn like its tone
+> equalizer: each curve is an exposure offset (±2 EV, flat at 0 by default) at 9 input
+> exposures evenly spread over the instance's `range` (−9 to +3 EV around middle grey
+> by default), so raising a node brightens those tones. The wand fits the range to the
+> module's input (`Developer::tone_curve_input`: all but the darkest and brightest
+> 0.5 % of what the curve reads, on the whole-frame preview), as the tone equalizer's
+> mask compensations do; it's stored, not measured per render, so regions and exports
+> match. The editor shows that input's histogram behind the curve, measured again
+> 500 ms after commits that change what comes before the instance (not during drags:
+> the worker is serial); refitting is left to the user so nodes don't move under an
+> edit. Independent channels get a histogram each (on a common scale; the fit is
+> shared). A "show on the image" toggle (`Overlays::tone_curve`) paints what the curve
+> reads in grey, black at the first node and white at the last, and tints the tones
+> the selected node controls like a mask. It's the contrast equalizer's Catmull-Rom (`equalizer::curve`
+> ↔ `curveAt`), so `CurveEditor.tsx` draws exactly what renders; past the end nodes the
+> offset stays the end node's. Unlike the tone equalizer it's global (no guided
+> filter), and a steep falling curve can invert tones. Norms are scaled so that a
+> grey's is its value: "sum" became "average" and is left out, "norm" is ÷ √3. Each
+> curve is baked into a gain table over the float bits (`BitsLut`, 256 per stop); it
+> runs last before filmic, in the fixed chain, and is maskable. Cost: ~+3 % on a full
+> point render at 2400 px (native). Built-in presets: "Contrast: low / medium / high",
+> "Lift shadows" (they don't set the range). Golden recipe `tone_curve.json`. Not
+> done: a histogram before the instance has been created (the wand creates it), picking
+> a node from the image, and a local (edge-preserving) variant like the tone
+> equalizer's.
+
 Based on Ansel's or darktable's `rgbcurve.c` (or the older `tonecurve.c`). A point module
 before filmic, in scene-referred linear (curve on log-encoded values, like the
 equalizer's curves), with RGB / luminance-preserving modes. It's baked into a lookup
@@ -1188,7 +1216,7 @@ Required before 1.0, on top of what's done:
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
-6. 1.0 work, quick wins first: 8.1 presets on a selection, 4.6 tone curve, 4.9 frame,
+6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve~~, 4.9 frame,
    8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 3.8 perspective, 3.6 lensfun,
    3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
    step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,

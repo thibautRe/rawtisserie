@@ -1,5 +1,5 @@
 import type { EditParams, SensorMapping } from '@rawtisserie/pipeline';
-import type { IlluminantDetection, Overlays, Placement, Region } from './protocol.ts';
+import type { IlluminantDetection, Overlays, Placement, Region, ToneCurveInput } from './protocol.ts';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 export interface Frame {
@@ -54,5 +54,12 @@ export interface RenderBackend {
     maxWidth: number,
     maxHeight: number,
   ): Promise<[number, number] | null>;
+  /** What tone curve instance `instance` reads on its input, and the node range that fits it, or null. */
+  toneCurveInput(
+    params: EditParams,
+    instance: string,
+    maxWidth: number,
+    maxHeight: number,
+  ): Promise<ToneCurveInput | null>;
   dispose(): void;
 }

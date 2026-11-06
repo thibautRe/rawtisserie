@@ -6,7 +6,7 @@
 //! This is the part that re-runs on every slider move, so it has to be cheap.
 //!
 //! Order: exposure → colour calibration → saturation/vibrance → shadows/highlights →
-//! colour primaries (all in linear Rec.2020, each kind possibly several times) →
+//! colour primaries → tone curve (all in linear Rec.2020, each kind possibly several times) →
 //! filmic (to display-linear sRGB primaries) → sRGB encoding.
 //!
 //! A masked instance (`crate::ops::mask`) blends its output with its input per pixel:
@@ -20,6 +20,7 @@ use crate::ops::filmic::Filmic;
 use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
 use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::ColorPrimariesStage;
+use crate::ops::tone_curve::ToneCurveStage;
 use std::rc::Rc;
 use crate::params::{self, EditParams, Module};
 
@@ -91,6 +92,7 @@ enum Step {
     /// Gain indexed by luminance.
     ShadowsHighlights(BitsLut<f32>),
     ColorPrimaries(Rc<ColorPrimariesStage>),
+    ToneCurve(Box<ToneCurveStage>),
     /// A masked instance.
     Masked(Box<Masked>),
 }
@@ -135,6 +137,7 @@ impl Step {
             &Step::Saturation { saturation, vibrance } => saturate(c, saturation, vibrance),
             Step::ShadowsHighlights(lut) => shadows_highlights(c, lut),
             Step::ColorPrimaries(stage) => stage.apply(c),
+            Step::ToneCurve(stage) => stage.apply(c),
             Step::Masked(m) => {
                 let a = m.mask.eval(c, drawn);
                 if a > 0.0 { mask::blend(c, m.step.apply(c), a) } else { c }
@@ -150,6 +153,7 @@ impl Step {
             Step::Saturation { .. } => 2,
             Step::ShadowsHighlights(_) => 3,
             Step::ColorPrimaries(_) => 4,
+            Step::ToneCurve(_) => 5,
             // Never in the fixed chain.
             Step::Masked(_) => u8::MAX,
         }
@@ -191,6 +195,7 @@ fn apply_unmasked(step: &Step, pixels: &mut [Rgb]) {
         &Step::Saturation { saturation, vibrance } => pixels.iter_mut().for_each(|c| *c = saturate(*c, saturation, vibrance)),
         Step::ShadowsHighlights(lut) => pixels.iter_mut().for_each(|c| *c = shadows_highlights(*c, lut)),
         Step::ColorPrimaries(stage) => pixels.iter_mut().for_each(|c| *c = stage.apply(*c)),
+        Step::ToneCurve(stage) => stage.apply_all(pixels),
         Step::Masked(_) => pixels.iter_mut().for_each(|c| *c = step.apply(*c)),
     }
 }
@@ -213,6 +218,7 @@ enum Chain {
         saturation: Option<(f32, f32)>,
         shadows_highlights: Option<BitsLut<f32>>,
         primaries: Option<Rc<ColorPrimariesStage>>,
+        tone_curve: Option<Box<ToneCurveStage>>,
     },
     Steps(Vec<Step>),
 }
@@ -223,7 +229,8 @@ impl Chain {
         if masked || !steps.windows(2).all(|w| w[0].rank() < w[1].rank()) {
             return Chain::Steps(steps);
         }
-        let (mut affine, mut calibration, mut saturation, mut shadows_highlights, mut primaries) = (([0.0; 3], [1.0; 3]), None, None, None, None);
+        let (mut affine, mut calibration, mut saturation, mut shadows_highlights, mut primaries, mut tone_curve) =
+            (([0.0; 3], [1.0; 3]), None, None, None, None, None);
         for step in steps {
             match step {
                 Step::Affine { offset, gain } => affine = (offset, gain),
@@ -231,10 +238,11 @@ impl Chain {
                 Step::Saturation { saturation: s, vibrance } => saturation = Some((s, vibrance)),
                 Step::ShadowsHighlights(lut) => shadows_highlights = Some(lut),
                 Step::ColorPrimaries(stage) => primaries = Some(stage),
+                Step::ToneCurve(stage) => tone_curve = Some(stage),
                 Step::Masked(_) => unreachable!("masked steps use the generic chain"),
             }
         }
-        Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries }
+        Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries, tone_curve }
     }
 }
 
@@ -292,6 +300,10 @@ impl PointOps {
                     None => continue,
                 },
                 Module::ColorPrimaries(cp) if !cp.is_identity() => Step::ColorPrimaries(primaries(cp)),
+                Module::ToneCurve(t) => match ToneCurveStage::new(t) {
+                    Some(stage) => Step::ToneCurve(Box::new(stage)),
+                    None => continue,
+                },
                 _ => continue,
             };
             let step = match mask::active(instance) {
@@ -326,8 +338,8 @@ impl PointOps {
     #[inline(always)]
     pub fn adjust(&self, px: Rgb) -> Rgb {
         match &self.chain {
-            Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries } => {
-                fixed_chain(px, affine, calibration, saturation, shadows_highlights, primaries)
+            Chain::Fixed { affine, calibration, saturation, shadows_highlights, primaries, tone_curve } => {
+                fixed_chain(px, affine, calibration, saturation, shadows_highlights, primaries, tone_curve)
             }
             Chain::Steps(steps) => apply_steps(steps, px),
         }
@@ -352,7 +364,7 @@ impl PointOps {
     /// index of `pixels[0]` in those planes.
     fn adjust_all(&self, pixels: &mut [Rgb], planes: &[Option<&[f32]>], start: usize) {
         match &self.chain {
-            Chain::Fixed { affine: (offset, gain), calibration, saturation, shadows_highlights, primaries } => {
+            Chain::Fixed { affine: (offset, gain), calibration, saturation, shadows_highlights, primaries, tone_curve } => {
                 pixels.iter_mut().for_each(|c| *c = affine(*c, offset, gain));
                 if let Some(stage) = calibration {
                     stage.apply_all(pixels);
@@ -365,6 +377,9 @@ impl PointOps {
                 }
                 if let Some(stage) = primaries {
                     pixels.iter_mut().for_each(|c| *c = stage.apply(*c));
+                }
+                if let Some(stage) = tone_curve {
+                    stage.apply_all(pixels);
                 }
             }
             Chain::Steps(steps) => {
@@ -472,6 +487,7 @@ fn fixed_chain(
     saturation: &Option<(f32, f32)>,
     sh: &Option<BitsLut<f32>>,
     primaries: &Option<Rc<ColorPrimariesStage>>,
+    tone_curve: &Option<Box<ToneCurveStage>>,
 ) -> Rgb {
     let mut c = affine(px, offset, gain);
     if let Some(stage) = calibration {
@@ -484,6 +500,9 @@ fn fixed_chain(
         c = shadows_highlights(c, lut);
     }
     if let Some(stage) = primaries {
+        c = stage.apply(c);
+    }
+    if let Some(stage) = tone_curve {
         c = stage.apply(c);
     }
     c
@@ -520,7 +539,7 @@ mod tests {
             p.add(params::Exposure { ev: 3.0, black: 0.0 });
             p.modules.last_mut().unwrap().enabled = false;
         });
-        assert!(matches!(o.chain, Chain::Fixed { calibration: None, saturation: None, shadows_highlights: None, primaries: None, .. }));
+        assert!(matches!(o.chain, Chain::Fixed { calibration: None, saturation: None, shadows_highlights: None, primaries: None, tone_curve: None, .. }));
         // ((0.1 - 0.01) - 0.02) · 2
         assert!(approx(o.adjust([0.1; 3]), [0.14; 3], 1e-6));
     }
@@ -562,6 +581,18 @@ mod tests {
         let dark = o.adjust([0.02; 3])[0] / 0.02;
         let bright = o.adjust([1.0; 3])[0];
         assert!(dark > 1.5 && (bright - 1.0).abs() < 0.05, "{dark} {bright}");
+    }
+
+    #[test]
+    fn tone_curve_runs_last_in_the_fixed_chain() {
+        let o = ops(|p| {
+            p.get_mut::<params::Color>().saturation = -1.0;
+            p.get_mut::<params::ToneCurve>().rgb = [1.0; params::TONE_CURVE_NODES];
+        });
+        assert!(matches!(o.chain, Chain::Fixed { saturation: Some(_), tone_curve: Some(_), .. }));
+        let [r, g, b] = o.adjust([0.3, 0.1, 0.05]);
+        let y = luminance([0.3, 0.1, 0.05]);
+        assert!((r - g).abs() < 1e-6 && (g - b).abs() < 1e-6 && (r / y - 2.0).abs() < 1e-2, "{r} {y}");
     }
 
     #[test]

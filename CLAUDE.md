@@ -78,9 +78,10 @@ See README.md for the architecture overview and commands.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
-- `ops/primaries.rs`, `ops/equalizer.rs`, `ops/calibration.rs` and `ops/retouch.rs`
-  follow Ansel's `colorprimaries.c`, `atrous.c`, `channelmixerrgb.c` and
-  `retouch.c`/`pixel/heal.c` (same license; deviations are listed in the module docs). Upstream sources:
+- `ops/primaries.rs`, `ops/equalizer.rs`, `ops/calibration.rs`, `ops/retouch.rs` and
+  `ops/tone_curve.rs` follow Ansel's `colorprimaries.c`, `atrous.c`, `channelmixerrgb.c`,
+  `retouch.c`/`pixel/heal.c` and `rgbcurve.c` (same license; deviations are listed in
+  the module docs). The tone curve and the contrast equalizer draw with `curveAt` (`develop/curve.ts`), which mirrors `equalizer::curve`. Upstream sources:
   github.com/aurelienpierreeng/ansel, `src/iop/` and `src/pixel/colorequal_shared.c`.
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance

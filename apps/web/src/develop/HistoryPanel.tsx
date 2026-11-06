@@ -14,6 +14,7 @@ import {
   type LucideIcon,
   Palette,
   Rainbow,
+  Spline,
   Sun,
   Thermometer,
   Triangle,
@@ -34,6 +35,7 @@ const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   color: Palette,
   shadowsHighlights: Contrast,
   colorPrimaries: Rainbow,
+  toneCurve: Spline,
   filmic: Film,
 };
 

@@ -159,6 +159,7 @@ modules! {
     Color,
     ShadowsHighlights,
     ColorPrimaries,
+    ToneCurve,
     /// Scene-referred → display-referred. Single instance.
     Filmic,
 }
@@ -182,6 +183,7 @@ impl ModuleKind {
                 | ModuleKind::Color
                 | ModuleKind::ShadowsHighlights
                 | ModuleKind::ColorPrimaries
+                | ModuleKind::ToneCurve
         )
     }
 
@@ -884,6 +886,103 @@ pub struct Primary {
     pub brightness: f32,
 }
 
+/// Number of nodes of each tone curve.
+pub const TONE_CURVE_NODES: usize = 9;
+/// Default exposure of the first and last tone curve nodes, in EV relative to middle
+/// grey (every 1.5 EV between).
+pub const TONE_CURVE_RANGE: [f32; 2] = [-9.0, 3.0];
+/// Narrowest range of a tone curve's nodes, in EV.
+pub const TONE_CURVE_MIN_RANGE: f32 = 1.0;
+/// Largest offset a tone curve node takes, in EV either way (Ansel's tone equalizer's).
+pub const TONE_CURVE_MAX_OFFSET: f32 = 2.0;
+
+/// Tone curve, after Ansel's `rgbcurve.c` and the controls of its tone equalizer (see
+/// [`crate::ops::tone_curve`]): each curve is an exposure offset in EV (0 leaves the
+/// image alone, ±[`TONE_CURVE_MAX_OFFSET`]) at [`TONE_CURVE_NODES`] input exposures
+/// evenly spread over `range`, drawn smoothly through them. Past the end nodes the
+/// offset stays that of the end node.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ToneCurve {
+    /// One curve for all channels (`rgb`), or one per channel.
+    pub channels: CurveChannels,
+    /// With linked channels: what the curve reads, scaling the three channels alike so
+    /// that hues and saturation are kept; `None` applies it to each channel (colours
+    /// shift, as with film).
+    pub preserve_colors: RgbNorm,
+    /// Input exposure of the first and last nodes, EV relative to middle grey; usually
+    /// fitted to the image (`Developer::tone_curve_input`). See [`ToneCurve::range`].
+    pub range: [f32; 2],
+    pub rgb: [f32; TONE_CURVE_NODES],
+    pub red: [f32; TONE_CURVE_NODES],
+    pub green: [f32; TONE_CURVE_NODES],
+    pub blue: [f32; TONE_CURVE_NODES],
+}
+
+impl Default for ToneCurve {
+    fn default() -> Self {
+        let flat = [0.0; TONE_CURVE_NODES];
+        Self {
+            channels: CurveChannels::Linked,
+            preserve_colors: RgbNorm::Luminance,
+            range: TONE_CURVE_RANGE,
+            rgb: flat,
+            red: flat,
+            green: flat,
+            blue: flat,
+        }
+    }
+}
+
+impl ToneCurve {
+    /// `range` as used: at least [`TONE_CURVE_MIN_RANGE`] wide (widened upward). Must
+    /// match `toneCurveRange` in TS.
+    pub fn range(&self) -> [f32; 2] {
+        let [lo, hi] = self.range;
+        [lo, hi.max(lo + TONE_CURVE_MIN_RANGE)]
+    }
+
+    /// The curves in use: `rgb`, or red, green and blue.
+    pub fn curves(&self) -> Vec<&[f32; TONE_CURVE_NODES]> {
+        match self.channels {
+            CurveChannels::Linked => vec![&self.rgb],
+            CurveChannels::Independent => vec![&self.red, &self.green, &self.blue],
+        }
+    }
+
+    /// Whether the curves in use are all flat at 0.
+    pub fn is_identity(&self) -> bool {
+        self.curves().iter().all(|c| c.iter().all(|&v| v == 0.0))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CurveChannels {
+    #[default]
+    Linked,
+    Independent,
+}
+
+/// A single value standing for a pixel's RGB, scaled so that a grey's is its value.
+/// Ansel's norms, without "sum" (the average, once scaled).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RgbNorm {
+    /// No norm: each channel on its own.
+    None,
+    /// The working space's luminance (Y).
+    #[default]
+    Luminance,
+    /// The largest channel.
+    Max,
+    Average,
+    /// Euclidean norm, ÷ √3.
+    Norm,
+    /// `(r³ + g³ + b³) / (r² + g² + b²)`: the brighter channels weigh more.
+    Power,
+}
+
 /// Number of control nodes of each contrast equalizer curve.
 pub const EQUALIZER_NODES: usize = 6;
 
@@ -1251,6 +1350,18 @@ mod tests {
         assert!(json["modules"][1].get("mask").is_none(), "left out when absent");
         assert_eq!(json["modules"][0]["mask"]["drawn"][1], serde_json::json!({ "shape": "b", "op": "intersection" }));
         assert_eq!(EditParams::from_json(&json.to_string()).unwrap(), p);
+    }
+
+    #[test]
+    fn tone_curve_reads_partial_json() {
+        let p = EditParams::from_json(
+            r#"{"version":6,"modules":[{"kind":"toneCurve","params":{"channels":"independent","preserveColors":"max","green":[0,0,0,0,0.5,0,0,0,0]}}]}"#,
+        )
+        .unwrap();
+        let t = p.get::<ToneCurve>().unwrap();
+        assert_eq!((t.channels, t.preserve_colors, t.rgb, t.green[4]), (CurveChannels::Independent, RgbNorm::Max, [0.0; TONE_CURVE_NODES], 0.5));
+        assert!(!t.is_identity());
+        assert!(EditParams::from_json(r#"{"version":6,"modules":[{"kind":"toneCurve","params":{"rgb":[1,2]}}]}"#).is_err());
     }
 
     #[test]

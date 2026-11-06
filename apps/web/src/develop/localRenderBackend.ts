@@ -1,5 +1,12 @@
 import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
-import type { IlluminantDetection, Overlays, Region, WorkerRequest, WorkerResponse } from './protocol.ts';
+import type {
+  IlluminantDetection,
+  Overlays,
+  Region,
+  ToneCurveInput,
+  WorkerRequest,
+  WorkerResponse,
+} from './protocol.ts';
 import type { Frame, RenderBackend } from './renderBackend.ts';
 import type { ScopeRequest } from './scopes.ts';
 
@@ -115,6 +122,22 @@ export class LocalRenderBackend implements RenderBackend {
       maxHeight,
     });
     return r.xy;
+  }
+
+  async toneCurveInput(
+    params: EditParams,
+    instance: string,
+    maxWidth: number,
+    maxHeight: number,
+  ): Promise<ToneCurveInput | null> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'toneCurveInput' }>>({
+      type: 'toneCurveInput',
+      params,
+      instance,
+      maxWidth,
+      maxHeight,
+    });
+    return r.input;
   }
 
   dispose() {

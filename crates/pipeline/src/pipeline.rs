@@ -12,6 +12,7 @@ use crate::ops::clipping::{self, MaskPart, MaskView, Overlays};
 use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
+use crate::ops::tone_curve::{self, InputHistogram};
 use crate::ops::{equalizer, filmic, filters, geometry};
 use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleInstance, ModuleKind};
 use crate::Result;
@@ -472,6 +473,9 @@ impl Developer {
         if let Some(id) = overlays.mask.as_deref() {
             self.paint_mask_view(params, id, size, overlays.mask_view, img);
         }
+        if let Some(view) = &overlays.tone_curve {
+            self.paint_tone_curve_view(params, view, size, img);
+        }
         let (_, frame_height, _) = self.output_size(params, size);
         let region = self.output_region(params, size);
         let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
@@ -896,6 +900,27 @@ impl Developer {
         let (_, img, masks) = self.spatial(params, size);
         let input = Image { width: img.width, height: img.height, pixels: ops.adjust_image(img, masks) };
         calibration::detect_illuminant(&input, |px| px, method)
+    }
+
+    /// Paint what tone curve instance `view.id` reads on its input over `img`, a render
+    /// of `params` within `size` (see [`tone_curve::view_colors`]).
+    fn paint_tone_curve_view(&mut self, params: &EditParams, view: &clipping::ToneCurveView, size: RenderSize, img: &mut Rgba8) {
+        let Some(instance) = params.modules.iter().find(|m| m.id == view.id) else { return };
+        let Some(p) = <params::ToneCurve as params::ModuleParams>::get(&instance.module).cloned() else { return };
+        let Some(input) = self.module_input(params, &view.id, size) else { return };
+        if input.len() == img.width * img.height {
+            clipping::paint_colors(img, &tone_curve::view_colors(&p, &input, view.channel.unwrap_or(0), view.node));
+        }
+    }
+
+    /// What tone curve instance `id` reads on its input (the image after the modules
+    /// before it, over a render of `params` within `size`), and the range of its nodes
+    /// that fits it. `None` without such an instance or anything to measure.
+    pub fn tone_curve_input(&mut self, params: &EditParams, id: &str, size: RenderSize) -> Option<InputHistogram> {
+        let instance = params.modules.iter().find(|m| m.id == id)?;
+        let p = <params::ToneCurve as params::ModuleParams>::get(&instance.module)?.clone();
+        let input = self.module_input(params, id, size)?;
+        tone_curve::measure(&p, &input)
     }
 
     /// Make sure a base image suitable for `factor` is cached; returns its actual factor.

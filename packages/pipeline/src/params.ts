@@ -137,6 +137,24 @@ export interface ModuleParams {
     /** Saturation below which edits fade out (greys stay grey), 0 … 2; 0 = off. */
     neutralProtection: number;
   };
+  /**
+   * Tone curve, after Ansel's `rgbcurve.c`, drawn like its tone equalizer: each curve is
+   * an exposure offset in EV (0 = no change, ±`TONE_CURVE_MAX_OFFSET`) at
+   * `TONE_CURVE_NODES` input exposures evenly spread over `range`, drawn smoothly
+   * through them (`curveAt` on 0 … 1). Past the end nodes the offset stays the end node's.
+   */
+  toneCurve: {
+    /** One curve for all channels (`rgb`), or one per channel. */
+    channels: CurveChannels;
+    /** With linked channels: what the curve reads, scaling the channels alike; 'none' applies it to each channel. */
+    preserveColors: RgbNorm;
+    /** Input exposure of the first and last nodes, EV relative to middle grey; usually fitted to the image. See `toneCurveRange`. */
+    range: number[];
+    rgb: number[];
+    red: number[];
+    green: number[];
+    blue: number[];
+  };
   /** Filmic RGB tone mapping, after Ansel (spline v3, colour science v8 "AgX"). */
   filmic: {
     /** Scene exposure mapped to display white, EV relative to middle grey. */
@@ -207,6 +225,24 @@ export const EQUALIZER_NODES = 6;
 export const EQUALIZER_CURVES = ['luma', 'chroma', 'edges', 'lumaDenoise', 'chromaDenoise'] as const;
 export type EqualizerCurve = (typeof EQUALIZER_CURVES)[number];
 
+/** Number of nodes of each tone curve. Mirrors `TONE_CURVE_NODES`. */
+export const TONE_CURVE_NODES = 9;
+/** Default exposure of the first and last tone curve nodes, EV relative to middle grey. Mirrors `TONE_CURVE_RANGE`. */
+export const TONE_CURVE_RANGE = [-9, 3] as const;
+/** Narrowest range of a tone curve's nodes, EV. Mirrors `TONE_CURVE_MIN_RANGE`. */
+export const TONE_CURVE_MIN_RANGE = 1;
+/** Exposures the tone curve's input histogram covers (`toneCurveInput`), EV. Mirrors `tone_curve::HISTOGRAM_RANGE`. */
+export const TONE_HISTOGRAM_RANGE = [-16, 8] as const;
+/** Largest tone curve offset, EV either way. Mirrors `TONE_CURVE_MAX_OFFSET`. */
+export const TONE_CURVE_MAX_OFFSET = 2;
+export const TONE_CURVE_CURVES = ['rgb', 'red', 'green', 'blue'] as const;
+export type ToneCurveCurve = (typeof TONE_CURVE_CURVES)[number];
+export const CURVE_CHANNELS = ['linked', 'independent'] as const;
+export type CurveChannels = (typeof CURVE_CHANNELS)[number];
+/** What a linked tone curve reads, scaled so that a grey's is its value. Mirrors `RgbNorm`. */
+export const RGB_NORMS = ['none', 'luminance', 'max', 'average', 'norm', 'power'] as const;
+export type RgbNorm = (typeof RGB_NORMS)[number];
+
 export const ILLUMINANTS = [
   'asShot',
   'pipeline',
@@ -240,6 +276,7 @@ export const MODULE_KINDS = [
   'color',
   'shadowsHighlights',
   'colorPrimaries',
+  'toneCurve',
   'filmic',
 ] as const satisfies readonly ModuleKind[];
 
@@ -256,6 +293,7 @@ export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'color',
   'shadowsHighlights',
   'colorPrimaries',
+  'toneCurve',
 ];
 
 export const SHAPE_OPS = ['union', 'intersection', 'difference', 'exclusion'] as const;
@@ -423,6 +461,15 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     saturationSmoothing: 0.7071,
     hueSmoothing: 0.7071,
     neutralProtection: 0,
+  },
+  toneCurve: {
+    channels: 'linked',
+    preserveColors: 'luminance',
+    range: [...TONE_CURVE_RANGE],
+    rgb: Array<number>(TONE_CURVE_NODES).fill(0),
+    red: Array<number>(TONE_CURVE_NODES).fill(0),
+    green: Array<number>(TONE_CURVE_NODES).fill(0),
+    blue: Array<number>(TONE_CURVE_NODES).fill(0),
   },
   // Ansel's defaults for RAW files, paired with the +0.7 EV exposure default.
   filmic: {
@@ -640,6 +687,12 @@ function mixForRgbGains(gains: number[]): Mat3 {
   return mul(lmsFromRgb, mul(diag, rgbFromLms));
 }
 
+/** A tone curve's node range as used: at least `TONE_CURVE_MIN_RANGE` wide. Mirrors `ToneCurve::range`. */
+export function toneCurveRange(p: Pick<ModuleParams['toneCurve'], 'range'>): [number, number] {
+  const [lo, hi] = p.range as [number, number];
+  return [lo, Math.max(hi, lo + TONE_CURVE_MIN_RANGE)];
+}
+
 /** The parameters of a `kind` instance from untrusted input: missing or invalid fields get their defaults. */
 export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModuleParams[K] {
   if (kind === 'retouch') {
@@ -658,6 +711,12 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
     if (!FLUORESCENTS.includes(c.fluorescent)) c.fluorescent = d.fluorescent;
     if (!LEDS.includes(c.led)) c.led = d.led;
     if (!ADAPTATIONS.includes(c.adaptation)) c.adaptation = d.adaptation;
+  }
+  if (kind === 'toneCurve') {
+    const t = params as ModuleParams['toneCurve'];
+    const d = defaultModuleParams.toneCurve;
+    if (!CURVE_CHANNELS.includes(t.channels)) t.channels = d.channels;
+    if (!RGB_NORMS.includes(t.preserveColors)) t.preserveColors = d.preserveColors;
   }
   return params;
 }

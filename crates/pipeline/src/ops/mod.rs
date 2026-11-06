@@ -11,3 +11,4 @@ pub mod mask;
 pub mod point;
 pub mod primaries;
 pub mod retouch;
+pub mod tone_curve;

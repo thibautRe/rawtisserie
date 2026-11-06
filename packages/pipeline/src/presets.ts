@@ -77,6 +77,11 @@ export const PRESET_GROUPS: { readonly [K in ModuleKind]?: Readonly<Record<strin
       keys: ['colorfulness', 'normalizeColorfulness', 'brightness', 'normalizeBrightness', 'grey', 'normalizeGrey'],
     },
   },
+  // The range is fitted to each image: a look is usually saved without it.
+  toneCurve: {
+    curves: { label: 'Curves', keys: ['channels', 'preserveColors', 'rgb', 'red', 'green', 'blue'] },
+    range: { label: 'Node range (fitted to this image)', keys: ['range'] },
+  },
   filmic: {
     scene: { label: 'White and black exposure', keys: ['whiteExposure', 'blackExposure', 'dynamicRangeScaling'] },
     look: {
@@ -340,4 +345,22 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   builtIn('sharpen', 'light', 'Light', { amount: 0.5, radius: 1 }),
   builtIn('sharpen', 'strong', 'Strong', { amount: 1.2, radius: 1.5 }),
   builtIn('contrastEqualizer', 'clarity', 'Clarity', { luma: [0.5, 0.56, 0.6, 0.6, 0.55, 0.5] }),
+  // Darker shadows and brighter highlights around middle grey (nodes every 1.5 EV from
+  // -9 EV), back to no change at the ends.
+  builtIn('toneCurve', 'contrast-low', 'Contrast: low', {
+    channels: 'linked',
+    rgb: [0, 0, -0.1, -0.2, -0.2, -0.1, 0, 0.15, 0.1],
+  }),
+  builtIn('toneCurve', 'contrast-medium', 'Contrast: medium', {
+    channels: 'linked',
+    rgb: [0, -0.1, -0.25, -0.4, -0.4, -0.2, 0, 0.3, 0.2],
+  }),
+  builtIn('toneCurve', 'contrast-high', 'Contrast: high', {
+    channels: 'linked',
+    rgb: [0, -0.15, -0.4, -0.65, -0.65, -0.35, 0, 0.5, 0.35],
+  }),
+  builtIn('toneCurve', 'lift-shadows', 'Lift shadows', {
+    channels: 'linked',
+    rgb: [0.5, 0.6, 0.6, 0.45, 0.25, 0.1, 0, 0, 0],
+  }),
 ];

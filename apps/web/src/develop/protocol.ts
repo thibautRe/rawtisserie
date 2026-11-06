@@ -44,7 +44,16 @@ export type WorkerRequest =
       method: IlluminantDetection;
       maxWidth: number;
       maxHeight: number;
-    };
+    }
+  | { type: 'toneCurveInput'; id: number; params: EditParams; instance: string; maxWidth: number; maxHeight: number };
+
+/** What a tone curve instance reads on its input (`Developer::tone_curve_input`). */
+export interface ToneCurveInput {
+  /** The node range that fits it, EV relative to middle grey. */
+  fit: [number, number];
+  /** Histograms over `TONE_HISTOGRAM_RANGE`, one per curve in use (one, or red, green, blue), the fullest bin of all at 1. */
+  bins: number[][];
+}
 
 /** Colour calibration's auto-detection: grey world (textured surfaces) or grey edges. */
 export type IlluminantDetection = 'surfaces' | 'edges';
@@ -75,6 +84,7 @@ export type WorkerResponse =
   | { type: 'exported'; id: number; jpeg: ArrayBuffer; ms: number }
   | { type: 'autoTunedFilmic'; id: number; white: number | null; black: number | null; ms: number }
   | { type: 'detectedIlluminant'; id: number; xy: [number, number] | null; ms: number }
+  | { type: 'toneCurveInput'; id: number; input: ToneCurveInput | null; ms: number }
   | { type: 'error'; id: number; message: string };
 
 /** From the pipeline worker to a worker of its pool (`pointPool.ts`). */
@@ -108,6 +118,17 @@ export interface Overlays {
   /** Show where the instance with this id applies (its mask), in yellow, or what `maskView` says. */
   mask?: string | null;
   maskView?: MaskView;
+  /** Show what a tone curve instance reads on its input (`clipping::ToneCurveView`). */
+  toneCurve?: ToneCurveView | null;
+}
+
+/** What a tone curve instance reads on its input, black at its first node, white at its last. */
+export interface ToneCurveView {
+  id: string;
+  /** With independent channels: the channel shown, 0 … 2. */
+  channel: number;
+  /** The node whose pixels are tinted yellow, if any. */
+  node: number | null;
 }
 
 /** What the mask overlay shows of a mask (`clipping::MaskView`). */

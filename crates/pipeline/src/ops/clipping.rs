@@ -25,6 +25,21 @@ pub struct Overlays {
     /// Show the mask of this module instance (by id), or what `mask_view` says of it.
     pub mask: Option<String>,
     pub mask_view: MaskView,
+    /// Show what a tone curve instance reads on its input (see [`ToneCurveView`]).
+    pub tone_curve: Option<ToneCurveView>,
+}
+
+/// What a tone curve instance reads on its input, over its node range: black at the
+/// first node, white at the last, with the pixels a node controls tinted like a mask.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ToneCurveView {
+    /// The instance's id.
+    pub id: String,
+    /// With independent channels: the channel shown (0 … 2), red by default.
+    pub channel: Option<usize>,
+    /// The node whose pixels are tinted, if any.
+    pub node: Option<usize>,
 }
 
 /// What the mask overlay shows of an instance's mask, on the instance's input.
@@ -103,6 +118,9 @@ fn on_stripe(x: usize, y: usize, height: usize, stripes: f32, rising: bool) -> b
 fn srgb_eotf(v: f32) -> f32 {
     if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
 }
+
+/// The mask overlay's colour and opacity, for other overlays that tint like it.
+pub const MASK_TINT: ([f32; 3], f32) = (MASK, MASK_OPACITY);
 
 /// Tint `img` yellow by `values` (a mask over its pixels, 0 … 1).
 pub fn paint_mask(img: &mut Rgba8, values: &[f32]) {

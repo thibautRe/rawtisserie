@@ -18,6 +18,7 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   color: 'Color',
   shadowsHighlights: 'Shadows & highlights',
   colorPrimaries: 'Color primaries',
+  toneCurve: 'Tone curve',
   filmic: 'Filmic',
 };
 
@@ -43,6 +44,14 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
 /** "whiteExposure" → "white exposure". */
 const words = (key: string) => key.replace(/([A-Z])/g, ' $1').toLowerCase();
+
+/** How a parameter is named in history labels: its words, or the tone curve's curves. */
+const paramName = (kind: ModuleKind, key: string) =>
+  kind === 'toneCurve' && ['rgb', 'red', 'green', 'blue'].includes(key)
+    ? key === 'rgb'
+      ? 'curve'
+      : `${key} curve`
+    : words(key);
 
 function formatValue(v: unknown): string | null {
   if (typeof v === 'number') return String(Math.round(v * 100) / 100);
@@ -73,9 +82,9 @@ function describeInstance(
   if (keys.length === 1) {
     const [k, v] = keys[0]!;
     const value = formatValue(v);
-    parts.push(value === null ? words(k) : `${words(k)} ${value}`);
+    parts.push(value === null ? paramName(m.kind, k) : `${paramName(m.kind, k)} ${value}`);
   } else if (keys.length > 1) {
-    parts.push(keys.map(([k]) => words(k)).join(', '));
+    parts.push(keys.map(([k]) => paramName(m.kind, k)).join(', '));
   }
   if (!same(before?.mask, after.mask)) {
     if (!before?.mask) parts.push('mask added');

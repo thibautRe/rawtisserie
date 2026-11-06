@@ -116,7 +116,7 @@ async function handle(msg: WorkerRequest) {
           overlays = { ...overlays, stripes: (overlays.stripes * frameWidth!) / draftWidth! };
         }
         const scope = drawScope(data, width, height);
-        if (overlays.display || overlays.sensor || overlays.mask) {
+        if (overlays.display || overlays.sensor || overlays.mask || overlays.toneCurve) {
           const json = JSON.stringify(overlays);
           developer.paintOverlays(params, full.width, full.height, data, width, height, json, full.region);
         }
@@ -124,7 +124,7 @@ async function handle(msg: WorkerRequest) {
         return;
       }
       const region = regionArg(msg.region);
-      const painted = !!(msg.overlays.display || msg.overlays.sensor || msg.overlays.mask);
+      const painted = !!(msg.overlays.display || msg.overlays.sensor || msg.overlays.mask || msg.overlays.toneCurve);
       // With a scope, the overlays are painted after it is drawn (as `render` would).
       const split = painted && !!msg.scope;
       const overlays = split ? '{}' : JSON.stringify(msg.overlays);
@@ -151,6 +151,14 @@ async function handle(msg: WorkerRequest) {
       const [x, y] = developer.detectIlluminant(params, msg.instance, msg.maxWidth, msg.maxHeight, msg.method);
       const xy: [number, number] | null = x === undefined || y === undefined ? null : [x, y];
       post({ type: 'detectedIlluminant', id: msg.id, xy, ms: performance.now() - started });
+    } else if (msg.type === 'toneCurveInput') {
+      const r = developer.toneCurveInput(params, msg.instance, msg.maxWidth, msg.maxHeight);
+      // [fitLow, fitHigh, count, ...count histograms one after the other]
+      const count = r[2] ?? 0;
+      const size = count ? (r.length - 3) / count : 0;
+      const bins = Array.from({ length: count }, (_, k) => Array.from(r.subarray(3 + k * size, 3 + (k + 1) * size)));
+      const input = count ? { fit: [r[0]!, r[1]!] as [number, number], bins } : null;
+      post({ type: 'toneCurveInput', id: msg.id, input, ms: performance.now() - started });
     } else if (msg.type === 'export') {
       const jpeg = developer.renderJpeg(params, msg.maxSize, msg.maxSize, msg.quality);
       // Full-resolution renders are large: drop the cache so the next preview rebuilds a small one.

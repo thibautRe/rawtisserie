@@ -184,3 +184,21 @@ fn a_switched_off_mask_applies_everywhere() {
     p.modules[i].mask.as_mut().unwrap().enabled = false;
     assert_eq!(dev.render(&p, SIZE, Quality::Final).data, plain.data);
 }
+
+/// Fitting a tone curve measures its input: an exposure before it moves the fit by as much.
+#[test]
+fn tone_curve_fit_follows_the_modules_before_it() {
+    use rawtisserie_pipeline::params::ToneCurve;
+    let mut dev = developer();
+    let mut p = EditParams::default();
+    p.add(ToneCurve::default());
+    let id = p.modules.iter().find(|m| matches!(m.module, rawtisserie_pipeline::params::Module::ToneCurve(_))).unwrap().id.clone();
+    let a = dev.tone_curve_input(&p, &id, SIZE).unwrap();
+    assert!(a.fit[0] < a.fit[1] - 1.0, "{:?}", a.fit);
+    p.get_mut::<Exposure>().ev += 1.0;
+    let b = dev.tone_curve_input(&p, &id, SIZE).unwrap();
+    for k in 0..2 {
+        assert!((b.fit[k] - a.fit[k] - 1.0).abs() <= 0.15, "{:?} → {:?}", a.fit, b.fit);
+    }
+    assert!(dev.tone_curve_input(&p, "exposure", SIZE).is_none());
+}
