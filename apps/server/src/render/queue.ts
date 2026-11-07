@@ -6,9 +6,10 @@
 import { Worker } from 'node:worker_threads';
 import type { Queryable } from '@databases/pg';
 import type { FastifyBaseLogger } from 'fastify';
-import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import { type EditParams, type PhotoMetadata, lutIds, normalizeEditParams } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
+import { usableLuts } from '../luts/storage.ts';
 import { RENDER_SIZES, originalPath, renderPath, type RenderSize } from '../photos/storage.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
@@ -99,25 +100,28 @@ export class RenderQueue {
 
   private async process(entry: PoolWorker, versionId: string) {
     const [job] = (await db.query(sql`
-      SELECT v.photo_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
+      SELECT v.photo_id, p.owner_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
         NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
       FROM versions v
       JOIN photos p ON p.id = v.photo_id
       LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
       WHERE v.id = ${versionId}`)) as {
       photo_id: string;
+      owner_id: string;
       storage_key: string;
       needs_metadata: boolean;
       recipe: EditParams | null;
       no_history: boolean;
     }[];
     if (!job) return;
+    const luts = job.recipe ? await usableLuts(db, job.owner_id, lutIds(normalizeEditParams(job.recipe))) : new Map();
     const started = Date.now();
     const result = await this.run(entry, {
       sourcePath: originalPath(job.storage_key),
       params: job.recipe,
       autoDefaults: job.no_history,
       extractMetadata: job.needs_metadata,
+      luts: [...luts.values()],
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
         path: renderPath(versionId, size),
         maxSize,

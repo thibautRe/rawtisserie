@@ -4,8 +4,9 @@
 //! A LUT is identified by the SHA-256 of its canonical form ([`Clut::to_canonical`]), not
 //! of the file it came from: the same table re-encoded (a recompressed PNG, a `.cube`
 //! with other comments) gets the same id, so that storage can be shared and recipes
-//! refer to the table itself. The canonical form is what the server stores and what
-//! the renderers load ([`Clut::parse`] reads it back).
+//! refer to the table itself. LUTs are stored and sent packed ([`Clut::to_packed`]: the
+//! canonical form with each node as a difference from the previous one, deflated, about
+//! as small as a Hald PNG); [`Clut::parse`] reads that back too.
 //!
 //! The LUTs are display-referred: they map encoded sRGB to encoded sRGB
 //! ([`InputSpace::Srgb`]), and run after filmic (`crate::ops::point`).
@@ -25,6 +26,7 @@ use crate::image::Rgb;
 pub const MAX_SIZE: usize = 144;
 
 const MAGIC: &[u8; 6] = b"RTCLUT";
+const PACKED_MAGIC: &[u8; 6] = b"RTCLUZ";
 const FORMAT_VERSION: u16 = 1;
 const HEADER_LEN: usize = 6 + 2 + 4 + 24;
 
@@ -127,10 +129,13 @@ impl std::fmt::Debug for Clut {
 }
 
 impl Clut {
-    /// A `.cube` file, a Hald CLUT PNG, or a canonical form, told apart by their contents.
+    /// A `.cube` file, a Hald CLUT PNG, or a canonical or packed form, told apart by
+    /// their contents.
     pub fn parse(bytes: &[u8]) -> Result<Self, ClutError> {
         if bytes.starts_with(MAGIC) {
             Self::from_canonical(bytes)
+        } else if bytes.starts_with(PACKED_MAGIC) {
+            Self::from_packed(bytes)
         } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
             Self::from_hald_png(bytes)
         } else if let Ok(text) = std::str::from_utf8(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes)) {
@@ -192,6 +197,70 @@ impl Clut {
             Data::U16(d) => out.extend(d.iter().flatten().flat_map(|v| v.to_le_bytes())),
         }
         out
+    }
+
+    /// The packed form: `RTCLUZ`, the rest of the canonical header, then the nodes
+    /// zlib-compressed, each sample stored as its difference (wrapping) from the same
+    /// channel of the previous node. Neighbouring nodes are close, so this compresses
+    /// like a PNG's filters do (~1 MB for a 144³ 8-bit table; plain deflate: 7 MB).
+    pub fn to_packed(&self) -> Vec<u8> {
+        use std::io::Write;
+        let canonical = self.to_canonical();
+        let mut deltas = Vec::with_capacity(self.byte_size());
+        match &self.data {
+            Data::U8(_) => {
+                let body = &canonical[HEADER_LEN..];
+                deltas.extend(body.iter().enumerate().map(|(i, &v)| if i < 3 { v } else { v.wrapping_sub(body[i - 3]) }));
+            }
+            Data::U16(d) => {
+                let samples: Vec<u16> = d.iter().flatten().copied().collect();
+                let delta = |i: usize| if i < 3 { samples[i] } else { samples[i].wrapping_sub(samples[i - 3]) };
+                deltas.extend((0..samples.len()).flat_map(|i| delta(i).to_le_bytes()));
+            }
+        }
+        let mut out = Vec::with_capacity(HEADER_LEN + deltas.len() / 6);
+        out.extend_from_slice(PACKED_MAGIC);
+        out.extend_from_slice(&canonical[MAGIC.len()..HEADER_LEN]);
+        let mut z = flate2::write::ZlibEncoder::new(out, flate2::Compression::default());
+        z.write_all(&deltas).expect("writing to memory");
+        z.finish().expect("writing to memory")
+    }
+
+    fn from_packed(bytes: &[u8]) -> Result<Self, ClutError> {
+        use std::io::Read;
+        let err = |m: &str| ClutError::Canonical(m.into());
+        if bytes.len() < HEADER_LEN {
+            return Err(err("truncated header"));
+        }
+        let size = check_size(u16::from_le_bytes([bytes[10], bytes[11]]) as usize)?;
+        let sample_bytes = match bytes[9] {
+            8 => 1,
+            16 => 2,
+            _ => return Err(err("unknown bit depth")),
+        };
+        let len = size.pow(3) * 3 * sample_bytes;
+        let mut canonical = Vec::with_capacity(HEADER_LEN + len);
+        canonical.extend_from_slice(MAGIC);
+        canonical.extend_from_slice(&bytes[MAGIC.len()..HEADER_LEN]);
+        // Read one byte more than needed, to tell a longer body from the right one.
+        let mut z = flate2::read::ZlibDecoder::new(&bytes[HEADER_LEN..]).take(len as u64 + 1);
+        z.read_to_end(&mut canonical).map_err(|e| err(&e.to_string()))?;
+        if canonical.len() != HEADER_LEN + len {
+            return Err(err("wrong data length"));
+        }
+        let body = &mut canonical[HEADER_LEN..];
+        if sample_bytes == 1 {
+            for i in 3..body.len() {
+                body[i] = body[i].wrapping_add(body[i - 3]);
+            }
+        } else {
+            for i in 3..body.len() / 2 {
+                let prev = u16::from_le_bytes([body[2 * i - 6], body[2 * i - 5]]);
+                let v = u16::from_le_bytes([body[2 * i], body[2 * i + 1]]).wrapping_add(prev);
+                body[2 * i..2 * i + 2].copy_from_slice(&v.to_le_bytes());
+            }
+        }
+        Self::from_canonical(&canonical)
     }
 
     fn from_canonical(bytes: &[u8]) -> Result<Self, ClutError> {
@@ -634,6 +703,25 @@ mod tests {
         let mut truncated = Clut::identity(3).to_canonical();
         truncated.pop();
         assert!(matches!(Clut::parse(&truncated), Err(ClutError::Canonical(_))));
+    }
+
+    #[test]
+    fn packed_form_round_trips_and_is_small() {
+        let smooth = |c: Rgb| [c[0].powf(0.8), (c[1] + c[2]) / 2.0, c[2] * c[2]];
+        let luts = [Clut::parse(&hald_png(4, false, smooth)).unwrap(), Clut::parse(&hald_png(3, true, smooth)).unwrap(), Clut::from_fn(33, smooth)];
+        for lut in luts {
+            let packed = lut.to_packed();
+            let back = Clut::parse(&packed).unwrap();
+            assert_eq!(back.id(), lut.id());
+            assert_eq!(back.to_canonical(), lut.to_canonical());
+            assert!(packed.len() * 4 < lut.byte_size(), "{} → {}", lut.byte_size(), packed.len());
+        }
+        let packed = Clut::identity(5).to_packed();
+        assert!(matches!(Clut::parse(&packed[..packed.len() - 4]), Err(ClutError::Canonical(_))));
+        // A body that inflates to more than the header says.
+        let mut longer = Clut::identity(5).to_packed();
+        longer[10] = 4;
+        assert!(matches!(Clut::parse(&longer), Err(ClutError::Canonical(_))));
     }
 
     #[test]

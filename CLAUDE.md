@@ -106,6 +106,11 @@ See README.md for the architecture overview and commands.
   LUT that isn't loaded is skipped. They run after filmic on encoded sRGB (`Looks` in
   `ops/point.rs`); interactive renders bake them into filmic's 3D table
   (`FilmicStage::with_looks`), whose cache is keyed by filmic's parameters and the LUTs.
+  They're stored and sent packed (`Clut::to_packed`, `.clut` files). The server keeps one
+  file per table (`luts`) and a row per user who has it (`user_luts`, hidden rather than
+  deleted, so recipes keep rendering); `collectLuts` removes tables nobody has, at start.
+  Built-in LUTs are files in `packages/pipeline/luts/` listed in `BUILTIN_LUTS`: never
+  change or remove one (recipes refer to its id), retire it instead.
 - Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 6).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.

@@ -79,13 +79,13 @@ pub fn normalize_params(params_json: &str) -> Result<String, JsError> {
     serde_json::to_string(&params).map_err(js_err)
 }
 
-/// A creative LUT file (`.cube`, Hald CLUT PNG, or the canonical form), decoded.
+/// A creative LUT file (`.cube`, Hald CLUT PNG, or the packed form), decoded.
 #[wasm_bindgen]
 pub struct ParsedLut {
     id: String,
     size: u32,
     bit_depth: u8,
-    canonical: Vec<u8>,
+    packed: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -107,18 +107,18 @@ impl ParsedLut {
         self.bit_depth
     }
 
-    /// The canonical form: what gets stored and loaded into renderers. Moves it out.
-    #[wasm_bindgen(js_name = takeCanonical)]
-    pub fn take_canonical(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.canonical)
+    /// The packed form: what gets uploaded, stored and loaded into renderers. Moves it out.
+    #[wasm_bindgen(js_name = takePacked)]
+    pub fn take_packed(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.packed)
     }
 }
 
-/// Decode a LUT file, to check it and get its id and canonical form.
+/// Decode a LUT file, to check it and get its id and packed form.
 #[wasm_bindgen(js_name = parseLut)]
 pub fn parse_lut(bytes: &[u8]) -> Result<ParsedLut, JsError> {
     let lut = pipeline::ops::clut::Clut::parse(bytes).map_err(js_err)?;
-    Ok(ParsedLut { id: lut.id().to_owned(), size: lut.size() as u32, bit_depth: lut.bit_depth(), canonical: lut.to_canonical() })
+    Ok(ParsedLut { id: lut.id().to_owned(), size: lut.size() as u32, bit_depth: lut.bit_depth(), packed: lut.to_packed() })
 }
 
 #[wasm_bindgen]

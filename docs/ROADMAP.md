@@ -832,9 +832,13 @@ new UI control.
 > filmic's interactive table, wasm `parseLut`/`loadLut`). Measured at 2400 px: the
 > table bakes in at no extra cost per render; the exact path (filmic drags, final
 > renders, exports) adds ~85 ms per 3.8 MP single-threaded (tetrahedral; branch-bound,
-> not memory-bound: a 2³ LUT costs the same). To do: storage and routes on the server,
-> built-in LUTs, the module's UI, loading LUTs into the pool workers and the server
-> renderer.
+> not memory-bound: a 2³ LUT costs the same). Server: `luts`/`user_luts` (migration
+> 00007), `/api/luts` (list, upload of the packed form, rename, hide) and
+> `/api/luts/:lutId/data` (public for built-ins), renders load the recipe's LUTs the
+> owner may use. Five built-ins in `packages/pipeline/luts/`. To do: the module's UI and
+> picker, loading LUTs in the web developer (pipeline worker, pool workers, exports),
+> local LUTs in the public developer. No storage quota exists yet; when it does, count
+> each user's LUTs at full size.
 
 Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
 choice of interpolation (tetrahedral, trilinear, pyramid).

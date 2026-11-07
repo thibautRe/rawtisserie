@@ -160,6 +160,46 @@
     ]
   },
   {
+    "name": "luts",
+    "columns": [
+      {
+        "name": "bit_depth",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 21,
+        "typeName": "SMALLINT"
+      },
+      {
+        "name": "created_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "file_size",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 23,
+        "typeName": "INTEGER"
+      },
+      {
+        "name": "id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "size",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 21,
+        "typeName": "SMALLINT"
+      }
+    ]
+  },
+  {
     "name": "photos",
     "columns": [
       {
@@ -423,6 +463,60 @@
         "hasDefault": false,
         "typeId": 2950,
         "typeName": "UUID"
+      }
+    ]
+  },
+  {
+    "name": "user_luts",
+    "columns": [
+      {
+        "name": "created_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "hidden_at",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "id",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "lut_id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "name",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "owner_id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "updated_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
       }
     ]
   },

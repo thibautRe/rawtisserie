@@ -7,6 +7,8 @@ export interface RenderJob {
   /** The version has no history: render the recipe a new image starts with (`defaultRecipe`). */
   autoDefaults: boolean;
   extractMetadata: boolean;
+  /** Files of the LUTs the recipe may use (built-in, or the owner's), packed. */
+  luts: string[];
   outputs: { path: string; maxSize: number; quality: number }[];
 }
 

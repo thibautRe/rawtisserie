@@ -2,6 +2,7 @@ import { deleteExpiredSessions } from './auth/sessions.ts';
 import { buildApp } from './app.ts';
 import { config } from './config.ts';
 import { db } from './db.ts';
+import { collectLuts } from './luts/storage.ts';
 import { migrate } from './migrate.ts';
 
 if (config.migrateOnStart) await migrate(db);
@@ -10,6 +11,7 @@ const { app, renderQueue } = await buildApp();
 renderQueue.start();
 await renderQueue.enqueuePending();
 await deleteExpiredSessions();
+await collectLuts(db);
 
 await app.listen({ port: config.port, host: config.host });
 

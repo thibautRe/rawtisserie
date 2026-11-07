@@ -10,7 +10,11 @@ export {
   normalizeParams,
   frameLayout,
   normalizeExport,
+  parseLut,
 } from '../wasm/pipeline.js';
+
+/** Where a built-in LUT's packed file is (`BUILTIN_LUTS`). */
+export const builtinLutUrl = (id: string): URL => new URL(`../luts/${id}.clut`, import.meta.url);
 
 let initialized = false;
 

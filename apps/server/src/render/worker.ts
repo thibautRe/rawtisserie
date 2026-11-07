@@ -23,6 +23,7 @@ parentPort!.on('message', async (job: RenderJob) => {
     }
     const dev = new Developer(bytes);
     try {
+      for (const file of job.luts) dev.loadLut(await readFile(file));
       const params = JSON.stringify(defaultRecipe ?? job.params ?? {});
       // Largest first, so the smaller renders can reuse the cached base image.
       for (const output of [...job.outputs].sort((a, b) => b.maxSize - a.maxSize)) {
