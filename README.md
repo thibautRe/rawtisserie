@@ -254,7 +254,7 @@ with the same overlay as retouch.
 
 ## Keyboard shortcuts
 
-**Library**: `0`–`5` rate · `P` pick · `X` reject · `U` unflag · `6`–`9` colour labels ·
+**Library**: `0`–`5` rate · `P` pick · `X` reject (again to unflag) · `U` unflag · `6`–`9` colour labels ·
 arrows move · Shift+arrows/click extend the selection · Ctrl/⌘+click toggles ·
 Ctrl/⌘+A selects all · `D`/Enter develops · Ctrl/⌘+D duplicates (Ctrl/⌘+Shift+D from
 the original) · Delete deletes · Esc clears · Space/`E` opens the culling loupe.

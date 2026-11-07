@@ -173,9 +173,12 @@ export function LibraryPage() {
         const label = COLOR_LABELS[Number(key) - 6]!;
         const all = selectedPhotos.length > 0 && selectedPhotos.every((p) => p.colorLabel === label);
         applyToSelection({ colorLabel: all ? null : label });
-      } else if (key === 'p') applyToSelection({ flag: 'picked' });
-      else if (key === 'x') applyToSelection({ flag: 'rejected' });
-      else if (key === 'u') applyToSelection({ flag: null });
+      } else if (key === 'p' || key === 'x') {
+        // Again on photos that all have it: back to unflagged.
+        const flag = key === 'p' ? 'picked' : 'rejected';
+        const all = selectedPhotos.length > 0 && selectedPhotos.every((p) => p.flag === flag);
+        applyToSelection({ flag: all ? null : flag });
+      } else if (key === 'u') applyToSelection({ flag: null });
       else if (key === 'arrowright') move(1);
       else if (key === 'arrowleft') move(-1);
       else if (key === 'arrowdown') move(columns);

@@ -139,8 +139,8 @@ export function Loupe({ photos, startId, hasMore, onLoadMore, onChange, onClose,
     else if (/^[6-9]$/.test(key)) {
       const label = COLOR_LABELS[Number(key) - 6]!;
       change({ colorLabel: photo.colorLabel === label ? null : label });
-    } else if (key === 'p') change({ flag: 'picked' });
-    else if (key === 'x') change({ flag: 'rejected' });
+    } else if (key === 'p') change({ flag: photo.flag === 'picked' ? null : 'picked' });
+    else if (key === 'x') change({ flag: photo.flag === 'rejected' ? null : 'rejected' });
     else if (key === 'u') change({ flag: null });
     else if (key === 'arrowright' || key === 'arrowdown' || key === 'pagedown') go(index + 1);
     else if (key === 'arrowleft' || key === 'arrowup' || key === 'pageup') go(index - 1);
