@@ -12,6 +12,7 @@ together; 4.5 (masks); full-size colour drags on a worker pool (see Performance)
 option); 8.5 (export options).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 4.10 (tone equalizer) added to it on 2026-11-06; see [1.0 release scope](#10-release-scope).
+4.11 (blend modes, with LUT masks) done 2026-11-07.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -776,6 +777,29 @@ Each needs the usual steps for a new kind:
 
 A kind that's absent is off, so adding one needs no recipe version bump.
 
+### 4.11 Blend modes (M, after 4.5)
+
+> **Done** (`ops/blend.rs`, `params::BlendMode` ↔ `BLEND_MODES`, the Blend menu in
+> `MaskEditor.tsx`). A mask says how the instance's output `b` combines with its input
+> `a` (`mask.blend`, `mask.blendFulcrum`, absent = normal, no version bump); the mask,
+> opacity included, then mixes the result in linearly. Modes: normal, lighten, darken,
+> multiply, divide, addition, subtraction, difference, average, geometric and harmonic
+> mean, screen, overlay, soft light, hard light, chroma, luminance, red, green, blue.
+> Each kind blends in its space: before filmic scene-referred (linear Rec.2020), after
+> it (LUTs) on encoded sRGB with W3C's formulas. Scene-referred, the fulcrum (EV from
+> middle grey) is the value a mode leaves unchanged, not Ansel's gain on `b`: multiply
+> `a·b/f`, divide `a·f/b`, and screen/overlay/soft/hard light run the display formulas
+> on `x / (x + f)` (0 … ∞ onto 0 … 1, `f` at 50 %); the arithmetic modes otherwise
+> follow Ansel's `blendif_rgb_jzczhz.c`. A mask with only a blend mode is active. LUTs
+> are maskable: their ranges are measured on filmic's input (so EV and hue mean the
+> same), and the leading LUTs whose mask is uniform (opacity, invert, blend: no shapes
+> or ranges) stay baked into filmic's table; from the first one with shapes or ranges
+> on, they run per pixel (~+190 ms at 2400 px native, like the exact LUT path). A
+> spatial module's blend is part of its detail key; a point module's isn't spatial. Cost
+> at 2400 px: a soft-light masked exposure +8 % over a normal one. Golden recipe
+> `blend.json`. Not done: a swap of input and output (Ansel's "reverse"), hue/colour
+> modes keeping lightness, and linear/vivid/pin light.
+
 ### 4.6 Tone curve (M, before 1.0)
 
 > **Done** (`ops/tone_curve.rs`, the tone curve section of `ModulePanel.tsx`). As built:
@@ -841,7 +865,7 @@ new UI control.
 > in IndexedDB without an account) and removes them; the backend sends each table once
 > and the pipeline worker keeps the LUTs of recent recipes loaded (in its pool too).
 > Left: renaming LUTs, previews of each LUT as thumbnails, local LUTs uploaded on "Add
-> to library", masks/opacity (with the blend feature). No storage quota exists yet;
+> to library". Masks, opacity and blend modes: done with 4.11. No storage quota exists yet;
 > when it does, count each user's LUTs at full size.
 
 Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a

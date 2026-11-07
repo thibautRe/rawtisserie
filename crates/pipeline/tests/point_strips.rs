@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use rawtisserie_pipeline::params::{Blur, DrawnShape, Exposure, Mask, Shape};
+use rawtisserie_pipeline::params::{BlendMode, Blur, DrawnShape, Exposure, Mask, Shape};
 use rawtisserie_pipeline::pipeline::PointRenderer;
 use rawtisserie_pipeline::{Developer, EditParams, Image, Quality, RenderSize};
 use serde::Deserialize;
@@ -124,6 +124,20 @@ fn masks_are_spatial_only_through_their_shapes() {
         e.ev = 0.4;
     }
     assert!(dev.is_spatial_cached(&p, SIZE), "the masked module itself, its opacity and invert aren't");
+    let mask = p.modules[masked].mask.as_mut().unwrap();
+    (mask.blend, mask.blend_fulcrum) = (BlendMode::SoftLight, 1.0);
+    assert!(dev.is_spatial_cached(&p, SIZE), "nor its blend");
+    // A LUT's mask is measured on filmic's input: filmic and the LUTs before it aren't
+    // what it's computed from.
+    p.add(rawtisserie_pipeline::params::Lut::default());
+    p.modules.last_mut().unwrap().mask = Some(Mask { luminance: Some([-2.0, -1.0, 3.0, 4.0]), feather: 10.0, ..Mask::default() });
+    assert!(!dev.is_spatial_cached(&p, SIZE));
+    dev.spatial_image_id(&p, SIZE);
+    p.get_mut::<rawtisserie_pipeline::params::Filmic>().white_exposure += 1.0;
+    p.modules.last_mut().unwrap().mask.as_mut().unwrap().blend = BlendMode::Multiply;
+    assert!(dev.is_spatial_cached(&p, SIZE), "filmic and the LUT's blend are point operations");
+    p.modules.pop();
+    dev.spatial_image_id(&p, SIZE);
 
     // The shape, its feather, and the drawn list are spatial.
     p.shapes.insert("s".into(), Shape::Ellipse { center: [0.4, 0.5], radii: [0.2, 0.2], rotation: 0.0, feather: 0.02, opacity: 1.0 });
@@ -138,6 +152,13 @@ fn masks_are_spatial_only_through_their_shapes() {
     assert!(!dev.is_spatial_cached(&p, SIZE));
     let (_, _, masks) = dev.spatial(&p, SIZE);
     assert!(masks.is_empty());
+
+    // A spatial module blends with its stage.
+    let blur = p.add(Blur { radius: 3.0 });
+    p.modules[blur].mask = Some(Mask { opacity: 0.5, ..Mask::default() });
+    dev.spatial_image_id(&p, SIZE);
+    p.modules[blur].mask.as_mut().unwrap().blend = BlendMode::Darken;
+    assert!(!dev.is_spatial_cached(&p, SIZE), "a spatial module's blend is spatial");
 }
 
 #[test]
@@ -244,4 +265,32 @@ fn luts_render_the_same_in_strips_and_survive_releasing_the_cache() {
         let got: Vec<u8> = parts.iter_mut().flat_map(|part| part.render(&p, Quality::Interactive).data).collect();
         assert!(got == want.data, "pass {pass}: strips differ from the full render");
     }
+
+    // Masked: at half opacity in soft light (baked into filmic's table), then again
+    // inside a shape (per pixel, and so is everything after it).
+    let lut = p.modules.len() - 1;
+    p.modules[lut].mask = Some(Mask { opacity: 0.5, blend: BlendMode::SoftLight, ..Mask::default() });
+    let half = dev.render(&p, SIZE, Quality::Final);
+    assert!(half.data != looked.data && half.data != plain.data);
+    p.shapes.insert("s".into(), Shape::Ellipse { center: [0.4, 0.5], radii: [0.2, 0.3], rotation: 0.0, feather: 0.1, opacity: 1.0 });
+    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into() }), interpolation: Interpolation::Trilinear });
+    p.modules.last_mut().unwrap().mask = Some(Mask { drawn: vec![DrawnShape { shape: "s".into(), ..Default::default() }], blend: BlendMode::Multiply, ..Mask::default() });
+    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into() }), interpolation: Interpolation::Tetrahedral });
+    p.modules.last_mut().unwrap().mask = Some(Mask { opacity: 0.3, ..Mask::default() });
+    // A fresh developer, like the strips (see `strips_match_the_full_render`).
+    let mut dev = developer();
+    dev.luts_mut().load(file.as_bytes()).unwrap();
+    // The shape's plane comes with the spatial image.
+    assert_eq!(dev.spatial(&p, SIZE).2.len(), 1);
+    assert_ne!(dev.render(&p, SIZE, Quality::Final).data, half.data);
+    let mut parts = strips(&mut dev, &p, 3);
+    for part in &mut parts {
+        part.luts_mut().load(file.as_bytes()).unwrap();
+    }
+    for pass in 0..2 {
+        let want = dev.render(&p, SIZE, Quality::Interactive);
+        let got: Vec<u8> = parts.iter_mut().flat_map(|part| part.render(&p, Quality::Interactive).data).collect();
+        assert!(got == want.data, "masked, pass {pass}: strips differ from the full render");
+    }
 }
+

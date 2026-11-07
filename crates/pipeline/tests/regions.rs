@@ -191,6 +191,9 @@ fn masked_regions_match() {
     p.modules.extend(base.modules.into_iter().filter(|m| m.module.kind() == rawtisserie_pipeline::params::ModuleKind::Lens));
     p.normalize();
     check("masks", &p, RenderSize::fit(1200, 1200));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/recipes/blend.json");
+    let blend: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    check("blend", &serde_json::from_value(blend["recipe"].clone()).unwrap(), RenderSize::fit(1200, 1200));
     // Mask overlays as well: the mask, a range alone, and the values of each part.
     let mut dev = developer();
     let size = RenderSize::fit(1000, 1000);

@@ -1,6 +1,8 @@
 import { Box, Button, HStack, IconButton, NativeSelect, Stack, Switch, Tabs, Text } from '@chakra-ui/react';
 import {
+  type BlendMode,
   type EditParams,
+  FULCRUM_BLEND_MODES,
   type Mask,
   type MaskRange,
   type ModuleKind,
@@ -8,6 +10,7 @@ import {
   type ShapeOp,
   type ShapeType,
   defaultMask,
+  isDisplayReferred,
   removeMask,
   removeMaskShape,
   updateMask,
@@ -43,6 +46,65 @@ const OP_TITLES: Record<ShapeOp, string> = {
   difference: 'Take away from the shapes before',
   exclusion: 'Where it or the shapes before are, not both',
 };
+/** Blend modes, grouped as the menu shows them. */
+const BLEND_GROUPS: { label: string; modes: BlendMode[] }[] = [
+  { label: 'Normal', modes: ['normal'] },
+  { label: 'Lighten and darken', modes: ['lighten', 'darken', 'screen', 'multiply', 'divide'] },
+  { label: 'Contrast', modes: ['overlay', 'softLight', 'hardLight'] },
+  { label: 'Arithmetic', modes: ['addition', 'subtraction', 'difference'] },
+  { label: 'Means', modes: ['average', 'geometricMean', 'harmonicMean'] },
+  { label: 'Components', modes: ['chroma', 'luminance', 'red', 'green', 'blue'] },
+];
+const BLEND_LABELS: Record<BlendMode, string> = {
+  normal: 'Normal',
+  lighten: 'Lighten',
+  darken: 'Darken',
+  multiply: 'Multiply',
+  divide: 'Divide',
+  addition: 'Addition',
+  subtraction: 'Subtraction',
+  difference: 'Difference',
+  average: 'Average',
+  geometricMean: 'Geometric mean',
+  harmonicMean: 'Harmonic mean',
+  screen: 'Screen',
+  overlay: 'Overlay',
+  softLight: 'Soft light',
+  hardLight: 'Hard light',
+  chroma: 'Chroma',
+  luminance: 'Luminance',
+  red: 'Red',
+  green: 'Green',
+  blue: 'Blue',
+};
+/** What each mode gives, with `a` the module's input and `b` its output. */
+const BLEND_TITLES: Record<BlendMode, string> = {
+  normal: 'The module’s output',
+  lighten: 'The brighter of input and output, per channel',
+  darken: 'The darker of input and output, per channel',
+  multiply: 'Input × output, divided by the fulcrum (white, after filmic): darkens where the output is below it',
+  divide: 'Input ÷ output, times the fulcrum (white, after filmic)',
+  addition: 'Input + output',
+  subtraction: 'Input − output, down to black',
+  difference: 'How far the output is from the input',
+  average: 'Halfway between input and output',
+  geometricMean: '√(input × output): halfway in exposure',
+  harmonicMean: '2·input·output ÷ (input + output): leans to the darker',
+  screen: 'Brightens by the output, never darkens',
+  overlay: 'Contrast steered by the input: darker below the fulcrum, brighter above',
+  softLight: 'Gentle contrast steered by the output: darker below the fulcrum, brighter above',
+  hardLight: 'Strong contrast steered by the output: darker below the fulcrum, brighter above',
+  chroma: 'The output’s colour at the input’s brightness',
+  luminance: 'The output’s brightness with the input’s colour',
+  red: 'Only the output’s red channel',
+  green: 'Only the output’s green channel',
+  blue: 'Only the output’s blue channel',
+};
+const signedEv = (v: number) =>
+  `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v)
+    .toFixed(2)
+    .replace(/\.?0+$/, '')} EV`;
+
 const SHAPE_LABELS: Record<ShapeType, string> = {
   ellipse: 'Ellipse',
   gradient: 'Gradient',
@@ -297,8 +359,8 @@ interface Props {
 
 /**
  * An instance's mask (roadmap 4.5): its drawn shapes (edited on the image with the
- * shape tools), its parametric ranges, feather, invert and opacity, and the yellow
- * overlay that shows where it applies.
+ * shape tools), its parametric ranges, feather, invert and opacity, how the module's
+ * output blends with its input (4.11), and the yellow overlay that shows where it applies.
  */
 export function MaskEditor({
   kind,
@@ -323,9 +385,11 @@ export function MaskEditor({
   // The range tab shown: the first range in use when the editor opens.
   const [rangeTab, setRangeTab] = useState<RangeKey>(() => RANGE_KEYS.find((k) => mask[k]) ?? 'luminance');
   const opSelectId = useId();
+  const blendSelectId = useId();
+  const display = isDisplayReferred(kind);
   const edit = (patch: Partial<Mask>) => updateMask(params(), kind, id, patch);
   /** Props for a slider bound to a numeric field of the mask. */
-  const bind = (key: 'feather' | 'opacity') => ({
+  const bind = (key: 'feather' | 'opacity' | 'blendFulcrum') => ({
     value: mask[key],
     defaultValue: defaultMask[key],
     onChange: (v: number) => onChange(edit({ [key]: v })),
@@ -550,6 +614,49 @@ export function MaskEditor({
           format={(v) => `${Math.round(v * 100)} %`}
           {...bind('opacity')}
         />
+        <HStack gap="2">
+          <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+            <label htmlFor={blendSelectId}>Blend</label>
+          </Text>
+          <NativeSelect.Root size="xs" flex="1">
+            <NativeSelect.Field
+              id={blendSelectId}
+              value={mask.blend}
+              title={`${BLEND_TITLES[mask.blend]}. ${
+                display
+                  ? 'After filmic, it blends display-referred (encoded sRGB).'
+                  : 'Before filmic, it blends scene-referred (linear).'
+              }`}
+              onChange={(ev) => {
+                const blend = ev.target.value as BlendMode;
+                onCommit(edit({ blend }), `${title()}: blend ${BLEND_LABELS[blend].toLowerCase()}`);
+              }}
+            >
+              {BLEND_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.modes.map((mode) => (
+                    <option key={mode} value={mode} title={BLEND_TITLES[mode]}>
+                      {BLEND_LABELS[mode]}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </NativeSelect.Field>
+            <NativeSelect.Indicator />
+          </NativeSelect.Root>
+        </HStack>
+        {!display && FULCRUM_BLEND_MODES.includes(mask.blend) && (
+          <ParamSlider
+            label="Fulcrum"
+            min={-3}
+            max={3}
+            hardMin={-10}
+            hardMax={10}
+            step={0.05}
+            format={signedEv}
+            {...bind('blendFulcrum')}
+          />
+        )}
         <Switch.Root
           size="xs"
           colorPalette="orange"

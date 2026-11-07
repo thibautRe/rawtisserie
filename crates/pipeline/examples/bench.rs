@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Illuminant, Mask, ShadowsHighlights, Shape, Sharpen, ToneCurve,
+    BlendMode, Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Illuminant, Mask, ShadowsHighlights, Shape, Sharpen, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -128,6 +128,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     p.get_mut::<Filmic>().contrast += 0.05;
     time("filmic slider with LUT (exact)", &mut dev, &p);
+    // At half opacity in soft light: still baked into filmic's table…
+    p.modules[l].mask = Some(Mask { opacity: 0.5, blend: BlendMode::SoftLight, ..Mask::default() });
+    time("LUT blended", &mut dev, &p);
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider with LUT blended", &mut dev, &p);
+    // …but not with a luminance range: then it runs per pixel.
+    p.modules[l].mask.as_mut().unwrap().luminance = Some([-1.0, 0.0, 8.0, 10.0]);
+    time("LUT with a range", &mut dev, &p);
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider with LUT range", &mut dev, &p);
     p.modules.remove(l);
 
     let overlays = Overlays { display: Some(DisplayClipping::default()), sensor: true, stripes: 0.0, ..Default::default() };
@@ -154,6 +164,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         p.modules[sky].mask.as_mut().unwrap().luminance.as_mut().unwrap()[1] += 0.1;
         time("mask range slider", &mut dev, &p);
     }
+    p.modules[sky].mask.as_mut().unwrap().blend = BlendMode::SoftLight;
+    for _ in 0..2 {
+        if let rawtisserie_pipeline::params::Module::Exposure(e) = &mut p.modules[sky].module {
+            e.ev -= 0.1;
+        }
+        time("masked exposure slider, soft light", &mut dev, &p);
+    }
+    p.modules[sky].mask.as_mut().unwrap().blend = BlendMode::Normal;
     let i = p.add(Color { saturation: 0.5, vibrance: 0.0 });
     p.modules[i].mask = Some(Mask { drawn: vec![DrawnShape { shape: "spot".into(), ..Default::default() }], ..Mask::default() });
     time("second mask added", &mut dev, &p);

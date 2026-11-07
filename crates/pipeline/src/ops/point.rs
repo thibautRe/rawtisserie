@@ -11,11 +11,14 @@
 //! [`Looks`]) → encoding. The output space is sRGB except for exports
 //! ([`PointOps::for_space`]).
 //!
-//! A masked instance (`crate::ops::mask`) blends its output with its input per pixel:
-//! its parametric part is evaluated here, on its input, and its drawn part is read from
-//! the planes that come with the spatial image ([`PointOps::render_masked`]).
+//! A masked instance (`crate::ops::mask`) blends its output with its input per pixel,
+//! in its blend mode (`crate::ops::blend`): its parametric part is evaluated here, on
+//! its input, and its drawn part is read from the planes that come with the spatial
+//! image ([`PointOps::render_masked`]). A creative LUT's mask is measured on filmic's
+//! input, and it blends display-referred, on encoded sRGB.
 
 use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, luminance, mul_vec};
+use crate::ops::blend::Blend;
 use crate::ops::calibration::CalibrationStage;
 use crate::ops::clut::{Clut, ClutStore, Interpolation};
 use crate::image::{Image, Rgb, Rgba8};
@@ -40,16 +43,48 @@ fn shadows_highlights_gain(y: f32, shadows: f32, highlights: f32) -> f32 {
 /// levels (8-bit) of the exact computation; smaller grids show visible errors.
 pub const FILMIC_LUT_SIZE: usize = 65;
 
-/// A creative LUT instance: its table, and how it's interpolated.
-pub type Look = (Rc<Clut>, Interpolation);
+/// A creative LUT instance: its table, how it's interpolated, and its mask.
+#[derive(Clone)]
+pub struct Look {
+    pub lut: Rc<Clut>,
+    pub interpolation: Interpolation,
+    /// Its active mask, if it has one, with its instance id (its drawn plane's) and
+    /// whether it has a drawn part.
+    pub mask: Option<(String, params::Mask, bool)>,
+}
+
+impl Look {
+    /// Whether it does the same to every pixel of a colour: unmasked, or masked by
+    /// opacity, invert and blend alone. Filmic's table can then hold it.
+    fn uniform(&self) -> bool {
+        self.mask.as_ref().is_none_or(|(_, m, drawn)| !drawn && !m.has_ranges())
+    }
+}
 
 /// The LUTs of `p`'s enabled LUT instances, in order, skipping those `luts` doesn't have.
 pub fn looks_of(p: &EditParams, luts: &ClutStore) -> Vec<Look> {
-    p.all::<params::Lut>().filter_map(|l| Some((luts.get(&l.lut.as_ref()?.id)?.clone(), l.interpolation))).collect()
+    p.modules
+        .iter()
+        .filter(|m| m.enabled)
+        .filter_map(|m| {
+            let Module::Lut(l) = &m.module else { return None };
+            let lut = luts.get(&l.lut.as_ref()?.id)?.clone();
+            let mask = mask::active(m).map(|k| (m.id.clone(), k.clone(), Drawn::of(p, k).is_some()));
+            Some(Look { lut, interpolation: l.interpolation, mask })
+        })
+        .collect()
+}
+
+/// The LUTs filmic's table can hold: the first ones, up to one that isn't uniform.
+pub fn bakeable(looks: &[Look]) -> &[Look] {
+    &looks[..looks.iter().take_while(|l| l.uniform()).count()]
 }
 
 fn same_looks(a: &[Look], b: &[Look]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|((x, i), (y, j))| i == j && x.id() == y.id())
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            x.interpolation == y.interpolation && x.lut.id() == y.lut.id() && x.mask.as_ref().map(|m| &m.1) == y.mask.as_ref().map(|m| &m.1)
+        })
 }
 
 /// Filmic, with its per-channel curve as a 1D table and (optionally) the whole
@@ -77,13 +112,16 @@ impl FilmicStage {
     }
 
     /// For sRGB output, with the creative LUTs `looks` baked into its table, if it has
-    /// one: the point operations then skip them for the pixels the table covers.
+    /// one: the point operations then skip them for the pixels the table covers. They
+    /// must be uniform ([`bakeable`]).
     pub fn with_looks(p: &crate::params::Filmic, lut_size: Option<usize>, looks: &[Look]) -> Self {
         Self::build(p, lut_size, ColorSpace::Srgb, looks)
     }
 
     fn build(p: &crate::params::Filmic, lut_size: Option<usize>, space: ColorSpace, looks: &[Look]) -> Self {
         assert!(looks.is_empty() || space == ColorSpace::Srgb, "LUTs are baked on sRGB output only");
+        assert!(bakeable(looks).len() == looks.len(), "only uniform LUTs can be baked");
+        let compiled: Vec<CompiledLook> = looks.iter().map(CompiledLook::new).collect();
         let filmic = Filmic::for_space(p, space);
         let curve = BitsLut::new(FLOOR, CEILING, FINE, |v| filmic.spline.tone_map(v));
         // From 2 EV below the black point (displayed as black anyway) to 4 EV above
@@ -93,7 +131,7 @@ impl FilmicStage {
             // Stored encoded: interpolation error is then perceptually uniform.
             Lut3d::new(n, grey + p.black_exposure - 2.0, grey + p.white_exposure + 4.0, |c| {
                 let e = filmic.apply_compressed(c, |v| curve.eval(v)).map(|v| space.oetf(v));
-                looks.iter().fold(e, |e, (lut, interpolation)| lut.eval(e, *interpolation))
+                compiled.iter().fold(e, |e, look| look.apply_uniform(e))
             })
         });
         let lut_max = lut.as_ref().map_or(0.0, Lut3d::max_input);
@@ -140,12 +178,43 @@ impl FilmicStage {
     }
 }
 
+/// A creative LUT, ready to apply.
+struct CompiledLook {
+    lut: Rc<Clut>,
+    interpolation: Interpolation,
+    mask: Option<LookMask>,
+}
+
+/// A creative LUT's mask, measured on filmic's input, and its blend, display-referred.
+struct LookMask {
+    stage: MaskStage,
+    blend: Blend,
+    id: String,
+}
+
+impl CompiledLook {
+    fn new(look: &Look) -> Self {
+        let mask = look.mask.as_ref().map(|(id, m, drawn)| LookMask { stage: MaskStage::new(m, *drawn), blend: Blend::display(m), id: id.clone() });
+        Self { lut: look.lut.clone(), interpolation: look.interpolation, mask }
+    }
+
+    /// The LUT on one encoded sRGB colour, if it's uniform (its mask the same everywhere).
+    #[inline]
+    fn apply_uniform(&self, e: Rgb) -> Rgb {
+        let out = self.lut.eval(e, self.interpolation);
+        match &self.mask {
+            None => out,
+            Some(m) => m.blend.mix(e, out, m.stage.eval(e, 1.0)),
+        }
+    }
+}
+
 /// The creative LUTs ([`params::Lut`]) after filmic. They map encoded sRGB to encoded
 /// sRGB: filmic's output (display-linear, in the output primaries) is converted to
 /// sRGB, clipped, encoded, run through the LUTs in order, then converted back to the
 /// output space. Colours outside sRGB are clipped before the first LUT.
 struct Looks {
-    luts: Vec<Look>,
+    luts: Vec<CompiledLook>,
     /// Display-linear output primaries → linear sRGB, unless the output is sRGB.
     to_srgb: Option<Mat3>,
     /// Linear sRGB → linear output primaries, unless the output is sRGB.
@@ -156,10 +225,11 @@ struct Looks {
 }
 
 impl Looks {
-    fn new(luts: Vec<Look>, space: ColorSpace) -> Option<Self> {
+    fn new(luts: &[Look], space: ColorSpace) -> Option<Self> {
         if luts.is_empty() {
             return None;
         }
+        let luts = luts.iter().map(CompiledLook::new).collect();
         let srgb_oetf = BitsLut::new(FLOOR, 1.0, FINE, crate::color::srgb_oetf);
         let mut looks = Self { luts, to_srgb: None, from_srgb: None, srgb_oetf };
         looks.set_space(space);
@@ -188,18 +258,38 @@ impl Looks {
         .map(|v| v.clamp(0.0, 1.0))
     }
 
-    /// The LUTs on encoded sRGB colours, in place.
-    #[inline]
-    fn apply_all(&self, encoded: &mut [Rgb]) {
-        for (lut, interpolation) in &self.luts {
-            lut.apply_all(encoded, *interpolation);
+    /// The LUTs from the `from`-th on encoded sRGB colours (at most [`MAX_CHUNK`]), in
+    /// place. `scene`: the same pixels before filmic, which their masks measure;
+    /// `planes`, the drawn plane of each LUT if it's masked with one (see
+    /// [`PointOps::adjust_all`]). A LUT whose plane is missing is skipped.
+    fn apply_from(&self, from: usize, encoded: &mut [Rgb], scene: &[Rgb], planes: &[Option<&[f32]>], start: usize) {
+        let n = encoded.len();
+        for (i, look) in self.luts.iter().enumerate().skip(from) {
+            let Some(m) = &look.mask else {
+                look.lut.apply_all(encoded, look.interpolation);
+                continue;
+            };
+            let mut alpha = [0.0f32; MAX_CHUNK];
+            match planes.get(i).copied().flatten() {
+                Some(plane) => m.stage.eval_all(scene, &plane[start..start + n], &mut alpha[..n]),
+                None if m.stage.drawn => continue,
+                None => m.stage.eval_all(scene, &[], &mut alpha[..n]),
+            }
+            if alpha[..n].iter().all(|&a| a <= 0.0) {
+                continue;
+            }
+            let mut out = [[0.0f32; 3]; MAX_CHUNK];
+            let out = &mut out[..n];
+            out.copy_from_slice(encoded);
+            look.lut.apply_all(out, look.interpolation);
+            m.blend.mix_all(encoded, out, &alpha[..n]);
         }
     }
 
-    /// The LUTs on one encoded sRGB colour.
+    /// The first `n` LUTs, uniform, on one encoded sRGB colour.
     #[inline]
-    fn apply(&self, e: Rgb) -> Rgb {
-        self.luts.iter().fold(e, |e, (lut, interpolation)| lut.eval(e, *interpolation))
+    fn apply_uniform(&self, n: usize, e: Rgb) -> Rgb {
+        self.luts[..n].iter().fold(e, |e, look| look.apply_uniform(e))
     }
 
     /// Encoded sRGB → encoded `space`, exactly.
@@ -231,6 +321,7 @@ enum Step {
 struct Masked {
     step: Step,
     mask: MaskStage,
+    blend: Blend,
     /// The instance's id: its drawn plane's, if it has a drawn part.
     id: String,
 }
@@ -270,7 +361,7 @@ impl Step {
             Step::ToneCurve(stage) => stage.apply(c),
             Step::Masked(m) => {
                 let a = m.mask.eval(c, drawn);
-                if a > 0.0 { mask::blend(c, m.step.apply(c), a) } else { c }
+                if a > 0.0 { m.blend.mix(c, m.step.apply(c), a) } else { c }
             }
         }
     }
@@ -338,6 +429,14 @@ fn apply_steps(steps: &[Step], px: Rgb) -> Rgb {
 /// Most pixels [`PointOps::adjust_all`] takes at once.
 const MAX_CHUNK: usize = 64;
 
+/// The drawn planes the point operations read, by position.
+struct Planes<'a> {
+    /// Of each step, if it's masked with one.
+    steps: Vec<Option<&'a [f32]>>,
+    /// Of each LUT, if it's masked with one.
+    looks: Vec<Option<&'a [f32]>>,
+}
+
 /// The compiled point modules. Looping over steps costs ~7 % of the whole pass, so
 /// the usual shape (at most one step of each type, in order) gets a fixed chain.
 enum Chain {
@@ -382,8 +481,8 @@ pub struct PointOps {
     filmic: Option<Rc<FilmicStage>>,
     /// The LUTs after filmic, if any.
     looks: Option<Looks>,
-    /// Whether filmic's 3D table has the LUTs baked in.
-    baked: bool,
+    /// How many of the LUTs filmic's 3D table has baked in (the first ones).
+    baked: usize,
     space: ColorSpace,
     /// Used when filmic is off: clip in the output space.
     to_output: Mat3,
@@ -447,7 +546,7 @@ impl PointOps {
             let step = match mask::active(instance) {
                 Some(m) => {
                     let drawn = Drawn::of(p, m).is_some();
-                    Step::Masked(Box::new(Masked { step, mask: MaskStage::new(m, drawn), id: instance.id.clone() }))
+                    Step::Masked(Box::new(Masked { step, mask: MaskStage::new(m, drawn), blend: Blend::scene(m), id: instance.id.clone() }))
                 }
                 None => step,
             };
@@ -464,12 +563,17 @@ impl PointOps {
 
         let space = filmic.as_ref().map_or(ColorSpace::Srgb, |f| f.space);
         let looks = looks_of(p, luts);
-        let baked = filmic.as_ref().is_some_and(|f| f.bakes_looks());
-        assert!(!baked || filmic.as_ref().is_some_and(|f| f.has_looks(&looks)), "filmic's table has other LUTs baked in");
+        let baked = match &filmic {
+            Some(f) if f.bakes_looks() => {
+                assert!(f.has_looks(bakeable(&looks)), "filmic's table has other LUTs baked in");
+                f.looks.len()
+            }
+            _ => 0,
+        };
         Self {
             chain: Chain::new(steps),
             filmic,
-            looks: Looks::new(looks, space),
+            looks: Looks::new(&looks, space),
             baked,
             space,
             to_output: space.from_working(),
@@ -574,9 +678,7 @@ impl PointOps {
                             let out = &mut out[..n];
                             out.copy_from_slice(pixels);
                             apply_unmasked(&m.step, out);
-                            for ((c, o), &a) in pixels.iter_mut().zip(out.iter()).zip(&alpha[..n]) {
-                                *c = mask::blend(*c, *o, a);
-                            }
+                            m.blend.mix_all(pixels, out, &alpha[..n]);
                         }
                         _ => apply_unmasked(step, pixels),
                     }
@@ -585,18 +687,22 @@ impl PointOps {
         }
     }
 
-    /// The drawn plane of each step, from `masks` (see [`adjust_all`](Self::adjust_all)).
-    fn planes<'a>(&self, masks: &'a [MaskPlane]) -> Vec<Option<&'a [f32]>> {
-        match &self.chain {
+    /// The drawn plane of each step and of each LUT, from `masks` (see
+    /// [`adjust_all`](Self::adjust_all)).
+    fn planes<'a>(&self, masks: &'a [MaskPlane]) -> Planes<'a> {
+        let find = |stage: &MaskStage, id: &str| if stage.drawn { masks.iter().find(|p| p.id == id).map(|p| p.alpha.as_slice()) } else { None };
+        let steps = match &self.chain {
             Chain::Fixed { .. } => Vec::new(),
             Chain::Steps(steps) => steps
                 .iter()
                 .map(|s| match s {
-                    Step::Masked(m) if m.mask.drawn => masks.iter().find(|p| p.id == m.id).map(|p| p.alpha.as_slice()),
+                    Step::Masked(m) => find(&m.mask, &m.id),
                     _ => None,
                 })
                 .collect(),
-        }
+        };
+        let looks = self.looks.as_ref().map_or_else(Vec::new, |l| l.luts.iter().map(|l| l.mask.as_ref().and_then(|m| find(&m.stage, &m.id))).collect());
+        Planes { steps, looks }
     }
 
     /// [`adjust`](Self::adjust) on a whole image, with the drawn planes of its masks.
@@ -604,7 +710,7 @@ impl PointOps {
         let mut out = img.pixels.clone();
         let planes = self.planes(masks);
         for (i, chunk) in out.chunks_mut(MAX_CHUNK).enumerate() {
-            self.adjust_all(chunk, &planes, i * MAX_CHUNK);
+            self.adjust_all(chunk, &planes.steps, i * MAX_CHUNK);
         }
         out
     }
@@ -624,7 +730,7 @@ impl PointOps {
     /// Filmic's table mustn't have the LUTs baked in.
     #[inline]
     fn encode_srgb(&self, looks: &Looks, c: Rgb) -> Rgb {
-        if self.space == ColorSpace::Srgb && !self.baked {
+        if self.space == ColorSpace::Srgb && self.baked == 0 {
             if let Some(e) = self.filmic.as_ref().and_then(|f| f.lut_encoded(c)) {
                 return e;
             }
@@ -632,9 +738,10 @@ impl PointOps {
         looks.linear_srgb(self.to_display(c)).map(|v| looks.srgb_oetf.eval(v))
     }
 
-    /// Adjusted pixels to 8 bits, encoded, into `out` (RGBA, alpha untouched).
+    /// Adjusted pixels (at most [`MAX_CHUNK`]) to 8 bits, encoded, into `out` (RGBA,
+    /// alpha untouched). `planes` and `start`: the LUTs' drawn planes ([`Planes::looks`]).
     #[inline]
-    fn encode_chunk(&self, pixels: &mut [Rgb], out: &mut [u8]) {
+    fn encode_chunk(&self, pixels: &[Rgb], out: &mut [u8], planes: &[Option<&[f32]>], start: usize) {
         let Some(looks) = &self.looks else {
             for (c, out) in pixels.iter().zip(out.chunks_exact_mut(4)) {
                 out[..3].copy_from_slice(&self.encode(*c));
@@ -642,27 +749,28 @@ impl PointOps {
             return;
         };
         let quantize = |e: Rgb| e.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
-        if let (true, Some(filmic)) = (self.baked, &self.filmic) {
-            // Filmic's table has the LUTs: only the pixels it doesn't cover need them.
-            for (c, out) in pixels.iter().zip(out.chunks_exact_mut(4)) {
-                let e = filmic.lut_encoded(*c).unwrap_or_else(|| looks.apply(self.encode_srgb(looks, *c)));
-                out[..3].copy_from_slice(&quantize(e));
-            }
-            return;
+        let mut encoded = [[0.0f32; 3]; MAX_CHUNK];
+        let encoded = &mut encoded[..pixels.len()];
+        match &self.filmic {
+            // Filmic's table has the first LUTs: only the pixels it doesn't cover need them.
+            Some(filmic) if self.baked > 0 => encoded.iter_mut().zip(pixels).for_each(|(e, c)| {
+                *e = filmic.lut_encoded(*c).unwrap_or_else(|| looks.apply_uniform(self.baked, self.encode_srgb(looks, *c)));
+            }),
+            _ => encoded.iter_mut().zip(pixels).for_each(|(e, c)| *e = self.encode_srgb(looks, *c)),
         }
-        pixels.iter_mut().for_each(|c| *c = self.encode_srgb(looks, *c));
-        looks.apply_all(pixels);
-        for (e, out) in pixels.iter().zip(out.chunks_exact_mut(4)) {
+        looks.apply_from(self.baked, encoded, pixels, planes, start);
+        for (e, out) in encoded.iter().zip(out.chunks_exact_mut(4)) {
             out[..3].copy_from_slice(&quantize(looks.to_output(*e, self.space)));
         }
     }
 
-    /// One pixel, all the way to 8 bits, encoded.
+    /// One pixel, all the way to 8 bits, encoded (masks take their drawn part as
+    /// missing: see [`adjust`](Self::adjust)).
     #[inline]
     pub fn apply(&self, px: Rgb) -> [u8; 3] {
-        let mut c = [self.adjust(px)];
+        let c = [self.adjust(px)];
         let mut out = [255u8; 4];
-        self.encode_chunk(&mut c, &mut out);
+        self.encode_chunk(&c, &mut out, &[], 0);
         [out[0], out[1], out[2]]
     }
 
@@ -682,8 +790,8 @@ impl PointOps {
         for (i, (pixels, out)) in img.pixels.chunks(CHUNK).zip(data.chunks_mut(CHUNK * 4)).enumerate() {
             let buffer = &mut buffer[..pixels.len()];
             buffer.copy_from_slice(pixels);
-            self.adjust_all(buffer, &planes, i * CHUNK);
-            self.encode_chunk(buffer, out);
+            self.adjust_all(buffer, &planes.steps, i * CHUNK);
+            self.encode_chunk(buffer, out, &planes.looks, i * CHUNK);
         }
         Rgba8 { width: img.width, height: img.height, data }
     }
@@ -701,13 +809,15 @@ impl PointOps {
         for (i, pixels) in pixels.chunks(CHUNK).enumerate() {
             let buffer = &mut buffer[..pixels.len()];
             buffer.copy_from_slice(pixels);
-            self.adjust_all(buffer, &planes, start + i * CHUNK);
+            self.adjust_all(buffer, &planes.steps, start + i * CHUNK);
             match &self.looks {
                 None => out.extend(buffer.iter().map(|&c| self.to_display(c).map(|v| self.space.oetf(v)))),
                 Some(looks) => {
-                    buffer.iter_mut().for_each(|c| *c = looks.linear_srgb(self.to_display(*c)).map(crate::color::srgb_oetf));
-                    looks.apply_all(buffer);
-                    out.extend(buffer.iter().map(|&e| looks.to_output(e, self.space)));
+                    let mut encoded = [[0.0f32; 3]; CHUNK];
+                    let encoded = &mut encoded[..buffer.len()];
+                    encoded.iter_mut().zip(buffer.iter()).for_each(|(e, c)| *e = looks.linear_srgb(self.to_display(*c)).map(crate::color::srgb_oetf));
+                    looks.apply_from(0, encoded, buffer, &planes.looks, start + i * CHUNK);
+                    out.extend(encoded.iter().map(|&e| looks.to_output(e, self.space)));
                 }
             }
         }
@@ -747,6 +857,7 @@ fn fixed_chain(
 mod tests {
     use super::*;
     use crate::color::REC2020_FROM_REC709;
+    use crate::shapes::Shape;
 
     fn ops(f: impl FnOnce(&mut EditParams)) -> PointOps {
         let mut p = EditParams::default();
@@ -930,7 +1041,7 @@ mod tests {
         let looks = looks_of(&with, &store);
         let baked = Rc::new(FilmicStage::with_looks(with.get::<params::Filmic>().unwrap(), Some(FILMIC_LUT_SIZE), &looks));
         let baked = PointOps::with_stages(&with, None, Some(baked), &mut |cp| Rc::new(ColorPrimariesStage::build(cp)), &store);
-        assert!(baked.baked);
+        assert_eq!(baked.baked, 2);
         let renders = [None, Some(FILMIC_LUT_SIZE)].map(|lut_size| ops_with_luts(&with, &[&swap, &darken], lut_size, ColorSpace::Srgb).render(&img));
         for rgba in renders.iter().chain([&baked.render(&img)]) {
             for (e, px) in out.iter().zip(rgba.data.chunks_exact(4)) {
@@ -956,6 +1067,116 @@ mod tests {
         assert_eq!(ops_with_luts(&disabled, &[&swap], None, ColorSpace::Srgb).render(&img).data, plain.data);
 
         assert_ne!(ops_with_luts(&missing, &[&swap], None, ColorSpace::Srgb).render(&img).data, plain.data);
+    }
+
+    #[test]
+    fn masked_steps_blend_in_their_mode() {
+        let blended = |blend, fulcrum| {
+            ops(|p| {
+                p.get_mut::<params::Exposure>().ev = 1.0;
+                p.modules[0].mask = Some(params::Mask { blend, blend_fulcrum: fulcrum, opacity: 0.5, ..params::Mask::default() });
+            })
+        };
+        // Multiply by the doubled pixel, around middle grey; half of it.
+        let a = 0.05f32;
+        let r = a * 2.0 * a / MIDDLE_GREY;
+        assert!(approx(blended(params::BlendMode::Multiply, 0.0).adjust([a; 3]), [(a + r) / 2.0; 3], 1e-6));
+        // At the fulcrum, multiply leaves the doubled pixel alone… (2a·a/f = 2a with f = a)
+        let at = blended(params::BlendMode::Multiply, (a / MIDDLE_GREY).log2()).adjust([a; 3]);
+        assert!(approx(at, [1.5 * a; 3], 1e-6), "{at:?}");
+        // …and the normal blend at full opacity is no mask at all.
+        let normal = ops(|p| {
+            p.get_mut::<params::Exposure>().ev = 1.0;
+            p.modules[0].mask = Some(params::Mask::default());
+        });
+        assert!(matches!(normal.chain, Chain::Fixed { .. }));
+        let only_blend = blended(params::BlendMode::Lighten, 0.0);
+        assert!(matches!(only_blend.chain, Chain::Steps(_)));
+    }
+
+    /// `p` with a LUT instance using `lut`, masked by `mask`.
+    fn masked_lut(p: &EditParams, lut: &Clut, mask: params::Mask) -> EditParams {
+        let mut with = p.clone();
+        add_lut(&mut with, lut, Interpolation::Tetrahedral);
+        with.modules.last_mut().unwrap().mask = Some(mask);
+        with
+    }
+
+    #[test]
+    fn luts_blend_display_referred() {
+        let img = test_image();
+        let swap = Clut::from_fn(9, |c| [c[2], c[1], c[0]]);
+        let p = EditParams::default();
+        let plain = encoded_rows(&ops_with_luts(&p, &[], None, ColorSpace::Srgb), &img);
+        let full = encoded_rows(&ops_with_luts(&masked_lut(&p, &swap, params::Mask::default()), &[&swap], None, ColorSpace::Srgb), &img);
+        let half = masked_lut(&p, &swap, params::Mask { opacity: 0.5, blend: params::BlendMode::SoftLight, ..params::Mask::default() });
+        let out = encoded_rows(&ops_with_luts(&half, &[&swap], None, ColorSpace::Srgb), &img);
+        let blend = Blend::display(&half.modules.last().unwrap().mask.clone().unwrap());
+        for ((a, b), o) in plain.iter().zip(&full).zip(&out) {
+            assert!(approx(blend.mix(*a, *b, 0.5), *o, 1e-4), "{a:?} {b:?} → {o:?}");
+        }
+
+        // Uniform: baked into filmic's table, which renders the same.
+        let mut store = ClutStore::default();
+        store.insert(swap.clone());
+        let looks = looks_of(&half, &store);
+        assert_eq!(bakeable(&looks).len(), 1);
+        let filmic = Rc::new(FilmicStage::with_looks(half.get::<params::Filmic>().unwrap(), Some(FILMIC_LUT_SIZE), bakeable(&looks)));
+        let baked = PointOps::with_stages(&half, None, Some(filmic), &mut |cp| Rc::new(ColorPrimariesStage::build(cp)), &store);
+        assert_eq!(baked.baked, 1);
+        for rgba in [baked.render(&img), ops_with_luts(&half, &[&swap], Some(FILMIC_LUT_SIZE), ColorSpace::Srgb).render(&img)] {
+            for (e, px) in out.iter().zip(rgba.data.chunks_exact(4)) {
+                let diff = (0..3).map(|i| ((e[i] * 255.0).round() - px[i] as f32).abs()).fold(0.0, f32::max);
+                assert!(diff <= 2.0, "{e:?} vs {px:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn lut_masks_read_planes_and_filmic_input() {
+        let img = test_image();
+        let swap = Clut::from_fn(9, |c| [c[2], c[1], c[0]]);
+        let darken = Clut::from_fn(9, |c| c.map(|v| v * 0.5));
+        let mut p = EditParams::default();
+        p.shapes.insert("s".into(), Shape::Ellipse { center: [0.5, 0.5], radii: [0.1, 0.1], rotation: 0.0, feather: 0.0, opacity: 1.0 });
+        let drawn = params::Mask { drawn: vec![params::DrawnShape { shape: "s".into(), op: params::ShapeOp::Union }], ..params::Mask::default() };
+        let with = masked_lut(&p, &swap, drawn);
+        let mut with = with.clone();
+        add_lut(&mut with, &darken, Interpolation::Tetrahedral);
+        let mut store = ClutStore::default();
+        store.insert(swap.clone());
+        store.insert(darken.clone());
+        // Not uniform: nothing is baked, not even the uniform LUT after it.
+        assert_eq!(bakeable(&looks_of(&with, &store)).len(), 0);
+
+        let ops = ops_with_luts(&with, &[&swap, &darken], None, ColorSpace::Srgb);
+        let id = with.modules.iter().find(|m| m.mask.is_some()).unwrap().id.clone();
+        // The plane: the left half in, the right half out.
+        let alpha: Vec<f32> = (0..img.pixels.len()).map(|k| if k < 10 { 1.0 } else { 0.0 }).collect();
+        let mut out = Vec::new();
+        ops.render_encoded_rows(&img, &[MaskPlane { id, alpha }], 0..1, &mut out);
+        let plain = encoded_rows(&ops_with_luts(&EditParams::default(), &[], None, ColorSpace::Srgb), &img);
+        for (k, (a, o)) in plain.iter().zip(&out).enumerate() {
+            let want = if k < 10 { [a[2] * 0.5, a[1] * 0.5, a[0] * 0.5] } else { a.map(|v| v * 0.5) };
+            assert!(approx(want, *o, 1e-4), "{k}: {a:?} → {o:?}");
+        }
+        // Without its plane, the masked LUT is skipped.
+        let skipped = encoded_rows(&ops, &img);
+        assert!(plain.iter().zip(&skipped).all(|(a, o)| approx(a.map(|v| v * 0.5), *o, 1e-4)));
+
+        // Ranges are measured on filmic's input: here, scene-referred pixels above middle grey.
+        let bright = masked_lut(&EditParams::default(), &swap, params::Mask { luminance: Some([0.0, 0.0, 20.0, 20.0]), ..params::Mask::default() });
+        let out = encoded_rows(&ops_with_luts(&bright, &[&swap], None, ColorSpace::Srgb), &img);
+        let adjust = ops_with_luts(&bright, &[], None, ColorSpace::Srgb);
+        for ((px, a), o) in img.pixels.iter().zip(&plain).zip(&out) {
+            let lit = luminance(adjust.adjust(*px)) > MIDDLE_GREY * 1.01;
+            let dark = luminance(adjust.adjust(*px)) < MIDDLE_GREY * 0.99;
+            if lit {
+                assert!(approx([a[2], a[1], a[0]], *o, 1e-4), "{px:?}: {a:?} → {o:?}");
+            } else if dark {
+                assert!(approx(*a, *o, 1e-6), "{px:?}: {a:?} → {o:?}");
+            }
+        }
     }
 
     #[test]

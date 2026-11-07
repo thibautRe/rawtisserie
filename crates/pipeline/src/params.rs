@@ -173,7 +173,7 @@ impl ModuleKind {
     }
 
     /// Kinds whose instances can have a [`Mask`]: the spatial and point modules before
-    /// filmic. Must match `MASKABLE_KINDS` in TS.
+    /// filmic, and the creative LUTs after it. Must match `MASKABLE_KINDS` in TS.
     pub fn maskable(self) -> bool {
         matches!(
             self,
@@ -186,7 +186,14 @@ impl ModuleKind {
                 | ModuleKind::ShadowsHighlights
                 | ModuleKind::ColorPrimaries
                 | ModuleKind::ToneCurve
+                | ModuleKind::Lut
         )
+    }
+
+    /// Whether the kind blends display-referred (after filmic, on encoded sRGB) rather
+    /// than scene-referred (see [`crate::ops::blend`]).
+    pub fn display_referred(self) -> bool {
+        self > ModuleKind::Filmic
     }
 
     /// The camelCase name used in JSON, also the id of the first instance.
@@ -469,6 +476,65 @@ pub struct Mask {
     pub invert: bool,
     /// 0 … 1.
     pub opacity: f32,
+    /// How the instance's output combines with its input where the mask applies (see
+    /// [`crate::ops::blend`]).
+    pub blend: BlendMode,
+    /// The value some blend modes leave unchanged, in EV relative to middle grey
+    /// (modules before filmic only): multiply, divide, screen, overlay, soft and hard light.
+    pub blend_fulcrum: f32,
+}
+
+/// How a module's output `b` combines with its input `a` (roadmap 4.11), before the
+/// mask mixes the result with `a`. Must match `BLEND_MODES` in TS.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BlendMode {
+    /// `b`.
+    #[default]
+    Normal,
+    /// `max(a, b)` per channel.
+    Lighten,
+    /// `min(a, b)` per channel.
+    Darken,
+    /// `a · b / fulcrum`.
+    Multiply,
+    /// `a · fulcrum / b`.
+    Divide,
+    /// `a + b`.
+    Addition,
+    /// `max(a − b, 0)`.
+    Subtraction,
+    /// `|a − b|`.
+    Difference,
+    /// `(a + b) / 2`.
+    Average,
+    /// `√(a · b)`.
+    GeometricMean,
+    /// `2ab / (a + b)`.
+    HarmonicMean,
+    /// The usual display formulas, on values mapped so that the fulcrum is 50 %.
+    Screen,
+    Overlay,
+    SoftLight,
+    HardLight,
+    /// `a`'s norm with `b`'s chromaticity.
+    Chroma,
+    /// `b`'s norm with `a`'s chromaticity.
+    Luminance,
+    /// `a` with `b`'s red, green or blue channel.
+    Red,
+    Green,
+    Blue,
+}
+
+impl BlendMode {
+    /// Whether it reads the fulcrum (when blending scene-referred).
+    pub fn uses_fulcrum(self) -> bool {
+        matches!(
+            self,
+            BlendMode::Multiply | BlendMode::Divide | BlendMode::Screen | BlendMode::Overlay | BlendMode::SoftLight | BlendMode::HardLight
+        )
+    }
 }
 
 impl Default for Mask {
@@ -486,15 +552,23 @@ impl Default for Mask {
             edge_aware: true,
             invert: false,
             opacity: 1.0,
+            blend: BlendMode::Normal,
+            blend_fulcrum: 0.0,
         }
     }
 }
 
 impl Mask {
-    /// Whether the mask selects everything fully (the instance applies as if unmasked).
+    /// Whether the mask selects everything fully with the normal blend (the instance
+    /// applies as if unmasked).
     pub fn is_identity(&self) -> bool {
         !self.enabled
-            || (self.drawn.is_empty() && !self.has_ranges() && !self.invert && self.opacity >= 1.0)
+            || (self.drawn.is_empty() && !self.has_ranges() && !self.invert && self.opacity >= 1.0 && self.blend == BlendMode::Normal)
+    }
+
+    /// The same mask with the normal blend: what selects where it applies, without how.
+    pub fn selection(&self) -> Self {
+        Self { blend: BlendMode::Normal, blend_fulcrum: 0.0, ..self.clone() }
     }
 
     pub fn has_ranges(&self) -> bool {
@@ -1440,7 +1514,7 @@ mod tests {
                 {"kind":"lut","params":{"lut":{"id":"a"}}},
                 {"kind":"lut","params":{}},
                 {"kind":"lut","enabled":false,"params":{"lut":{"id":"c","name":"Off"}}},
-                {"kind":"lut","params":{"lut":{"id":"b","name":"Vivid again"}},"mask":{"opacity":0.5}},
+                {"kind":"lut","params":{"lut":{"id":"b","name":"Vivid again"}},"mask":{"opacity":0.5,"blend":"softLight"}},
                 {"kind":"filmic"}]}"#,
         )
         .unwrap();
@@ -1450,8 +1524,10 @@ mod tests {
         assert_eq!(p.all::<Lut>().nth(1).unwrap().lut, Some(LutRef { id: "a".into(), name: String::new() }));
         assert_eq!(p.all::<Lut>().nth(2).unwrap().lut, None);
         assert_eq!(p.lut_ids(), ["b", "a"]);
-        // Not maskable (yet).
-        assert!(p.modules.iter().all(|m| m.mask.is_none()));
+        // Maskable, with a blend mode; filmic isn't.
+        let masked = p.modules.last().unwrap().mask.as_ref().unwrap();
+        assert_eq!((masked.opacity, masked.blend, masked.blend_fulcrum), (0.5, BlendMode::SoftLight, 0.0));
+        assert_eq!(p.modules.iter().filter(|m| m.mask.is_some()).count(), 1);
 
         let json = serde_json::to_value(&p).unwrap();
         assert_eq!(json["modules"][3]["params"], serde_json::json!({ "lut": null, "interpolation": "tetrahedral" }));

@@ -1,5 +1,6 @@
 //! Image operations ("modules", in darktable parlance), applied in pipeline order.
 
+pub mod blend;
 pub mod calibration;
 pub mod clipping;
 pub mod clut;

@@ -220,6 +220,7 @@ const samples: unknown[] = [
       { kind: 'color', params: { saturation: 0.5 }, mask: { hue: [340, 350, 10, 20], invert: true, opacity: 0.4 } },
       { kind: 'sharpen', mask: { drawn: [{ shape: 'b', op: 'intersection' }], edgeAware: false } },
       { kind: 'colorPrimaries', mask: {} },
+      { kind: 'toneCurve', mask: { blend: 'softLight', blendFulcrum: 1.5, opacity: 0.6 } },
       { kind: 'colorCalibration', mask: { red: [-1, 0, 2, 3], blue: [-9, -8, -2, -1] } },
       { kind: 'shadowsHighlights', mask: { enabled: false, luminance: [-6, -5, -2, -1], feather: 20 } },
       { kind: 'filmic', mask: { drawn: [{ shape: 'c' }] } },
@@ -237,7 +238,7 @@ const samples: unknown[] = [
     modules: [
       { kind: 'lut', params: { lut: { id: 'abc', name: 'Vivid' }, interpolation: 'pyramid' } },
       { kind: 'filmic' },
-      { kind: 'lut', params: { lut: { id: 'def' } }, mask: { opacity: 0.5 } },
+      { kind: 'lut', params: { lut: { id: 'def' } }, mask: { opacity: 0.5, blend: 'multiply' } },
       { kind: 'lut', params: { lut: null } },
       { kind: 'lut', enabled: false },
     ],
@@ -571,6 +572,8 @@ test('invalid masks get their defaults', () => {
       luminance: [1, 2, 3],
       green: [1, 2],
       opacity: 'x',
+      blend: 'xor',
+      blendFulcrum: null,
     }),
     {
       ...defaultMask,

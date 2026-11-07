@@ -317,7 +317,10 @@ export const MODULE_KINDS = [
 /** Kinds whose extra instances are dropped on load. */
 export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry', 'filmic'];
 
-/** Kinds whose instances can have a mask: the spatial and point modules before filmic. Mirrors `ModuleKind::maskable`. */
+/**
+ * Kinds whose instances can have a mask: the spatial and point modules before filmic, and
+ * the creative LUTs after it. Mirrors `ModuleKind::maskable`.
+ */
 export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'blur',
   'sharpen',
@@ -328,6 +331,53 @@ export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'shadowsHighlights',
   'colorPrimaries',
   'toneCurve',
+  'lut',
+];
+
+/**
+ * Whether a kind blends display-referred (after filmic, on encoded sRGB: no fulcrum)
+ * rather than scene-referred. Mirrors `ModuleKind::display_referred`.
+ */
+export function isDisplayReferred(kind: ModuleKind): boolean {
+  return MODULE_KINDS.indexOf(kind) > MODULE_KINDS.indexOf('filmic');
+}
+
+/**
+ * How a module's output `b` combines with its input `a` (roadmap 4.11), before the mask
+ * mixes the result with `a`. Mirrors `params::BlendMode`; see `ops/blend.rs`.
+ */
+export const BLEND_MODES = [
+  'normal',
+  'lighten',
+  'darken',
+  'multiply',
+  'divide',
+  'addition',
+  'subtraction',
+  'difference',
+  'average',
+  'geometricMean',
+  'harmonicMean',
+  'screen',
+  'overlay',
+  'softLight',
+  'hardLight',
+  'chroma',
+  'luminance',
+  'red',
+  'green',
+  'blue',
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
+
+/** Blend modes that read the fulcrum (scene-referred only). Mirrors `BlendMode::uses_fulcrum`. */
+export const FULCRUM_BLEND_MODES: readonly BlendMode[] = [
+  'multiply',
+  'divide',
+  'screen',
+  'overlay',
+  'softLight',
+  'hardLight',
 ];
 
 export const SHAPE_OPS = ['union', 'intersection', 'difference', 'exclusion'] as const;
@@ -380,6 +430,13 @@ export interface Mask {
   invert: boolean;
   /** 0 … 1. */
   opacity: number;
+  /** How the instance's output combines with its input where the mask applies. */
+  blend: BlendMode;
+  /**
+   * The value multiply, divide, screen, overlay, soft and hard light leave unchanged, in
+   * EV relative to middle grey (scene-referred kinds only).
+   */
+  blendFulcrum: number;
 }
 
 export const defaultMask: Readonly<Mask> = Object.freeze<Mask>({
@@ -395,6 +452,8 @@ export const defaultMask: Readonly<Mask> = Object.freeze<Mask>({
   edgeAware: true,
   invert: false,
   opacity: 1,
+  blend: 'normal',
+  blendFulcrum: 0,
 });
 
 export type ModuleInstance<K extends ModuleKind = ModuleKind> = {
@@ -636,6 +695,8 @@ export function maskParams(input: unknown): Mask {
     edgeAware: typeof p.edgeAware === 'boolean' ? p.edgeAware : defaultMask.edgeAware,
     invert: typeof p.invert === 'boolean' ? p.invert : defaultMask.invert,
     opacity: num(p.opacity, defaultMask.opacity),
+    blend: BLEND_MODES.includes(p.blend as BlendMode) ? (p.blend as BlendMode) : defaultMask.blend,
+    blendFulcrum: num(p.blendFulcrum, defaultMask.blendFulcrum),
   };
 }
 

@@ -259,6 +259,10 @@ export function maskIsActive(mask: Mask | undefined): boolean {
   return (
     !!mask &&
     mask.enabled &&
-    (mask.drawn.length > 0 || RANGE_KEYS.some((k) => mask[k]) || mask.invert || mask.opacity < 1)
+    (mask.drawn.length > 0 ||
+      RANGE_KEYS.some((k) => mask[k]) ||
+      mask.invert ||
+      mask.opacity < 1 ||
+      mask.blend !== 'normal')
   );
 }

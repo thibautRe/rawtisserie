@@ -29,7 +29,10 @@ See README.md for the architecture overview and commands.
   spatial image (`Developer::spatial`, wasm `spatialMaskIds`/`spatialMaskRows`). Other
   ranges, invert and opacity are per pixel (`MaskStage`, in the point pass). A masked
   step leaves the fixed chain for `Chain::Steps`; keep both fast (`examples/bench.rs`
-  has mask cases).
+  has mask cases). A mask also carries the blend mode (`ops/blend.rs`): scene-referred
+  before filmic (fulcrum = the neutral value), on encoded sRGB for LUTs. LUT masks are
+  measured on filmic's input, and only uniform LUTs (no shapes, no ranges) may be baked
+  into filmic's table (`point::bakeable`).
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter

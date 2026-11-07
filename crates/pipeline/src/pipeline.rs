@@ -11,6 +11,7 @@ use crate::ops::clut::ClutStore;
 use crate::ops::point::{self, FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::calibration::{self, Detection};
 use crate::ops::clipping::{self, MaskPart, MaskView, Overlays};
+use crate::ops::blend::Blend;
 use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
@@ -315,7 +316,7 @@ impl PointOpsCache {
     /// The point operations for a render at this quality.
     pub fn render_ops(&mut self, params: &EditParams, as_shot: Option<[f32; 2]>, quality: Quality) -> PointOps {
         let looks = point::looks_of(params, &self.luts);
-        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, &looks, quality));
+        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, point::bakeable(&looks), quality));
         self.ops(params, as_shot, filmic)
     }
 
@@ -360,7 +361,9 @@ impl PointOpsCache {
     /// change (e.g. while one of its sliders is dragged), then baked into a 3D lookup
     /// table, with the creative LUTs after it, once the same parameters are rendered
     /// again (other sliders, full-size render after a draft…). Choosing other LUTs
-    /// isn't a drag: the table is rebuilt at once.
+    /// isn't a drag: the table is rebuilt at once. `looks`: the LUTs it can hold
+    /// ([`point::bakeable`]); dragging a LUT's opacity rebuilds it on every frame, at
+    /// the cost of a filmic drag.
     fn filmic_stage(&mut self, p: &Filmic, looks: &[point::Look], quality: Quality) -> Rc<FilmicStage> {
         if quality == Quality::Final {
             return Rc::new(FilmicStage::new(p, None));
@@ -736,9 +739,9 @@ impl Developer {
                             let drawn = |k: usize| if stage.drawn { plane.map_or(0.0, |q| q[k]) } else { 1.0 };
                             before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn(k))).collect::<Vec<f32>>()
                         };
-                        for ((px, input), a) in img.pixels.iter_mut().zip(&before.pixels).zip(&values) {
-                            *px = mask::blend(*input, *px, *a);
-                        }
+                        let mut out = before.pixels;
+                        Blend::scene(&m.mask).mix_all(&mut out, &img.pixels, &values);
+                        img.pixels = out;
                         step_masks.push(MaskPlane { id: m.id.clone(), alpha: values }.crop(p.width, inner));
                     }
                 }
@@ -1042,6 +1045,8 @@ fn clip_region(region: Option<Region>, width: usize, height: usize) -> Region {
 /// What the masks of the point modules feathered whole depend on, or `None` without any.
 fn point_masks_key(params: &EditParams, plan: &Plan, geometry: GeometryKey) -> Option<PointMasksKey> {
     let is_point = |m: &ModuleInstance| m.enabled && m.module.kind() >= ModuleKind::Exposure;
+    // What a mask is measured on: a LUT's, on filmic's input.
+    let is_before_filmic = |m: &ModuleInstance| is_point(m) && m.module.kind() < ModuleKind::Filmic;
     let masks: Vec<_> = params
         .modules
         .iter()
@@ -1049,9 +1054,9 @@ fn point_masks_key(params: &EditParams, plan: &Plan, geometry: GeometryKey) -> O
         .filter(|(_, m)| is_point(m))
         .filter_map(|(i, m)| {
             let mask = mask::active(m).filter(|mask| mask.feathers_whole())?;
-            // Invert and opacity apply afterwards, per pixel.
-            let mask = params::Mask { invert: false, opacity: 1.0, ..mask.clone() };
-            Some((m.id.clone(), params.modules[..i].iter().filter(|b| is_point(b)).cloned().collect(), mask))
+            // Invert, opacity and the blend apply afterwards, per pixel.
+            let mask = params::Mask { invert: false, opacity: 1.0, ..mask.selection() };
+            Some((m.id.clone(), params.modules[..i].iter().filter(|b| is_before_filmic(b)).cloned().collect(), mask))
         })
         .collect();
     (!masks.is_empty()).then(|| PointMasksKey { geometry, steps: plan.steps.clone(), drawn: plan.drawn.clone(), masks })

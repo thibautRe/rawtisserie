@@ -1,5 +1,6 @@
 //! Masks (roadmap 4.5): where a module instance applies, 0 … 1 per pixel. The
-//! instance's output is blended with its input by that amount.
+//! instance's output is blended with its input by that amount, in the mask's blend
+//! mode (`crate::ops::blend`).
 //!
 //! A mask ([`params::Mask`]) has two parts, multiplied together, then feathered:
 //!
@@ -23,6 +24,9 @@
 //!   those modules, so editing them (or the ranges) re-renders like a spatial edit.
 //!
 //! Then the mask is inverted if asked, and scaled by its opacity, per pixel.
+//!
+//! A creative LUT's mask (after filmic) is measured on filmic's input, scene-referred,
+//! so that its ranges mean what they do for the other modules.
 //!
 //! Deviation from Ansel's masks: saturation and hue are measured in CIE 1976 u′v′
 //! (exposure-invariant and cheap) rather than JzAzBz.
@@ -527,12 +531,6 @@ fn atan2_degrees(y: f32, x: f32) -> f32 {
     }
     let deg = a.to_degrees();
     if deg < 0.0 { deg + 360.0 } else { deg }
-}
-
-/// Blend `out` (a module's output) with `input` by mask value `m`.
-#[inline]
-pub fn blend(input: Rgb, out: Rgb, m: f32) -> Rgb {
-    [input[0] + (out[0] - input[0]) * m, input[1] + (out[1] - input[1]) * m, input[2] + (out[2] - input[2]) * m]
 }
 
 #[cfg(test)]

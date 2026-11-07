@@ -276,10 +276,10 @@ const MaskButton = memo(
       aria-label={state === 'none' ? `Add a mask to ${title}` : `${title} mask`}
       title={
         state === 'none'
-          ? 'Add a mask: apply the module only to parts of the image'
+          ? 'Add a mask: apply the module only to parts of the image, or blend it with its input (opacity, blend mode)'
           : open
-            ? 'Hide the mask settings'
-            : 'Show the mask settings'
+            ? 'Hide the mask and blending settings'
+            : 'Show the mask and blending settings'
       }
       size="2xs"
       variant={state === 'on' ? 'solid' : state === 'off' ? 'subtle' : 'ghost'}
