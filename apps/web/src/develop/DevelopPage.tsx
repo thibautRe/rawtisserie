@@ -13,11 +13,13 @@ import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
 import type { HistoryOp, HistorySnapshot } from './history.ts';
 import { VersionMenu } from './VersionMenu.tsx';
 import { LocalRenderBackend } from './localRenderBackend.ts';
+import { lutTable } from './luts.ts';
 
 function useLocalBackend() {
   const [backend, setBackend] = useState<LocalRenderBackend | null>(null);
   useEffect(() => {
     const b = new LocalRenderBackend();
+    b.setLutSource(lutTable);
     setBackend(b);
     return () => b.dispose();
   }, []);

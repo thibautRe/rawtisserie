@@ -456,20 +456,40 @@ export function CreateStyleDialog({
   );
 }
 
-/** The toolbar's styles menu: apply one (replacing or appending), create, delete. Memoised. */
+/**
+ * The toolbar's styles menu: apply one (replacing or appending), create, delete. The
+ * highlighted style is previewed (applied, or appended while "Append" is highlighted)
+ * until the menu closes. Memoised.
+ */
 export const StyleMenu = memo(function StyleMenu({
   styles,
   onApply,
+  onPreview,
+  onEndPreview,
   onCreate,
   onDelete,
 }: {
   styles: readonly Style[];
   onApply: (style: Style, mode: StyleMode) => void;
+  /** Show the image with this style (or without any, null) for now. */
+  onPreview: (style: Style | null, mode: StyleMode) => void;
+  /** Go back to the recipe from before the previews. */
+  onEndPreview: () => void;
   onCreate: () => void;
   onDelete: (style: Style) => void;
 }) {
+  const triggerId = (s: Style) => `style-menu:${s.id}`;
   return (
-    <Menu.Root lazyMount unmountOnExit onSelect={({ value }) => value === 'create' && onCreate()}>
+    <Menu.Root
+      lazyMount
+      unmountOnExit
+      // A style's item (it opens its submenu) previews it applied; its submenu's items, as they say.
+      onHighlightChange={({ highlightedValue: value }) =>
+        onPreview(styles.find((s) => value === triggerId(s)) ?? null, 'replace')
+      }
+      onOpenChange={({ open }) => !open && onEndPreview()}
+      onSelect={({ value }) => value === 'create' && onCreate()}
+    >
       <Menu.Trigger asChild>
         <Button size="sm" variant="ghost" title="Styles: sets of modules to apply to other photos">
           <Palette /> Styles <ChevronDown />
@@ -481,7 +501,11 @@ export const StyleMenu = memo(function StyleMenu({
             {styles.map((s) => (
               <Menu.Root
                 key={s.id}
+                ids={{ trigger: triggerId(s) }}
                 positioning={{ placement: 'left-start', gutter: 2 }}
+                onHighlightChange={({ highlightedValue: value }) =>
+                  (value === 'replace' || value === 'append') && onPreview(s, value)
+                }
                 onSelect={({ value }) => {
                   if (value === 'delete') onDelete(s);
                   else onApply(s, value as StyleMode);

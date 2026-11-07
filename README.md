@@ -14,8 +14,9 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   new imports), exposure, colour calibration (white balance by chromatic adaptation and
   channel mixing), saturation and vibrance, shadows/highlights, colour primaries and a
   contrast equalizer (ports of Ansel's), filmic tone mapping (a port of Ansel's filmic
-  rgb with its AgX colour science), creative 3D LUTs (`.cube` and Hald CLUT PNGs, after
-  filmic), sharpening, blur,
+  rgb with its AgX colour science), creative 3D LUTs (after filmic: a few built-in film
+  looks, or your own `.cube` and Hald CLUT PNG files, previewed as you hover them),
+  sharpening, blur,
   rotation/flip, straightening, perspective correction (fitted to detected or drawn
   guide lines) and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and

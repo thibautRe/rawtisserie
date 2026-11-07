@@ -27,6 +27,8 @@ import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
 import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
+import { type LutChoice, useLutLibrary, useMissingLuts } from './luts.ts';
+import { useRecipePreview } from './preview.ts';
 import { GuideOverlay } from './GuideOverlay.tsx';
 import type { GuideLine, IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView } from './protocol.ts';
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
@@ -741,19 +743,65 @@ export function DeveloperView({
     }
   };
 
+  // ── LUTs ──
+  const luts = useLutLibrary();
+  const missingLuts = useMissingLuts();
+  const onAddLut = useStableCallback(async (file: File): Promise<LutChoice | null> => {
+    try {
+      const parsed = await backend.parseLut(await file.arrayBuffer());
+      const lut = await luts.add(parsed, file.name.replace(/\.[^.]+$/, ''));
+      toaster.create({ type: 'success', title: `Added LUT “${lut.name}”` });
+      return lut;
+    } catch (err) {
+      toaster.create({
+        type: 'error',
+        title: `Could not add ${file.name}`,
+        description: err instanceof Error ? err.message : undefined,
+      });
+      return null;
+    }
+  });
+  const onRemoveLut = useStableCallback((lut: LutChoice) =>
+    luts.remove(lut).then(
+      () => toaster.create({ type: 'info', title: `Removed LUT “${lut.name}”` }),
+      (err: unknown) =>
+        toaster.create({
+          type: 'error',
+          title: 'Could not remove the LUT',
+          description: err instanceof Error ? err.message : undefined,
+        }),
+    ),
+  );
+
   // ── Presets and styles ──
   const presets = usePresetLibrary();
   const [creatingStyle, setCreatingStyle] = useState(false);
+  // The highlighted style is shown on the image, like module presets.
+  const stylePreview = useRecipePreview(
+    () => store.getState().live,
+    (p) => store.setLive(p),
+  );
+  const onPreviewStyle = useStableCallback((style: Style | null, mode: StyleMode) =>
+    stylePreview.preview(style && ((p) => applyStyle(p, style.payload, mode))),
+  );
   const onApplyStyle = useStableCallback((style: Style, mode: StyleMode) => {
     setCropDraft(null);
     setGuides(null);
-    commit(applyStyle(params, style.payload, mode), `Style: ${style.name}${mode === 'append' ? ' (appended)' : ''}`);
+    const before = stylePreview.end();
+    commit(applyStyle(before, style.payload, mode), `Style: ${style.name}${mode === 'append' ? ' (appended)' : ''}`);
   });
   const onCreateStyle = useStableCallback(() => setCreatingStyle(true));
   const stylesNode = useMemo(
     () =>
       presets.save && (
-        <StyleMenu styles={presets.styles} onApply={onApplyStyle} onCreate={onCreateStyle} onDelete={presets.remove} />
+        <StyleMenu
+          styles={presets.styles}
+          onApply={onApplyStyle}
+          onPreview={onPreviewStyle}
+          onEndPreview={stylePreview.end}
+          onCreate={onCreateStyle}
+          onDelete={presets.remove}
+        />
       ),
     [presets.styles, !!presets.save], // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -1069,6 +1117,10 @@ export function DeveloperView({
           presets={presets.modulePresets}
           onSavePreset={presets.save}
           onDeletePreset={presets.remove}
+          luts={luts}
+          missingLuts={missingLuts}
+          onAddLut={onAddLut}
+          onRemoveLut={onRemoveLut}
           cropping={!!cropDraft}
           aspect={aspect}
           onAspectChange={onAspectChange}

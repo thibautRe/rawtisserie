@@ -73,6 +73,18 @@ export class PointPool {
     return { width, height, data };
   }
 
+  /** Load a LUT's packed table into every worker (each gets a copy). */
+  loadLut(lutId: string, bytes: Uint8Array) {
+    this.workers.forEach((_, i) => {
+      const copy = bytes.slice().buffer;
+      this.post(i, { type: 'lut', lutId, bytes: copy }, [copy]);
+    });
+  }
+
+  unloadLut(lutId: string) {
+    this.workers.forEach((_, i) => this.post(i, { type: 'unloadLut', lutId }));
+  }
+
   dispose() {
     for (const w of this.workers) w.terminate();
     this.fail(new Error('Point pool disposed'));

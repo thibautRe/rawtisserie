@@ -5,8 +5,8 @@
  * When only the point operations need to run (colour edits), they are split across
  * a pool of workers, at full size even while dragging.
  */
-import type { EditParams, SensorMapping } from '@rawtisserie/pipeline';
-import init, { Developer } from '@rawtisserie/pipeline/wasm';
+import { type EditParams, type SensorMapping, lutIds } from '@rawtisserie/pipeline';
+import init, { Developer, parseLut } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import { PointPool } from './pointPool.ts';
 import type {
@@ -37,6 +37,35 @@ const toBitmap = (data: Uint8Array, width: number, height: number) =>
 /** A region as the wasm module takes it. */
 const regionArg = (r: Region | null) => (r ? new Uint32Array([r.x, r.y, r.width, r.height]) : undefined);
 
+/** The LUTs the page sent, packed, by id. */
+const lutBytes = new Map<string, Uint8Array>();
+/**
+ * The LUTs loaded into the developer and the pool, least recently used first. A
+ * 144³ table takes 9 MB in each of them, so those that recent recipes don't use go
+ * (hovering the LUT menu goes through many).
+ */
+let loadedLuts: string[] = [];
+/** How many LUTs that the recipe doesn't use stay loaded. */
+const SPARE_LUTS = 2;
+
+/** Load the LUTs `params` uses (those the page sent), and unload the oldest others. */
+function prepareLuts(dev: Developer, params: EditParams) {
+  const needed = lutIds(params).filter((id) => lutBytes.has(id));
+  for (const id of needed) {
+    if (!loadedLuts.includes(id)) {
+      dev.loadLut(lutBytes.get(id)!);
+      pool?.loadLut(id, lutBytes.get(id)!);
+    }
+    loadedLuts = [...loadedLuts.filter((x) => x !== id), id];
+  }
+  while (loadedLuts.length > needed.length + SPARE_LUTS) {
+    const id = loadedLuts.find((x) => !needed.includes(x))!;
+    dev.unloadLut(id);
+    pool?.unloadLut(id);
+    loadedLuts = loadedLuts.filter((x) => x !== id);
+  }
+}
+
 /** The last sensor mapping, by the lens and geometry instances it comes from. */
 let mapping: { key: string; value: SensorMapping } | null = null;
 function sensorMapping(dev: Developer, params: EditParams, json: string): SensorMapping {
@@ -56,9 +85,25 @@ async function handle(msg: WorkerRequest) {
   const started = performance.now();
   try {
     await ready;
+    if (msg.type === 'lut') {
+      lutBytes.set(msg.lutId, new Uint8Array(msg.bytes));
+      post({ type: 'lutLoaded', id: msg.id });
+      return;
+    }
+    if (msg.type === 'parseLut') {
+      const parsed = parseLut(new Uint8Array(msg.bytes));
+      const packed = parsed.takePacked().buffer as ArrayBuffer;
+      const { id: lutId, size, bitDepth } = parsed;
+      parsed.free();
+      post({ type: 'parsedLut', id: msg.id, lutId, size, bitDepth, packed }, [packed]);
+      return;
+    }
     if (msg.type === 'load') {
       developer?.free();
       developer = null;
+      // The new developer has none: the pool's go too, and come back as recipes use them.
+      for (const id of loadedLuts) pool?.unloadLut(id);
+      loadedLuts = [];
       developer = new Developer(new Uint8Array(msg.bytes));
       mapping = null;
       pool?.invalidate();
@@ -66,6 +111,7 @@ async function handle(msg: WorkerRequest) {
       return;
     }
     if (!developer) throw new Error('No RAW file loaded');
+    if (msg.type !== 'fitPerspective') prepareLuts(developer, msg.params);
     const params = JSON.stringify(msg.params);
     if (msg.type === 'render') {
       const isDraft = msg.fullWidth !== msg.maxWidth || msg.fullHeight !== msg.maxHeight;

@@ -81,6 +81,8 @@ import {
   removeInstance,
   resetInstance,
   updateInstance,
+  LUT_INTERPOLATIONS,
+  type LutInterpolation,
   SPOT_MODES,
   type ShapeType,
   type SpotMode,
@@ -122,6 +124,9 @@ import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import { type ShapeUi, hexToRec2020, isEditing, rec2020ToHex } from './retouch.ts';
 import { MaskEditor } from './MaskEditor.tsx';
+import { LutMenu } from './LutMenu.tsx';
+import { useRecipePreview } from './preview.ts';
+import type { LutChoice, LutLibrary } from './luts.ts';
 import type { RangeKey } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
 import type { IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView } from './protocol.ts';
@@ -178,6 +183,12 @@ interface Props {
   /** Retouch tools and selection, shared with the overlay on the image. */
   shapeUi: ShapeUi;
   onShapeUi: (patch: Partial<ShapeUi>) => void;
+  /** Built-in and user LUTs (`useLutLibrary`), and those whose table couldn't be had. */
+  luts: LutLibrary;
+  missingLuts: ReadonlySet<string>;
+  /** Decode and store a LUT file as the user's; null if it failed (and was reported). */
+  onAddLut: (file: File) => Promise<LutChoice | null>;
+  onRemoveLut: (lut: LutChoice) => void;
 }
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
@@ -734,9 +745,6 @@ function flipRatioText(text: string): string {
   return r ? `1:${text.trim()}` : text;
 }
 
-/** How long a preset preview stays after its menu item loses the highlight, ms. */
-const PREVIEW_REVERT_MS = 150;
-
 const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
 /** Scroll a spot's row into view within its list (but not the panel). */
@@ -756,6 +764,12 @@ const SHAPE_LABELS: Record<ShapeType, string> = {
   brush: 'brush',
 };
 
+const INTERPOLATION_LABELS: Record<LutInterpolation, string> = {
+  tetrahedral: 'Tetrahedral',
+  trilinear: 'Trilinear',
+  pyramid: 'Pyramid',
+};
+
 const BLEACH_LABELS: Record<Bleach, string> = {
   none: 'None',
   low: 'Low',
@@ -772,6 +786,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, shapeUi } = props;
   const { guides, fittingPerspective } = props;
   const { toneInputs, fittingTone, toneView } = props;
+  const { luts, missingLuts } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -805,33 +820,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const onSavePresetClose = useStableCallback(() => setSavingPreset(null));
   const onSavePreset = useStableCallback((input: PresetInput) => latest.current.onSavePreset?.(input));
 
-  // While a preset menu item is highlighted, its preset is shown as a live change on top
-  // of this recipe, which comes back when the menu closes.
-  const previewBase = useRef<EditParams | null>(null);
-  // Going from one item to the next un-highlights the first before highlighting the
-  // next (and gaps or group labels can be in between): the recipe only comes back if
-  // nothing else is highlighted for a moment, so previews follow each other directly.
-  const revertTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(revertTimer.current), []);
-  const preview = (change: ((p: EditParams) => EditParams) | null) => {
-    clearTimeout(revertTimer.current);
-    if (!change) {
-      revertTimer.current = setTimeout(() => {
-        if (previewBase.current) latest.current.onChange(previewBase.current);
-      }, PREVIEW_REVERT_MS);
-      return;
-    }
-    const base = (previewBase.current ??= latest.current.params);
-    latest.current.onChange(change(base));
-  };
-  /** Ends a preview and returns the recipe from before it. */
-  const endPreview = () => {
-    clearTimeout(revertTimer.current);
-    const base = previewBase.current;
-    previewBase.current = null;
-    if (base) latest.current.onChange(base);
-    return base ?? latest.current.params;
-  };
+  // While a preset or LUT menu item is highlighted, it's shown on the image.
+  const { preview, end: endPreview } = useRecipePreview(
+    () => latest.current.params,
+    (p) => latest.current.onChange(p),
+  );
 
   /** Lets the content of one instance read and edit it. Without an instance, this is its future one. */
   function editor<K extends ModuleKind>(kind: K, m: ModuleInstance<K> | undefined, position: number) {
@@ -2049,6 +2042,75 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           </IconButton>
         ),
       )}
+
+      {sections('lut', [luts, missingLuts], (e) => {
+        const current = e.values.lut;
+        const known = current && [...luts.builtIn, ...luts.own].find((l) => l.id === current.id);
+        const instance = params.modules.find((m) => m.id === e.id);
+        const title = instance ? instanceTitle(params, instance) : MODULE_TITLES.lut;
+        /** The recipe with this instance using `lut`. */
+        const withLut = (p: EditParams, lut: LutChoice | null) =>
+          updateInstance(p, 'lut', e.id, {
+            enabled: true,
+            params: { lut: lut && { id: lut.id, name: lut.name } },
+          });
+        return (
+          <Stack gap="2" py="1">
+            <SelectRow label="LUT">
+              {(id) => (
+                <LutMenu
+                  triggerId={id}
+                  title={title}
+                  current={current}
+                  builtIn={luts.builtIn}
+                  own={luts.own}
+                  local={luts.local}
+                  onPick={(lut) =>
+                    latest.current.onCommit(withLut(endPreview(), lut), `${title}: ${lut ? lut.name : 'none'}`)
+                  }
+                  onPreview={(lut) => preview(lut === undefined ? null : (p) => withLut(p, lut))}
+                  onEndPreview={endPreview}
+                  onAdd={(file) =>
+                    void latest.current.onAddLut(file).then((lut) => {
+                      if (lut) commit((p) => withLut(p, lut), `${title}: ${lut.name}`);
+                    })
+                  }
+                  onRemove={(lut) => latest.current.onRemoveLut(lut)}
+                />
+              )}
+            </SelectRow>
+            <SelectRow label="Interp.">
+              {(id) => (
+                <NativeSelect.Root size="xs" flex="1" title="How colours between the LUT’s nodes are computed">
+                  <NativeSelect.Field
+                    id={id}
+                    value={e.values.interpolation}
+                    onChange={(ev) => e.set({ interpolation: ev.target.value as LutInterpolation })}
+                  >
+                    {LUT_INTERPOLATIONS.map((i) => (
+                      <option key={i} value={i}>
+                        {INTERPOLATION_LABELS[i]}
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
+            </SelectRow>
+            {current && missingLuts.has(current.id) && (
+              <Text textStyle="xs" color="fg.warning">
+                “{current.name || 'This LUT'}” isn’t available{luts.local ? ' in this browser' : ''}: add its file again
+                to use it.
+              </Text>
+            )}
+            {known?.credit && (
+              <Text textStyle="2xs" color="fg.subtle">
+                {known.credit}
+              </Text>
+            )}
+          </Stack>
+        );
+      })}
 
       {sections('sharpen', [], (e) => (
         <>

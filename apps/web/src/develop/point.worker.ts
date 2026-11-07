@@ -12,6 +12,8 @@ declare const self: DedicatedWorkerGlobalScope;
 
 const ready = init({ module_or_path: wasmUrl });
 let renderer: PointRenderer | null = null;
+/** The LUTs loaded, packed: for the renderer, once there is one. */
+const luts = new Map<string, Uint8Array>();
 
 const post = (msg: PointResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 
@@ -20,16 +22,31 @@ self.onmessage = async (event: MessageEvent<PointRequest>) => {
   try {
     await ready;
     if (msg.type === 'strip') {
-      renderer?.free();
-      renderer = null;
-      renderer = new PointRenderer(
+      const args = [
         msg.width,
         msg.height,
         new Float32Array(msg.pixels),
         new Float32Array(msg.asShot),
         msg.maskIds,
         new Float32Array(msg.masks),
-      );
+      ] as const;
+      // The renderer stays, with its LUTs and compiled stages; only its pixels change.
+      if (renderer) renderer.setStrip(...args);
+      else {
+        renderer = new PointRenderer(...args);
+        for (const bytes of luts.values()) renderer.loadLut(bytes);
+      }
+      return;
+    }
+    if (msg.type === 'lut') {
+      const bytes = new Uint8Array(msg.bytes);
+      luts.set(msg.lutId, bytes);
+      renderer?.loadLut(bytes);
+      return;
+    }
+    if (msg.type === 'unloadLut') {
+      luts.delete(msg.lutId);
+      renderer?.unloadLut(msg.lutId);
       return;
     }
     if (!renderer) throw new Error('No strip loaded');

@@ -835,10 +835,14 @@ new UI control.
 > not memory-bound: a 2³ LUT costs the same). Server: `luts`/`user_luts` (migration
 > 00007), `/api/luts` (list, upload of the packed form, rename, hide) and
 > `/api/luts/:lutId/data` (public for built-ins), renders load the recipe's LUTs the
-> owner may use. Five built-ins in `packages/pipeline/luts/`. To do: the module's UI and
-> picker, loading LUTs in the web developer (pipeline worker, pool workers, exports),
-> local LUTs in the public developer. No storage quota exists yet; when it does, count
-> each user's LUTs at full size.
+> owner may use. Five built-ins in `packages/pipeline/luts/`. Web: the LUT section's
+> picker previews the highlighted LUT (`useRecipePreview`, shared with module presets
+> and now styles), adds files (decoded in the pipeline worker, uploaded packed, or kept
+> in IndexedDB without an account) and removes them; the backend sends each table once
+> and the pipeline worker keeps the LUTs of recent recipes loaded (in its pool too).
+> Left: renaming LUTs, previews of each LUT as thumbnails, local LUTs uploaded on "Add
+> to library", masks/opacity (with the blend feature). No storage quota exists yet;
+> when it does, count each user's LUTs at full size.
 
 Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
 choice of interpolation (tetrahedral, trilinear, pyramid).

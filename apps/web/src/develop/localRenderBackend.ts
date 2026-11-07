@@ -4,11 +4,13 @@ import {
   type ExportMetadata,
   type ExportOptions,
   type PhotoMetadata,
+  lutIds,
 } from '@rawtisserie/pipeline';
 import type {
   GuideLine,
   IlluminantDetection,
   Overlays,
+  ParsedLut,
   PerspectiveCorrection,
   PerspectiveFit,
   Region,
@@ -16,7 +18,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from './protocol.ts';
-import type { Frame, RenderBackend } from './renderBackend.ts';
+import type { Frame, LutSource, RenderBackend } from './renderBackend.ts';
 import type { ScopeRequest } from './scopes.ts';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
@@ -27,6 +29,9 @@ export class LocalRenderBackend implements RenderBackend {
   private worker = new Worker(new URL('./pipeline.worker.ts', import.meta.url), { type: 'module' });
   private pending = new Map<number, Pending>();
   private nextId = 1;
+  private lutSource: LutSource | null = null;
+  /** The LUTs sent to the worker, or being fetched for it, by id. */
+  private luts = new Map<string, Promise<void>>();
 
   constructor() {
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
@@ -50,6 +55,40 @@ export class LocalRenderBackend implements RenderBackend {
     });
   }
 
+  setLutSource(source: LutSource) {
+    this.lutSource = source;
+  }
+
+  async parseLut(bytes: ArrayBuffer): Promise<ParsedLut> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'parsedLut' }>>({ type: 'parseLut', bytes }, [bytes]);
+    return { lutId: r.lutId, size: r.size, bitDepth: r.bitDepth, packed: r.packed };
+  }
+
+  /**
+   * Send the worker the LUTs `params` uses that it doesn't have yet. One that can't be
+   * had is skipped (and asked for again next time).
+   */
+  private sendLuts(params: EditParams): Promise<unknown> {
+    const source = this.lutSource;
+    if (!source) return Promise.resolve();
+    return Promise.all(
+      lutIds(params).map((lutId) => {
+        let sent = this.luts.get(lutId);
+        if (!sent) {
+          sent = source(lutId).then(async (bytes) => {
+            if (!bytes) throw new Error(`LUT ${lutId} unavailable`);
+            // A copy: the source keeps its own.
+            const copy = bytes.slice(0);
+            await this.call({ type: 'lut', lutId, bytes: copy }, [copy]);
+          });
+          sent.catch(() => this.luts.delete(lutId));
+          this.luts.set(lutId, sent);
+        }
+        return sent.catch(() => {});
+      }),
+    );
+  }
+
   /** Decode a RAW file. The buffer is transferred (and becomes unusable here). */
   async load(bytes: ArrayBuffer): Promise<PhotoMetadata> {
     const r = await this.call<Extract<WorkerResponse, { type: 'loaded' }>>({ type: 'load', bytes }, [bytes]);
@@ -66,6 +105,7 @@ export class LocalRenderBackend implements RenderBackend {
     scope: ScopeRequest | null = null,
   ): Promise<Frame> {
     full ??= { width: maxWidth, height: maxHeight, region };
+    await this.sendLuts(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'rendered' }>>({
       type: 'render',
       params,
@@ -92,6 +132,7 @@ export class LocalRenderBackend implements RenderBackend {
   }
 
   async export(params: EditParams, options: ExportOptions, metadata: ExportMetadata): Promise<Blob> {
+    await this.sendLuts(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({
       type: 'export',
       params,

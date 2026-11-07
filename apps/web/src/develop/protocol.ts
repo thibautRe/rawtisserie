@@ -47,7 +47,22 @@ export type WorkerRequest =
     }
   | { type: 'toneCurveInput'; id: number; params: EditParams; instance: string; maxWidth: number; maxHeight: number }
   | { type: 'detectLines'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
-  | { type: 'fitPerspective'; id: number; params: EditParams; lines: GuideLine[]; mode: PerspectiveFit };
+  | { type: 'fitPerspective'; id: number; params: EditParams; lines: GuideLine[]; mode: PerspectiveFit }
+  /** A LUT's packed table, for the recipes that use it (`lutIds`). */
+  | { type: 'lut'; id: number; lutId: string; bytes: ArrayBuffer }
+  /** Decode a LUT file (`.cube`, Hald CLUT PNG): its id and packed form. */
+  | { type: 'parseLut'; id: number; bytes: ArrayBuffer };
+
+/** A decoded LUT file. */
+export interface ParsedLut {
+  /** SHA-256 of its canonical form: what recipes refer to. */
+  lutId: string;
+  /** Nodes along each axis. */
+  size: number;
+  bitDepth: number;
+  /** What gets uploaded and loaded into the renderers. */
+  packed: ArrayBuffer;
+}
 
 /**
  * A perspective guide: a line that should become vertical or horizontal, endpoints in
@@ -113,6 +128,8 @@ export type WorkerResponse =
   | { type: 'toneCurveInput'; id: number; input: ToneCurveInput | null; ms: number }
   | { type: 'detectedLines'; id: number; lines: GuideLine[]; ms: number }
   | { type: 'fittedPerspective'; id: number; fit: PerspectiveCorrection | null; ms: number }
+  | { type: 'lutLoaded'; id: number }
+  | ({ type: 'parsedLut'; id: number } & ParsedLut)
   | { type: 'error'; id: number; message: string };
 
 /** From the pipeline worker to a worker of its pool (`pointPool.ts`). */
@@ -132,7 +149,10 @@ export type PointRequest =
       masks: ArrayBuffer;
     }
   /** Render the strip; `params` is the recipe as JSON. */
-  | { type: 'render'; id: number; params: string };
+  | { type: 'render'; id: number; params: string }
+  /** Load a LUT's packed table, or unload it. */
+  | { type: 'lut'; lutId: string; bytes: ArrayBuffer }
+  | { type: 'unloadLut'; lutId: string };
 
 export type PointResponse =
   { type: 'rendered'; id: number; data: ArrayBuffer } | { type: 'error'; id: number; message: string };

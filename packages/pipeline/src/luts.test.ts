@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { BUILTIN_LUTS, LUT_ID } from './luts.ts';
+import { BUILTIN_LUTS, LUT_ID, freeLutName } from './luts.ts';
 import { builtinLutUrl, initPipeline, parseLut } from './node.ts';
 
 test('built-in LUT files decode to their ids', () => {
@@ -30,4 +30,10 @@ test('parseLut reads .cube files and rejects junk', () => {
   parsed.free();
   again.free();
   assert.throws(() => parseLut(new TextEncoder().encode('LUT_3D_SIZE 2\n0 0 0\n')), /LUT_3D_SIZE 2 needs 8/);
+});
+
+test('freeLutName numbers names that are taken, ignoring case', () => {
+  assert.equal(freeLutName('Kodak', []), 'Kodak');
+  assert.equal(freeLutName('Kodak', ['kodak']), 'Kodak (2)');
+  assert.equal(freeLutName('Kodak', ['Kodak', 'Kodak (2)']), 'Kodak (3)');
 });

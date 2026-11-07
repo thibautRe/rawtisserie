@@ -143,6 +143,11 @@ impl PointRenderer {
         Self { image, masks, as_shot, cache: PointOpsCache::default() }
     }
 
+    /// Work on another strip, keeping the loaded LUTs and compiled stages.
+    pub fn set_image(&mut self, image: Image, masks: Vec<MaskPlane>, as_shot: Option<[f32; 2]>) {
+        (self.image, self.masks, self.as_shot) = (image, masks, as_shot);
+    }
+
     /// The creative LUTs recipes can use: give it the same ones as the [`Developer`].
     pub fn luts_mut(&mut self) -> &mut ClutStore {
         &mut self.cache.luts

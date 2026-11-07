@@ -76,3 +76,10 @@ export interface UserLut {
 export const LUT_NAME_MAX = 200;
 /** Largest packed LUT the server accepts (a 144³ 16-bit table packs to well under this). */
 export const LUT_MAX_BYTES = 64 * 1024 * 1024;
+
+/** `name`, or `name (2)`, `name (3)`…: the first not in `taken`, ignoring case (names that differ only by case are confusing). */
+export function freeLutName(name: string, taken: Iterable<string>): string {
+  const used = new Set([...taken].map((n) => n.toLowerCase()));
+  if (!used.has(name.toLowerCase())) return name;
+  for (let n = 2; ; n++) if (!used.has(`${name} (${n})`.toLowerCase())) return `${name} (${n})`;
+}

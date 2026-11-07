@@ -3,6 +3,7 @@ import type {
   GuideLine,
   IlluminantDetection,
   Overlays,
+  ParsedLut,
   PerspectiveCorrection,
   PerspectiveFit,
   Placement,
@@ -34,6 +35,8 @@ export interface Frame {
  * pipeline can run locally (wasm worker) or, later, on a render service. Loading the
  * photo is backend-specific and happens before the backend is handed to the developer.
  */
+export type LutSource = (id: string) => Promise<ArrayBuffer | null>;
+
 export interface RenderBackend {
   /**
    * Render within `maxWidth × maxHeight` (only `region` of that if given), as a draft
@@ -78,5 +81,12 @@ export interface RenderBackend {
   detectLines(params: EditParams, maxWidth: number, maxHeight: number): Promise<GuideLine[]>;
   /** The correction that straightens the selected `lines` (`mode`), or null without enough of them. */
   fitPerspective(params: EditParams, lines: GuideLine[], mode: PerspectiveFit): Promise<PerspectiveCorrection | null>;
+  /**
+   * Where the LUTs recipes use come from: their packed tables by id, or null when
+   * unavailable (the LUT is then skipped). Each is asked for once.
+   */
+  setLutSource(source: LutSource): void;
+  /** Decode a LUT file (`.cube`, Hald CLUT PNG). Throws if it isn't one. */
+  parseLut(bytes: ArrayBuffer): Promise<ParsedLut>;
   dispose(): void;
 }

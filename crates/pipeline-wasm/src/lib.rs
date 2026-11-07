@@ -378,22 +378,16 @@ impl PointRenderer {
     /// (`Developer.spatialMaskIds` and `spatialMaskRows`).
     #[wasm_bindgen(constructor)]
     pub fn new(width: u32, height: u32, pixels: &[f32], as_shot: &[f32], mask_ids_json: &str, masks: &[f32]) -> Result<PointRenderer, JsError> {
-        let (width, height) = (width as usize, height as usize);
-        if pixels.len() != width * height * 3 {
-            return Err(JsError::new("pixel count doesn't match the size"));
-        }
-        let ids: Vec<String> = serde_json::from_str(mask_ids_json).map_err(js_err)?;
-        if masks.len() != ids.len() * width * height {
-            return Err(JsError::new("mask size doesn't match the size"));
-        }
-        let masks = ids
-            .into_iter()
-            .zip(masks.chunks_exact((width * height).max(1)))
-            .map(|(id, alpha)| pipeline::ops::mask::MaskPlane { id, alpha: alpha.to_vec() })
-            .collect();
-        let image = pipeline::Image { width, height, pixels: pixels.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect() };
-        let as_shot = <[f32; 2]>::try_from(as_shot).ok();
+        let (image, masks, as_shot) = strip(width, height, pixels, as_shot, mask_ids_json, masks)?;
         Ok(Self { inner: pipeline::pipeline::PointRenderer::with_masks(image, masks, as_shot) })
+    }
+
+    /// Work on another strip (same arguments as the constructor), keeping the loaded LUTs.
+    #[wasm_bindgen(js_name = setStrip)]
+    pub fn set_strip(&mut self, width: u32, height: u32, pixels: &[f32], as_shot: &[f32], mask_ids_json: &str, masks: &[f32]) -> Result<(), JsError> {
+        let (image, masks, as_shot) = strip(width, height, pixels, as_shot, mask_ids_json, masks)?;
+        self.inner.set_image(image, masks, as_shot);
+        Ok(())
     }
 
     /// Make a LUT available to recipes, like `Developer.loadLut`; returns its id.
@@ -413,4 +407,26 @@ impl PointRenderer {
         let img = self.inner.render(&params, Quality::Interactive);
         Ok(RenderedImage { width: img.width as u32, height: img.height as u32, data: img.data })
     }
+}
+
+type Strip = (pipeline::Image, Vec<pipeline::ops::mask::MaskPlane>, Option<[f32; 2]>);
+
+/// A strip from what `PointRenderer`'s constructor takes.
+fn strip(width: u32, height: u32, pixels: &[f32], as_shot: &[f32], mask_ids_json: &str, masks: &[f32]) -> Result<Strip, JsError> {
+    let (width, height) = (width as usize, height as usize);
+    if pixels.len() != width * height * 3 {
+        return Err(JsError::new("pixel count doesn't match the size"));
+    }
+    let ids: Vec<String> = serde_json::from_str(mask_ids_json).map_err(js_err)?;
+    if masks.len() != ids.len() * width * height {
+        return Err(JsError::new("mask size doesn't match the size"));
+    }
+    let masks = ids
+        .into_iter()
+        .zip(masks.chunks_exact((width * height).max(1)))
+        .map(|(id, alpha)| pipeline::ops::mask::MaskPlane { id, alpha: alpha.to_vec() })
+        .collect();
+    let image = pipeline::Image { width, height, pixels: pixels.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect() };
+    let as_shot = <[f32; 2]>::try_from(as_shot).ok();
+    Ok((image, masks, as_shot))
 }
