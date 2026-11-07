@@ -1,7 +1,6 @@
 import {
   Box,
   Button,
-  ButtonGroup,
   Center,
   Circle,
   Field,
@@ -129,22 +128,28 @@ function Culling({
         </Button>
       </HStack>
       <HStack justify="space-between">
-        <ButtonGroup size="xs" attached variant="outline">
-          <Button
+        <HStack gap="1">
+          <IconButton
+            size="xs"
+            variant={flag === 'picked' ? 'solid' : 'ghost'}
             colorPalette={flag === 'picked' ? 'green' : 'gray'}
-            variant={flag === 'picked' ? 'solid' : 'outline'}
+            aria-label="Pick (P)"
+            title="Pick (P)"
             onClick={() => onChange({ flag: flag === 'picked' ? null : 'picked' })}
           >
-            <Check /> Pick
-          </Button>
-          <Button
+            <Check />
+          </IconButton>
+          <IconButton
+            size="xs"
+            variant={flag === 'rejected' ? 'solid' : 'ghost'}
             colorPalette={flag === 'rejected' ? 'red' : 'gray'}
-            variant={flag === 'rejected' ? 'solid' : 'outline'}
+            aria-label="Reject (X)"
+            title="Reject (X)"
             onClick={() => onChange({ flag: flag === 'rejected' ? null : 'rejected' })}
           >
-            <X /> Reject
-          </Button>
-        </ButtonGroup>
+            <X />
+          </IconButton>
+        </HStack>
         <HStack gap="1.5">
           {COLOR_LABELS.map((c) => (
             <Circle
