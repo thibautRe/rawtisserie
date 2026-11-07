@@ -12,7 +12,7 @@ together; 4.5 (masks); full-size colour drags on a worker pool (see Performance)
 option); 8.5 (export options).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 4.10 (tone equalizer) added to it on 2026-11-06; see [1.0 release scope](#10-release-scope).
-4.11 (blend modes, with LUT masks) done 2026-11-07.
+4.11 (blend modes, with LUT masks) done 2026-11-07; 4.12 (glow) done the same day.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -458,7 +458,8 @@ embedded data, plus the manual lens override. See the source list in 3.1.
 
 A port of `diffuse.c` (Ansel's, or darktable's if it has diverged usefully). It uses
 multiscale anisotropic diffusion: sharpening, local contrast, deblurring, bloom and
-inpainting presets.
+inpainting presets. Its "bloom" diffuses the whole image; light spreading out of the
+highlights is 4.12's (glow), so rename that preset (e.g. "soft diffusion").
 
 - A spatial stage next to sharpen and the contrast equalizer, maskable. Iterations at
   large radii are expensive: bench them, and report the `reach` for regions, which
@@ -799,6 +800,54 @@ A kind that's absent is off, so adding one needs no recipe version bump.
 > at 2400 px: a soft-light masked exposure +8 % over a normal one. Golden recipe
 > `blend.json`. Not done: a swap of input and output (Ansel's "reverse"), hue/colour
 > modes keeping lightness, and linear/vivid/pin light.
+
+### 4.12 Glow: bloom and halation (M, after 4.11)
+
+> **Done** (`ops/glow.rs`, `params::Glow` ↔ `glow`, the Glow section of
+> `ModulePanel.tsx`, built-in presets bloom, halation, mist and black mist). As
+> planned below, plus: the Gaussians are computed on reduced copies of the bright pass
+> (2×2 averages, as long as they stay 1.5 px wide there; sigma corrected for what the
+> averaging and interpolation add), aligned on the whole frame so regions match
+> (`GlowOp::apply` takes the image's origin), and only around the pixels above the
+> threshold. Clipped highlights are only +2.6 to +3.4 EV over grey before exposure, so
+> the light above a threshold is small: defaults are threshold +1.5 EV, strength 1.5
+> (0 … 5, typing up to 20). Cost at 2400 px: ~90 ms (~25 ms at the draft size), on top
+> of the other spatial stages, which re-run with it. Golden recipe `glow.json`, a
+> region case, `bench.rs` cases. A falloff (-1 … 1) weighs the four Gaussians, from a
+> tight halo (the narrowest 64× the widest) to a long tail; 0 weighs them equally. The
+> threshold's soft knee is labelled "Threshold softness": it's about which pixels glow,
+> not the glow's shape. Not done: the later items below.
+
+Light spreading out of the brightest parts of the image: bloom around lamps, windows
+and specular highlights, film halation (a red to orange fringe), diffusion filters
+(Pro-Mist, Black Pro-Mist) and haze around lights in fog or rain. It also makes a
+clipped highlight read as a light source rather than a flat white patch.
+
+None of the existing tools do it. A blur blended with lighten or addition spreads the
+whole image (the "Orton" diffusion look), and a mask can only choose where the blurred
+result lands, not which pixels give off light: the blur still reads everything.
+
+- **Algorithm** (`ops/glow.rs`): a bright pass keeps what is above a threshold (EV over
+  middle grey, on the brightest channel so saturated lights glow too) with a soft knee,
+  keeping each pixel's colour; a long-tailed kernel (the sum of four Gaussians, one
+  octave apart, up to the radius) spreads it; the result, tinted and scaled by the
+  strength, is added to the image as light, in linear Rec.2020. The tint (hue,
+  saturation) is normalised to luminance 1, so it changes the colour and not the
+  amount.
+- **Pipeline:** a spatial stage after the contrast equalizer, maskable (the mask says
+  where the glow lands), with its `reach` for regions. Spatial stages run before
+  exposure, so the threshold is measured before exposure: raising exposure doesn't
+  make more of the image glow (the same as mask ranges on spatial modules). Moving it
+  after the point modules would need a spatial stage after the point pass, which the
+  worker pool can't do.
+- **Overlap with 3.7 (diffuse and sharpen):** none in practice. Its "bloom" preset has
+  no threshold and diffuses the whole image (a softening, like blur + lighten), its
+  luminance threshold limits which pixels get diffused (for inpainting highlights),
+  and it replaces the image rather than adding light. When it's ported, its preset
+  should be called something like "soft diffusion", so there aren't two blooms.
+- **Presets:** bloom, halation, mist, black mist.
+- Later: other kernel shapes (anamorphic streaks, starbursts), energy conservation (take
+  the light that glows away from its source).
 
 ### 4.6 Tone curve (M, before 1.0)
 

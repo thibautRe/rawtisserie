@@ -612,6 +612,8 @@ const NORMALIZE_KEYS = {
 /** The mixer's primaries modes: the matrix seen as primaries, and back. */
 /** The mixer's primary hue sliders: finer around 0°, over the same ±90° track. */
 const HUE_CURVE = sinhCurve(90);
+/** Glow radius: fine at the small radii of halation, coarse up to large blooms. */
+const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
 
 const MIXER_MODES = {
   primaries: { read: primariesFromMatrix, write: primariesToMatrix, identity: IDENTITY_PRIMARIES },
@@ -2106,6 +2108,68 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           </Stack>
         );
       })}
+
+      {sections('glow', [], (e) => (
+        <>
+          <ParamSlider
+            label="Threshold"
+            min={-4}
+            max={5}
+            hardMin={-8}
+            hardMax={8}
+            step={0.05}
+            format={fmt.ev}
+            track={tracks.grey}
+            {...e.bind('threshold')}
+          />
+          <ParamSlider label="Threshold softness" {...percent} max={1} {...e.bind('softness')} />
+          <ParamSlider
+            label="Radius"
+            min={0}
+            max={500}
+            hardMax={2000}
+            step={1}
+            curve={GLOW_RADIUS_CURVE}
+            format={(v) => `${v.toFixed(0)} px`}
+            {...e.bind('radius')}
+          />
+          <ParamSlider
+            label="Falloff"
+            min={-1}
+            max={1}
+            step={0.01}
+            format={(v) =>
+              v < -0.005 ? `tight ${Math.round(-v * 100)} %` : v > 0.005 ? `long ${Math.round(v * 100)} %` : 'even'
+            }
+            {...e.bind('falloff')}
+          />
+          <ParamSlider
+            label="Strength"
+            min={0}
+            max={5}
+            hardMax={20}
+            step={0.05}
+            format={fmt.fixed2}
+            {...e.bind('strength')}
+          />
+          <ParamSlider
+            label="Tint hue"
+            min={-180}
+            max={180}
+            step={1}
+            track={tracks.hue(0)}
+            format={degrees}
+            {...e.bind('hue')}
+          />
+          <ParamSlider
+            label="Tint saturation"
+            {...percent}
+            max={1}
+            track={tracks.saturation(e.values.hue)}
+            {...e.bind('saturation')}
+          />
+        </>
+      ))}
 
       {sections('sharpen', [], (e) => (
         <>

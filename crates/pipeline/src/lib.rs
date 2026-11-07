@@ -8,7 +8,7 @@
 //! RAW bytes ─▶ decode ─▶ demosaic/bin ─▶ reference (D65) white balance ─▶ camera → working   (cached "base")
 //!          ─▶ retouch spots (sensor frame, in place on the base)
 //!          ─▶ geometry (lens, orientation, straighten, crop, resample)
-//!          ─▶ blur ─▶ sharpen ─▶ contrast equalizer
+//!          ─▶ blur ─▶ sharpen ─▶ contrast equalizer ─▶ glow
 //!          ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ … ─▶ tone mapping ─▶ sRGB output
 //! ```
 //!

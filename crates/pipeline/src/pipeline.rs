@@ -18,8 +18,9 @@ use crate::ops::retouch::{self, Saved, Stamp};
 use crate::ops::tone_curve::{self, InputHistogram};
 use crate::ops::lines::{self, GuideLine, Segment};
 use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
+use crate::ops::glow::GlowOp;
 use crate::ops::{equalizer, filmic, filters, geometry};
-use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Lens, Module, ModuleInstance, ModuleKind};
+use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Glow, Lens, Module, ModuleInstance, ModuleKind};
 use crate::Result;
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
@@ -64,7 +65,7 @@ impl RenderSize {
 ///              then retouch spots, in place                       keyed by the spots and their shapes
 ///   └ geometry  lens, orientation, straighten, crop, resample    keyed by the above + lens + geometry + output size (3 sizes kept)
 ///      ├ masks  drawn parts of the instances' masks, feathered    keyed by the above + the masks' shapes and feather
-///      └ detail blur, sharpen, contrast equalizer instances       keyed by the above + their parameters (and masks) at this scale
+///      └ detail blur, sharpen, equalizer, glow instances          keyed by the above + their parameters (and masks) at this scale
 ///         ├ masks of point modules feathered whole                keyed by the above + the point modules before them
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass, reading the masks
 /// ```
@@ -301,6 +302,8 @@ enum DetailOp {
     Sharpen { amount: f32, sigma: f32 },
     /// `scale`: output pixels per full-resolution pixel.
     Equalizer { params: ContrastEqualizer, scale: f32 },
+    /// `scale`: output pixels per full-resolution pixel.
+    Glow { params: Glow, scale: f32 },
 }
 
 /// The mask of a spatial instance (with its drawn part resolved, so that the key
@@ -725,6 +728,7 @@ impl Developer {
                         DetailOp::Blur { sigma } => filters::blur(&mut img, sigma),
                         DetailOp::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
                         DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
+                        DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
                     }
                     if let (Some(m), Some(before)) = (&step.mask, before) {
                         // The mask is measured on the step's input.
@@ -1068,11 +1072,12 @@ impl DetailStep {
         match self.op {
             DetailOp::Blur { sigma } | DetailOp::Sharpen { sigma, .. } => filters::reach(sigma),
             DetailOp::Equalizer { params, scale } => equalizer::margin(&params, scale, frame),
+            DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).reach(),
         }
     }
 }
 
-/// The active blur, sharpen and equalizer instances, with their parameters at `scale`
+/// The active blur, sharpen, equalizer and glow instances, with their parameters at `scale`
 /// (spatial parameters are expressed in full-resolution pixels) and their masks.
 fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
     params
@@ -1084,12 +1089,14 @@ fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
                 Module::Blur(b) => DetailOp::Blur { sigma: b.radius * scale },
                 Module::Sharpen(s) => DetailOp::Sharpen { amount: s.amount, sigma: s.radius * scale },
                 Module::ContrastEqualizer(e) => DetailOp::Equalizer { params: *e, scale },
+                Module::Glow(g) => DetailOp::Glow { params: *g, scale },
                 _ => return None,
             };
             let active = match op {
                 DetailOp::Blur { sigma } => filters::blur_active(sigma),
                 DetailOp::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
                 DetailOp::Equalizer { params, .. } => !params.is_identity(),
+                DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).active(),
             };
             let mask = mask::active(m).map(|mask| Box::new(StepMask { id: m.id.clone(), mask: mask.clone(), drawn: Drawn::of(params, mask) }));
             active.then_some(DetailStep { op, mask })

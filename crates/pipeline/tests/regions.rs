@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, MaskPart, MaskView, Overlays};
-use rawtisserie_pipeline::params::{AutoCrop, Blur, ContrastEqualizer, Geometry, Sharpen};
+use rawtisserie_pipeline::params::{AutoCrop, Blur, ContrastEqualizer, Geometry, Glow, Sharpen};
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
 fn developer() -> Developer {
@@ -75,6 +75,12 @@ fn regions_match_the_whole_render() {
     p.get_mut::<ContrastEqualizer>().luma = [0.7, 0.6, 0.55, 0.5, 0.65, 0.7];
     check("detail", &p, RenderSize::fit(1500, 1500));
 
+    // Glow: computed on reduced copies aligned on the frame, so regions match.
+    let mut glowing = p.clone();
+    glowing.add(Glow { threshold: 0.5, radius: 120.0, strength: 2.0, saturation: 0.6, ..Glow::default() });
+    glowing.add(Glow { threshold: 1.0, radius: 8.0, strength: 3.0, ..Glow::default() });
+    check("glow", &glowing, RenderSize::fit(1500, 1500));
+
     // Perspective: a homography, framed each way (black borders when not auto-cropped).
     let g = p.get_mut::<Geometry>();
     (g.vertical, g.horizontal, g.shear, g.aspect) = (14.0, -6.0, 0.04, 0.2);
@@ -98,6 +104,8 @@ fn full_resolution_regions_match() {
     // a level with every band boosted to the maximum.
     p.get_mut::<ContrastEqualizer>().luma = [1.0; 6];
     check("100 %, equalizer", &p, RenderSize::FULL);
+    p.add(Glow { threshold: 0.0, radius: 300.0, ..Glow::default() });
+    check("100 %, glow", &p, RenderSize::FULL);
 }
 
 #[test]

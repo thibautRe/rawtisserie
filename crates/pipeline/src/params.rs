@@ -152,6 +152,8 @@ modules! {
     Blur,
     Sharpen,
     ContrastEqualizer,
+    /// Light spreading from the highlights (bloom, halation), added to the image.
+    Glow,
     /// Point stage (one fused pass), in linear Rec.2020.
     Exposure,
     /// White balance (chromatic adaptation) and channel mixing.
@@ -180,6 +182,7 @@ impl ModuleKind {
             ModuleKind::Blur
                 | ModuleKind::Sharpen
                 | ModuleKind::ContrastEqualizer
+                | ModuleKind::Glow
                 | ModuleKind::Exposure
                 | ModuleKind::ColorCalibration
                 | ModuleKind::Color
@@ -1102,6 +1105,37 @@ impl ContrastEqualizer {
     pub fn is_identity(&self) -> bool {
         let d = Self::default();
         self.mix == 0.0 || (self.luma == d.luma && self.chroma == d.chroma && self.luma_denoise == d.luma_denoise && self.chroma_denoise == d.chroma_denoise)
+    }
+}
+
+/// Glow (see [`crate::ops::glow`]): what is brighter than a threshold spreads around,
+/// tinted, and is added to the image as light. Bloom, halation, diffusion filters.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Glow {
+    /// Where the glow starts, EV over middle grey (0.1845) of the module's input
+    /// (before exposure), measured on each pixel's brightest channel. -4 … 8.
+    pub threshold: f32,
+    /// How gradually pixels start to glow around the threshold (the soft knee's half
+    /// width, as a fraction of it), 0 … 1. Not the glow's shape: see `falloff`.
+    pub softness: f32,
+    /// Spread of the glow (the widest Gaussian's sigma), in full-resolution pixels.
+    pub radius: f32,
+    /// Shape of the glow, -1 … 1: a tight halo around the lights (-1), an even mix (0),
+    /// or a long faint tail (1).
+    pub falloff: f32,
+    /// Amount of light added: the glow carries `strength` times the light above the
+    /// threshold. 0 = off.
+    pub strength: f32,
+    /// Hue of the tint, degrees (0 red, 120 green, 240 blue), with `saturation`.
+    pub hue: f32,
+    /// Saturation of the tint, 0 (the light's own colour) … 1.
+    pub saturation: f32,
+}
+
+impl Default for Glow {
+    fn default() -> Self {
+        Self { threshold: 1.5, softness: 0.5, radius: 60.0, falloff: 0.0, strength: 1.5, hue: 20.0, saturation: 0.0 }
     }
 }
 

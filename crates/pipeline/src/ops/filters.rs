@@ -1,7 +1,7 @@
 //! Spatial filters: gaussian blur and unsharp-mask sharpening.
 
 use crate::color::luminance;
-use crate::image::Image;
+use crate::image::{Image, Rgb};
 
 /// Gaussian blur of the whole image. Small radii use an exact separable kernel,
 /// large ones three successive box blurs (≈ gaussian, O(1) per pixel).
@@ -101,6 +101,59 @@ fn convolve_cols(src: &[f32], dst: &mut [f32], w: usize, h: usize, k: &[f32]) {
             for (o, s) in out.iter_mut().zip(row) {
                 *o += s * kv;
             }
+        }
+    }
+}
+
+/// Three box blurs approximating a Gaussian of `sigma` (as [`blur_plane`] does for
+/// large ones) over all three channels at once. Below a sigma of about 1 it does nothing.
+pub(crate) fn box_blur_rgb(px: &mut [Rgb], w: usize, h: usize, sigma: f32) {
+    let mut tmp = vec![[0.0f32; 3]; px.len()];
+    for radius in box_radii(sigma).into_iter().filter(|&r| r > 0) {
+        box_rows_rgb(px, &mut tmp, w, h, radius);
+        box_cols_rgb(&tmp, px, w, h, radius);
+    }
+}
+
+/// How far [`box_blur_rgb`] reads around each pixel.
+pub(crate) fn box_reach(sigma: f32) -> usize {
+    box_radii(sigma).iter().sum()
+}
+
+fn box_rows_rgb(src: &[Rgb], dst: &mut [Rgb], w: usize, h: usize, r: usize) {
+    let norm = 1.0 / (2 * r + 1) as f32;
+    let clamp = |i: isize| i.clamp(0, w as isize - 1) as usize;
+    for y in 0..h {
+        let row = &src[y * w..(y + 1) * w];
+        let out = &mut dst[y * w..(y + 1) * w];
+        let mut acc = [0.0f32; 3];
+        for i in -(r as isize)..=r as isize {
+            let p = row[clamp(i)];
+            (0..3).for_each(|c| acc[c] += p[c]);
+        }
+        for (x, o) in out.iter_mut().enumerate() {
+            *o = acc.map(|a| a * norm);
+            let (add, sub) = (row[clamp(x as isize + r as isize + 1)], row[clamp(x as isize - r as isize)]);
+            (0..3).for_each(|c| acc[c] += add[c] - sub[c]);
+        }
+    }
+}
+
+fn box_cols_rgb(src: &[Rgb], dst: &mut [Rgb], w: usize, h: usize, r: usize) {
+    let norm = 1.0 / (2 * r + 1) as f32;
+    let clamp = |i: isize| i.clamp(0, h as isize - 1) as usize;
+    let mut acc = vec![[0.0f32; 3]; w];
+    for i in -(r as isize)..=r as isize {
+        let row = &src[clamp(i) * w..][..w];
+        acc.iter_mut().zip(row).for_each(|(a, s)| (0..3).for_each(|c| a[c] += s[c]));
+    }
+    for y in 0..h {
+        let out = &mut dst[y * w..(y + 1) * w];
+        out.iter_mut().zip(&acc).for_each(|(o, a)| *o = a.map(|v| v * norm));
+        let add = &src[clamp(y as isize + r as isize + 1) * w..][..w];
+        let sub = &src[clamp(y as isize - r as isize) * w..][..w];
+        for ((a, p), m) in acc.iter_mut().zip(add).zip(sub) {
+            (0..3).for_each(|c| a[c] += p[c] - m[c]);
         }
     }
 }

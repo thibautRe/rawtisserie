@@ -345,6 +345,43 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   builtIn('sharpen', 'light', 'Light', { amount: 0.5, radius: 1 }),
   builtIn('sharpen', 'strong', 'Strong', { amount: 1.2, radius: 1.5 }),
   builtIn('contrastEqualizer', 'clarity', 'Clarity', { luma: [0.5, 0.56, 0.6, 0.6, 0.55, 0.5] }),
+  // Glow: light around lamps and specular highlights.
+  builtIn('glow', 'bloom', 'Bloom', {
+    threshold: 1.5,
+    softness: 0.5,
+    radius: 120,
+    falloff: 0.3,
+    strength: 2.5,
+    saturation: 0,
+  }),
+  // Film halation: a red to orange fringe around the brightest highlights.
+  builtIn('glow', 'halation', 'Halation', {
+    threshold: 1.5,
+    softness: 0.3,
+    radius: 40,
+    falloff: -0.6,
+    strength: 3,
+    hue: 10,
+    saturation: 1,
+  }),
+  // Diffusion filters: a haze over most of the image (Pro-Mist), or only the brighter
+  // parts, keeping the shadows deep (Black Pro-Mist).
+  builtIn('glow', 'mist', 'Mist', {
+    threshold: -1,
+    softness: 1,
+    radius: 100,
+    falloff: 0.5,
+    strength: 0.4,
+    saturation: 0,
+  }),
+  builtIn('glow', 'black-mist', 'Black mist', {
+    threshold: 0.5,
+    softness: 1,
+    radius: 60,
+    falloff: 0,
+    strength: 0.6,
+    saturation: 0,
+  }),
   // Darker shadows and brighter highlights around middle grey (nodes every 1.5 EV from
   // -9 EV), back to no change at the ends.
   builtIn('toneCurve', 'contrast-low', 'Contrast: low', {

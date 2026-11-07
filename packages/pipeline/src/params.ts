@@ -69,6 +69,26 @@ export interface ModuleParams {
     /** Strength of the curves relative to their defaults, -2 … 2. */
     mix: number;
   };
+  /**
+   * Glow: what is brighter than the threshold spreads around, tinted, and is added to
+   * the image as light (bloom, halation, diffusion filters). See `ops/glow.rs`.
+   */
+  glow: {
+    /** Where the glow starts, EV over middle grey before exposure, on the brightest channel; -4 … 8. */
+    threshold: number;
+    /** How gradually pixels start to glow around the threshold (soft knee, a fraction of it), 0 … 1. */
+    softness: number;
+    /** Spread (the widest Gaussian's sigma), in full-resolution pixels. */
+    radius: number;
+    /** Shape: a tight halo (-1), an even mix (0) or a long faint tail (1). */
+    falloff: number;
+    /** Light added, times the light above the threshold; 0 = off. */
+    strength: number;
+    /** Hue of the tint, degrees (0 red, 120 green, 240 blue). */
+    hue: number;
+    /** Saturation of the tint, 0 (the light's own colour) … 1. */
+    saturation: number;
+  };
   exposure: {
     /** Exposure compensation, EV. */
     ev: number;
@@ -304,6 +324,7 @@ export const MODULE_KINDS = [
   'blur',
   'sharpen',
   'contrastEqualizer',
+  'glow',
   'exposure',
   'colorCalibration',
   'color',
@@ -325,6 +346,7 @@ export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'blur',
   'sharpen',
   'contrastEqualizer',
+  'glow',
   'exposure',
   'colorCalibration',
   'color',
@@ -531,6 +553,7 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     chromaDenoise: Array<number>(EQUALIZER_NODES).fill(0),
     mix: 1,
   },
+  glow: { threshold: 1.5, softness: 0.5, radius: 60, falloff: 0, strength: 1.5, hue: 20, saturation: 0 },
   // Ansel's default push for RAW files.
   exposure: { ev: 0.7, black: 0 },
   colorCalibration: {

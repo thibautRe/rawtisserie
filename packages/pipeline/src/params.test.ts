@@ -162,6 +162,18 @@ const samples: unknown[] = [
       { kind: 'contrastEqualizer', label: 'fine', params: { edges: [1, 1, 1, 0.5, 0.5, 0.5] } },
     ],
   },
+  // Glow, partly given, one masked with a blend mode.
+  {
+    version: 6,
+    modules: [
+      { kind: 'glow', params: { threshold: 2, radius: 25, hue: 10, saturation: 1 } },
+      {
+        kind: 'glow',
+        params: { strength: 0.4 },
+        mask: { luminance: [-2, 0, 8, 8], blend: 'screen', blendFulcrum: 1 },
+      },
+    ],
+  },
   // Retouch spots and their shapes: spots without a shape and unused shapes go.
   {
     version: 6,

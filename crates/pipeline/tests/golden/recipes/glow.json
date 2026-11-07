@@ -1,0 +1,18 @@
+{
+  "size": 600,
+  "recipe": {
+    "version": 6,
+    "modules": [
+      { "kind": "glow", "params": { "threshold": 1, "radius": 150, "falloff": 0.5, "strength": 2 } },
+      { "id": "halation", "kind": "glow",
+        "params": { "threshold": 1.5, "softness": 0.3, "radius": 40, "falloff": -0.6, "strength": 3, "hue": 10, "saturation": 1 },
+        "mask": { "drawn": [{ "shape": "half" }], "feather": 20 } },
+      { "kind": "exposure", "params": { "ev": 0.7 } },
+      { "kind": "colorCalibration" },
+      { "kind": "filmic" }
+    ],
+    "shapes": {
+      "half": { "type": "gradient", "anchor": [0.5, 0.5], "angle": 0, "feather": 0.1 }
+    }
+  }
+}

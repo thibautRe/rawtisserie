@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    BlendMode, Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Illuminant, Mask, ShadowsHighlights, Shape, Sharpen, ToneCurve,
+    BlendMode, Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, ShadowsHighlights, Shape, Sharpen, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -98,6 +98,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     time("equalizer release (full)", &mut dev, &p);
     p.get_mut::<Exposure>().ev += 0.1;
     time("exposure slider with equalizer", &mut dev, &p);
+
+    // Glow: drag the strength at draft size, release; then a low threshold (mist), with
+    // most of the image above it.
+    let glow = p.add(Glow::default());
+    for i in 0..3 {
+        if let Module::Glow(g) = &mut p.modules[glow].module {
+            g.strength = 1.0 + 0.2 * i as f32;
+        }
+        let t = Instant::now();
+        let img = dev.render(&p, draft, Quality::Interactive);
+        println!("{:<34} {:>7.1} ms  ({}×{})", "glow drag (draft)", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
+    }
+    time("glow release (full)", &mut dev, &p);
+    if let Module::Glow(g) = &mut p.modules[glow].module {
+        g.threshold = -1.0;
+    }
+    time("glow, low threshold (full)", &mut dev, &p);
+    p.modules[glow].enabled = false;
 
     // A creative LUT after filmic: on filmic's 3D table, then while filmic is dragged.
     let lut = match args.get(3) {

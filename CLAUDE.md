@@ -69,7 +69,8 @@ See README.md for the architecture overview and commands.
 - Zoomed-in views render a region (`RenderSize::with_region`) from a patch of the base.
   Spatial stages that read neighbours must report how far (`reach`, or the equalizer's
   `margin`) so the region gets that margin, and size-dependent choices must use the whole frame, not the region
-  (see `equalizer::apply_in_frame`). `tests/regions.rs` checks regions match the whole render.
+  (see `equalizer::apply_in_frame`), and work reduced in cells must align them on the frame
+  (`GlowOp::apply` takes the image's origin). `tests/regions.rs` checks regions match the whole render.
 - Measure with `cargo run --release --example bench -- photo.ARW 2400`.
 - Interactive renders of colour/tone edits run on a worker pool (`develop/pointPool.ts`):
   the pipeline worker checks `Developer::is_spatial_cached` and sends each pool worker a
