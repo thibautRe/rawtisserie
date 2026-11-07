@@ -6,11 +6,11 @@
 import { Worker } from 'node:worker_threads';
 import type { Queryable } from '@databases/pg';
 import type { FastifyBaseLogger } from 'fastify';
-import { type EditParams, type PhotoMetadata, lutIds, normalizeEditParams } from '@rawtisserie/pipeline';
+import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
-import { usableLuts } from '../luts/storage.ts';
-import { RENDER_SIZES, originalPath, renderPath, type RenderSize } from '../photos/storage.ts';
+import { RENDER_SIZES, renderPath, type RenderSize } from '../photos/storage.ts';
+import { renderSource } from './source.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
 interface PoolWorker {
@@ -99,29 +99,15 @@ export class RenderQueue {
   }
 
   private async process(entry: PoolWorker, versionId: string) {
-    const [job] = (await db.query(sql`
-      SELECT v.photo_id, p.owner_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
-        NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
-      FROM versions v
-      JOIN photos p ON p.id = v.photo_id
-      LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
-      WHERE v.id = ${versionId}`)) as {
-      photo_id: string;
-      owner_id: string;
-      storage_key: string;
-      needs_metadata: boolean;
-      recipe: EditParams | null;
-      no_history: boolean;
-    }[];
+    const job = await renderSource(versionId);
     if (!job) return;
-    const luts = job.recipe ? await usableLuts(db, job.owner_id, lutIds(normalizeEditParams(job.recipe))) : new Map();
     const started = Date.now();
     const result = await this.run(entry, {
-      sourcePath: originalPath(job.storage_key),
-      params: job.recipe,
-      autoDefaults: job.no_history,
-      extractMetadata: job.needs_metadata,
-      luts: [...luts.values()],
+      sourcePath: job.sourcePath,
+      params: job.params,
+      autoDefaults: job.autoDefaults,
+      extractMetadata: job.needsMetadata,
+      luts: [...job.luts.values()],
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
         path: renderPath(versionId, size),
         maxSize,
@@ -141,10 +127,10 @@ export class RenderQueue {
         WHERE id = ${versionId}`);
       if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
       if (result.metadata) {
-        await photos(tx).update({ id: job.photo_id }, metadataColumns(result.metadata));
+        await photos(tx).update({ id: job.photoId }, metadataColumns(result.metadata));
         // The in-camera rating seeds versions that haven't been rated yet.
         const rating = Math.min(5, Math.max(0, result.metadata.rating ?? 0));
-        if (rating) await versions(tx).update({ photo_id: job.photo_id, rating: 0 }, { rating });
+        if (rating) await versions(tx).update({ photo_id: job.photoId, rating: 0 }, { rating });
       }
     });
   }

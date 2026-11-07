@@ -43,6 +43,7 @@ import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { type ZoomLayout, visibleRegion } from './zoom.ts';
+import { useElementSize } from '../lib/useElementSize.ts';
 import { useZoom } from './useZoom.ts';
 
 interface Props {
@@ -85,22 +86,6 @@ function assessmentLayout(size: { width: number; height: number }, on: boolean) 
   const short = Math.min(size.width, size.height);
   if (!on) return { margin: 16, frameWidth: 0 };
   return { margin: Math.max(32, Math.round(short * 0.06)), frameWidth: Math.max(12, Math.round(short * 0.03)) };
-}
-
-function useElementSize<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const r = entry!.contentRect;
-      setSize({ width: Math.floor(r.width), height: Math.floor(r.height) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, size] as const;
 }
 
 /** Show the spinner once the image has waited this long for a new render. */

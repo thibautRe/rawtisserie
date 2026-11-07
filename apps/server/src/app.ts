@@ -11,6 +11,7 @@ import { photoRoutes } from './photos/routes.ts';
 import { presetRoutes } from './presets/routes.ts';
 import { fileExists } from './photos/storage.ts';
 import { RenderQueue } from './render/queue.ts';
+import { ZoomRenderer } from './render/zoom.ts';
 
 export async function buildApp() {
   const app = Fastify({
@@ -18,6 +19,7 @@ export async function buildApp() {
     bodyLimit: 2 * 1024 * 1024,
   });
   const renderQueue = new RenderQueue(app.log);
+  const zoom = new ZoomRenderer(app.log);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     if (error instanceof ZodError) {
@@ -44,7 +46,7 @@ export async function buildApp() {
   await app.register(fastifyMultipart, { limits: { fileSize: config.maxUploadBytes, files: 500 } });
   await app.register(authPlugin);
   await app.register(authRoutes);
-  await app.register(photoRoutes, { renderQueue });
+  await app.register(photoRoutes, { renderQueue, zoom });
   await app.register(presetRoutes);
   await app.register(exportRoutes);
   await app.register(lutRoutes);
@@ -63,7 +65,7 @@ export async function buildApp() {
   }
 
   app.addHook('onClose', async () => {
-    await renderQueue.stop();
+    await Promise.all([renderQueue.stop(), zoom.stop()]);
   });
 
   return { app, renderQueue };

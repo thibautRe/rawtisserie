@@ -9,10 +9,11 @@ Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries
 presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
 together; 4.5 (masks); full-size colour drags on a worker pool (see Performance);
 8.1 (presets and styles on a selection); 4.6 (tone curve); 4.9 (frame, as an export
-option); 8.5 (export options).
+option); 8.5 (export options); 8.3 (culling loupe).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 4.10 (tone equalizer) added to it on 2026-11-06; see [1.0 release scope](#10-release-scope).
-4.11 (blend modes, with LUT masks) done 2026-11-07; 4.12 (glow) done the same day.
+4.11 (blend modes, with LUT masks) done 2026-11-07; 4.12 (glow) and 8.3 (culling
+loupe) done the same day.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1250,6 +1251,20 @@ that bumps `revision`. The render queue re-renders the previews.
 
 ### 8.3 Fullscreen preview for culling (M)
 
+> **Done** (`library/Loupe.tsx`, `library/loupe.ts`, `render/zoom.ts` on the server). As
+> built: a full-window overlay rather than the Fullscreen API, opened with Space/E or the
+> Cull button. It walks the photos listed when it opened (plus later pages): a photo
+> rated out of the library's filters stays until it closes. Ratings and flags move on
+> with auto-advance (on by default, `A`, remembered); labels don't. The 2048 px
+> preview shows at fit; a click or `Z` zooms to 100 % (the developer's `useZoom`, with
+> a left click toggling), and the view stays from one photo to the next. Zoomed in, the
+> server renders 512 px tiles of the current recipe (`GET /api/versions/:id/zoom` for
+> the levels, then `/zoom/:level/:col/:row`), at 100 % or half sizes down to the
+> preview's, on one worker that keeps the last RAW decoded and stops when idle: ~0.4 s
+> for the first tile of a photo, ~65 ms each after that at 24 MP. Tiles out of view are
+> aborted and dropped before they're rendered; the rest are cached under the recipe's
+> revision. Not done: two-up (M5), browser-side tiles for the public developer.
+
 A fullscreen loupe from the grid (Fullscreen API):
 
 - arrow keys to move;
@@ -1414,8 +1429,8 @@ Required before 1.0, on top of what's done:
 4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
-6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options~~,
-   8.3 culling. Then 4.7 colour balance RGB, 4.8 3D LUT, 4.10 tone equalizer, ~~3.8 perspective~~, 3.6 lensfun,
+6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
+   8.3 culling~~. Then 4.7 colour balance RGB, 4.8 3D LUT, 4.10 tone equalizer, ~~3.8 perspective~~, 3.6 lensfun,
    3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
    step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

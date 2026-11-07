@@ -1,17 +1,20 @@
 import { createReadStream } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
-import { badRequest, conflict, notFound } from '../errors.ts';
+import { HttpError, badRequest, conflict, notFound } from '../errors.ts';
 import type HistoryEntries from '../__generated__/history_entries.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
+import { renderSource } from '../render/source.ts';
+import { ZoomError, type ZoomRenderer } from '../render/zoom.ts';
+import { ZOOM_TILE } from '../render/zoomTypes.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
 import {
@@ -157,7 +160,10 @@ const BatchHistoryChange = z.object({
     .max(200),
 });
 
-export async function photoRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
+export async function photoRoutes(
+  app: FastifyInstance,
+  { renderQueue, zoom }: { renderQueue: RenderQueue; zoom: ZoomRenderer },
+) {
   app.addHook('preHandler', requireUser);
 
   const findVersion = async (ownerId: string, id: string) => {
@@ -438,6 +444,60 @@ export async function photoRoutes(app: FastifyInstance, { renderQueue }: { rende
       .header('content-type', 'image/jpeg')
       .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
       .send(createReadStream(file));
+  });
+
+  // ── Zoomed-in views (culling loupe) ──────────────────────────────────────
+
+  /**
+   * A signal aborted when the client goes away before the reply (the loupe moved on),
+   * so that its queued renders are dropped.
+   */
+  const clientGone = (reply: FastifyReply) => {
+    const ac = new AbortController();
+    reply.raw.on('close', () => !reply.raw.writableFinished && ac.abort());
+    return ac.signal;
+  };
+  const zoomSource = async (ownerId: string, id: string) => {
+    await findVersion(ownerId, id);
+    const source = await renderSource(id);
+    if (!source) throw notFound('Photo not found');
+    return source;
+  };
+  const zoomFailed = (err: unknown) => {
+    if (!(err instanceof ZoomError) || err.reason === 'failed') return err;
+    // 499: the client closed the request (nginx's code), so nobody reads it and it isn't logged.
+    return err.reason === 'notFound' ? notFound(err.message) : new HttpError(499, err.message);
+  };
+
+  /**
+   * The zoom levels of a version's current recipe (level 0 is 100 %, each next one half
+   * of it), and the key its tiles are cached under (the history revision).
+   */
+  app.get('/api/versions/:id/zoom', async (request, reply) => {
+    const { id } = Id.parse(request.params);
+    const source = await zoomSource(currentUser(request).id, id);
+    const levels = await zoom.levels(source, clientGone(reply)).catch((err) => {
+      throw zoomFailed(err);
+    });
+    return { key: String(source.revision), tileSize: ZOOM_TILE, levels };
+  });
+
+  /** One tile of a zoom level (`ZOOM_TILE` square, smaller at the right and bottom edges). */
+  app.get('/api/versions/:id/zoom/:level/:col/:row', async (request, reply) => {
+    const { id, level, col, row } = Id.extend({
+      level: z.coerce.number().int().min(0).max(8),
+      col: z.coerce.number().int().min(0).max(1000),
+      row: z.coerce.number().int().min(0).max(1000),
+    }).parse(request.params);
+    const source = await zoomSource(currentUser(request).id, id);
+    const jpeg = await zoom.tile(source, level, col, row, clientGone(reply)).catch((err) => {
+      throw zoomFailed(err);
+    });
+    const versioned = (request.query as Record<string, string>).k === String(source.revision);
+    return reply
+      .header('content-type', 'image/jpeg')
+      .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
+      .send(Buffer.from(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength));
   });
 
   // ── Photos (original files) ───────────────────────────────────────────────

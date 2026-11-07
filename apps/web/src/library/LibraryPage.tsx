@@ -13,7 +13,7 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Search, Upload } from 'lucide-react';
+import { Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
@@ -31,6 +31,7 @@ import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
+import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
@@ -59,6 +60,9 @@ export function LibraryPage() {
   const gridRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(() => Number(localStorage.getItem('library.cellSize')) || 200);
   const [pendingDelete, setPendingDelete] = useState<Photo[] | null>(null);
+  /** The photo the culling loupe opened on, while it's open. */
+  const [loupe, setLoupe] = useState<string | null>(null);
+  const loupeStart = focusedId ?? [...selection][0] ?? null;
 
   const bulk = useBulkUpdate();
   const del = useDeletePhotos();
@@ -141,7 +145,7 @@ export function LibraryPage() {
   // Culling shortcuts, Lightroom/darktable style.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
+      if (loupe || isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
       const idx = photos.findIndex((p) => p.id === focusedId);
       const columns = Math.max(1, Math.floor((gridRef.current?.clientWidth ?? cellSize) / (cellSize + 8)));
       const move = (delta: number) => {
@@ -177,6 +181,7 @@ export function LibraryPage() {
       else if (key === 'arrowdown') move(columns);
       else if (key === 'arrowup') move(-columns);
       else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/versions/${focusedId}/develop`);
+      else if ((key === ' ' || key === 'e') && (loupeStart ?? photos[0])) setLoupe(loupeStart ?? photos[0]!.id);
       else if ((key === 'delete' || key === 'backspace') && selection.size) setPendingDelete(selectedPhotos);
       else if (key === 'escape') setSelection(new Set());
       else return;
@@ -195,6 +200,8 @@ export function LibraryPage() {
       window.removeEventListener('keydown', onKey);
     };
   }, [
+    loupe,
+    loupeStart,
     photos,
     focusedId,
     cellSize,
@@ -313,6 +320,15 @@ export function LibraryPage() {
               <Slider.Thumbs />
             </Slider.Control>
           </Slider.Root>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!photos.length}
+            onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
+            title="Culling view (Space)"
+          >
+            <Maximize /> Cull
+          </Button>
           <Button size="sm" colorPalette="orange" onClick={() => fileInput.current?.click()} loading={upload.isPending}>
             <Upload /> Import
           </Button>
@@ -387,6 +403,21 @@ export function LibraryPage() {
         >
           <Heading size="2xl">Drop RAW files to import them 🍗</Heading>
         </Center>
+      )}
+
+      {loupe && (
+        <Loupe
+          photos={photos}
+          startId={loupe}
+          hasMore={!!query.hasNextPage}
+          onLoadMore={() => !query.isFetchingNextPage && void query.fetchNextPage()}
+          onChange={(id, patch) => bulk.mutate({ ids: [id], patch })}
+          onClose={(id) => {
+            setLoupe(null);
+            selectOne(id);
+          }}
+          onDevelop={(id) => navigate(`/versions/${id}/develop`)}
+        />
       )}
 
       <DeleteVersionsDialog versions={pendingDelete} onConfirm={confirmDelete} onClose={() => setPendingDelete(null)} />

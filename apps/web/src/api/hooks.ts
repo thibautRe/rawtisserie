@@ -17,6 +17,7 @@ import type {
 import { useCallback } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
 import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdit.ts';
+import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import type { BulkPatch, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
@@ -119,6 +120,21 @@ export function usePhoto(id: string | undefined) {
     queryKey: ['photo', id],
     queryFn: () => api.get<PhotoDetail>(`/api/versions/${id}`),
     enabled: !!id,
+  });
+}
+
+/**
+ * The zoom levels of a version's current recipe, for the culling loupe. Keyed by its
+ * preview's URL, which changes once an edit has been rendered: the tiles' cache key
+ * (the recipe's revision) is then asked again.
+ */
+export function useZoomInfo(photo: Pick<Photo, 'id' | 'previewUrl'>, enabled: boolean) {
+  return useQuery({
+    queryKey: ['zoom', photo.id, photo.previewUrl],
+    queryFn: () => api.get<ZoomInfo>(`/api/versions/${photo.id}/zoom`),
+    enabled,
+    staleTime: Infinity,
+    gcTime: 5 * 60_000,
   });
 }
 

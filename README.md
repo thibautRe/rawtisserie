@@ -7,7 +7,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
 
 - **Library**: every photo you own, filterable by EXIF metadata (camera, lens, ISO,
   focal length, aperture, date), tags, rating, flags and colour labels. Cull with the
-  keyboard (rate, pick/reject, label, delete) and correct metadata. Originals are never
+  keyboard (rate, pick/reject, label, delete), in the grid or in a full-window loupe
+  that zooms to 100 % (tiles rendered by the server), and correct metadata. Originals are never
   modified; edits live in the database. Each photo has one or more _versions_ (like
   darktable duplicates), each with its own rating, labels and edit history.
 - **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
@@ -91,6 +92,12 @@ Zoomed in, the developer renders only the visible region at the zoom level (at m
 image, and the spatial stages get a margin around it so that its pixels match a render of
 the whole image. Meanwhile the fitted render is enlarged with a CSS transform, so the wheel
 and panning respond at once; the region follows 150 ms after the view stops moving.
+
+The library's culling loupe zooms without the RAW: the server renders 512 px tiles of the
+version at 100 % (and at half size, down to the stored 2048 px preview) on demand, in one
+worker thread that keeps the last file decoded (`render/zoom.ts`): ~0.4 s for the first
+tile of a photo, ~65 ms each after that. Tiles the loupe moved away from are dropped
+before they're rendered, and the browser caches the rest under the recipe's revision.
 
 Previews bin photosites ("superpixel") down to roughly the output size instead of
 demosaicing at full resolution. Spatial parameters (blur and sharpen radii) are
@@ -250,7 +257,12 @@ with the same overlay as retouch.
 **Library**: `0`–`5` rate · `P` pick · `X` reject · `U` unflag · `6`–`9` colour labels ·
 arrows move · Shift+arrows/click extend the selection · Ctrl/⌘+click toggles ·
 Ctrl/⌘+A selects all · `D`/Enter develops · Ctrl/⌘+D duplicates (Ctrl/⌘+Shift+D from
-the original) · Delete deletes · Esc clears.
+the original) · Delete deletes · Esc clears · Space/`E` opens the culling loupe.
+
+**Culling loupe**: arrows move · `0`–`5`, `P`/`X`/`U` and `6`–`9` as in the grid
+(ratings and flags move on with auto-advance, `A` toggles it) · click or `Z` zooms to
+100 % (the zoom stays from one photo to the next) · `I` hides the details · `D`/Enter
+develops · Esc, Space or `E` closes.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
 colour-assessment frame · hold `\` to compare with the unedited image · `C` crop

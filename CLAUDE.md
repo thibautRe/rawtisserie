@@ -71,6 +71,8 @@ See README.md for the architecture overview and commands.
   `margin`) so the region gets that margin, and size-dependent choices must use the whole frame, not the region
   (see `equalizer::apply_in_frame`), and work reduced in cells must align them on the frame
   (`GlowOp::apply` takes the image's origin). `tests/regions.rs` checks regions match the whole render.
+  The library's culling loupe uses region renders too: 100 % tiles rendered on the server
+  (`render/zoom.ts`, one worker keeping the last RAW decoded).
 - Measure with `cargo run --release --example bench -- photo.ARW 2400`.
 - Interactive renders of colour/tone edits run on a worker pool (`develop/pointPool.ts`):
   the pipeline worker checks `Developer::is_spatial_cached` and sends each pool worker a

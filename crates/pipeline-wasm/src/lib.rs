@@ -271,12 +271,13 @@ impl Developer {
         Ok(())
     }
 
-    /// Final-quality render within `max_width × max_height`, encoded as a JPEG file
-    /// (sRGB, no metadata): library previews.
+    /// Final-quality render within `max_width × max_height` (or only `region` of it, as
+    /// for `render`), encoded as a JPEG file (sRGB, no metadata): library previews and
+    /// the culling loupe's zoomed-in tiles.
     #[wasm_bindgen(js_name = renderJpeg)]
-    pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8) -> Result<Vec<u8>, JsError> {
+    pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8, region: Option<Vec<u32>>) -> Result<Vec<u8>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
-        let img = self.inner.render(&params, RenderSize::fit(max_width, max_height), Quality::Final);
+        let img = self.inner.render(&params, render_size(max_width, max_height, region)?, Quality::Final);
         pipeline::encode::jpeg(&img, quality).map_err(js_err)
     }
 
