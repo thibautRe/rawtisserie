@@ -2049,11 +2049,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         const instance = params.modules.find((m) => m.id === e.id);
         const title = instance ? instanceTitle(params, instance) : MODULE_TITLES.lut;
         /** The recipe with this instance using `lut`. */
-        const withLut = (p: EditParams, lut: LutChoice | null) =>
-          updateInstance(p, 'lut', e.id, {
-            enabled: true,
-            params: { lut: lut && { id: lut.id, name: lut.name } },
-          });
+        const withLut = (p: EditParams, lut: LutChoice) =>
+          updateInstance(p, 'lut', e.id, { enabled: true, params: { lut: { id: lut.id, name: lut.name } } });
         return (
           <Stack gap="2" py="1">
             <SelectRow label="LUT">
@@ -2065,9 +2062,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   builtIn={luts.builtIn}
                   own={luts.own}
                   local={luts.local}
-                  onPick={(lut) =>
-                    latest.current.onCommit(withLut(endPreview(), lut), `${title}: ${lut ? lut.name : 'none'}`)
-                  }
+                  onPick={(lut) => latest.current.onCommit(withLut(endPreview(), lut), `${title}: ${lut.name}`)}
                   onPreview={(lut) => preview(lut === undefined ? null : (p) => withLut(p, lut))}
                   onEndPreview={endPreview}
                   onAdd={(file) =>

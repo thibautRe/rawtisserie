@@ -29,18 +29,17 @@ export const LutMenu = memo(
     own: readonly LutChoice[];
     /** The user's LUTs are kept in this browser. */
     local: boolean;
-    /** Use this LUT (null: none). */
-    onPick: (lut: LutChoice | null) => void;
-    /** Show the image with this LUT (null: none; undefined: as it was) for now. */
-    onPreview: (lut: LutChoice | null | undefined) => void;
+    /** Use this LUT. */
+    onPick: (lut: LutChoice) => void;
+    /** Show the image with this LUT (undefined: as it was) for now. */
+    onPreview: (lut: LutChoice | undefined) => void;
     /** Go back to the recipe from before the previews. */
     onEndPreview: () => void;
     onAdd: (file: File) => void;
     onRemove: (lut: LutChoice) => void;
   }) => {
     const input = useRef<HTMLInputElement>(null);
-    const find = (value: string | null | undefined): LutChoice | null | undefined => {
-      if (value === 'none') return null;
+    const find = (value: string | null | undefined): LutChoice | undefined => {
       if (!value?.startsWith('lut:')) return undefined;
       const id = value.slice(4);
       return [...builtIn, ...own].find((l) => l.id === id);
@@ -83,23 +82,20 @@ export const LutMenu = memo(
           onSelect={({ value }) => {
             if (value === 'add') return input.current?.click();
             const lut = find(value);
-            if (lut !== undefined) onPick(lut);
+            if (lut) onPick(lut);
           }}
         >
           <Menu.Trigger asChild>
             <Button size="xs" variant="outline" flex="1" minW="0" justifyContent="space-between">
-              <Text truncate>{current ? current.name || 'Unnamed LUT' : 'None'}</Text>
+              <Text truncate color={current ? undefined : 'fg.muted'}>
+                {current ? current.name || 'Unnamed LUT' : 'Choose a LUT…'}
+              </Text>
               <ChevronDown />
             </Button>
           </Menu.Trigger>
           <Portal>
             <Menu.Positioner>
               <Menu.Content minW="64" maxW="sm" maxH="96" overflowY="auto" aria-label={`${title}: LUTs`}>
-                <Menu.Item value="none">
-                  <Text flex="1" fontWeight={current ? undefined : 'semibold'}>
-                    None
-                  </Text>
-                </Menu.Item>
                 {builtIn.length > 0 && (
                   <Menu.ItemGroup>
                     <Menu.ItemGroupLabel>Built-in</Menu.ItemGroupLabel>
@@ -108,7 +104,7 @@ export const LutMenu = memo(
                 )}
                 {own.length > 0 && (
                   <Menu.ItemGroup>
-                    <Menu.ItemGroupLabel>{local ? 'Yours (in this browser)' : 'Yours'}</Menu.ItemGroupLabel>
+                    <Menu.ItemGroupLabel>{local ? 'Own (in this browser)' : 'Own'}</Menu.ItemGroupLabel>
                     {own.map(item)}
                   </Menu.ItemGroup>
                 )}
