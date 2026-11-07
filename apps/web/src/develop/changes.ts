@@ -20,6 +20,7 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   colorPrimaries: 'Color primaries',
   toneCurve: 'Tone curve',
   filmic: 'Filmic',
+  lut: 'LUT',
 };
 
 export interface Change {

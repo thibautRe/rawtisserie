@@ -16,6 +16,7 @@ import {
   Rainbow,
   Spline,
   Sun,
+  SwatchBook,
   Thermometer,
   Triangle,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   colorPrimaries: Rainbow,
   toneCurve: Spline,
   filmic: Film,
+  lut: SwatchBook,
 };
 
 /** The icon of the module an entry changed (several modules: a stack). */

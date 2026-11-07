@@ -1,5 +1,6 @@
 //! Render timings for typical interactions:
-//! `cargo run --release --example bench -- photo.ARW [size]`
+//! `cargo run --release --example bench -- photo.ARW [size] [lut.cube|hald.png]`
+//! (a synthetic 65³ LUT without one)
 
 use std::time::Instant;
 
@@ -97,6 +98,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     time("equalizer release (full)", &mut dev, &p);
     p.get_mut::<Exposure>().ev += 0.1;
     time("exposure slider with equalizer", &mut dev, &p);
+
+    // A creative LUT after filmic: on filmic's 3D table, then while filmic is dragged.
+    let lut = match args.get(3) {
+        Some(path) => std::fs::read(path)?,
+        None => {
+            let n = 65;
+            let mut cube = format!("LUT_3D_SIZE {n}\n");
+            let node = |i: usize| i as f32 / (n - 1) as f32;
+            for b in 0..n {
+                for g in 0..n {
+                    for r in 0..n {
+                        let [r, g, b] = [node(r), node(g), node(b)];
+                        cube += &format!("{} {} {}\n", r.powf(1.2), g, (0.8 * b + 0.2 * r).sqrt());
+                    }
+                }
+            }
+            cube.into_bytes()
+        }
+    };
+    let t = Instant::now();
+    let id = dev.luts_mut().load(&lut)?;
+    println!("{:<34} {:>7.1} ms", "LUT loaded", t.elapsed().as_secs_f64() * 1e3);
+    let l = p.add(rawtisserie_pipeline::params::Lut { lut: Some(rawtisserie_pipeline::params::LutRef { id, name: String::new() }), ..Default::default() });
+    time("LUT added", &mut dev, &p);
+    for _ in 0..2 {
+        p.get_mut::<Exposure>().ev += 0.1;
+        time("exposure slider with LUT", &mut dev, &p);
+    }
+    p.get_mut::<Filmic>().contrast += 0.05;
+    time("filmic slider with LUT (exact)", &mut dev, &p);
+    p.modules.remove(l);
 
     let overlays = Overlays { display: Some(DisplayClipping::default()), sensor: true, stripes: 0.0, ..Default::default() };
     for label in ["clipping indicators (first)", "clipping indicators"] {

@@ -31,6 +31,7 @@ import {
   removeMask,
   removeMaskShape,
   updateMask,
+  lutIds,
 } from './params.ts';
 import type { EllipseShape as Shape } from './shapes.ts';
 import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
@@ -231,6 +232,16 @@ const samples: unknown[] = [
     },
   },
   { version: 6, modules: [{ kind: 'retouch', enabled: false, params: { spots: [{ shape: 's1' }] } }], shapes: null },
+  {
+    version: 6,
+    modules: [
+      { kind: 'lut', params: { lut: { id: 'abc', name: 'Vivid' }, interpolation: 'pyramid' } },
+      { kind: 'filmic' },
+      { kind: 'lut', params: { lut: { id: 'def' } }, mask: { opacity: 0.5 } },
+      { kind: 'lut', params: { lut: null } },
+      { kind: 'lut', enabled: false },
+    ],
+  },
 ];
 
 test('normalizeEditParams matches Rust', () => {
@@ -242,6 +253,21 @@ test('normalizeEditParams matches Rust', () => {
       JSON.stringify(sample),
     );
   }
+});
+
+test('lutIds lists the LUTs of enabled instances once', () => {
+  const p = normalizeEditParams({
+    version: 6,
+    modules: [
+      { kind: 'lut', params: { lut: { id: 'b', name: 'B' } } },
+      { kind: 'lut', params: { lut: 'junk', interpolation: 'cubic' } },
+      { kind: 'lut', params: { lut: { id: 'a' } } },
+      { kind: 'lut', params: { lut: { id: 'b', name: 'B again' } } },
+      { kind: 'lut', enabled: false, params: { lut: { id: 'c' } } },
+    ],
+  });
+  assert.deepEqual(lutIds(p), ['b', 'a']);
+  assert.deepEqual(p.modules[1]!.params, defaultModuleParams.lut);
 });
 
 test('normalizeEditParams fills gaps and ignores junk', () => {

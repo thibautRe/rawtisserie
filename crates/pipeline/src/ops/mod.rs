@@ -2,6 +2,7 @@
 
 pub mod calibration;
 pub mod clipping;
+pub mod clut;
 pub mod equalizer;
 pub mod filmic;
 pub mod filters;

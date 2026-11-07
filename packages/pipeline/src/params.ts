@@ -187,7 +187,30 @@ export interface ModuleParams {
      */
     dynamicRangeScaling: number;
   };
+  /**
+   * A creative 3D LUT, display-referred: after filmic, on encoded sRGB, converted to the
+   * output space afterwards. Mirrors `params::Lut`.
+   */
+  lut: {
+    /** The LUT; none does nothing. */
+    lut: LutRef | null;
+    interpolation: LutInterpolation;
+  };
 }
+
+/**
+ * A LUT by its id: the SHA-256 of its canonical form (`Clut::id` in Rust). Renderers are
+ * given the tables separately; one they don't have is skipped.
+ */
+export interface LutRef {
+  id: string;
+  /** Its name when it was chosen, to tell the user which LUT is missing. */
+  name: string;
+}
+
+/** How a LUT is interpolated between its nodes. Mirrors `clut::Interpolation`. */
+export const LUT_INTERPOLATIONS = ['tetrahedral', 'trilinear', 'pyramid'] as const;
+export type LutInterpolation = (typeof LUT_INTERPOLATIONS)[number];
 
 export type ModuleKind = keyof ModuleParams;
 
@@ -288,6 +311,7 @@ export const MODULE_KINDS = [
   'colorPrimaries',
   'toneCurve',
   'filmic',
+  'lut',
 ] as const satisfies readonly ModuleKind[];
 
 /** Kinds whose extra instances are dropped on load. */
@@ -509,6 +533,10 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     huePreservation: 0,
     bleach: 'medium',
     dynamicRangeScaling: 0,
+  },
+  lut: {
+    lut: null,
+    interpolation: 'tetrahedral',
   },
 });
 
@@ -739,6 +767,14 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
     if (!LEDS.includes(c.led)) c.led = d.led;
     if (!ADAPTATIONS.includes(c.adaptation)) c.adaptation = d.adaptation;
   }
+  if (kind === 'lut') {
+    const l = params as ModuleParams['lut'];
+    const ref: unknown = isObject(input) ? input.lut : null;
+    l.lut = isObject(ref)
+      ? { id: typeof ref.id === 'string' ? ref.id : '', name: typeof ref.name === 'string' ? ref.name : '' }
+      : null;
+    if (!LUT_INTERPOLATIONS.includes(l.interpolation)) l.interpolation = defaultModuleParams.lut.interpolation;
+  }
   if (kind === 'toneCurve') {
     const t = params as ModuleParams['toneCurve'];
     const d = defaultModuleParams.toneCurve;
@@ -746,6 +782,14 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
     if (!RGB_NORMS.includes(t.preserveColors)) t.preserveColors = d.preserveColors;
   }
   return params;
+}
+
+/** The LUTs the enabled instances use, without repeats, in pipeline order. Mirrors `EditParams::lut_ids`. */
+export function lutIds(params: EditParams): string[] {
+  const ids = params.modules.flatMap((m) =>
+    m.enabled && m.kind === 'lut' ? [(m as ModuleInstance<'lut'>).params.lut?.id] : [],
+  );
+  return [...new Set(ids.filter((id): id is string => id !== undefined))];
 }
 
 /** A spot from untrusted input: missing or invalid fields get their defaults. */

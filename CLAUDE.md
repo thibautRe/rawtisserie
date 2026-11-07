@@ -99,6 +99,13 @@ See README.md for the architecture overview and commands.
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance
   adapting from the as-shot light. A recipe without it renders D65-balanced colours.
+- Creative LUTs (`ops/clut.rs`, the `lut` kind) are identified by the SHA-256 of their
+  canonical form (`Clut::to_canonical`), not of the file. Recipes refer to them by that
+  id; renderers get the tables separately (`ClutStore`: `Developer::luts_mut`,
+  `PointRenderer::luts_mut`, wasm `loadLut`), so every pool worker needs them too, and a
+  LUT that isn't loaded is skipped. They run after filmic on encoded sRGB (`Looks` in
+  `ops/point.rs`); interactive renders bake them into filmic's 3D table
+  (`FilmicStage::with_looks`), whose cache is keyed by filmic's parameters and the LUTs.
 - Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 6).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.

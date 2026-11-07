@@ -79,6 +79,48 @@ pub fn normalize_params(params_json: &str) -> Result<String, JsError> {
     serde_json::to_string(&params).map_err(js_err)
 }
 
+/// A creative LUT file (`.cube`, Hald CLUT PNG, or the canonical form), decoded.
+#[wasm_bindgen]
+pub struct ParsedLut {
+    id: String,
+    size: u32,
+    bit_depth: u8,
+    canonical: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl ParsedLut {
+    /// SHA-256 of the canonical form, lowercase hex: what recipes refer to.
+    #[wasm_bindgen(getter)]
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+
+    /// Nodes along each axis.
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    #[wasm_bindgen(getter, js_name = bitDepth)]
+    pub fn bit_depth(&self) -> u8 {
+        self.bit_depth
+    }
+
+    /// The canonical form: what gets stored and loaded into renderers. Moves it out.
+    #[wasm_bindgen(js_name = takeCanonical)]
+    pub fn take_canonical(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.canonical)
+    }
+}
+
+/// Decode a LUT file, to check it and get its id and canonical form.
+#[wasm_bindgen(js_name = parseLut)]
+pub fn parse_lut(bytes: &[u8]) -> Result<ParsedLut, JsError> {
+    let lut = pipeline::ops::clut::Clut::parse(bytes).map_err(js_err)?;
+    Ok(ParsedLut { id: lut.id().to_owned(), size: lut.size() as u32, bit_depth: lut.bit_depth(), canonical: lut.to_canonical() })
+}
+
 #[wasm_bindgen]
 pub struct RenderedImage {
     width: u32,
@@ -304,6 +346,22 @@ impl Developer {
     pub fn release_cache(&mut self) {
         self.inner.release_cache();
     }
+
+    /// Make a LUT (any format `parseLut` reads) available to recipes; returns its id.
+    #[wasm_bindgen(js_name = loadLut)]
+    pub fn load_lut(&mut self, bytes: &[u8]) -> Result<String, JsError> {
+        self.inner.luts_mut().load(bytes).map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = hasLut)]
+    pub fn has_lut(&self, id: &str) -> bool {
+        self.inner.luts().contains(id)
+    }
+
+    #[wasm_bindgen(js_name = unloadLut)]
+    pub fn unload_lut(&mut self, id: &str) -> bool {
+        self.inner.luts_mut().remove(id)
+    }
 }
 
 /// The point operations over a fixed strip of a spatial image (`Developer.spatialRows`),
@@ -336,6 +394,17 @@ impl PointRenderer {
         let image = pipeline::Image { width, height, pixels: pixels.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect() };
         let as_shot = <[f32; 2]>::try_from(as_shot).ok();
         Ok(Self { inner: pipeline::pipeline::PointRenderer::with_masks(image, masks, as_shot) })
+    }
+
+    /// Make a LUT available to recipes, like `Developer.loadLut`; returns its id.
+    #[wasm_bindgen(js_name = loadLut)]
+    pub fn load_lut(&mut self, bytes: &[u8]) -> Result<String, JsError> {
+        self.inner.luts_mut().load(bytes).map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = unloadLut)]
+    pub fn unload_lut(&mut self, id: &str) -> bool {
+        self.inner.luts_mut().remove(id)
     }
 
     /// Interactive render of the strip to RGBA8.

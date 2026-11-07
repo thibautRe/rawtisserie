@@ -7,8 +7,9 @@
 //!
 //! Order: exposure → colour calibration → saturation/vibrance → shadows/highlights →
 //! colour primaries → tone curve (all in linear Rec.2020, each kind possibly several times) →
-//! filmic (to display-linear output primaries) → encoding. The output space is sRGB
-//! except for exports ([`PointOps::for_space`]).
+//! filmic (to display-linear output primaries) → creative LUTs (on encoded sRGB, see
+//! [`Looks`]) → encoding. The output space is sRGB except for exports
+//! ([`PointOps::for_space`]).
 //!
 //! A masked instance (`crate::ops::mask`) blends its output with its input per pixel:
 //! its parametric part is evaluated here, on its input, and its drawn part is read from
@@ -16,6 +17,7 @@
 
 use crate::color::{LUMA_REC2020, MIDDLE_GREY, Mat3, luminance, mul_vec};
 use crate::ops::calibration::CalibrationStage;
+use crate::ops::clut::{Clut, ClutStore, Interpolation};
 use crate::image::{Image, Rgb, Rgba8};
 use crate::ops::filmic::Filmic;
 use crate::ops::lut::{BitsLut, CEILING, FINE, FLOOR, Lut3d};
@@ -38,14 +40,29 @@ fn shadows_highlights_gain(y: f32, shadows: f32, highlights: f32) -> f32 {
 /// levels (8-bit) of the exact computation; smaller grids show visible errors.
 pub const FILMIC_LUT_SIZE: usize = 65;
 
+/// A creative LUT instance: its table, and how it's interpolated.
+pub type Look = (Rc<Clut>, Interpolation);
+
+/// The LUTs of `p`'s enabled LUT instances, in order, skipping those `luts` doesn't have.
+pub fn looks_of(p: &EditParams, luts: &ClutStore) -> Vec<Look> {
+    p.all::<params::Lut>().filter_map(|l| Some((luts.get(&l.lut.as_ref()?.id)?.clone(), l.interpolation))).collect()
+}
+
+fn same_looks(a: &[Look], b: &[Look]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|((x, i), (y, j))| i == j && x.id() == y.id())
+}
+
 /// Filmic, with its per-channel curve as a 1D table and (optionally) the whole
-/// colour transform baked into a 3D table over log-encoded RGB.
+/// colour transform baked into a 3D table over log-encoded RGB, creative LUTs included
+/// if it was built with some ([`with_looks`](Self::with_looks)).
 pub struct FilmicStage {
     filmic: Filmic,
     space: ColorSpace,
     curve: BitsLut<f32>,
     lut: Option<Lut3d>,
     lut_max: f32,
+    /// The creative LUTs it was built with: baked into `lut` after filmic, if it has one.
+    looks: Vec<Look>,
 }
 
 impl FilmicStage {
@@ -56,6 +73,17 @@ impl FilmicStage {
 
     /// Gamut-mapped to `space`, and its table (if any) encoded for it.
     pub fn for_space(p: &crate::params::Filmic, lut_size: Option<usize>, space: ColorSpace) -> Self {
+        Self::build(p, lut_size, space, &[])
+    }
+
+    /// For sRGB output, with the creative LUTs `looks` baked into its table, if it has
+    /// one: the point operations then skip them for the pixels the table covers.
+    pub fn with_looks(p: &crate::params::Filmic, lut_size: Option<usize>, looks: &[Look]) -> Self {
+        Self::build(p, lut_size, ColorSpace::Srgb, looks)
+    }
+
+    fn build(p: &crate::params::Filmic, lut_size: Option<usize>, space: ColorSpace, looks: &[Look]) -> Self {
+        assert!(looks.is_empty() || space == ColorSpace::Srgb, "LUTs are baked on sRGB output only");
         let filmic = Filmic::for_space(p, space);
         let curve = BitsLut::new(FLOOR, CEILING, FINE, |v| filmic.spline.tone_map(v));
         // From 2 EV below the black point (displayed as black anyway) to 4 EV above
@@ -64,11 +92,22 @@ impl FilmicStage {
         let lut = lut_size.map(|n| {
             // Stored encoded: interpolation error is then perceptually uniform.
             Lut3d::new(n, grey + p.black_exposure - 2.0, grey + p.white_exposure + 4.0, |c| {
-                filmic.apply_compressed(c, |v| curve.eval(v)).map(|v| space.oetf(v))
+                let e = filmic.apply_compressed(c, |v| curve.eval(v)).map(|v| space.oetf(v));
+                looks.iter().fold(e, |e, (lut, interpolation)| lut.eval(e, *interpolation))
             })
         });
         let lut_max = lut.as_ref().map_or(0.0, Lut3d::max_input);
-        Self { filmic, space, curve, lut, lut_max }
+        Self { filmic, space, curve, lut, lut_max, looks: looks.to_vec() }
+    }
+
+    /// Whether it was built with exactly these creative LUTs.
+    pub fn has_looks(&self, looks: &[Look]) -> bool {
+        same_looks(&self.looks, looks)
+    }
+
+    /// Whether its table has creative LUTs baked in.
+    fn bakes_looks(&self) -> bool {
+        self.lut.is_some() && !self.looks.is_empty()
     }
 
     pub fn has_lut(&self) -> bool {
@@ -80,6 +119,16 @@ impl FilmicStage {
         self.filmic.apply_compressed(self.filmic.prepare(px), |v| self.curve.eval(v))
     }
 
+    /// Output encoded for its space, from the 3D table if it has one that covers `px`.
+    #[inline]
+    fn lut_encoded(&self, px: Rgb) -> Option<Rgb> {
+        let c = self.filmic.prepare(px);
+        match &self.lut {
+            Some(lut) if c[0].max(c[1]).max(c[2]) <= self.lut_max => Some(lut.eval(c)),
+            _ => None,
+        }
+    }
+
     /// 8-bit encoded output, through the 3D table when possible.
     #[inline]
     fn apply_u8(&self, px: Rgb, encode: &BitsLut<u8>) -> [u8; 3] {
@@ -87,6 +136,78 @@ impl FilmicStage {
         match &self.lut {
             Some(lut) if c[0].max(c[1]).max(c[2]) <= self.lut_max => lut.eval(c).map(|v| (v * 255.0 + 0.5) as u8),
             _ => self.filmic.apply_compressed(c, |v| self.curve.eval(v)).map(|v| encode.eval(v)),
+        }
+    }
+}
+
+/// The creative LUTs ([`params::Lut`]) after filmic. They map encoded sRGB to encoded
+/// sRGB: filmic's output (display-linear, in the output primaries) is converted to
+/// sRGB, clipped, encoded, run through the LUTs in order, then converted back to the
+/// output space. Colours outside sRGB are clipped before the first LUT.
+struct Looks {
+    luts: Vec<Look>,
+    /// Display-linear output primaries → linear sRGB, unless the output is sRGB.
+    to_srgb: Option<Mat3>,
+    /// Linear sRGB → linear output primaries, unless the output is sRGB.
+    from_srgb: Option<Mat3>,
+    /// Linear → encoded sRGB, approximately (within a quarter of an 8-bit level), for
+    /// 8-bit renders.
+    srgb_oetf: BitsLut<f32>,
+}
+
+impl Looks {
+    fn new(luts: Vec<Look>, space: ColorSpace) -> Option<Self> {
+        if luts.is_empty() {
+            return None;
+        }
+        let srgb_oetf = BitsLut::new(FLOOR, 1.0, FINE, crate::color::srgb_oetf);
+        let mut looks = Self { luts, to_srgb: None, from_srgb: None, srgb_oetf };
+        looks.set_space(space);
+        Some(looks)
+    }
+
+    fn set_space(&mut self, space: ColorSpace) {
+        let srgb = ColorSpace::Srgb;
+        (self.to_srgb, self.from_srgb) = if space == srgb {
+            (None, None)
+        } else {
+            (
+                Some(crate::color::mul(&srgb.rgb_from_xyz(), &space.xyz_from_rgb())),
+                Some(crate::color::mul(&space.rgb_from_xyz(), &srgb.xyz_from_rgb())),
+            )
+        };
+    }
+
+    /// Display-linear output primaries → linear sRGB, clipped.
+    #[inline]
+    fn linear_srgb(&self, c: Rgb) -> Rgb {
+        match &self.to_srgb {
+            Some(m) => mul_vec(m, c),
+            None => c,
+        }
+        .map(|v| v.clamp(0.0, 1.0))
+    }
+
+    /// The LUTs on encoded sRGB colours, in place.
+    #[inline]
+    fn apply_all(&self, encoded: &mut [Rgb]) {
+        for (lut, interpolation) in &self.luts {
+            lut.apply_all(encoded, *interpolation);
+        }
+    }
+
+    /// The LUTs on one encoded sRGB colour.
+    #[inline]
+    fn apply(&self, e: Rgb) -> Rgb {
+        self.luts.iter().fold(e, |e, (lut, interpolation)| lut.eval(e, *interpolation))
+    }
+
+    /// Encoded sRGB → encoded `space`, exactly.
+    #[inline]
+    fn to_output(&self, e: Rgb, space: ColorSpace) -> Rgb {
+        match &self.from_srgb {
+            Some(m) => mul_vec(m, e.map(|v| ColorSpace::Srgb.eotf(v))).map(|v| space.oetf(v)),
+            None => e,
         }
     }
 }
@@ -259,6 +380,10 @@ pub struct PointOps {
     /// The enabled point modules before filmic, in pipeline order.
     chain: Chain,
     filmic: Option<Rc<FilmicStage>>,
+    /// The LUTs after filmic, if any.
+    looks: Option<Looks>,
+    /// Whether filmic's 3D table has the LUTs baked in.
+    baked: bool,
     space: ColorSpace,
     /// Used when filmic is off: clip in the output space.
     to_output: Mat3,
@@ -281,17 +406,20 @@ impl PointOps {
     }
 
     /// Use a prepared (typically cached) filmic stage; `None` disables filmic.
+    /// No LUTs are loaded: LUT instances are skipped.
     pub fn with_filmic(p: &EditParams, as_shot: Option<[f32; 2]>, filmic: Option<Rc<FilmicStage>>) -> Self {
-        Self::with_stages(p, as_shot, filmic, &mut |cp| Rc::new(ColorPrimariesStage::build(cp)))
+        Self::with_stages(p, as_shot, filmic, &mut |cp| Rc::new(ColorPrimariesStage::build(cp)), &ClutStore::default())
     }
 
     /// Like [`with_filmic`](Self::with_filmic), with colour primaries tables from `primaries`
-    /// (typically a cache), called for each instance that changes anything.
+    /// (typically a cache), called for each instance that changes anything, and the
+    /// tables of LUT instances from `luts` (an instance whose LUT isn't there is skipped).
     pub fn with_stages(
         p: &EditParams,
         as_shot: Option<[f32; 2]>,
         filmic: Option<Rc<FilmicStage>>,
         primaries: &mut dyn FnMut(&params::ColorPrimaries) -> Rc<ColorPrimariesStage>,
+        luts: &ClutStore,
     ) -> Self {
         let mut steps: Vec<Step> = Vec::new();
         for instance in p.modules.iter().filter(|m| m.enabled) {
@@ -335,9 +463,14 @@ impl PointOps {
         }
 
         let space = filmic.as_ref().map_or(ColorSpace::Srgb, |f| f.space);
+        let looks = looks_of(p, luts);
+        let baked = filmic.as_ref().is_some_and(|f| f.bakes_looks());
+        assert!(!baked || filmic.as_ref().is_some_and(|f| f.has_looks(&looks)), "filmic's table has other LUTs baked in");
         Self {
             chain: Chain::new(steps),
             filmic,
+            looks: Looks::new(looks, space),
+            baked,
             space,
             to_output: space.from_working(),
             encode: BitsLut::new(FLOOR, 1.0, FINE, |v| (space.oetf(v) * 255.0 + 0.5) as u8),
@@ -352,6 +485,9 @@ impl PointOps {
             self.space = space;
             self.to_output = space.from_working();
             self.encode = BitsLut::new(FLOOR, 1.0, FINE, |v| (space.oetf(v) * 255.0 + 0.5) as u8);
+            if let Some(looks) = &mut self.looks {
+                looks.set_space(space);
+            }
         }
         self
     }
@@ -373,7 +509,8 @@ impl PointOps {
         }
     }
 
-    /// One pixel: scene-linear Rec.2020 → display-linear output primaries.
+    /// One pixel: scene-linear Rec.2020 → display-linear output primaries, before the
+    /// creative LUTs.
     #[inline]
     pub fn display(&self, px: Rgb) -> Rgb {
         self.to_display(self.adjust(px))
@@ -472,7 +609,8 @@ impl PointOps {
         out
     }
 
-    /// An adjusted pixel to 8 bits, encoded.
+    /// An adjusted pixel to 8 bits, encoded (without the creative LUTs: see
+    /// [`encode_chunk`](Self::encode_chunk)).
     #[inline]
     fn encode(&self, c: Rgb) -> [u8; 3] {
         match &self.filmic {
@@ -481,10 +619,51 @@ impl PointOps {
         }
     }
 
+    /// An adjusted pixel to encoded sRGB, for the creative LUTs: through filmic's table
+    /// when it covers the pixel (the output is then sRGB), approximately otherwise.
+    /// Filmic's table mustn't have the LUTs baked in.
+    #[inline]
+    fn encode_srgb(&self, looks: &Looks, c: Rgb) -> Rgb {
+        if self.space == ColorSpace::Srgb && !self.baked {
+            if let Some(e) = self.filmic.as_ref().and_then(|f| f.lut_encoded(c)) {
+                return e;
+            }
+        }
+        looks.linear_srgb(self.to_display(c)).map(|v| looks.srgb_oetf.eval(v))
+    }
+
+    /// Adjusted pixels to 8 bits, encoded, into `out` (RGBA, alpha untouched).
+    #[inline]
+    fn encode_chunk(&self, pixels: &mut [Rgb], out: &mut [u8]) {
+        let Some(looks) = &self.looks else {
+            for (c, out) in pixels.iter().zip(out.chunks_exact_mut(4)) {
+                out[..3].copy_from_slice(&self.encode(*c));
+            }
+            return;
+        };
+        let quantize = |e: Rgb| e.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8);
+        if let (true, Some(filmic)) = (self.baked, &self.filmic) {
+            // Filmic's table has the LUTs: only the pixels it doesn't cover need them.
+            for (c, out) in pixels.iter().zip(out.chunks_exact_mut(4)) {
+                let e = filmic.lut_encoded(*c).unwrap_or_else(|| looks.apply(self.encode_srgb(looks, *c)));
+                out[..3].copy_from_slice(&quantize(e));
+            }
+            return;
+        }
+        pixels.iter_mut().for_each(|c| *c = self.encode_srgb(looks, *c));
+        looks.apply_all(pixels);
+        for (e, out) in pixels.iter().zip(out.chunks_exact_mut(4)) {
+            out[..3].copy_from_slice(&quantize(looks.to_output(*e, self.space)));
+        }
+    }
+
     /// One pixel, all the way to 8 bits, encoded.
     #[inline]
     pub fn apply(&self, px: Rgb) -> [u8; 3] {
-        self.encode(self.adjust(px))
+        let mut c = [self.adjust(px)];
+        let mut out = [255u8; 4];
+        self.encode_chunk(&mut c, &mut out);
+        [out[0], out[1], out[2]]
     }
 
     /// Apply to a whole image and encode to 8 bits. Masked instances with a drawn
@@ -504,9 +683,7 @@ impl PointOps {
             let buffer = &mut buffer[..pixels.len()];
             buffer.copy_from_slice(pixels);
             self.adjust_all(buffer, &planes, i * CHUNK);
-            for (c, out) in buffer.iter().zip(out.chunks_exact_mut(4)) {
-                out[..3].copy_from_slice(&self.encode(*c));
-            }
+            self.encode_chunk(buffer, out);
         }
         Rgba8 { width: img.width, height: img.height, data }
     }
@@ -525,7 +702,14 @@ impl PointOps {
             let buffer = &mut buffer[..pixels.len()];
             buffer.copy_from_slice(pixels);
             self.adjust_all(buffer, &planes, start + i * CHUNK);
-            out.extend(buffer.iter().map(|&c| self.to_display(c).map(|v| self.space.oetf(v))));
+            match &self.looks {
+                None => out.extend(buffer.iter().map(|&c| self.to_display(c).map(|v| self.space.oetf(v)))),
+                Some(looks) => {
+                    buffer.iter_mut().for_each(|c| *c = looks.linear_srgb(self.to_display(*c)).map(crate::color::srgb_oetf));
+                    looks.apply_all(buffer);
+                    out.extend(buffer.iter().map(|&e| looks.to_output(e, self.space)));
+                }
+            }
         }
     }
 }
@@ -658,6 +842,120 @@ mod tests {
             let want = exact.apply(mul_vec(&REC2020_FROM_REC709, [v; 3]), |x| exact.spline.tone_map(x));
             assert!(approx(got, want, 3e-3), "{v}: {got:?} vs {want:?}");
         }
+    }
+
+    /// A LUT instance using `lut`, and point ops for `p` with `luts` loaded.
+    fn add_lut(p: &mut EditParams, lut: &Clut, interpolation: Interpolation) {
+        p.add(params::Lut { lut: Some(params::LutRef { id: lut.id().into(), name: "test".into() }), interpolation });
+    }
+
+    fn ops_with_luts(p: &EditParams, luts: &[&Clut], lut_size: Option<usize>, space: ColorSpace) -> PointOps {
+        let mut store = ClutStore::default();
+        luts.iter().for_each(|l| store.insert((*l).clone()));
+        let filmic = p.get::<params::Filmic>().map(|f| Rc::new(FilmicStage::for_space(f, lut_size, space)));
+        PointOps::with_stages(p, None, filmic, &mut |cp| Rc::new(ColorPrimariesStage::build(cp)), &store).for_space(space)
+    }
+
+    fn test_image() -> Image {
+        let pixels = [0.0f32, 0.002, 0.03, 0.18, 0.6, 2.0, 30.0]
+            .iter()
+            .flat_map(|&v| [[v, v, v], [v * 1.6, v * 0.9, v * 0.2], [v * 0.1, v * 0.5, v * 1.3]])
+            .collect();
+        Image { width: 21, height: 1, pixels }
+    }
+
+    fn encoded_rows(ops: &PointOps, img: &Image) -> Vec<Rgb> {
+        let mut out = Vec::new();
+        ops.render_encoded_rows(img, &[], 0..img.height, &mut out);
+        out
+    }
+
+    #[test]
+    fn identity_lut_changes_nothing() {
+        let img = test_image();
+        let identity = Clut::identity(33);
+        for filmic in [true, false] {
+            let mut p = EditParams::default();
+            if !filmic {
+                p.remove(params::ModuleKind::Filmic);
+            }
+            for lut_size in [None, Some(FILMIC_LUT_SIZE)] {
+                let plain = ops_with_luts(&p, &[], lut_size, ColorSpace::Srgb).render(&img);
+                let mut with = p.clone();
+                add_lut(&mut with, &identity, Interpolation::Tetrahedral);
+                let looked = ops_with_luts(&with, &[&identity], lut_size, ColorSpace::Srgb).render(&img);
+                let diff = plain.data.iter().zip(&looked.data).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+                assert!(diff <= 1, "filmic {filmic}, table {lut_size:?}: {diff}");
+            }
+            // Exact (exports), in a wider space too: colours inside sRGB come back.
+            for space in [ColorSpace::Srgb, ColorSpace::DisplayP3] {
+                let plain = encoded_rows(&ops_with_luts(&p, &[], None, space), &img);
+                let mut with = p.clone();
+                add_lut(&mut with, &identity, Interpolation::Trilinear);
+                let looked = encoded_rows(&ops_with_luts(&with, &[&identity], None, space), &img);
+                let inside = |c: &Rgb| {
+                    let srgb = ColorSpace::Srgb.rgb_from_xyz();
+                    let lin = mul_vec(&crate::color::mul(&srgb, &space.xyz_from_rgb()), c.map(|v| space.eotf(v)));
+                    lin.iter().all(|v| (-1e-4..=1.0001).contains(v))
+                };
+                for (a, b) in plain.iter().zip(&looked) {
+                    if inside(a) {
+                        assert!(approx(*a, *b, 2e-3), "{space:?}: {a:?} vs {b:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn luts_apply_in_order_after_filmic() {
+        let img = test_image();
+        let swap = Clut::from_fn(9, |c| [c[2], c[1], c[0]]);
+        let darken = Clut::from_fn(9, |c| c.map(|v| v * 0.5));
+        let p = EditParams::default();
+        let plain = encoded_rows(&ops_with_luts(&p, &[], None, ColorSpace::Srgb), &img);
+
+        let mut with = p.clone();
+        add_lut(&mut with, &swap, Interpolation::Tetrahedral);
+        add_lut(&mut with, &darken, Interpolation::Tetrahedral);
+        let out = encoded_rows(&ops_with_luts(&with, &[&swap, &darken], None, ColorSpace::Srgb), &img);
+        for (a, b) in plain.iter().zip(&out) {
+            assert!(approx([a[2] * 0.5, a[1] * 0.5, a[0] * 0.5], *b, 1e-4), "{a:?} → {b:?}");
+        }
+
+        // 8-bit renders agree, through filmic's table too, and with the LUTs baked into it.
+        let mut store = ClutStore::default();
+        store.insert(swap.clone());
+        store.insert(darken.clone());
+        let looks = looks_of(&with, &store);
+        let baked = Rc::new(FilmicStage::with_looks(with.get::<params::Filmic>().unwrap(), Some(FILMIC_LUT_SIZE), &looks));
+        let baked = PointOps::with_stages(&with, None, Some(baked), &mut |cp| Rc::new(ColorPrimariesStage::build(cp)), &store);
+        assert!(baked.baked);
+        let renders = [None, Some(FILMIC_LUT_SIZE)].map(|lut_size| ops_with_luts(&with, &[&swap, &darken], lut_size, ColorSpace::Srgb).render(&img));
+        for rgba in renders.iter().chain([&baked.render(&img)]) {
+            for (e, px) in out.iter().zip(rgba.data.chunks_exact(4)) {
+                let diff = (0..3).map(|i| ((e[i] * 255.0).round() - px[i] as f32).abs()).fold(0.0, f32::max);
+                assert!(diff <= 2.0, "{e:?} vs {px:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn missing_and_disabled_luts_are_skipped() {
+        let img = test_image();
+        let swap = Clut::from_fn(5, |c| [c[2], c[1], c[0]]);
+        let p = EditParams::default();
+        let plain = ops_with_luts(&p, &[], None, ColorSpace::Srgb).render(&img);
+
+        let mut missing = p.clone();
+        add_lut(&mut missing, &swap, Interpolation::Tetrahedral);
+        assert_eq!(ops_with_luts(&missing, &[], None, ColorSpace::Srgb).render(&img).data, plain.data);
+
+        let mut disabled = missing.clone();
+        disabled.modules.last_mut().unwrap().enabled = false;
+        assert_eq!(ops_with_luts(&disabled, &[&swap], None, ColorSpace::Srgb).render(&img).data, plain.data);
+
+        assert_ne!(ops_with_luts(&missing, &[&swap], None, ColorSpace::Srgb).render(&img).data, plain.data);
     }
 
     #[test]

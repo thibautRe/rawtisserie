@@ -827,14 +827,43 @@ new UI control.
 
 ### 4.8 3D LUT (M, before 1.0)
 
-Following darktable's `lut3d.c`: `.cube` files first (then `.3dl` and Hald CLUT PNGs),
-with tetrahedral interpolation and a choice of input colour space/encoding.
+> **In progress.** Done: the pipeline side (`ops/clut.rs`, the `lut` kind in
+> `params.rs` ↔ `params.ts`, the stage after filmic in `ops/point.rs`, baked into
+> filmic's interactive table, wasm `parseLut`/`loadLut`). Measured at 2400 px: the
+> table bakes in at no extra cost per render; the exact path (filmic drags, final
+> renders, exports) adds ~85 ms per 3.8 MP single-threaded (tetrahedral; branch-bound,
+> not memory-bound: a 2³ LUT costs the same). To do: storage and routes on the server,
+> built-in LUTs, the module's UI, loading LUTs into the pool workers and the server
+> renderer.
 
-- Usually display-referred, so it goes after filmic. Check whether the fused point pass
-  supports a stage after filmic, or add one.
-- LUT files are user assets: store them like presets (per user, content-addressed). The
-  recipe refers to them by hash, styles carry them, and the public developer loads them
-  locally.
+Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
+choice of interpolation (tetrahedral, trilinear, pyramid).
+
+- **Pipeline:** display-referred sRGB LUTs only for now, after filmic, several instances
+  allowed. Filmic's display-linear output → LUT input space (sRGB) → LUT → output space,
+  so P3/Rec.2020 exports stay right (colours beyond sRGB clip before the LUT). Interactive
+  renders can fold the chain of LUTs into filmic's 65³ table; exports use the exact path.
+  Log-input `.cube` (S-Log3, LogC…) later: the LUT record stores its `input_space` from
+  the start.
+- **No strength parameter:** opacity and blend modes come from the planned mask/blend
+  feature, which then has to cover kinds after filmic too.
+- **Recipe:** `{ lut: { id: <sha256>, name }, interpolation }`. A missing LUT renders as
+  disabled, with a warning naming it.
+- **Storage:** parse in Rust (browser and server), decode to a canonical form (grid size,
+  bit depth, domain, input space, table at its own depth) and hash _that_, so re-encoded
+  files deduplicate. Global `luts (sha256, …, storage_key)` blobs, gzipped, and per-user
+  `user_luts (owner_id, lut_sha256, name, hidden_at)`. Access: built-in, or a
+  `user_luts` row. Always upload and deduplicate server-side (no "already known" shortcut,
+  which would reveal other users' files); quota counts the full size per user. Deleting
+  hides the row (history still refers to the hash); a job removes unreferenced blobs.
+- **Built-ins:** a manifest of hashes served as static assets (so `/develop` has them).
+  Same hash space as user LUTs: adding a built-in that users already uploaded changes
+  nothing for them. Built-ins are never removed from the manifest, only retired from the
+  picker, and never re-encoded in a way that changes the table.
+- **Public developer:** custom LUTs stay in IndexedDB, keyed by the same hash.
+- **Initial built-ins:** a few from the RawTherapee Film Simulation collection (CC BY-SA
+  4.0, credits needed; Hald level 12, sRGB), named by feel rather than brand. They add
+  15–37 % midtone contrast on top of filmic, so they're looks to pick, not defaults.
 
 ### 4.9 Frame (S–M, before 1.0)
 

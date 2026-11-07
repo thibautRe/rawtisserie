@@ -162,6 +162,8 @@ modules! {
     ToneCurve,
     /// Scene-referred → display-referred. Single instance.
     Filmic,
+    /// Display-referred, after filmic: creative 3D LUTs.
+    Lut,
 }
 
 impl ModuleKind {
@@ -1072,6 +1074,39 @@ impl Default for Filmic {
     }
 }
 
+/// A creative 3D LUT (roadmap 4.8, see [`crate::ops::clut`]), display-referred: it runs
+/// after filmic, on encoded sRGB, and the result is converted to the output space.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Lut {
+    /// The LUT; none does nothing.
+    pub lut: Option<LutRef>,
+    pub interpolation: crate::ops::clut::Interpolation,
+}
+
+/// A LUT by its id: the SHA-256 of its canonical form (`Clut::id`). Renderers are given
+/// the tables separately (`ClutStore`); a LUT they don't have is skipped.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LutRef {
+    pub id: String,
+    /// Its name when it was chosen, to tell the user which LUT is missing.
+    pub name: String,
+}
+
+impl EditParams {
+    /// The LUTs the enabled instances use, without repeats, in pipeline order.
+    pub fn lut_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        for lut in self.all::<Lut>().filter_map(|l| l.lut.as_ref()) {
+            if !ids.contains(&lut.id.as_str()) {
+                ids.push(&lut.id);
+            }
+        }
+        ids
+    }
+}
+
 /// The five Ansel v8 "AgX" colour science variants.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1395,6 +1430,32 @@ mod tests {
         assert_eq!((t.channels, t.preserve_colors, t.rgb, t.green[4]), (CurveChannels::Independent, RgbNorm::Max, [0.0; TONE_CURVE_NODES], 0.5));
         assert!(!t.is_identity());
         assert!(EditParams::from_json(r#"{"version":6,"modules":[{"kind":"toneCurve","params":{"rgb":[1,2]}}]}"#).is_err());
+    }
+
+    #[test]
+    fn luts_come_after_filmic_and_list_their_ids() {
+        let p = EditParams::from_json(
+            r#"{"version":6,"modules":[
+                {"kind":"lut","params":{"lut":{"id":"b","name":"Vivid"},"interpolation":"pyramid"}},
+                {"kind":"lut","params":{"lut":{"id":"a"}}},
+                {"kind":"lut","params":{}},
+                {"kind":"lut","enabled":false,"params":{"lut":{"id":"c","name":"Off"}}},
+                {"kind":"lut","params":{"lut":{"id":"b","name":"Vivid again"}},"mask":{"opacity":0.5}},
+                {"kind":"filmic"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::Filmic, ModuleKind::Lut, ModuleKind::Lut, ModuleKind::Lut, ModuleKind::Lut, ModuleKind::Lut]);
+        let lut = p.get::<Lut>().unwrap();
+        assert_eq!((lut.lut.as_ref().unwrap().name.as_str(), lut.interpolation), ("Vivid", crate::ops::clut::Interpolation::Pyramid));
+        assert_eq!(p.all::<Lut>().nth(1).unwrap().lut, Some(LutRef { id: "a".into(), name: String::new() }));
+        assert_eq!(p.all::<Lut>().nth(2).unwrap().lut, None);
+        assert_eq!(p.lut_ids(), ["b", "a"]);
+        // Not maskable (yet).
+        assert!(p.modules.iter().all(|m| m.mask.is_none()));
+
+        let json = serde_json::to_value(&p).unwrap();
+        assert_eq!(json["modules"][3]["params"], serde_json::json!({ "lut": null, "interpolation": "tetrahedral" }));
+        assert_eq!(EditParams::from_json(&json.to_string()).unwrap(), p);
     }
 
     #[test]

@@ -7,7 +7,8 @@ use crate::metadata::PhotoMetadata;
 use crate::output::ColorSpace;
 use std::rc::Rc;
 
-use crate::ops::point::{FILMIC_LUT_SIZE, FilmicStage, PointOps};
+use crate::ops::clut::ClutStore;
+use crate::ops::point::{self, FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::calibration::{self, Detection};
 use crate::ops::clipping::{self, MaskPart, MaskView, Overlays};
 use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
@@ -110,12 +111,14 @@ pub struct Developer {
 /// doesn't rebuild the tables of the others.
 #[derive(Default)]
 pub struct PointOpsCache {
-    /// Filmic, compiled for the last parameters used interactively.
+    /// Filmic, compiled for the last parameters (and LUTs after it) used interactively.
     filmic: Option<(Filmic, Rc<FilmicStage>)>,
     /// Colour primaries tables used by the last render.
     primaries: Vec<(ColorPrimaries, Rc<ColorPrimariesStage>)>,
     /// What those tables are built from besides the edits, for the last settings used.
     primaries_weights: Option<Rc<FieldWeights>>,
+    /// The creative LUTs recipes can use, by id.
+    pub luts: ClutStore,
 }
 
 /// The point operations alone, over a fixed image: typically one strip of a
@@ -138,6 +141,11 @@ impl PointRenderer {
     /// [`Developer::spatial`]'s).
     pub fn with_masks(image: Image, masks: Vec<MaskPlane>, as_shot: Option<[f32; 2]>) -> Self {
         Self { image, masks, as_shot, cache: PointOpsCache::default() }
+    }
+
+    /// The creative LUTs recipes can use: give it the same ones as the [`Developer`].
+    pub fn luts_mut(&mut self) -> &mut ClutStore {
+        &mut self.cache.luts
     }
 
     /// Same pixels as [`Developer::render`] gives for these rows.
@@ -301,7 +309,8 @@ struct StepMask {
 impl PointOpsCache {
     /// The point operations for a render at this quality.
     pub fn render_ops(&mut self, params: &EditParams, as_shot: Option<[f32; 2]>, quality: Quality) -> PointOps {
-        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, quality));
+        let looks = point::looks_of(params, &self.luts);
+        let filmic = params.get::<Filmic>().map(|f| self.filmic_stage(f, &looks, quality));
         self.ops(params, as_shot, filmic)
     }
 
@@ -316,6 +325,7 @@ impl PointOpsCache {
         let cache = std::mem::take(&mut self.primaries);
         let mut weights = self.primaries_weights.take();
         let mut used = Vec::new();
+        let luts = &self.luts;
         let ops = PointOps::with_stages(params, as_shot, filmic, &mut |p| {
             let stage = match cache.iter().find(|(q, _)| q == p) {
                 Some((_, stage)) => stage.clone(),
@@ -335,7 +345,7 @@ impl PointOpsCache {
             };
             used.push((p.clone(), stage.clone()));
             stage
-        });
+        }, luts);
         self.primaries = used;
         self.primaries_weights = weights;
         ops
@@ -343,22 +353,23 @@ impl PointOpsCache {
 
     /// Filmic for interactive renders: computed exactly right after its parameters
     /// change (e.g. while one of its sliders is dragged), then baked into a 3D lookup
-    /// table once the same parameters are rendered again (other sliders, full-size
-    /// render after a draft…).
-    fn filmic_stage(&mut self, p: &Filmic, quality: Quality) -> Rc<FilmicStage> {
+    /// table, with the creative LUTs after it, once the same parameters are rendered
+    /// again (other sliders, full-size render after a draft…). Choosing other LUTs
+    /// isn't a drag: the table is rebuilt at once.
+    fn filmic_stage(&mut self, p: &Filmic, looks: &[point::Look], quality: Quality) -> Rc<FilmicStage> {
         if quality == Quality::Final {
             return Rc::new(FilmicStage::new(p, None));
         }
         let lut = match &self.filmic {
             Some((cached, stage)) if cached == p => {
-                if stage.has_lut() {
+                if stage.has_lut() && stage.has_looks(looks) {
                     return stage.clone();
                 }
                 Some(FILMIC_LUT_SIZE)
             }
             _ => None,
         };
-        let stage = Rc::new(FilmicStage::new(p, lut));
+        let stage = Rc::new(FilmicStage::with_looks(p, lut, looks));
         self.filmic = Some((p.clone(), stage.clone()));
         stage
     }
@@ -396,8 +407,18 @@ impl Developer {
         self.base_retouch = Retouched::default();
         self.patch = None;
         self.slots.clear();
-        self.point_ops = PointOpsCache::default();
+        self.point_ops = PointOpsCache { luts: std::mem::take(&mut self.point_ops.luts), ..Default::default() };
         self.sensor_clip = None;
+    }
+
+    /// The creative LUTs recipes can use (LUT instances whose table isn't there are
+    /// skipped). Kept by [`release_cache`](Self::release_cache).
+    pub fn luts(&self) -> &ClutStore {
+        &self.point_ops.luts
+    }
+
+    pub fn luts_mut(&mut self) -> &mut ClutStore {
+        &mut self.point_ops.luts
     }
 
     fn transform(&self, params: &EditParams) -> geometry::Transform {

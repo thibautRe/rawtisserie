@@ -202,3 +202,46 @@ fn tone_curve_fit_follows_the_modules_before_it() {
     }
     assert!(dev.tone_curve_input(&p, "exposure", SIZE).is_none());
 }
+
+/// A `.cube` file of `f` on a `size³` grid.
+fn cube(size: usize, f: impl Fn([f32; 3]) -> [f32; 3]) -> String {
+    let mut s = format!("LUT_3D_SIZE {size}\n");
+    let node = |i: usize| i as f32 / (size - 1) as f32;
+    for b in 0..size {
+        for g in 0..size {
+            for r in 0..size {
+                let [x, y, z] = f([node(r), node(g), node(b)]);
+                s += &format!("{x} {y} {z}\n");
+            }
+        }
+    }
+    s
+}
+
+#[test]
+fn luts_render_the_same_in_strips_and_survive_releasing_the_cache() {
+    use rawtisserie_pipeline::ops::clut::Interpolation;
+    use rawtisserie_pipeline::params::{Lut, LutRef};
+    let file = cube(17, |[r, g, b]| [r.powf(1.3), 0.1 + 0.8 * g, (b * 0.7 + r * 0.3).sqrt()]);
+    let mut dev = developer();
+    let mut p = EditParams::default_for(dev.metadata());
+    let plain = dev.render(&p, SIZE, Quality::Final);
+    let id = dev.luts_mut().load(file.as_bytes()).unwrap();
+    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into() }), interpolation: Interpolation::Tetrahedral });
+    let looked = dev.render(&p, SIZE, Quality::Final);
+    assert_ne!(looked.data, plain.data);
+
+    dev.release_cache();
+    assert!(dev.luts().contains(&id));
+    assert_eq!(dev.render(&p, SIZE, Quality::Final).data, looked.data);
+
+    let mut parts = strips(&mut dev, &p, 3);
+    for part in &mut parts {
+        assert_eq!(part.luts_mut().load(file.as_bytes()).unwrap(), id);
+    }
+    for pass in 0..2 {
+        let want = dev.render(&p, SIZE, Quality::Interactive);
+        let got: Vec<u8> = parts.iter_mut().flat_map(|part| part.render(&p, Quality::Interactive).data).collect();
+        assert!(got == want.data, "pass {pass}: strips differ from the full render");
+    }
+}
