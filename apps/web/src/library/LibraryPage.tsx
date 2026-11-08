@@ -15,7 +15,7 @@ import {
 } from '@chakra-ui/react';
 import { Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import {
   useBatchEdit,
   useBulkUpdate,
@@ -31,6 +31,7 @@ import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
+import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
 import { useLibrarySearch } from './useLibrarySearch.ts';
@@ -54,9 +55,32 @@ export function LibraryPage() {
   const photos = useMemo(() => query.data?.pages.flatMap((p) => p.versions) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total ?? 0;
 
-  const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [focusedId, setFocusedId] = useState<string | null>(null);
-  const anchorRef = useRef<string | null>(null);
+  const location = useLocation();
+  // Coming back with the filters it was left with (from the developer): restore the
+  // scroll position and selection, and show the version that was being developed.
+  const [restored] = useState(() => {
+    const focus = (location.state as LibraryReturnState | null)?.focus ?? null;
+    const view = savedLibraryView();
+    const same = view?.search === search.search;
+    const selection = same && (!focus || view.selection.includes(focus)) ? view.selection : focus ? [focus] : [];
+    return { scrollTop: same ? view.scrollTop : 0, selection, focusedId: focus ?? (same ? view.focusedId : null) };
+  });
+  const [selection, setSelection] = useState<Set<string>>(() => new Set(restored.selection));
+  const [focusedId, setFocusedId] = useState<string | null>(restored.focusedId);
+  const anchorRef = useRef<string | null>(restored.focusedId);
+  const scrollTop = useRef(restored.scrollTop);
+  const view = useRef({ search: search.search, selection, focusedId });
+  view.current = { search: search.search, selection, focusedId };
+  useEffect(
+    () => () =>
+      saveLibraryView({
+        search: view.current.search,
+        scrollTop: scrollTop.current,
+        selection: [...view.current.selection],
+        focusedId: view.current.focusedId,
+      }),
+    [],
+  );
   const gridRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(() => Number(localStorage.getItem('library.cellSize')) || 200);
   const [pendingDelete, setPendingDelete] = useState<Photo[] | null>(null);
@@ -74,12 +98,14 @@ export function LibraryPage() {
 
   // Drop selected photos that are no longer listed (deleted / filtered out).
   useEffect(() => {
+    // Not before the first page: a restored selection would be dropped while it loads.
+    if (!query.data) return;
     const listed = new Set(photos.map((p) => p.id));
     setSelection((sel) => {
       const kept = [...sel].filter((id) => listed.has(id));
       return kept.length === sel.size ? sel : new Set(kept);
     });
-  }, [photos]);
+  }, [photos, query.data]);
 
   const selectedPhotos = useMemo(() => photos.filter((p) => selection.has(p.id)), [photos, selection]);
 
@@ -379,6 +405,8 @@ export function LibraryPage() {
             cellSize={cellSize}
             hasMore={!!query.hasNextPage}
             loadingMore={query.isFetchingNextPage}
+            initialScrollTop={restored.scrollTop}
+            onScroll={(top) => (scrollTop.current = top)}
             onLoadMore={() => void query.fetchNextPage()}
             onClick={handleClick}
             onOpen={openDevelop}

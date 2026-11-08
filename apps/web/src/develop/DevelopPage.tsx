@@ -13,6 +13,7 @@ import { api, fetchBytes } from '../api/client.ts';
 import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
+import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
 import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
@@ -264,7 +265,7 @@ export function LibraryDevelopPage() {
         <Stack align="center">
           <Text color="fg.error">{err}</Text>
           <Button asChild variant="outline">
-            <Link to="/">Back to library</Link>
+            <Link to={libraryPath()}>Back to library</Link>
           </Button>
         </Stack>
       </Center>
@@ -294,7 +295,7 @@ export function LibraryDevelopPage() {
       save={save}
       revision={photo.revision}
       versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
-      onBack={() => navigate('/')}
+      onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
     />
   );
 }

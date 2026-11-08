@@ -2,6 +2,7 @@ import { Box, IconButton, Menu, Portal, Text } from '@chakra-ui/react';
 import { Aperture, Images, LogIn, LogOut } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { useLogout, useMe } from '../api/hooks.ts';
+import { libraryPath } from '../library/libraryView.ts';
 
 /**
  * App navigation and account, folded into one button at the start of each page's
@@ -24,7 +25,7 @@ export function AppMenu() {
         <Menu.Positioner>
           <Menu.Content minW="52">
             {user && (
-              <Menu.Item value="library" disabled={pathname === '/'} onClick={() => navigate('/')}>
+              <Menu.Item value="library" disabled={pathname === '/'} onClick={() => navigate(libraryPath())}>
                 <Images /> Library
               </Menu.Item>
             )}

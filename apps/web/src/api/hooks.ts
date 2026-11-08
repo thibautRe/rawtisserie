@@ -99,6 +99,8 @@ export function usePhotos(search: string) {
       const loaded = pages.reduce((n, p) => n + p.versions.length, 0);
       return loaded < last.total ? loaded : undefined;
     },
+    // Kept while developing, so going back to the library finds the pages it scrolled through.
+    gcTime: 60 * 60_000,
     // Keep polling while previews are being rendered.
     refetchInterval: (query) =>
       query.state.data?.pages.some((p) => p.versions.some((v) => v.renderStatus === 'pending')) ? 2000 : false,
