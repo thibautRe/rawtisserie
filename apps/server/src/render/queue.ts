@@ -6,7 +6,7 @@
 import { Worker } from 'node:worker_threads';
 import type { Queryable } from '@databases/pg';
 import type { FastifyBaseLogger } from 'fastify';
-import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import { AUTO_RECIPE_LABEL, type EditParams, type PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
 import { RENDER_SIZES, renderPath, type RenderSize } from '../photos/storage.ts';
@@ -144,7 +144,7 @@ export class RenderQueue {
 async function addDefaultRecipe(tx: Queryable, versionId: string, recipe: EditParams) {
   const inserted = await tx.query(sql`
     INSERT INTO history_entries (version_id, seq, label, recipe)
-    SELECT ${versionId}, 1, 'Lens correction (auto)', ${JSON.stringify(recipe)}::jsonb
+    SELECT ${versionId}, 1, ${AUTO_RECIPE_LABEL}, ${JSON.stringify(recipe)}::jsonb
     WHERE NOT EXISTS (SELECT 1 FROM history_entries WHERE version_id = ${versionId})
     RETURNING seq`);
   if (inserted.length) await versions(tx).update({ id: versionId, history_end: 0 }, { history_end: 1 });

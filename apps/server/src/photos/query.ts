@@ -70,7 +70,7 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.apertureMax !== undefined) c.push(sql`p.f_number <= ${f.apertureMax}`);
   if (f.from) c.push(sql`p.captured_at >= ${f.from}`);
   if (f.to) c.push(sql`p.captured_at <= ${f.to}`);
-  if (f.edited === 'true') c.push(sql`v.history_end > 0`);
-  if (f.edited === 'false') c.push(sql`v.history_end = 0`);
+  if (f.edited === 'true') c.push(sql`v.edited`);
+  if (f.edited === 'false') c.push(sql`NOT v.edited`);
   return sql.join(c, sql` AND `);
 }

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
+import { AUTO_RECIPE_LABEL, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
@@ -317,6 +317,7 @@ export async function photoRoutes(
         color_label: source.color_label,
         tags: source.tags,
         history_end: fromOriginal ? 0 : source.history_end,
+        edited: fromOriginal ? false : source.edited,
         edited_at: fromOriginal ? null : source.edited_at,
       });
       await setPositions(
@@ -613,9 +614,12 @@ async function applyHistoryChange(
     end = op.end;
   }
   const revision = current.revision + 1;
+  // The entry a new upload starts with (`AUTO_RECIPE_LABEL`) isn't an edit.
+  const [first] = end === 1 ? await historyEntries(tx).find({ version_id: id, seq: 1 }).select('label').all() : [];
+  const edited = end > 1 || (end === 1 && first?.label !== AUTO_RECIPE_LABEL);
   await versions(tx).update(
     { id },
-    { history_end: end, revision, edited_at: new Date(), render_status: 'pending', updated_at: new Date() },
+    { history_end: end, edited, revision, edited_at: new Date(), render_status: 'pending', updated_at: new Date() },
   );
   return { historyEnd: end, revision };
 }

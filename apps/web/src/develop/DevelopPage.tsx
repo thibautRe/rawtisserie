@@ -1,5 +1,11 @@
 import { Box, Button, Center, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
-import { type PhotoMetadata, defaultEditParams, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
+import {
+  AUTO_RECIPE_LABEL,
+  type PhotoMetadata,
+  defaultEditParams,
+  defaultRecipe,
+  normalizeEditParams,
+} from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -213,7 +219,7 @@ export function LocalDevelopPage() {
 function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
   const recipe = defaultRecipe(metadata);
   if (recipe === defaultEditParams) return { entries: [], end: 0 };
-  return { entries: [{ label: 'Lens correction (auto)', recipe, createdAt: new Date().toISOString() }], end: 1 };
+  return { entries: [{ label: AUTO_RECIPE_LABEL, recipe, createdAt: new Date().toISOString() }], end: 1 };
 }
 
 // ── Library developer: originals fetched from the server, recipes saved back ──

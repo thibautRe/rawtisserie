@@ -73,7 +73,7 @@ export function versionDto(v: VersionRow) {
     flag: v.flag,
     colorLabel: v.color_label,
     tags: v.tags.filter((t): t is string => t !== null),
-    edited: v.history_end > 0,
+    edited: v.edited,
     renderStatus: v.render_status,
     renderError: v.render_error,
     thumbUrl: renderUrl(v, 'thumb'),
@@ -109,7 +109,7 @@ export function versionDetailDto(
       id: s.id,
       name: s.name,
       index: i + 1,
-      edited: s.history_end > 0,
+      edited: s.edited,
       thumbUrl: renderUrl(s, 'thumb'),
     })),
   };

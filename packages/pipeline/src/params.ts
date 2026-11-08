@@ -788,6 +788,12 @@ export const defaultEditParams: EditParams = Object.freeze({
 });
 
 /**
+ * The label of the history entry a new upload starts with, when its recipe isn't
+ * `defaultEditParams` (lens correction). It doesn't make the version "edited".
+ */
+export const AUTO_RECIPE_LABEL = 'Lens correction (auto)';
+
+/**
  * The recipe a new image starts with, given what its file contains: the default
  * recipe, plus lens correction when the file embeds correction data. Mirrors
  * `EditParams::default_for`.
