@@ -30,7 +30,14 @@ import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
 import { type LutChoice, useLutLibrary, useMissingLuts } from './luts.ts';
 import { useRecipePreview } from './preview.ts';
 import { GuideOverlay } from './GuideOverlay.tsx';
-import type { GuideLine, IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView } from './protocol.ts';
+import type {
+  GuideLine,
+  IlluminantDetection,
+  PerspectiveFit,
+  ToneCurveInput,
+  ToneCurveView,
+  ToneRangeView,
+} from './protocol.ts';
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
@@ -274,8 +281,14 @@ export function DeveloperView({
   // What a tone curve reads, shown over the image instead (one overlay at a time).
   const [toneView, setToneView] = useState<ToneCurveView | null>(null);
   const toneOverlay = toneView && params.modules.some((m) => m.id === toneView.id) ? toneView : null;
+  // Or where a colour balance range applies.
+  const [rangeView, setRangeView] = useState<ToneRangeView | null>(null);
+  const rangeOverlay = rangeView && params.modules.some((m) => m.id === rangeView.id) ? rangeView : null;
   useEffect(() => {
-    if (shapeUi.maskOverlay) setToneView(null);
+    if (shapeUi.maskOverlay) {
+      setToneView(null);
+      setRangeView(null);
+    }
   }, [shapeUi.maskOverlay]);
 
   // ── Rendering ──
@@ -338,6 +351,7 @@ export function DeveloperView({
       mask: comparing || framing ? null : (maskOverlay?.id ?? null),
       maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
       toneCurve: comparing || framing ? null : toneOverlay,
+      toneRange: comparing || framing ? null : rangeOverlay,
     };
     return { params: fitEffective, width, height, scale, overlays, scope: scopeRequest };
   }, [
@@ -352,6 +366,7 @@ export function DeveloperView({
     scopeRequest,
     maskOverlay,
     toneOverlay,
+    rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
 
@@ -384,9 +399,10 @@ export function DeveloperView({
       mask: comparing || framing ? null : (maskOverlay?.id ?? null),
       maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
       toneCurve: comparing || framing ? null : toneOverlay,
+      toneRange: comparing || framing ? null : rangeOverlay,
     };
     return { params: effective, width, height, region, scale, overlays };
-  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay, toneOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay, toneOverlay, rangeOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame: regionFrame, pending: regionPending } = useRenderLoop(backend, regionJob);
   // A region left from an earlier zoom may show an older recipe: zooming in again waits
   // for a new one.
@@ -808,6 +824,12 @@ export function DeveloperView({
   const onFitToneCurve = useStableCallback((id: string) => void fitToneCurve(id));
   const onToneView = useStableCallback((view: ToneCurveView | null) => {
     setToneView(view);
+    if (view) setRangeView(null);
+    if (view && shapeUi.maskOverlay) setShapeUi((u) => ({ ...u, maskOverlay: null }));
+  });
+  const onRangeView = useStableCallback((view: ToneRangeView | null) => {
+    setRangeView(view);
+    if (view) setToneView(null);
     if (view && shapeUi.maskOverlay) setShapeUi((u) => ({ ...u, maskOverlay: null }));
   });
   const onShapeUi = useStableCallback((patch: Partial<ShapeUi>) => setShapeUi((u) => ({ ...u, ...patch })));
@@ -1125,6 +1147,8 @@ export function DeveloperView({
           fittingTone={fittingTone}
           toneView={toneOverlay}
           onToneView={onToneView}
+          rangeView={rangeOverlay}
+          onRangeView={onRangeView}
           shapeUi={shapeUi}
           onShapeUi={onShapeUi}
         />

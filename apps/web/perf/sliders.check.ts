@@ -272,8 +272,7 @@ test('instances of a module do not affect each other', async () => {
   for (const kind of [
     'Exposure',
     'Color calibration',
-    'Color',
-    'Shadows & highlights',
+    'Color balance',
     'Sharpen',
     'Contrast equalizer',
     'Color primaries',

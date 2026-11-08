@@ -170,7 +170,7 @@ async function handle(msg: WorkerRequest) {
           overlays = { ...overlays, stripes: (overlays.stripes * frameWidth!) / draftWidth! };
         }
         const scope = drawScope(data, width, height);
-        if (overlays.display || overlays.sensor || overlays.mask || overlays.toneCurve) {
+        if (overlays.display || overlays.sensor || overlays.mask || overlays.toneCurve || overlays.toneRange) {
           const json = JSON.stringify(overlays);
           developer.paintOverlays(params, full.width, full.height, data, width, height, json, full.region);
         }
@@ -178,7 +178,8 @@ async function handle(msg: WorkerRequest) {
         return;
       }
       const region = regionArg(msg.region);
-      const painted = !!(msg.overlays.display || msg.overlays.sensor || msg.overlays.mask || msg.overlays.toneCurve);
+      const o = msg.overlays;
+      const painted = !!(o.display || o.sensor || o.mask || o.toneCurve || o.toneRange);
       // With a scope, the overlays are painted after it is drawn (as `render` would).
       const split = painted && !!msg.scope;
       const overlays = split ? '{}' : JSON.stringify(msg.overlays);

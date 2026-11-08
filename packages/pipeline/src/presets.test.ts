@@ -92,17 +92,21 @@ test('stored module presets keep only the valid fields they have', () => {
 });
 
 test('styles replace or append instances', () => {
-  let source = updateModule(defaultEditParams, 'color', { params: { saturation: -1 } });
+  const balance = (p: Partial<(typeof defaultModuleParams)['colorBalance']>) => ({
+    ...defaultModuleParams.colorBalance,
+    ...p,
+  });
+  let source = updateModule(defaultEditParams, 'colorBalance', { params: { chroma: [-1, 0, 0, 0] } });
   source = updateModule(source, 'filmic', { params: { contrast: 1.6 } });
-  source = updateInstance(source, 'color', 'color', { label: 'mono' });
-  const style = styleFromRecipe(source, ['color', 'filmic']);
+  source = updateInstance(source, 'colorBalance', 'colorBalance', { label: 'mono' });
+  const style = styleFromRecipe(source, ['colorBalance', 'filmic']);
   assert.deepEqual(
     style.modules.map((m) => m.kind),
-    ['color', 'filmic'],
+    ['colorBalance', 'filmic'],
   );
   assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
 
-  let target = updateModule(defaultEditParams, 'color', { params: { vibrance: 0.5 } });
+  let target = updateModule(defaultEditParams, 'colorBalance', { params: { vibrance: 0.5 } });
   target = updateModule(target, 'filmic', { params: { contrast: 1 } });
 
   const replaced = applyStyle(target, style, 'replace');
@@ -111,21 +115,21 @@ test('styles replace or append instances', () => {
     [
       ['exposure', 'exposure'],
       ['colorCalibration', 'colorCalibration'],
-      ['color', 'color'],
+      ['colorBalance', 'colorBalance'],
       ['filmic', 'filmic'],
     ],
   );
-  assert.deepEqual(findModule(replaced, 'color')!.params, { saturation: -1, vibrance: 0 });
-  assert.equal(findModule(replaced, 'color')!.label, 'mono');
+  assert.deepEqual(findModule(replaced, 'colorBalance')!.params, balance({ chroma: [-1, 0, 0, 0] }));
+  assert.equal(findModule(replaced, 'colorBalance')!.label, 'mono');
   assert.equal(findModule(replaced, 'filmic')!.params.contrast, 1.6);
 
   const appended = applyStyle(target, style, 'append');
-  const colors = appended.modules.filter((m) => m.kind === 'color');
+  const colors = appended.modules.filter((m) => m.kind === 'colorBalance');
   assert.deepEqual(
     colors.map((m) => [m.id, m.params]),
     [
-      ['color', { saturation: 0, vibrance: 0.5 }],
-      ['color-2', { saturation: -1, vibrance: 0 }],
+      ['colorBalance', balance({ vibrance: 0.5 })],
+      ['colorBalance-2', balance({ chroma: [-1, 0, 0, 0] })],
     ],
   );
   assert.equal(appended.modules.filter((m) => m.kind === 'filmic').length, 1, 'filmic is single-instance');
@@ -238,8 +242,13 @@ test('masks travel with styles, and with presets when asked', () => {
   const style = styleFromRecipe(recipe, ['exposure']);
   assert.deepEqual(style.shapes, { s2: at(0.3) });
   assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
-  const [other] = addMaskShape(updateModule(defaultEditParams, 'color', {}), 'color', 'color', at(0.7));
-  const [taken] = addMaskShape(other, 'color', 'color', at(0.6));
+  const [other] = addMaskShape(
+    updateModule(defaultEditParams, 'colorBalance', {}),
+    'colorBalance',
+    'colorBalance',
+    at(0.7),
+  );
+  const [taken] = addMaskShape(other, 'colorBalance', 'colorBalance', at(0.6));
   const appended = applyStyle(taken, style, 'append');
   const added = appended.modules.filter((m) => m.kind === 'exposure').at(-1)!;
   assert.equal(added.mask!.drawn[0]!.shape, 's3');
@@ -256,8 +265,8 @@ test('masks travel with styles, and with presets when asked', () => {
   assert.deepEqual(withMask.shapes, { s2: at(0.3) });
   assert.deepEqual(normalizeModulePreset('exposure', JSON.parse(JSON.stringify(withMask))), withMask);
   // Applied elsewhere: the mask comes with its shape, renamed if its id is taken there.
-  const applied = applyModulePreset(taken, 'color', 'color', { ...withMask, params: {} });
-  assert.deepEqual(maskOf(applied, 'color')!.drawn, [{ shape: 's3', op: 'union' }]);
+  const applied = applyModulePreset(taken, 'colorBalance', 'colorBalance', { ...withMask, params: {} });
+  assert.deepEqual(maskOf(applied, 'colorBalance')!.drawn, [{ shape: 's3', op: 'union' }]);
   assert.deepEqual(applied.shapes, { s3: at(0.3) }, 'the old mask shapes go');
   // Not on kinds that can't be masked.
   assert.equal(

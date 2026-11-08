@@ -887,6 +887,14 @@ table in `PointOps::new`, and the editor reuses `CurveEditor.tsx`. Maskable.
 
 ### 4.7 Colour balance RGB (L, before 1.0)
 
+> **Done** (2026-11-08), merged with Ansel's split-toning rgb into one `colorBalance`
+> module replacing colour (saturation/vibrance) and shadows/highlights (v7 recipes):
+> master tab (hue shift, vibrance, chroma/saturation/brilliance globally and per range),
+> a CAT16 temperature and channel mix per range (calibration's mixer views), and ranges
+> as two logistic steps whose weights add up to 1, with a graph and an overlay. Left out
+> on purpose: the 4 ways (the mixers tint) and contrast (the tone curve). Left: the
+> perceptual path's speed (`docs/PERFORMANCE.md`), a white fulcrum picker.
+
 A port of `colorbalancergb.c`:
 
 - lift/gamma/gain and offset/power/slope wheels;

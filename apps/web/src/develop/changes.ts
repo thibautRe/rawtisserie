@@ -16,8 +16,7 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   glow: 'Glow',
   exposure: 'Exposure',
   colorCalibration: 'Color calibration',
-  color: 'Color',
-  shadowsHighlights: 'Shadows & highlights',
+  colorBalance: 'Color balance',
   colorPrimaries: 'Color primaries',
   toneCurve: 'Tone curve',
   filmic: 'Filmic',
@@ -55,6 +54,35 @@ const paramName = (kind: ModuleKind, key: string) =>
       : `${key} curve`
     : words(key);
 
+/** Colour balance's grading arrays: `[global, shadows, mid-tones, highlights]`. */
+const BALANCE_ARRAYS = ['chroma', 'saturation', 'brilliance'];
+const BALANCE_RANGES = ['global', 'shadows', 'mid-tones', 'highlights'];
+
+/**
+ * One changed parameter, as named in history labels. Colour balance's arrays and mixers
+ * name the range and the field when only one of them changed ("shadows saturation 0.3",
+ * "highlights temperature 4500").
+ */
+function describeParam(kind: ModuleKind, key: string, before: unknown, after: unknown): string {
+  if (kind === 'colorBalance') {
+    const range = key === 'midtones' ? 'mid-tones' : key;
+    if (BALANCE_ARRAYS.includes(key) && Array.isArray(after) && Array.isArray(before)) {
+      const changed = after.map((_, i) => i).filter((i) => !same(before[i], after[i]));
+      if (changed.length === 1) return `${BALANCE_RANGES[changed[0]!]} ${key} ${formatValue(after[changed[0]!])}`;
+    } else if (typeof after === 'object' && after !== null && !Array.isArray(after) && before) {
+      const fields = Object.entries(after).filter(([k, v]) => !same((before as Record<string, unknown>)[k], v));
+      const [k, v] = fields[0] ?? [];
+      if (fields.length === 1) {
+        const value = formatValue(v);
+        return `${range} ${words(k!)}${value === null ? '' : ` ${value}`}`;
+      }
+      return `${range} mixer`;
+    }
+  }
+  const value = formatValue(after);
+  return value === null ? paramName(kind, key) : `${paramName(kind, key)} ${value}`;
+}
+
 function formatValue(v: unknown): string | null {
   if (typeof v === 'number') return String(Math.round(v * 100) / 100);
   if (typeof v === 'boolean') return v ? 'on' : 'off';
@@ -83,8 +111,7 @@ function describeInstance(
   const keys = Object.entries(after.params as Record<string, unknown>).filter(([k, v]) => !same(old[k], v));
   if (keys.length === 1) {
     const [k, v] = keys[0]!;
-    const value = formatValue(v);
-    parts.push(value === null ? paramName(m.kind, k) : `${paramName(m.kind, k)} ${value}`);
+    parts.push(describeParam(m.kind, k, old[k], v));
   } else if (keys.length > 1) {
     parts.push(keys.map(([k]) => paramName(m.kind, k)).join(', '));
   }

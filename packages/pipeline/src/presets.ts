@@ -77,6 +77,15 @@ export const PRESET_GROUPS: { readonly [K in ModuleKind]?: Readonly<Record<strin
       keys: ['colorfulness', 'normalizeColorfulness', 'brightness', 'normalizeBrightness', 'grey', 'normalizeGrey'],
     },
   },
+  // Named like the module's tabs. The ranges usually suit a scene more than a look.
+  colorBalance: {
+    master: { label: 'Master', keys: ['hueShift', 'vibrance', 'chroma', 'saturation', 'brilliance'] },
+    mixer: { label: 'Mixer', keys: ['shadows', 'midtones', 'highlights'] },
+    settings: {
+      label: 'Settings (ranges, white fulcrum)',
+      keys: ['fulcrum', 'midtonesRange', 'shadowsFalloff', 'highlightsFalloff', 'whiteFulcrum'],
+    },
+  },
   // The range is fitted to each image: a look is usually saved without it.
   toneCurve: {
     curves: { label: 'Curves', keys: ['channels', 'preserveColors', 'rgb', 'red', 'green', 'blue'] },
@@ -338,8 +347,19 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     temperature: 3200,
     adaptation: 'cat16',
   }),
-  builtIn('color', 'vivid', 'Vivid', { saturation: 0.15, vibrance: 0.3 }),
-  builtIn('color', 'muted', 'Muted', { saturation: -0.3, vibrance: 0 }),
+  builtIn('colorBalance', 'vivid', 'Vivid', { chroma: [0.15, 0, 0, 0], vibrance: 0.3 }),
+  builtIn('colorBalance', 'muted', 'Muted', { chroma: [-0.3, 0, 0, 0], vibrance: 0 }),
+  // Ansel's colour balance rgb presets: more saturation, mostly in the shadows.
+  builtIn('colorBalance', 'colorfulness-skin', 'Colorfulness: natural skin', { saturation: [0.2, 0.3, 0, 0] }),
+  builtIn('colorBalance', 'colorfulness-standard', 'Colorfulness: standard', { saturation: [0.2, 0.25, 0, 0] }),
+  builtIn('colorBalance', 'colorfulness-vibrant', 'Colorfulness: vibrant', { saturation: [0.2, 0.5, 0, 0] }),
+  // Split-toning: shadows corrected as if lit by a warm light (so cooler), highlights as
+  // if lit by a cool one (so warmer).
+  builtIn('colorBalance', 'teal-orange', 'Split-toning: teal and orange', {
+    shadows: { ...defaultModuleParams.colorBalance.shadows, temperature: 4500 },
+    midtones: { ...defaultModuleParams.colorBalance.midtones },
+    highlights: { ...defaultModuleParams.colorBalance.highlights, temperature: 9000 },
+  }),
   builtIn('filmic', 'high-contrast', 'High contrast', { contrast: 1.45 }),
   builtIn('filmic', 'low-contrast', 'Low contrast', { contrast: 1 }),
   builtIn('sharpen', 'light', 'Light', { amount: 0.5, radius: 1 }),

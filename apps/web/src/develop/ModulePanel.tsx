@@ -27,7 +27,13 @@ import {
   ILLUMINANTS,
   type Illuminant,
   type MixerPrimaries,
+  type MixerRows,
   type MixerWhitePreserving,
+  RGB_WHITE,
+  NEUTRAL_TEMPERATURE,
+  TONE_RANGES,
+  type ToneRange,
+  toneRangeWeights,
   LEDS,
   type Led,
   TEMPERATURE_MAX,
@@ -129,7 +135,7 @@ import { useRecipePreview } from './preview.ts';
 import type { LutChoice, LutLibrary } from './luts.ts';
 import type { RangeKey } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
-import type { IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView } from './protocol.ts';
+import type { IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView, ToneRangeView } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { sinhCurve, tracks } from './slider.ts';
 
@@ -180,6 +186,9 @@ interface Props {
   /** What a tone curve instance reads, shown over the image (null: nothing shown). */
   toneView: ToneCurveView | null;
   onToneView: (view: ToneCurveView | null) => void;
+  /** Where a colour balance range applies, shown over the image (null: nothing shown). */
+  rangeView: ToneRangeView | null;
+  onRangeView: (view: ToneRangeView | null) => void;
   /** Retouch tools and selection, shared with the overlay on the image. */
   shapeUi: ShapeUi;
   onShapeUi: (patch: Partial<ShapeUi>) => void;
@@ -624,6 +633,25 @@ const MIXER_MODES = {
   },
 } as const;
 type MixerMode = keyof typeof MIXER_MODES;
+type Vec3 = [number, number, number];
+
+/**
+ * A mixer the channel mixer's controls edit: colour calibration's, or one of colour
+ * balance's ranges'. Handlers read `current` (sliders keep their first handlers).
+ */
+interface MixerTarget {
+  /** What its remembered angles are kept under. */
+  id: string;
+  /** Prefix of its sliders' keys, so that they are rebound when another mixer shows. */
+  keyPrefix: string;
+  /** The white of the space it mixes in. */
+  white: Vec3;
+  values: MixerRows;
+  current: () => { white: Vec3; rows: MixerRows };
+  edit: (rows: Partial<MixerRows>) => EditParams;
+  /** Commit a change. */
+  set: (rows: Partial<MixerRows>) => void;
+}
 type MixerKey = keyof MixerPrimaries | keyof MixerWhitePreserving;
 
 /**
@@ -660,6 +688,154 @@ const TEMPERATURE_TRACK = `linear-gradient(to right, ${Array.from({ length: 11 }
   const t = TEMPERATURE_SOFT[0] + (i / 10) * (TEMPERATURE_SOFT[1] - TEMPERATURE_SOFT[0]);
   return xyToCss((t >= 4000 ? daylightXy(t) : blackBodyXy(t))!);
 }).join(', ')})`;
+
+type Balance = ModuleParams['colorBalance'];
+
+/** Colour balance's tabs: Ansel's colour balance rgb master tab, the mixers, and the ranges. */
+const BALANCE_PAGES = ['master', 'mixer', 'settings'] as const;
+type BalancePage = (typeof BALANCE_PAGES)[number];
+const BALANCE_PAGE_LABELS: Record<BalancePage, string> = { master: 'Master', mixer: 'Mixer', settings: 'Settings' };
+const BALANCE_PAGE_TITLES: Record<BalancePage, string> = {
+  master: 'Hue, chroma, saturation and brilliance, everywhere and by range',
+  mixer: 'A light correction and channel mix for each range (split-toning)',
+  settings: 'Where the shadows, mid-tones and highlights are',
+};
+/** The parameters each tab edits (the preset groups), to mark the tabs that differ from the defaults. */
+const BALANCE_PAGE_KEYS = Object.fromEntries(
+  BALANCE_PAGES.map((page) => [page, PRESET_GROUPS.colorBalance![page]!.keys]),
+) as Record<BalancePage, readonly (keyof Balance)[]>;
+const RANGE_LABELS: Record<ToneRange, string> = { shadows: 'Shadows', midtones: 'Mid-tones', highlights: 'Highlights' };
+/** The ranges' colours in the weights graph. */
+const RANGE_COLORS: Record<ToneRange, string> = { shadows: '#3e63dd', midtones: '#8d8d8d', highlights: '#f5a524' };
+/** Colour balance's grading groups, each `[global, shadows, mid-tones, highlights]`. */
+const BALANCE_GRADING = [
+  {
+    key: 'chroma',
+    title: 'Chroma',
+    hint: 'Linear chroma (Filmlight Yrg): every color moves away from gray in proportion',
+  },
+  {
+    key: 'saturation',
+    title: 'Saturation',
+    hint: 'Perceptual saturation (darktable UCS): more color, darker; less color, brighter',
+  },
+  {
+    key: 'brilliance',
+    title: 'Brilliance',
+    hint: 'Perceptual brightness (darktable UCS), keeping the saturation',
+  },
+] as const;
+const GRADING_LABELS = ['Global', 'Shadows', 'Mid-tones', 'Highlights'] as const;
+/** The luminances the weights graph spans, EV relative to middle grey. */
+const RANGE_GRAPH_EV = [-10, 8] as const;
+
+/**
+ * The weights of colour balance's ranges along the luminance, as set. Memoised on the
+ * settings it draws.
+ */
+const RangeGraph = memo(
+  ({ p }: { p: Pick<Balance, 'fulcrum' | 'midtonesRange' | 'shadowsFalloff' | 'highlightsFalloff'> }) => {
+    const [lo, hi] = RANGE_GRAPH_EV;
+    const [width, height, n] = [240, 48, 96];
+    const x = (ev: number) => ((ev - lo) / (hi - lo)) * width;
+    const path = (k: number) =>
+      Array.from({ length: n + 1 }, (_, i) => {
+        const ev = lo + ((hi - lo) * i) / n;
+        const y = 2 + (1 - toneRangeWeights(p, ev)[k]!) * (height - 4);
+        return `${i ? 'L' : 'M'}${x(ev).toFixed(1)},${y.toFixed(1)}`;
+      }).join('');
+    return (
+      <Stack gap="0.5">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          width="100%"
+          height={height}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Weights of the shadows, mid-tones and highlights along the luminance"
+        >
+          <rect x="0" y="0" width={width} height={height} fill="none" stroke="var(--chakra-colors-border)" />
+          <line x1={x(0)} x2={x(0)} y1="0" y2={height} stroke="var(--chakra-colors-fg-subtle)" strokeDasharray="2 3" />
+          {TONE_RANGES.map((r, k) => (
+            <path
+              key={r}
+              d={path(k)}
+              fill="none"
+              stroke={RANGE_COLORS[r]}
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        </svg>
+        <HStack justify="space-between" textStyle="2xs" color="fg.subtle">
+          <Text>{lo} EV</Text>
+          <Text>middle gray</Text>
+          <Text>+{hi} EV</Text>
+        </HStack>
+      </Stack>
+    );
+  },
+  (a, b) =>
+    a.p.fulcrum === b.p.fulcrum &&
+    a.p.midtonesRange === b.p.midtonesRange &&
+    a.p.shadowsFalloff === b.p.shadowsFalloff &&
+    a.p.highlightsFalloff === b.p.highlightsFalloff,
+);
+
+/**
+ * Tabs that choose what a module's panel shows (not the image), with a dot on those whose
+ * parameters differ from the defaults.
+ */
+function PageTabs<P extends string>({
+  label,
+  pages,
+  labels,
+  titles,
+  value,
+  modified,
+  onChange,
+}: {
+  label: string;
+  pages: readonly P[];
+  labels: Record<P, string>;
+  titles: Record<P, string>;
+  value: P;
+  modified: (page: P) => boolean;
+  onChange: (page: P) => void;
+}) {
+  return (
+    <Tabs.Root size="sm" variant="line" value={value} onValueChange={(d) => onChange(d.value as P)}>
+      <Tabs.List aria-label={label} gap="0">
+        {pages.map((p) => (
+          <Tabs.Trigger
+            key={p}
+            value={p}
+            title={titles[p]}
+            h="7"
+            px="1.5"
+            flex="auto"
+            justifyContent="center"
+            textStyle="2xs"
+            position="relative"
+          >
+            {labels[p]}
+            {modified(p) && (
+              <Box
+                position="absolute"
+                top="1"
+                right="0.5"
+                boxSize="1"
+                borderRadius="full"
+                bg="orange.solid"
+                aria-label="modified"
+              />
+            )}
+          </Tabs.Trigger>
+        ))}
+      </Tabs.List>
+    </Tabs.Root>
+  );
+}
 
 /** What an instance's section shows, which isn't part of the recipe. */
 type ToneChannel = 'red' | 'green' | 'blue';
@@ -718,6 +894,9 @@ interface InstanceView {
   toneChannel: ToneChannel;
   calibration: CalibrationPage;
   mixer: MixerView;
+  balance: BalancePage;
+  /** The range whose mixer colour balance shows. */
+  balanceRange: ToneRange;
   /** Angles remembered while their magnitude is zero (see `MIXER_ANGLES`). */
   angles: Record<string, number>;
   /** The mask editor is open (when the instance has a mask). */
@@ -734,6 +913,8 @@ const DEFAULT_VIEW: InstanceView = {
   toneChannel: 'red',
   calibration: 'illuminant',
   mixer: 'primaries',
+  balance: 'master',
+  balanceRange: 'shadows',
   angles: {},
   maskOpen: true,
   maskRanges: {},
@@ -787,7 +968,7 @@ const BLEACH_LABELS: Record<Bleach, string> = {
 export const ModulePanel = memo(function ModulePanel(props: Props) {
   const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, shapeUi } = props;
   const { guides, fittingPerspective } = props;
-  const { toneInputs, fittingTone, toneView } = props;
+  const { toneInputs, fittingTone, toneView, rangeView } = props;
   const { luts, missingLuts } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
@@ -1048,6 +1229,30 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   type CalibrationEditor = ReturnType<typeof editor<'colorCalibration'>>;
   type Channels = 'red' | 'green' | 'blue' | 'colorfulness' | 'brightness' | 'grey';
 
+  type BalanceEditor = ReturnType<typeof editor<'colorBalance'>>;
+
+  /** Props for a slider bound to one entry of a colour balance grading array. */
+  function bindGrading(e: BalanceEditor, key: 'chroma' | 'saturation' | 'brilliance', i: number) {
+    const with_ = (v: number) => e.edit({ [key]: e.current()[key].map((c, j) => (j === i ? v : c)) });
+    return {
+      value: e.values[key][i]!,
+      defaultValue: e.defaults[key][i]!,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  }
+
+  /** Props for the temperature slider of a colour balance range's mixer. */
+  function bindRangeTemperature(e: BalanceEditor, range: ToneRange) {
+    const with_ = (temperature: number) => e.edit({ [range]: { ...e.current()[range], temperature } });
+    return {
+      value: e.values[range].temperature,
+      defaultValue: NEUTRAL_TEMPERATURE,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  }
+
   /** Props for a slider bound to one coefficient of a colour calibration array. */
   function bindChannel(e: CalibrationEditor, key: Channels, i: number) {
     const with_ = (v: number) => e.edit({ [key]: e.current()[key].map((c, j) => (j === i ? v : c)) });
@@ -1084,41 +1289,276 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     };
   }
 
+  /** Colour calibration's mixer. */
+  function calibrationMixer(e: CalibrationEditor): MixerTarget {
+    return {
+      id: e.id,
+      keyPrefix: '',
+      white: mixerWhite(e.values),
+      values: e.values,
+      current: () => {
+        const p = e.current();
+        return { white: mixerWhite(p), rows: p };
+      },
+      edit: (rows) => e.edit(rows),
+      set: (rows) => e.set(rows),
+    };
+  }
+
+  /** One of colour balance's ranges' mixer, in linear Rec.2020. */
+  function balanceMixer(e: ReturnType<typeof editor<'colorBalance'>>, range: ToneRange): MixerTarget {
+    const edit = (rows: Partial<MixerRows>) => e.edit({ [range]: { ...e.current()[range], ...rows } });
+    return {
+      id: `${e.id}.${range}`,
+      keyPrefix: `${range}-`,
+      white: RGB_WHITE,
+      values: e.values[range],
+      current: () => ({ white: RGB_WHITE, rows: e.current()[range] }),
+      edit,
+      set: (rows) => latest.current.onCommit(edit(rows)),
+    };
+  }
+
   /**
    * Props for a slider of a mixer primaries mode. The recipe keeps the matrix: the value
    * is read from it, and a change rebuilds it (a degenerate mix is ignored, as in Ansel).
    */
-  function bindMixer(e: CalibrationEditor, mode: MixerMode, key: MixerKey) {
+  function bindMixer(t: MixerTarget, mode: MixerMode, key: MixerKey) {
     const { write, identity } = MIXER_MODES[mode];
     const with_ = (v: number) => {
-      const p = e.current();
-      const next = mixerValues(e.id, mode, p);
+      const { white, rows } = t.current();
+      const next = mixerValues(t.id, mode, white, rows);
       if (!next) return latest.current.params;
       next[key] = v;
       // Remember the angles, so that one survives its magnitude going through zero.
-      for (const [angle] of MIXER_ANGLES[mode]) setAngle(e.id, `${mode}.${angle}`, next[angle]);
-      const m = write(mixerWhite(p), next as never);
-      return m ? e.edit(mixerRows(m)) : latest.current.params;
+      for (const [angle] of MIXER_ANGLES[mode]) setAngle(t.id, `${mode}.${angle}`, next[angle]);
+      const m = write(white, next as never);
+      return m ? t.edit(mixerRows(m)) : latest.current.params;
     };
-    const values = (p: Calibration) => mixerValues(e.id, mode, p);
     const defaultValue = (identity as Record<MixerKey, number>)[key];
     return {
-      value: values(e.values)?.[key] ?? defaultValue,
+      value: mixerValues(t.id, mode, t.white, t.values)?.[key] ?? defaultValue,
       defaultValue,
       onChange: (v: number) => latest.current.onChange(with_(v)),
       onCommit: (v: number) => latest.current.onCommit(with_(v)),
     };
   }
 
-  /** A mixer mode's values for an instance, with the remembered angles where they are undefined. */
-  function mixerValues(id: string, mode: MixerMode, p: Calibration) {
-    const values = MIXER_MODES[mode].read(mixerWhite(p), mixerMatrix(p)) as Record<MixerKey, number> | null;
+  /** Props for a slider bound to one coefficient of a mixer's row. */
+  function bindRow(t: MixerTarget, row: 'red' | 'green' | 'blue', i: number) {
+    const with_ = (v: number) => t.edit({ [row]: t.current().rows[row].map((c, j) => (j === i ? v : c)) });
+    return {
+      value: t.values[row][i]!,
+      defaultValue: i === ['red', 'green', 'blue'].indexOf(row) ? 1 : 0,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  }
+
+  /** A "normalize" switch for a mixer's row. */
+  const rowSwitch = (t: MixerTarget, row: 'red' | 'green' | 'blue', hint: string) => {
+    const key = NORMALIZE_KEYS[row];
+    return (
+      <Switch.Root
+        size="xs"
+        colorPalette="orange"
+        checked={t.values[key]}
+        onCheckedChange={(d) => t.set({ [key]: d.checked })}
+        title={hint}
+      >
+        <Switch.HiddenInput />
+        <Switch.Control />
+        <Switch.Label textStyle="2xs" color="fg.muted">
+          Normalize
+        </Switch.Label>
+      </Switch.Root>
+    );
+  };
+
+  /** A mixer mode's values, with the remembered angles (of mixer `id`) where they are undefined. */
+  function mixerValues(id: string, mode: MixerMode, white: Vec3, rows: MixerRows) {
+    const values = MIXER_MODES[mode].read(white, mixerMatrix(rows)) as Record<MixerKey, number> | null;
     if (!values) return null;
     for (const [angle, magnitude, zero] of MIXER_ANGLES[mode]) {
       if (Math.abs(values[magnitude] - zero) < ZERO_MAGNITUDE)
         values[angle] = angles.current[id]?.[`${mode}.${angle}`] ?? 0;
     }
     return values;
+  }
+
+  /**
+   * The channel mixer's controls (Ansel's mixer modes) for a mixer: colour calibration's,
+   * or one of colour balance's ranges.
+   */
+  function mixerControls(t: MixerTarget, view: MixerView, setView: (view: MixerView) => void) {
+    const { white } = t;
+    const matrix = mixerMatrix(t.values);
+    return (
+      <>
+        {
+          <HStack gap="2" alignItems="baseline">
+            <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
+              Edit as
+            </Text>
+            <Tabs.Root size="sm" variant="subtle" value={view} onValueChange={(d) => setView(d.value as MixerView)}>
+              <Tabs.List aria-label="Mixer view" gap="0.5" minH="0" p="0" alignItems="center">
+                {MIXER_VIEWS.map((m) => (
+                  <Tabs.Trigger key={m} value={m} title={MIXER_VIEW_TITLES[m]} h="5" px="1.5" textStyle="2xs">
+                    {MIXER_VIEW_LABELS[m]}
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
+            </Tabs.Root>
+          </HStack>
+        }
+        {view === 'primaries' && !primariesFromMatrix(white, matrix) && (
+          <Text textStyle="2xs" color="fg.subtle">
+            This mix is singular, so it can’t be shown as primaries. Edit it as channels, or reset the module.
+          </Text>
+        )}
+        {view === 'primaries' && primariesFromMatrix(white, matrix) && (
+          <>
+            <ParamSlider
+              key={`${t.keyPrefix}primaries-whiteHue`}
+              label="White hue"
+              min={-180}
+              max={180}
+              step={0.5}
+              track={tracks.hue(0)}
+              format={degrees}
+              {...bindMixer(t, 'primaries', 'whiteHue')}
+            />
+            <ParamSlider
+              key={`${t.keyPrefix}primaries-whitePurity`}
+              label="White purity"
+              min={0}
+              max={0.1}
+              hardMax={2}
+              step={0.0005}
+              format={(p) => p.toFixed(4)}
+              {...bindMixer(t, 'primaries', 'whitePurity')}
+            />
+            {CHANNELS.map((c, i) => {
+              const name = c.toLowerCase() as 'red' | 'green' | 'blue';
+              return (
+                <Fragment key={name}>
+                  <ParamSlider
+                    key={`${t.keyPrefix}primaries-${name}Hue`}
+                    label={`${c} hue`}
+                    min={-90}
+                    max={90}
+                    hardMin={-180}
+                    hardMax={180}
+                    step={0.5}
+                    curve={HUE_CURVE}
+                    track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!, HUE_CURVE)}
+                    format={degrees}
+                    {...bindMixer(t, 'primaries', `${name}Hue`)}
+                  />
+                  <ParamSlider
+                    key={`${t.keyPrefix}primaries-${name}Purity`}
+                    label={`${c} purity`}
+                    min={0}
+                    max={2}
+                    step={0.01}
+                    track={tracks.saturation(PRIMARY_CSS_HUES[i]!)}
+                    format={fmt.fixed2}
+                    {...bindMixer(t, 'primaries', `${name}Purity`)}
+                  />
+                </Fragment>
+              );
+            })}
+            <ParamSlider
+              key={`${t.keyPrefix}primaries-gain`}
+              label="Gain"
+              min={0}
+              max={2}
+              hardMin={-8}
+              hardMax={8}
+              step={0.01}
+              track={tracks.grey}
+              format={fmt.fixed2}
+              {...bindMixer(t, 'primaries', 'gain')}
+            />
+          </>
+        )}
+        {view === 'whitePreserving' &&
+          !whitePreservingFromMatrix(white, matrix) &&
+          (() => {
+            const clamped = withoutWhiteShift(white, matrix);
+            return (
+              <>
+                <Text textStyle="2xs" color="fg.subtle">
+                  This mix also shifts the white (a tint or a brightness change), which white-preserving primaries can’t
+                  show.
+                  {clamped && ' Removing the shift keeps each primary’s hue and saturation.'}
+                </Text>
+                {clamped && (
+                  <Button size="2xs" variant="outline" alignSelf="start" onClick={() => t.set(mixerRows(clamped))}>
+                    Remove the white shift
+                  </Button>
+                )}
+              </>
+            );
+          })()}
+        {view === 'whitePreserving' && whitePreservingFromMatrix(white, matrix) && (
+          <>
+            {CHANNELS.map((c, i) => {
+              const name = c.toLowerCase() as 'red' | 'green' | 'blue';
+              return (
+                <Fragment key={name}>
+                  <ParamSlider
+                    key={`${t.keyPrefix}whitePreserving-${name}Rotation`}
+                    label={`${c} rotation`}
+                    min={-90}
+                    max={90}
+                    hardMin={-180}
+                    hardMax={180}
+                    step={0.5}
+                    track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)}
+                    format={degrees}
+                    {...bindMixer(t, 'whitePreserving', `${name}Rotation`)}
+                  />
+                  <ParamSlider
+                    key={`${t.keyPrefix}whitePreserving-${name}Saturation`}
+                    label={`${c} saturation`}
+                    min={-1}
+                    max={1}
+                    hardMax={2}
+                    step={0.01}
+                    track={tracks.saturation(PRIMARY_CSS_HUES[i]!)}
+                    {...bindMixer(t, 'whitePreserving', `${name}Saturation`)}
+                  />
+                </Fragment>
+              );
+            })}
+          </>
+        )}
+        {view === 'channels' &&
+          (['red', 'green', 'blue'] as const).map((row, r) => (
+            <Fragment key={row}>
+              <HStack justify="space-between" pt={r ? '1' : '0'}>
+                <Text textStyle="2xs" fontWeight="medium" color="fg.muted">
+                  {CHANNELS[r]} output
+                </Text>
+                {rowSwitch(t, row, 'Scale the coefficients so that they add up to 1 (greys stay grey)')}
+              </HStack>
+              {CHANNELS.map((c, i) => (
+                <ParamSlider
+                  key={`${t.keyPrefix}channels-${row}-${i}`}
+                  label={`Input ${c.toLowerCase()}`}
+                  min={-2}
+                  max={2}
+                  step={0.01}
+                  track={CHANNEL_TRACKS[i]}
+                  format={fmt.fixed2}
+                  {...bindRow(t, row, i)}
+                />
+              ))}
+            </Fragment>
+          ))}
+      </>
+    );
   }
 
   /** A "normalize" switch for a colour calibration page. */
@@ -1431,175 +1871,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 )}
               </>
             )}
-            {page === 'mixer' && (
-              <HStack gap="2" alignItems="baseline">
-                <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
-                  Edit as
-                </Text>
-                <Tabs.Root
-                  size="sm"
-                  variant="subtle"
-                  value={e.view.mixer}
-                  onValueChange={(d) => e.setView({ mixer: d.value as MixerView })}
-                >
-                  <Tabs.List aria-label="Mixer view" gap="0.5" minH="0" p="0" alignItems="center">
-                    {MIXER_VIEWS.map((m) => (
-                      <Tabs.Trigger key={m} value={m} title={MIXER_VIEW_TITLES[m]} h="5" px="1.5" textStyle="2xs">
-                        {MIXER_VIEW_LABELS[m]}
-                      </Tabs.Trigger>
-                    ))}
-                  </Tabs.List>
-                </Tabs.Root>
-              </HStack>
-            )}
-            {page === 'mixer' && e.view.mixer === 'primaries' && !primariesFromMatrix(white, matrix) && (
-              <Text textStyle="2xs" color="fg.subtle">
-                This mix is singular, so it can’t be shown as primaries. Edit it as channels, or reset the module.
-              </Text>
-            )}
-            {page === 'mixer' && e.view.mixer === 'primaries' && primariesFromMatrix(white, matrix) && (
-              <>
-                <ParamSlider
-                  key="primaries-whiteHue"
-                  label="White hue"
-                  min={-180}
-                  max={180}
-                  step={0.5}
-                  track={tracks.hue(0)}
-                  format={degrees}
-                  {...bindMixer(e, 'primaries', 'whiteHue')}
-                />
-                <ParamSlider
-                  key="primaries-whitePurity"
-                  label="White purity"
-                  min={0}
-                  max={0.1}
-                  hardMax={2}
-                  step={0.0005}
-                  format={(p) => p.toFixed(4)}
-                  {...bindMixer(e, 'primaries', 'whitePurity')}
-                />
-                {CHANNELS.map((c, i) => {
-                  const name = c.toLowerCase() as 'red' | 'green' | 'blue';
-                  return (
-                    <Fragment key={name}>
-                      <ParamSlider
-                        key={`primaries-${name}Hue`}
-                        label={`${c} hue`}
-                        min={-90}
-                        max={90}
-                        hardMin={-180}
-                        hardMax={180}
-                        step={0.5}
-                        curve={HUE_CURVE}
-                        track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!, HUE_CURVE)}
-                        format={degrees}
-                        {...bindMixer(e, 'primaries', `${name}Hue`)}
-                      />
-                      <ParamSlider
-                        key={`primaries-${name}Purity`}
-                        label={`${c} purity`}
-                        min={0}
-                        max={2}
-                        step={0.01}
-                        track={tracks.saturation(PRIMARY_CSS_HUES[i]!)}
-                        format={fmt.fixed2}
-                        {...bindMixer(e, 'primaries', `${name}Purity`)}
-                      />
-                    </Fragment>
-                  );
-                })}
-                <ParamSlider
-                  key="primaries-gain"
-                  label="Gain"
-                  min={0}
-                  max={2}
-                  hardMin={-8}
-                  hardMax={8}
-                  step={0.01}
-                  track={tracks.grey}
-                  format={fmt.fixed2}
-                  {...bindMixer(e, 'primaries', 'gain')}
-                />
-              </>
-            )}
-            {page === 'mixer' &&
-              e.view.mixer === 'whitePreserving' &&
-              !whitePreservingFromMatrix(white, matrix) &&
-              (() => {
-                const clamped = withoutWhiteShift(white, matrix);
-                return (
-                  <>
-                    <Text textStyle="2xs" color="fg.subtle">
-                      This mix also shifts the white (a tint or a brightness change), which white-preserving primaries
-                      can’t show.
-                      {clamped && ' Removing the shift keeps each primary’s hue and saturation.'}
-                    </Text>
-                    {clamped && (
-                      <Button size="2xs" variant="outline" alignSelf="start" onClick={() => e.set(mixerRows(clamped))}>
-                        Remove the white shift
-                      </Button>
-                    )}
-                  </>
-                );
-              })()}
-            {page === 'mixer' && e.view.mixer === 'whitePreserving' && whitePreservingFromMatrix(white, matrix) && (
-              <>
-                {CHANNELS.map((c, i) => {
-                  const name = c.toLowerCase() as 'red' | 'green' | 'blue';
-                  return (
-                    <Fragment key={name}>
-                      <ParamSlider
-                        key={`whitePreserving-${name}Rotation`}
-                        label={`${c} rotation`}
-                        min={-90}
-                        max={90}
-                        hardMin={-180}
-                        hardMax={180}
-                        step={0.5}
-                        track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)}
-                        format={degrees}
-                        {...bindMixer(e, 'whitePreserving', `${name}Rotation`)}
-                      />
-                      <ParamSlider
-                        key={`whitePreserving-${name}Saturation`}
-                        label={`${c} saturation`}
-                        min={-1}
-                        max={1}
-                        hardMax={2}
-                        step={0.01}
-                        track={tracks.saturation(PRIMARY_CSS_HUES[i]!)}
-                        {...bindMixer(e, 'whitePreserving', `${name}Saturation`)}
-                      />
-                    </Fragment>
-                  );
-                })}
-              </>
-            )}
-            {page === 'mixer' &&
-              e.view.mixer === 'channels' &&
-              (['red', 'green', 'blue'] as const).map((row, r) => (
-                <Fragment key={row}>
-                  <HStack justify="space-between" pt={r ? '1' : '0'}>
-                    <Text textStyle="2xs" fontWeight="medium" color="fg.muted">
-                      {CHANNELS[r]} output
-                    </Text>
-                    {normalizeSwitch(e, row, 'Scale the coefficients so that they add up to 1 (greys stay grey)')}
-                  </HStack>
-                  {CHANNELS.map((c, i) => (
-                    <ParamSlider
-                      key={`channels-${row}-${i}`}
-                      label={`Input ${c.toLowerCase()}`}
-                      min={-2}
-                      max={2}
-                      step={0.01}
-                      track={CHANNEL_TRACKS[i]}
-                      format={fmt.fixed2}
-                      {...bindChannel(e, row, i)}
-                    />
-                  ))}
-                </Fragment>
-              ))}
+            {page === 'mixer' && mixerControls(calibrationMixer(e), e.view.mixer, (mixer) => e.setView({ mixer }))}
             {page === 'output' &&
               OUTPUT_GROUPS.map((g, r) => (
                 <Fragment key={g.key}>
@@ -1629,19 +1901,180 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         );
       })}
 
-      {sections('color', [], (e) => (
-        <>
-          <ParamSlider label="Saturation" min={-1} max={1} step={0.01} {...e.bind('saturation')} />
-          <ParamSlider label="Vibrance" min={-1} max={1} step={0.01} {...e.bind('vibrance')} />
-        </>
-      ))}
-
-      {sections('shadowsHighlights', [], (e) => (
-        <>
-          <ParamSlider label="Shadows" min={-1} max={1} step={0.01} track={tracks.grey} {...e.bind('shadows')} />
-          <ParamSlider label="Highlights" min={-1} max={1} step={0.01} track={tracks.grey} {...e.bind('highlights')} />
-        </>
-      ))}
+      {sections('colorBalance', [rangeView], (e) => {
+        const page = e.view.balance;
+        const range = e.view.balanceRange;
+        const v = e.values;
+        const differs = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+        const shown = rangeView?.id === e.id ? rangeView.range : null;
+        return (
+          <>
+            <PageTabs
+              label="Color balance tabs"
+              pages={BALANCE_PAGES}
+              labels={BALANCE_PAGE_LABELS}
+              titles={BALANCE_PAGE_TITLES}
+              value={page}
+              modified={(p) => BALANCE_PAGE_KEYS[p].some((k) => differs(v[k], e.defaults[k]))}
+              onChange={(balance) => e.setView({ balance })}
+            />
+            {page === 'master' && (
+              <>
+                <ParamSlider
+                  label="Hue shift"
+                  min={-180}
+                  max={180}
+                  step={0.5}
+                  track={tracks.hue(0)}
+                  format={degrees}
+                  {...e.bind('hueShift')}
+                />
+                <ParamSlider label="Vibrance" min={-1} max={1} step={0.01} {...e.bind('vibrance')} />
+                {BALANCE_GRADING.map((g) => (
+                  <Fragment key={g.key}>
+                    <Text textStyle="2xs" fontWeight="medium" color="fg.muted" pt="1" title={g.hint}>
+                      {g.title}
+                    </Text>
+                    {GRADING_LABELS.map((label, i) => (
+                      <ParamSlider
+                        key={`${g.key}-${i}`}
+                        label={label}
+                        min={-1}
+                        max={1}
+                        step={0.01}
+                        track={g.key === 'brilliance' ? tracks.grey : tracks.saturation(25)}
+                        {...bindGrading(e, g.key, i)}
+                      />
+                    ))}
+                  </Fragment>
+                ))}
+              </>
+            )}
+            {page === 'mixer' && (
+              <>
+                <HStack gap="2" alignItems="baseline">
+                  <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
+                    Range
+                  </Text>
+                  <Tabs.Root
+                    size="sm"
+                    variant="subtle"
+                    value={range}
+                    onValueChange={(d) => e.setView({ balanceRange: d.value as ToneRange })}
+                  >
+                    <Tabs.List aria-label="Range" gap="0.5" minH="0" p="0" alignItems="center">
+                      {TONE_RANGES.map((r) => (
+                        <Tabs.Trigger key={r} value={r} h="5" px="1.5" textStyle="2xs" position="relative">
+                          {RANGE_LABELS[r]}
+                          {differs(v[r], e.defaults[r]) && (
+                            <Box
+                              position="absolute"
+                              top="0.5"
+                              right="0"
+                              boxSize="1"
+                              borderRadius="full"
+                              bg="orange.solid"
+                              aria-label="modified"
+                            />
+                          )}
+                        </Tabs.Trigger>
+                      ))}
+                    </Tabs.List>
+                  </Tabs.Root>
+                </HStack>
+                <ParamSlider
+                  key={`${range}-temperature`}
+                  label="Temperature"
+                  min={TEMPERATURE_SOFT[0]}
+                  max={TEMPERATURE_SOFT[1]}
+                  hardMin={TEMPERATURE_MIN}
+                  hardMax={TEMPERATURE_MAX}
+                  step={10}
+                  track={TEMPERATURE_TRACK}
+                  format={(t) => `${t.toFixed(0)} K`}
+                  {...bindRangeTemperature(e, range)}
+                />
+                {mixerControls(balanceMixer(e, range), e.view.mixer, (mixer) => e.setView({ mixer }))}
+              </>
+            )}
+            {page === 'settings' && (
+              <>
+                <RangeGraph p={v} />
+                {/* The graph's legend, and toggles for the overlay. */}
+                <ButtonGroup size="2xs" variant="outline" attached w="full">
+                  {TONE_RANGES.map((r, i) => (
+                    <Button
+                      key={r}
+                      flex="1"
+                      minW="0"
+                      px="1"
+                      gap="1"
+                      variant={shown === i ? 'solid' : 'outline'}
+                      colorPalette={shown === i ? 'orange' : 'gray'}
+                      aria-pressed={shown === i}
+                      disabled={!e.enabled}
+                      title={`Show where the ${RANGE_LABELS[r].toLowerCase()} are over the image (on the module's input)`}
+                      onClick={() => latest.current.onRangeView(shown === i ? null : { id: e.id, range: i })}
+                    >
+                      <Box boxSize="2" borderRadius="full" bg={RANGE_COLORS[r]} />
+                      {RANGE_LABELS[r]}
+                    </Button>
+                  ))}
+                </ButtonGroup>
+                <ParamSlider
+                  label="Fulcrum"
+                  min={-4}
+                  max={4}
+                  hardMin={-10}
+                  hardMax={10}
+                  step={0.05}
+                  format={fmt.ev}
+                  {...e.bind('fulcrum')}
+                />
+                <ParamSlider
+                  label="Mid-tones range"
+                  min={0}
+                  max={8}
+                  hardMax={16}
+                  step={0.05}
+                  format={(r) => `${r.toFixed(2)} EV`}
+                  {...e.bind('midtonesRange')}
+                />
+                <ParamSlider
+                  label="Shadows fall-off"
+                  min={0.1}
+                  max={6}
+                  hardMin={0.01}
+                  hardMax={12}
+                  step={0.05}
+                  format={(r) => `${r.toFixed(2)} EV`}
+                  {...e.bind('shadowsFalloff')}
+                />
+                <ParamSlider
+                  label="Highlights fall-off"
+                  min={0.1}
+                  max={6}
+                  hardMin={0.01}
+                  hardMax={12}
+                  step={0.05}
+                  format={(r) => `${r.toFixed(2)} EV`}
+                  {...e.bind('highlightsFalloff')}
+                />
+                <ParamSlider
+                  label="White fulcrum"
+                  min={0}
+                  max={8}
+                  hardMin={-6}
+                  hardMax={16}
+                  step={0.05}
+                  format={fmt.ev}
+                  {...e.bind('whiteFulcrum')}
+                />
+              </>
+            )}
+          </>
+        );
+      })}
 
       {sections('colorPrimaries', [], (e) => (
         <>

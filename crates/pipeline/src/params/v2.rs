@@ -2,12 +2,29 @@
 //!
 //! v1 had a sigmoid tone mapper (`toneMap`); it is ignored, so v1 recipes get
 //! filmic's defaults. Their white balance (warmth/tint) is taken out beforehand and
-//! becomes colour calibration, as for v3–v5. Must match `migrateV2` in
+//! becomes colour calibration, as for v3–v5, and their colour and shadows/highlights
+//! sections become colour balance, as for v3–v6. Must match `migrateV2` in
 //! `packages/pipeline/src/params.ts`.
 
 use serde::Deserialize;
 
-use super::{Blur, Color, Exposure, Filmic, Geometry, Module, ModuleInstance, ShadowsHighlights, Sharpen};
+use super::{Blur, ColorBalance, Exposure, Filmic, Geometry, Module, ModuleInstance, Sharpen};
+
+/// v1–v6 colour section: saturation and vibrance. Becomes colour balance.
+#[derive(Clone, Copy, Default, PartialEq, Deserialize)]
+#[serde(default)]
+struct Color {
+    saturation: f32,
+    vibrance: f32,
+}
+
+/// v2–v6 shadows/highlights section. Becomes colour balance.
+#[derive(Clone, Copy, Default, PartialEq, Deserialize)]
+#[serde(default)]
+struct ShadowsHighlights {
+    shadows: f32,
+    highlights: f32,
+}
 
 #[derive(Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -52,11 +69,13 @@ impl From<EditParams> for super::EditParams {
             push(true, v2.sharpen.into());
         }
         push(true, v2.exposure.into());
+        // As in v3–v6 recipes (`migrate_color_balance`).
         if v2.color != Color::default() {
-            push(true, v2.color.into());
+            push(true, ColorBalance::from_color(v2.color.saturation, v2.color.vibrance).into());
         }
-        if v2.shadows_highlights != ShadowsHighlights::default() {
-            push(true, v2.shadows_highlights.into());
+        let sh = v2.shadows_highlights;
+        if sh != ShadowsHighlights::default() {
+            push(true, ColorBalance::from_shadows_highlights(sh.shadows, sh.highlights).into());
         }
         push(v2.filmic.enabled, v2.filmic.params.into());
         super::EditParams { version: super::CURRENT_VERSION, modules, shapes: Default::default() }

@@ -134,17 +134,37 @@ export interface ModuleParams {
     grey: number[];
     normalizeGrey: boolean;
   };
-  color: {
-    /** -1 (monochrome) … +1. */
-    saturation: number;
-    /** -1 … +1, favours muted colours. */
+  /**
+   * Colour balance, after Ansel's colour balance rgb (master tab) and split-toning rgb (a
+   * light correction and channel mix per range). The image is split into shadows,
+   * mid-tones and highlights by luminance, with weights that add up to 1
+   * (`toneRangeWeights`). Grading arrays hold `[global, shadows, mid-tones, highlights]`.
+   * Mirrors `params::ColorBalance`.
+   */
+  colorBalance: {
+    /** Rotation of every hue, degrees, -180 … 180. */
+    hueShift: number;
+    /** Chroma for the muted colours more than for the saturated ones, -1 … 1. */
     vibrance: number;
-  };
-  shadowsHighlights: {
-    /** -1 … +1. */
-    shadows: number;
-    /** -1 … +1. */
-    highlights: number;
+    /** Linear chroma, -1 (grey) … 1 (double). */
+    chroma: number[];
+    /** Perceptual saturation (dt UCS), -1 … 1. */
+    saturation: number[];
+    /** Perceptual brilliance (dt UCS), -1 … 1. */
+    brilliance: number[];
+    shadows: ToneMixer;
+    midtones: ToneMixer;
+    highlights: ToneMixer;
+    /** Centre of the mid-tones, EV relative to middle grey. */
+    fulcrum: number;
+    /** Width of the mid-tones, EV between the half-way points of their edges, ≥ 0. */
+    midtonesRange: number;
+    /** EV over which the shadows' weight goes from 90 % to 10 %, ≥ 0.01. */
+    shadowsFalloff: number;
+    /** The same, between the mid-tones and the highlights. */
+    highlightsFalloff: number;
+    /** Luminance taken as white by saturation and brilliance, EV relative to middle grey. */
+    whiteFulcrum: number;
   };
   /** Colour primaries, after Ansel's: moves six control colours. Units are Ansel's. */
   colorPrimaries: {
@@ -233,6 +253,30 @@ export const LUT_INTERPOLATIONS = ['tetrahedral', 'trilinear', 'pyramid'] as con
 export type LutInterpolation = (typeof LUT_INTERPOLATIONS)[number];
 
 export type ModuleKind = keyof ModuleParams;
+
+/**
+ * One range's mixer in colour balance: a CAT16 adaptation from a light of `temperature` to
+ * the working space's white, then a 3×3 mix in linear Rec.2020. Mirrors `params::ToneMixer`.
+ */
+export interface ToneMixer {
+  /** Colour temperature of the light to correct, K, 1667 … 25000; `NEUTRAL_TEMPERATURE` changes nothing. */
+  temperature: number;
+  /** Output channels as a mix of the input ones, -2 … 2 each. */
+  red: number[];
+  green: number[];
+  blue: number[];
+  /** Scale each mix so that its coefficients add up to 1. */
+  normalizeRed: boolean;
+  normalizeGreen: boolean;
+  normalizeBlue: boolean;
+}
+
+/** The temperature colour balance's mixers leave alone: D65, the working space's white. Mirrors `NEUTRAL_TEMPERATURE`. */
+export const NEUTRAL_TEMPERATURE = 6504;
+
+/** Colour balance's ranges, in the order of its weights and grading arrays (after the global entry). */
+export const TONE_RANGES = ['shadows', 'midtones', 'highlights'] as const;
+export type ToneRange = (typeof TONE_RANGES)[number];
 
 export const SPOT_MODES = ['heal', 'clone', 'fill', 'blur'] as const;
 export type SpotMode = (typeof SPOT_MODES)[number];
@@ -327,8 +371,7 @@ export const MODULE_KINDS = [
   'glow',
   'exposure',
   'colorCalibration',
-  'color',
-  'shadowsHighlights',
+  'colorBalance',
   'colorPrimaries',
   'toneCurve',
   'filmic',
@@ -349,8 +392,7 @@ export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'glow',
   'exposure',
   'colorCalibration',
-  'color',
-  'shadowsHighlights',
+  'colorBalance',
   'colorPrimaries',
   'toneCurve',
   'lut',
@@ -525,8 +567,9 @@ export type Bleach = (typeof BLEACH_LEVELS)[number];
  * v4: filmic's latitude/balance became independent toe/shoulder sizes.
  * v5: filmic's toe/shoulder measure the linear share instead of the curved one.
  * v6: colour calibration replaces warmth/tint, and does the white balance.
+ * v7: colour balance replaces colour (saturation/vibrance) and shadows/highlights.
  */
-export const EDIT_PARAMS_VERSION = 6;
+export const EDIT_PARAMS_VERSION = 7;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
@@ -580,8 +623,22 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     grey: [0, 0, 0],
     normalizeGrey: false,
   },
-  color: { saturation: 0, vibrance: 0 },
-  shadowsHighlights: { shadows: 0, highlights: 0 },
+  colorBalance: {
+    hueShift: 0,
+    vibrance: 0,
+    chroma: [0, 0, 0, 0],
+    saturation: [0, 0, 0, 0],
+    brilliance: [0, 0, 0, 0],
+    shadows: defaultToneMixer(),
+    midtones: defaultToneMixer(),
+    highlights: defaultToneMixer(),
+    fulcrum: 0,
+    midtonesRange: 4,
+    shadowsFalloff: 2,
+    highlightsFalloff: 2,
+    // Ansel's default, 1 EV (a luminance of 2): log₂(2 / 0.1845).
+    whiteFulcrum: 3.44,
+  },
   colorPrimaries: {
     ...(Object.fromEntries(PRIMARIES.map((p) => [p, { hue: 0, saturation: 0, brightness: 0 }])) as Record<
       PrimaryName,
@@ -622,6 +679,82 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
   },
 });
 
+function defaultToneMixer(): ToneMixer {
+  return {
+    temperature: NEUTRAL_TEMPERATURE,
+    red: [1, 0, 0],
+    green: [0, 1, 0],
+    blue: [0, 0, 1],
+    normalizeRed: true,
+    normalizeGreen: true,
+    normalizeBlue: true,
+  };
+}
+
+/** Middle grey, linear. Mirrors `color::MIDDLE_GREY`. */
+const MIDDLE_GREY = 0.1845;
+
+/**
+ * The weights of colour balance's shadows, mid-tones and highlights at a luminance `ev`
+ * (EV relative to middle grey, measured on the module's input). They add up to 1.
+ * Mirrors `color_balance::range_weights`.
+ */
+export function toneRangeWeights(
+  p: Pick<ModuleParams['colorBalance'], 'fulcrum' | 'midtonesRange' | 'shadowsFalloff' | 'highlightsFalloff'>,
+  ev: number,
+): [number, number, number] {
+  const x = ev - p.fulcrum;
+  const half = Math.max(0, p.midtonesRange) / 2;
+  // A logistic goes from 10 % to 90 % over 2 k ln 9.
+  const step = (at: number, falloff: number) =>
+    1 / (1 + Math.exp(-(x - at) / (Math.max(0.01, falloff) / (2 * Math.log(9)))));
+  const s = step(-half, p.shadowsFalloff);
+  const h = step(half, p.highlightsFalloff);
+  return [1 - s, s * (1 - h), s * h];
+}
+
+/** What a v1–v6 colour instance becomes, approximately. Mirrors `ColorBalance::from_color`. */
+function fromColor(saturation: number, vibrance: number): ModuleParams['colorBalance'] {
+  const p = structuredClone(defaultModuleParams.colorBalance);
+  const clamp = (v: number) => Math.min(1, Math.max(-1, v));
+  p.chroma[0] = clamp(saturation);
+  p.vibrance = clamp(vibrance);
+  return p;
+}
+
+/** What a v1–v6 shadows/highlights instance becomes, approximately. Mirrors `ColorBalance::from_shadows_highlights`. */
+function fromShadowsHighlights(shadows: number, highlights: number): ModuleParams['colorBalance'] {
+  const p = structuredClone(defaultModuleParams.colorBalance);
+  const clamp = (v: number) => Math.min(1, Math.max(-1, v));
+  p.brilliance[1] = clamp(shadows);
+  p.brilliance[3] = clamp(highlights);
+  return p;
+}
+
+/** Numbers of a legacy colour or shadows/highlights section (0 where missing or junk). */
+const legacyNumber = (params: unknown, key: string) =>
+  isObject(params) && typeof params[key] === 'number' && Number.isFinite(params[key]) ? params[key] : 0;
+
+/** A legacy colour or shadows/highlights section as colour balance, if it is one of them. */
+function legacyColorBalance(kind: unknown, params: unknown): ModuleParams['colorBalance'] | null {
+  if (kind === 'color') return fromColor(legacyNumber(params, 'saturation'), legacyNumber(params, 'vibrance'));
+  if (kind === 'shadowsHighlights')
+    return fromShadowsHighlights(legacyNumber(params, 'shadows'), legacyNumber(params, 'highlights'));
+  return null;
+}
+
+/**
+ * v3–v6 colour and shadows/highlights instances become colour balance instances,
+ * keeping their id, label, switch and mask. Mirrors `migrate_color_balance`.
+ */
+function migrateColorBalance(raw: Record<string, unknown>) {
+  if (!Array.isArray(raw.modules)) return;
+  raw.modules = raw.modules.map((m: unknown) => {
+    const params = isObject(m) ? legacyColorBalance(m.kind, m.params) : null;
+    return params ? { ...(m as object), kind: 'colorBalance', params } : m;
+  });
+}
+
 const instance = <K extends ModuleKind>(kind: K, id = ''): ModuleInstance<K> =>
   ({ id, label: null, enabled: true, kind, params: structuredClone(defaultModuleParams[kind]) }) as ModuleInstance<K>;
 
@@ -659,6 +792,7 @@ export function normalizeEditParams(input: unknown): EditParams {
   migrateFilmic(raw);
   const version = typeof raw.version === 'number' ? raw.version : 0;
   const whiteBalance = version < 6 ? takeWhiteBalance(raw) : [];
+  if (version < 7) migrateColorBalance(raw);
   const modules = version < 3 && !('modules' in raw) ? migrateV2(raw) : v3Modules(raw);
   // The base image used to be balanced as shot; now colour calibration does it.
   if (version < 6) modules.push({ ...instance('colorCalibration'), params: fromWhiteBalance(whiteBalance) });
@@ -992,6 +1126,15 @@ function migrateV2(input: Record<string, unknown>): ModuleInstance[] {
   const modules: ModuleInstance[] = [];
   for (const kind of MODULE_KINDS) {
     if (kind === 'colorCalibration') continue;
+    if (kind === 'colorBalance') {
+      // The colour and shadows/highlights sections, as in v3–v6 recipes.
+      for (const legacy of ['color', 'shadowsHighlights']) {
+        const fields = legacy === 'color' ? ['saturation', 'vibrance'] : ['shadows', 'highlights'];
+        if (!fields.some((f) => legacyNumber(input[legacy], f) !== 0)) continue;
+        modules.push({ ...instance(kind), params: legacyColorBalance(legacy, input[legacy])! });
+      }
+      continue;
+    }
     const section = isObject(input[kind]) ? input[kind] : undefined;
     const params = moduleParams(kind, section);
     const always = kind === 'exposure' || kind === 'filmic';

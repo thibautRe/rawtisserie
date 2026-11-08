@@ -97,10 +97,14 @@ See README.md for the architecture overview and commands.
 - `ops/filmic.rs` is a port of Ansel's `filmicrgb.c` (GPL-3.0-or-later). When changing
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
-- `ops/primaries.rs`, `ops/equalizer.rs`, `ops/calibration.rs`, `ops/retouch.rs` and
-  `ops/tone_curve.rs` follow Ansel's `colorprimaries.c`, `atrous.c`, `channelmixerrgb.c`,
-  `retouch.c`/`pixel/heal.c` and `rgbcurve.c` (same license; deviations are listed in
-  the module docs). The tone curve and the contrast equalizer draw with `curveAt` (`develop/curve.ts`), which mirrors `equalizer::curve`. Upstream sources:
+- `ops/primaries.rs`, `ops/equalizer.rs`, `ops/calibration.rs`, `ops/retouch.rs`,
+  `ops/tone_curve.rs` and `ops/color_balance.rs` follow Ansel's `colorprimaries.c`, `atrous.c`,
+  `channelmixerrgb.c`, `retouch.c`/`pixel/heal.c`, `rgbcurve.c` and
+  `colorbalancergb.c` + `splittoningrgb.c` (same license; deviations are listed in
+  the module docs). Colour balance's range weights are mirrored in TS (`toneRangeWeights`,
+  for the settings graph), and its range mixers reuse calibration's mixer views
+  (`MixerTarget` in `ModulePanel`). Its per-pixel grading is split into short branch-free
+  loops over 64-pixel chunks so they vectorise: keep it that way. The tone curve and the contrast equalizer draw with `curveAt` (`develop/curve.ts`), which mirrors `equalizer::curve`. Upstream sources:
   github.com/aurelienpierreeng/ansel, `src/iop/` and `src/pixel/colorequal_shared.c`.
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance
@@ -117,7 +121,7 @@ See README.md for the architecture overview and commands.
   deleted, so recipes keep rendering); `collectLuts` removes tables nobody has, at start.
   Built-in LUTs are files in `packages/pipeline/luts/` listed in `BUILTIN_LUTS`: never
   change or remove one (recipes refer to its id), retire it instead.
-- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 6).
+- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 7).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
   Saved presets and styles (`presets.payload`) hold recipe fragments too: a migration

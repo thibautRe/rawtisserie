@@ -168,6 +168,15 @@ export interface Overlays {
   maskView?: MaskView;
   /** Show what a tone curve instance reads on its input (`clipping::ToneCurveView`). */
   toneCurve?: ToneCurveView | null;
+  /** Show where one range of a colour balance instance applies (`clipping::ToneRangeView`). */
+  toneRange?: ToneRangeView | null;
+}
+
+/** Where one of a colour balance instance's ranges applies on its input, in yellow. */
+export interface ToneRangeView {
+  id: string;
+  /** 0: shadows, 1: mid-tones, 2: highlights. */
+  range: number;
 }
 
 /** What a tone curve instance reads on its input, black at its first node, white at its last. */

@@ -27,6 +27,19 @@ pub struct Overlays {
     pub mask_view: MaskView,
     /// Show what a tone curve instance reads on its input (see [`ToneCurveView`]).
     pub tone_curve: Option<ToneCurveView>,
+    /// Show where one tonal range of a colour balance instance applies (see [`ToneRangeView`]).
+    pub tone_range: Option<ToneRangeView>,
+}
+
+/// Where one of a colour balance instance's ranges applies, measured on its input, in
+/// yellow like a mask: its weight.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ToneRangeView {
+    /// The instance's id.
+    pub id: String,
+    /// 0: shadows, 1: mid-tones, 2: highlights.
+    pub range: usize,
 }
 
 /// What a tone curve instance reads on its input, over its node range: black at the

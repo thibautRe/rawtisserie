@@ -23,6 +23,7 @@ const OVERLAYS: Overlays = Overlays {
     mask: None,
     mask_view: MaskView { part: MaskPart::Mask, values: false },
     tone_curve: None,
+    tone_range: None,
 };
 
 fn crop(img: &Rgba8, r: Region) -> Vec<u8> {
@@ -229,4 +230,15 @@ fn masked_regions_match() {
     let worst = part.data.iter().zip(crop(&whole, region)).map(|(a, b)| a.abs_diff(b)).max().unwrap();
     assert!(worst <= 1, "tone curve overlay differs by up to {worst} levels");
     assert_ne!(part.data, plain.data, "the tone curve overlay shows");
+    // And colour balance's ranges.
+    p.add(rawtisserie_pipeline::params::ColorBalance { chroma: [0.2, 0.0, 0.0, 0.0], ..Default::default() });
+    let id = p.modules.iter().find(|m| m.module.kind() == rawtisserie_pipeline::params::ModuleKind::ColorBalance).unwrap().id.clone();
+    for range in 0..3 {
+        let view = rawtisserie_pipeline::ops::clipping::ToneRangeView { id: id.clone(), range };
+        let overlays = Overlays { tone_range: Some(view), ..OVERLAYS };
+        let whole = dev.render_with_overlays(&p, size, Quality::Final, &overlays);
+        let part = dev.render_with_overlays(&p, size.with_region(region), Quality::Final, &overlays);
+        let worst = part.data.iter().zip(crop(&whole, region)).map(|(a, b)| a.abs_diff(b)).max().unwrap();
+        assert!(worst <= 1, "range {range} overlay differs by up to {worst} levels");
+    }
 }

@@ -29,7 +29,8 @@ pub use crate::shapes::Shape;
 /// v4: filmic's latitude/balance became independent toe/shoulder sizes.
 /// v5: filmic's toe/shoulder measure the linear share instead of the curved one.
 /// v6: colour calibration replaces warmth/tint, and does the white balance.
-pub const CURRENT_VERSION: u32 = 6;
+/// v7: colour balance replaces colour (saturation/vibrance) and shadows/highlights.
+pub const CURRENT_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Value")]
@@ -158,8 +159,9 @@ modules! {
     Exposure,
     /// White balance (chromatic adaptation) and channel mixing.
     ColorCalibration,
-    Color,
-    ShadowsHighlights,
+    /// Grading by tonal range: chroma, saturation and brilliance (Ansel's colour balance
+    /// rgb), and a light correction and channel mix per range (its split-toning rgb).
+    ColorBalance,
     ColorPrimaries,
     ToneCurve,
     /// Scene-referred → display-referred. Single instance.
@@ -185,8 +187,7 @@ impl ModuleKind {
                 | ModuleKind::Glow
                 | ModuleKind::Exposure
                 | ModuleKind::ColorCalibration
-                | ModuleKind::Color
-                | ModuleKind::ShadowsHighlights
+                | ModuleKind::ColorBalance
                 | ModuleKind::ColorPrimaries
                 | ModuleKind::ToneCurve
                 | ModuleKind::Lut
@@ -363,6 +364,9 @@ impl TryFrom<Value> for EditParams {
         migrate_filmic(&mut json);
         let version = json.get("version").and_then(Value::as_u64).unwrap_or(0);
         let white_balance = if version < 6 { take_white_balance(&mut json) } else { Vec::new() };
+        if version < 7 {
+            migrate_color_balance(&mut json);
+        }
         let mut params = if version >= 3 || json.get("modules").is_some() {
             let raw = match json.get("modules") {
                 Some(modules) => Vec::<RawInstance>::deserialize(modules)?,
@@ -404,6 +408,25 @@ fn take_white_balance(json: &mut Value) -> Vec<(f32, f32)> {
         found
     } else {
         json.as_object_mut().and_then(|o| o.remove("whiteBalance")).map(|wb| vec![read(Some(&wb))]).unwrap_or_default()
+    }
+}
+
+/// v1–v6 colour (saturation/vibrance) and shadows/highlights instances become colour
+/// balance instances, keeping their id, label, switch and mask (v1/v2 sections are
+/// handled in `v2.rs`). The look is only approximated. Must match `migrateColorBalance`
+/// in TS.
+fn migrate_color_balance(json: &mut Value) {
+    let Some(modules) = json.get_mut("modules").and_then(Value::as_array_mut) else { return };
+    for m in modules.iter_mut() {
+        let kind = m.get("kind").and_then(Value::as_str);
+        let get = |key: &str| m.get("params").and_then(|p| p.get(key)).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+        let params = match kind {
+            Some("color") => ColorBalance::from_color(get("saturation"), get("vibrance")),
+            Some("shadowsHighlights") => ColorBalance::from_shadows_highlights(get("shadows"), get("highlights")),
+            _ => continue,
+        };
+        m["kind"] = "colorBalance".into();
+        m["params"] = serde_json::to_value(params).expect("colour balance serialises");
     }
 }
 
@@ -875,23 +898,123 @@ pub enum Adaptation {
     None,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// The colour temperature colour balance's mixers leave alone: the working space's
+/// white, D65 (Ansel's 5003 K is its D50).
+pub const NEUTRAL_TEMPERATURE: f32 = 6504.0;
+
+/// Colour balance, after Ansel's `colorbalancergb.c` (the master tab) and
+/// `splittoningrgb.c` (a light correction and channel mix per range); see
+/// [`crate::ops::color_balance`]. The image is split into shadows, mid-tones and
+/// highlights by luminance, with weights that always add up to 1.
+///
+/// The grading arrays hold `[global, shadows, mid-tones, highlights]`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct Color {
-    /// -1 (monochrome) … +1 (double chroma).
-    pub saturation: f32,
-    /// Like saturation, but favours muted colours. -1 … +1.
+pub struct ColorBalance {
+    /// Rotation of every hue, in degrees, -180 … 180.
+    pub hue_shift: f32,
+    /// Chroma for the muted colours more than for the saturated ones, -1 … 1.
     pub vibrance: f32,
+    /// Linear chroma, -1 (grey) … 1 (double).
+    pub chroma: [f32; 4],
+    /// Perceptual saturation (dt UCS), -1 … 1.
+    pub saturation: [f32; 4],
+    /// Perceptual brilliance (dt UCS), -1 … 1.
+    pub brilliance: [f32; 4],
+    /// The light correction and channel mix of each range.
+    pub shadows: ToneMixer,
+    pub midtones: ToneMixer,
+    pub highlights: ToneMixer,
+    /// Centre of the mid-tones, EV relative to middle grey.
+    pub fulcrum: f32,
+    /// Width of the mid-tones, EV between the half-way points of their two edges, ≥ 0.
+    pub midtones_range: f32,
+    /// How gradually the shadows turn into the mid-tones: the EV over which the
+    /// shadows' weight goes from 90 % to 10 %, ≥ 0.01.
+    pub shadows_falloff: f32,
+    /// The same, between the mid-tones and the highlights.
+    pub highlights_falloff: f32,
+    /// Luminance taken as white by saturation and brilliance, EV relative to middle grey.
+    pub white_fulcrum: f32,
 }
 
-/// Global shadows/highlights: exposure gains driven by each pixel's luminance.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+impl Default for ColorBalance {
+    fn default() -> Self {
+        Self {
+            hue_shift: 0.0,
+            vibrance: 0.0,
+            chroma: [0.0; 4],
+            saturation: [0.0; 4],
+            brilliance: [0.0; 4],
+            shadows: ToneMixer::default(),
+            midtones: ToneMixer::default(),
+            highlights: ToneMixer::default(),
+            fulcrum: 0.0,
+            midtones_range: 4.0,
+            shadows_falloff: 2.0,
+            highlights_falloff: 2.0,
+            // Ansel's default, 1 EV (a luminance of 2): log₂(2 / 0.1845).
+            white_fulcrum: 3.44,
+        }
+    }
+}
+
+impl ColorBalance {
+    /// The mixers of the shadows, mid-tones and highlights.
+    pub fn mixers(&self) -> [&ToneMixer; 3] {
+        [&self.shadows, &self.midtones, &self.highlights]
+    }
+
+    /// What a v1–v6 colour instance (saturation and vibrance, -1 … 1) becomes,
+    /// approximately. Must match `fromColor` in TS.
+    pub fn from_color(saturation: f32, vibrance: f32) -> Self {
+        let mut p = Self::default();
+        p.chroma[0] = saturation.clamp(-1.0, 1.0);
+        p.vibrance = vibrance.clamp(-1.0, 1.0);
+        p
+    }
+
+    /// What a v1–v6 shadows/highlights instance (-1 … 1 each) becomes, approximately.
+    /// Must match `fromShadowsHighlights` in TS.
+    pub fn from_shadows_highlights(shadows: f32, highlights: f32) -> Self {
+        let mut p = Self::default();
+        p.brilliance[1] = shadows.clamp(-1.0, 1.0);
+        p.brilliance[3] = highlights.clamp(-1.0, 1.0);
+        p
+    }
+}
+
+/// One range's mixer in colour balance, after Ansel's split-toning rgb: a chromatic
+/// adaptation (CAT16) from a light of `temperature` to the working space's white,
+/// then a 3×3 mix of the channels, in linear Rec.2020.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct ShadowsHighlights {
-    /// Lifts (+) or crushes (-) shadows, -1 … +1.
-    pub shadows: f32,
-    /// Recovers (-) or boosts (+) highlights, -1 … +1.
-    pub highlights: f32,
+pub struct ToneMixer {
+    /// Correlated colour temperature of the light to correct, in kelvin, 1667 … 25000
+    /// (daylight, black body below 4000 K). [`NEUTRAL_TEMPERATURE`] changes nothing.
+    pub temperature: f32,
+    /// Output channels as a mix of the input ones, -2 … 2 each.
+    pub red: [f32; 3],
+    pub green: [f32; 3],
+    pub blue: [f32; 3],
+    /// Scale each mix so that its coefficients add up to 1 (greys stay grey).
+    pub normalize_red: bool,
+    pub normalize_green: bool,
+    pub normalize_blue: bool,
+}
+
+impl Default for ToneMixer {
+    fn default() -> Self {
+        Self {
+            temperature: NEUTRAL_TEMPERATURE,
+            red: [1.0, 0.0, 0.0],
+            green: [0.0, 1.0, 0.0],
+            blue: [0.0, 0.0, 1.0],
+            normalize_red: true,
+            normalize_green: true,
+            normalize_blue: true,
+        }
+    }
 }
 
 /// Colour primaries, after Ansel's `colorprimaries.c`: moves the six primary and
@@ -1384,7 +1507,7 @@ mod tests {
         p.get_mut::<Sharpen>().amount = 0.5;
         p.add(Exposure { ev: -1.0, black: 0.0 });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.starts_with(r#"{"version":6,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
+        assert!(json.starts_with(r#"{"version":7,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
         assert_eq!(EditParams::from_json(&json).unwrap(), p);
     }
 
@@ -1566,6 +1689,29 @@ mod tests {
         let json = serde_json::to_value(&p).unwrap();
         assert_eq!(json["modules"][3]["params"], serde_json::json!({ "lut": null, "interpolation": "tetrahedral" }));
         assert_eq!(EditParams::from_json(&json.to_string()).unwrap(), p);
+    }
+
+    #[test]
+    fn migrates_color_and_shadows_highlights_to_color_balance() {
+        let p = EditParams::from_json(
+            r#"{"version":6,"modules":[
+                {"id":"pop","label":"pop","kind":"color","params":{"saturation":0.4,"vibrance":-0.2},"mask":{"opacity":0.5}},
+                {"kind":"shadowsHighlights","enabled":false,"params":{"shadows":0.3,"highlights":-2}},
+                {"kind":"color","params":"junk"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::ColorBalance; 3]);
+        let [a, b, c] = [0, 1, 2].map(|i| ColorBalance::get(&p.modules[i].module).unwrap().clone());
+        assert_eq!((a.chroma, a.vibrance), ([0.4, 0.0, 0.0, 0.0], -0.2));
+        assert_eq!((p.modules[0].id.as_str(), p.modules[0].label.as_deref(), p.modules[0].mask.as_ref().map(|m| m.opacity)), ("pop", Some("pop"), Some(0.5)));
+        assert_eq!((b.brilliance, p.modules[1].enabled), ([0.0, 0.3, 0.0, -1.0], false));
+        assert_eq!(c, ColorBalance::default());
+
+        let p = EditParams::from_json(r#"{"version":2,"color":{"vibrance":0.2},"shadowsHighlights":{"highlights":-0.4}}"#).unwrap();
+        let balances: Vec<_> = p.all::<ColorBalance>().collect();
+        assert_eq!(balances, [&ColorBalance::from_color(0.0, 0.2), &ColorBalance::from_shadows_highlights(0.0, -0.4)]);
+        // v7 recipes have no such kinds.
+        assert!(EditParams::from_json(r#"{"version":7,"modules":[{"kind":"color"}]}"#).is_err());
     }
 
     #[test]

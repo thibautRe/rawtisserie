@@ -75,14 +75,14 @@ test('compress keeps one entry per changed instance, in order of last change', (
   const r1 = exposure(defaultEditParams, 1);
   const r2 = sharpen(r1, 1);
   const r3 = exposure(r2, 2);
-  const r4 = updateModule(r3, 'color', { enabled: true, params: { saturation: 0.2 } });
+  const r4 = updateModule(r3, 'colorBalance', { enabled: true, params: { vibrance: 0.2 } });
   const r5 = updateModule(r4, 'filmic', { params: { contrast: 1.5 } });
   const r6 = updateModule(r5, 'filmic', { params: { contrast: defaultModuleParams.filmic.contrast } });
   const out = compressHistory(defaultEditParams, [at(r1), at(r2), at(r3), at(r4), at(r5), at(r6)]);
   // Filmic is back to its original state: no entry.
   assert.deepEqual(
     out.map((e) => e.label),
-    ['Sharpen: on, amount 1', 'Exposure: ev 2', 'Color: on, saturation 0.2'],
+    ['Sharpen: on, amount 1', 'Exposure: ev 2', 'Color balance: on, vibrance 0.2'],
   );
   assert.deepEqual(out.at(-1)!.recipe, r6);
   assert.deepEqual(compressHistory(defaultEditParams, [at(r1), at(defaultEditParams)]), []);

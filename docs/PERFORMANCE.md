@@ -12,7 +12,8 @@ Unless stated otherwise, numbers come from 2026-11-03, on an Intel i9-10885H lap
 
 - **Point operations are linear in pixel count**: about 75 ns per pixel, native and
   single-threaded. Exposure → calibration → saturation → shadows/highlights →
-  primaries → filmic → sRGB. A full 2400×1600 render with the spatial stages cached
+  primaries → filmic → sRGB (measured before colour balance replaced saturation and
+  shadows/highlights). A full 2400×1600 render with the spatial stages cached
   takes 290 ms, a 1200×800 draft 71 ms. That's why a fixed 0.5 MP draft was used for
   every drag, and why drafts look blurry.
 - **Colour primaries' table**: 64³ nodes, `clut` + `delta` ≈ 6 MB. A full build from
@@ -133,3 +134,37 @@ hardware threads. Re-measure on other machines before changing it.
   per event name on `CrRendererMain`. For JS, use `Profiler.start` on a build made
   with `build: { minify: false }` so function names survive. Do this before guessing.
   Twice here, the obvious suspect (frame commits, canvas presentation) wasn't it.
+
+## Colour balance (2026-11-08)
+
+Native, i9-10885H, 4 MP of random colours, `ColorBalanceStage::apply_all` alone:
+
+| path                                  | ns/pixel |
+| ------------------------------------- | -------- |
+| mixers only (weights table + 3×3 mix) | ~4       |
+| saturation/brilliance (dt UCS)        | ~78      |
+| plus chroma/vibrance/hue (Yrg)        | ~94      |
+
+The dt UCS path is ~13 powers in a dependent chain. Written one pixel at a time it ran
+at ~400 ns/pixel: one pixel is ~800 µops, too long for the CPU to overlap the next one,
+and the compiler doesn't interleave pixels on its own (an unrolled 4-pixel loop changed
+nothing). What got it to ~100: branch-free code (selects, `exp2_fast` without the
+`floor` libm call, no `rem_euclid`), short loops over the chunk in structure-of-arrays
+scratch (`Grading::apply_all`), and powers sharing their logarithms.
+
+Then to ~78 (same output): the gamut table's position (`atan2`) computed in its own
+vectorised loop, only the table reads left scalar (15 → 4 ns); the gamut soft-clip and
+the conversion back split into two loops, the lightness and log-chroma recomputed only
+in chunks where some colour clipped, and the chromaticity kept unnormalised (one
+division instead of three). A `found |= …` accumulated inside a loop stopped that loop
+vectorising (+20 ns): test the flags in a pass of their own.
+
+Vectorisation check: LLVM's `-C remark=loop-vectorize` didn't report most of these
+loops at all, vectorised or not. Count packed (`mulps`) against scalar (`mulss`)
+instructions per source line instead (`objdump -d -l` on a build with
+`CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`).
+
+Where the ~78 ns go: range weights and xyY ~5, forward to dt UCS with saturation and
+brilliance ~30, gamut lookup ~4, soft-clip and back ~40. A 2D table over (luminance,
+colourfulness) could replace the forward part (~30 → ~10–15); the rest depends on
+three values (lightness, chroma and the hue's gamut edge), so a table doesn't fit it.

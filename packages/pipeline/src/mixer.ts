@@ -21,6 +21,15 @@ type Vec3 = [number, number, number];
 type Mat3 = [Vec3, Vec3, Vec3];
 type Calibration = ModuleParams['colorCalibration'];
 
+/** A mixer's rows, as colour calibration and colour balance's ranges (`ToneMixer`) store them. */
+export type MixerRows = Pick<
+  Calibration,
+  'red' | 'green' | 'blue' | 'normalizeRed' | 'normalizeGreen' | 'normalizeBlue'
+>;
+
+/** Where colour balance's mixers act: linear Rec.2020, whose white is (1, 1, 1). */
+export const RGB_WHITE: Vec3 = [1, 1, 1];
+
 /** Ansel's primaries mode. Angles in degrees (Ansel's sliders show degrees too). */
 export interface MixerPrimaries {
   /** Rotation of the white the mixer maps the basis white to, from the red direction. */
@@ -101,7 +110,7 @@ export function mixerWhite(p: Pick<Calibration, 'adaptation' | 'illuminant'>): V
 }
 
 /** The instance's mixer matrix (rows: outputs), normalised like the pipeline does. */
-export function mixerMatrix(p: Calibration): Mat3 {
+export function mixerMatrix(p: MixerRows): Mat3 {
   const row = (r: number[], normalize: boolean): Vec3 => {
     const n = normalize ? sum3(r) : 1;
     return r.map((c) => c / n) as Vec3;
@@ -110,9 +119,7 @@ export function mixerMatrix(p: Calibration): Mat3 {
 }
 
 /** The recipe fields for a mixer matrix (rounded, rows not normalised). */
-export function mixerRows(
-  m: Mat3,
-): Pick<Calibration, 'red' | 'green' | 'blue' | 'normalizeRed' | 'normalizeGreen' | 'normalizeBlue'> {
+export function mixerRows(m: Mat3): MixerRows {
   const round = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
   const [red, green, blue] = m.map((r) => r.map(round));
   return { red: red!, green: green!, blue: blue!, normalizeRed: false, normalizeGreen: false, normalizeBlue: false };

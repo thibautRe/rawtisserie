@@ -4,6 +4,7 @@ pub mod blend;
 pub mod calibration;
 pub mod clipping;
 pub mod clut;
+pub mod color_balance;
 pub mod equalizer;
 pub mod filmic;
 pub mod filters;

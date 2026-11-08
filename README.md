@@ -13,7 +13,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   darktable duplicates), each with its own rating, labels and edit history.
 - **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
   new imports), exposure, colour calibration (white balance by chromatic adaptation and
-  channel mixing), saturation and vibrance, shadows/highlights, colour primaries and a
+  channel mixing), colour balance (chroma, saturation and brilliance by tonal range, and
+  split-toning: a light correction and channel mix per range), colour primaries and a
   contrast equalizer (ports of Ansel's), filmic tone mapping (a port of Ansel's filmic
   rgb with its AgX colour science), creative 3D LUTs (after filmic: a few built-in film
   looks, or your own `.cube` and Hald CLUT PNG files, previewed as you hover them),
@@ -62,7 +63,7 @@ RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera →
     ─▶ geometry (lens, orientation, straighten, perspective, crop, resample) cached: per output size
        └ drawn parts of masks, through the same geometry, feathered          cached: per output size
     ─▶ blur ─▶ sharpen ─▶ contrast equalizer ─▶ glow                        cached: per output size
-    ─▶ exposure ─▶ colour calibration ─▶ saturation/vibrance ─▶ shadows/highlights
+    ─▶ exposure ─▶ colour calibration ─▶ colour balance
     ─▶ colour primaries ─▶ filmic (AgX) ─▶ creative LUTs ─▶ sRGB            one fused pass, always re-run
 ```
 
@@ -204,6 +205,21 @@ the as-shot white in the base stage, so they stay neutral. Deviations from Ansel
 from the D65 working space, are listed in the module. Recipes from before v6 had
 warmth/tint instead; it is folded into the channel mixer when they're read.
 
+### Colour balance
+
+`ops/color_balance.rs` merges two Ansel modules: the master tab of `colorbalancergb`
+(hue shift, vibrance, and linear chroma, perceptual saturation and brilliance, globally
+and per range, with its dt UCS gamut mapping) and `splittoningrgb` (per range, a CAT16
+correction from a light's temperature, 6504 K changing nothing, and a 3×3 channel mix,
+edited with colour calibration's mixer views). The shadows, mid-tones and highlights are
+two logistic steps along the luminance (a fulcrum, a mid-tones width and two fall-offs),
+so their weights always add up to 1: the same settings in every range act like a global
+one, and the range matrices blend like a mix of lights. The settings tab draws the
+weights and can show each range over the image. Ansel's 4 ways and contrast are left out
+(the mixers cover tinting, the tone curve contrast). Recipes from before v7 had colour
+(saturation/vibrance) and shadows/highlights instead; they become colour balance
+instances, approximately, when they're read.
+
 ### Colour primaries and contrast equalizer
 
 `ops/primaries.rs` ports Ansel's `colorprimaries` (and the parts of `colorequal_shared`
@@ -283,7 +299,9 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
   native N-API build for the server would speed up cold renders and geometry changes.
 - The fused per-pixel pass is a natural WebGL/WebGPU fragment shader. Rust would still
   build the gains and lookup tables, and the GPU would only apply them.
-- Shadows/highlights is global; a guided-filter tone equalizer would preserve local contrast.
+- Colour balance's ranges are by luminance alone; a guided-filter tone equalizer would
+  preserve local contrast. Its perceptual grading costs ~80 ns/pixel native (see
+  `docs/PERFORMANCE.md`); its mixers alone ~4 ns.
 - Filmic is the costliest per-pixel stage (~45 ns/pixel interactively, ~80 ns exact).
 - The contrast equalizer is the costliest spatial stage: ~75 ms per megapixel when only
   luminance is edited, about twice that with colour. It re-runs on curve edits; caching

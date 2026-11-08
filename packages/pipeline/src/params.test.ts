@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
+  EDIT_PARAMS_VERSION,
   MODULE_KINDS,
   defaultEditParams,
   defaultRecipe,
@@ -32,6 +33,7 @@ import {
   removeMaskShape,
   updateMask,
   lutIds,
+  toneRangeWeights,
 } from './params.ts';
 import type { EllipseShape as Shape } from './shapes.ts';
 import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
@@ -114,6 +116,36 @@ const samples: unknown[] = [
   // Every kind with its defaults.
   { version: 5, modules: MODULE_KINDS.map((kind) => ({ kind })) },
   { version: 6, modules: MODULE_KINDS.map((kind) => ({ kind })) },
+  { version: 7, modules: MODULE_KINDS.map((kind) => ({ kind })) },
+  // Colour and shadows/highlights become colour balance.
+  {
+    version: 6,
+    modules: [
+      { id: 'pop', label: 'pop', kind: 'color', params: { saturation: 0.4, vibrance: -1.5 }, mask: { opacity: 0.5 } },
+      { kind: 'shadowsHighlights', enabled: false, params: { shadows: 0.3, highlights: -0.25 } },
+      { kind: 'color', params: { saturation: 'lots' } },
+      { kind: 'shadowsHighlights' },
+    ],
+  },
+  { version: 2, color: { saturation: 0.1 }, shadowsHighlights: { shadows: 0, highlights: 0 } },
+  {
+    version: 7,
+    modules: [
+      {
+        kind: 'colorBalance',
+        params: {
+          hueShift: 12,
+          saturation: [0.1, 0.2, 0, -0.3],
+          shadows: { temperature: 4000, red: [0.9, 0.1, 0], normalizeRed: false },
+          highlights: { blue: [0, 0.2, 0.8] },
+          midtonesRange: 2.5,
+          whiteFulcrum: 4,
+        },
+        mask: { luminance: [-4, -3, 0, 1] },
+      },
+      { kind: 'colorBalance', params: { midtones: { temperature: 12000 }, fulcrum: -1 } },
+    ],
+  },
   // White balance (warmth/tint) becomes colour calibration.
   { version: 5, modules: [{ kind: 'whiteBalance', params: { warmth: -0.35, tint: 0.12 } }, { kind: 'filmic' }] },
   {
@@ -296,10 +328,11 @@ test('normalizeEditParams fills gaps and ignores junk', () => {
   });
   assert.deepEqual(
     p.modules.map((m) => m.kind),
-    ['exposure', 'colorCalibration', 'color', 'filmic'],
+    ['exposure', 'colorCalibration', 'colorBalance', 'filmic'],
   );
   assert.deepEqual(findModule(p, 'exposure')!.params, { ev: 2, black: 0 });
-  assert.deepEqual(findModule(p, 'color')!.params, defaultModuleParams.color);
+  // A v3–v6 colour instance with junk becomes a neutral colour balance.
+  assert.deepEqual(findModule(p, 'colorBalance')!.params, defaultModuleParams.colorBalance);
   assert.equal(findModule(p, 'filmic')!.params.bleach, 'medium');
   const c = normalizeEditParams({
     version: 6,
@@ -351,7 +384,7 @@ test('v2 recipes become one instance per section', () => {
     filmic: { enabled: false, contrast: 1.5 },
     geometry: { crop: { x: 0.5 } },
   });
-  assert.equal(p.version, 6);
+  assert.equal(p.version, EDIT_PARAMS_VERSION);
   assert.deepEqual(
     p.modules.map((m) => [m.id, m.enabled]),
     [
@@ -367,11 +400,11 @@ test('v2 recipes become one instance per section', () => {
 
 test('updateModule adds missing instances in pipeline order', () => {
   let p = updateModule(defaultEditParams, 'sharpen', { params: { amount: 0.5 } });
-  p = updateModule(p, 'color', { params: { saturation: 0.2 } });
+  p = updateModule(p, 'colorBalance', { params: { vibrance: 0.2 } });
   p = updateModule(p, 'exposure', { params: { ev: 1 } });
   assert.deepEqual(
     p.modules.map((m) => m.kind),
-    ['sharpen', 'exposure', 'colorCalibration', 'color', 'filmic'],
+    ['sharpen', 'exposure', 'colorCalibration', 'colorBalance', 'filmic'],
   );
   assert.deepEqual(findModule(p, 'sharpen')!.params, { amount: 0.5, radius: 1 });
   assert.equal(findModule(p, 'exposure')!.params.ev, 1);
@@ -408,8 +441,8 @@ test('instances can be duplicated, moved, renamed, reset and removed', () => {
   // Single-instance kinds get no others.
   assert.equal(addInstance(two, 'filmic'), two);
   // Other kinds start from their defaults.
-  const color = updateInstance(defaultEditParams, 'color', 'color', { params: { saturation: 0.5 } });
-  assert.deepEqual(addInstance(color, 'color').modules[3]!.params, defaultModuleParams.color);
+  const balance = updateInstance(defaultEditParams, 'colorBalance', 'colorBalance', { params: { vibrance: 0.5 } });
+  assert.deepEqual(addInstance(balance, 'colorBalance').modules[3]!.params, defaultModuleParams.colorBalance);
   // A second colour calibration doesn't adapt again.
   const calibrations = addInstance(defaultEditParams, 'colorCalibration');
   assert.equal(findModule(calibrations, 'colorCalibration')!.params.adaptation, 'cat16');
@@ -440,10 +473,13 @@ test('instances can be duplicated, moved, renamed, reset and removed', () => {
   // The only instance goes back to the default recipe.
   assert.deepEqual(resetInstance(base, 'exposure', 'exposure'), defaultEditParams);
   // An instance that doesn't exist yet is added after its kind.
-  const added = updateInstance(defaultEditParams, 'color', 'color', { enabled: true, params: { saturation: 0.5 } });
+  const added = updateInstance(defaultEditParams, 'colorBalance', 'colorBalance', {
+    enabled: true,
+    params: { vibrance: 0.5 },
+  });
   assert.deepEqual(
     added.modules.map((m) => m.id),
-    ['exposure', 'colorCalibration', 'color', 'filmic'],
+    ['exposure', 'colorCalibration', 'colorBalance', 'filmic'],
   );
 });
 
@@ -595,4 +631,17 @@ test('invalid masks get their defaults', () => {
       ],
     },
   );
+});
+
+test('colour balance range weights add up to 1, like Rust', () => {
+  const p = defaultModuleParams.colorBalance;
+  for (const ev of [-12, -4, -2, -0.5, 0, 1, 2, 3, 8]) {
+    const w = toneRangeWeights(p, ev);
+    assert.ok(Math.abs(w[0] + w[1] + w[2] - 1) < 1e-12, `${ev}: ${w}`);
+  }
+  // Half-way at the mid-tones' edges, 90 % → 10 % over the fall-off (as in `color_balance.rs`).
+  assert.ok(Math.abs(toneRangeWeights(p, -2)[0] - 0.5) < 0.01);
+  assert.ok(Math.abs(toneRangeWeights(p, -3)[0] - 0.9) < 1e-3);
+  assert.ok(Math.abs(toneRangeWeights(p, 3)[2] - 0.9) < 0.01);
+  assert.deepEqual(toneRangeWeights({ ...p, fulcrum: 1 }, 1), toneRangeWeights(p, 0));
 });

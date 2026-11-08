@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    BlendMode, Color, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, ShadowsHighlights, Shape, Sharpen, ToneCurve,
+    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, Shape, Sharpen, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -19,9 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // What a new import of this file starts with (lens correction when available).
     let mut p = EditParams::default_for(dev.metadata());
     p.get_mut::<ColorCalibration>().colorfulness = [0.1; 3];
-    p.get_mut::<Color>().saturation = 0.2;
-    p.get_mut::<Color>().vibrance = 0.2;
-    p.get_mut::<ShadowsHighlights>().shadows = 0.3;
+    p.get_mut::<ColorBalance>().chroma[0] = 0.2;
+    p.get_mut::<ColorBalance>().vibrance = 0.2;
+    p.get_mut::<ColorBalance>().brilliance[1] = 0.3;
     p.get_mut::<Sharpen>().amount = 0.5;
 
     let time = |label: &str, dev: &mut Developer, p: &EditParams| {
@@ -61,6 +61,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let img = dev.render(&p, draft, Quality::Interactive);
         println!("{:<34} {:>7.1} ms  ({}×{})", "temperature drag (draft)", t.elapsed().as_secs_f64() * 1e3, img.width, img.height);
     }
+
+    // Colour balance: drag the saturation (the dt UCS path), then a range's mixer alone.
+    for i in 0..3 {
+        p.get_mut::<ColorBalance>().saturation[1] = 0.1 * (i + 1) as f32;
+        time("balance saturation drag", &mut dev, &p);
+    }
+    let graded = p.get_mut::<ColorBalance>().clone();
+    *p.get_mut::<ColorBalance>() = ColorBalance::default();
+    for i in 0..3 {
+        p.get_mut::<ColorBalance>().highlights.temperature = 5000.0 - 200.0 * i as f32;
+        time("balance mixer drag (mixer only)", &mut dev, &p);
+    }
+    *p.get_mut::<ColorBalance>() = ColorBalance { highlights: p.get_mut::<ColorBalance>().highlights.clone(), ..graded };
+    time("balance, mixer and grading", &mut dev, &p);
 
     // Colour primaries: drag a slider, release, then other sliders.
     for i in 0..3 {
@@ -190,7 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         time("masked exposure slider, soft light", &mut dev, &p);
     }
     p.modules[sky].mask.as_mut().unwrap().blend = BlendMode::Normal;
-    let i = p.add(Color { saturation: 0.5, vibrance: 0.0 });
+    let i = p.add(ColorBalance { chroma: [0.5, 0.0, 0.0, 0.0], ..Default::default() });
     p.modules[i].mask = Some(Mask { drawn: vec![DrawnShape { shape: "spot".into(), ..Default::default() }], ..Mask::default() });
     time("second mask added", &mut dev, &p);
     p.get_mut::<Exposure>().ev += 0.1;

@@ -15,6 +15,7 @@ use crate::ops::blend::Blend;
 use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
+use crate::ops::color_balance;
 use crate::ops::tone_curve::{self, InputHistogram};
 use crate::ops::lines::{self, GuideLine, Segment};
 use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
@@ -572,6 +573,9 @@ impl Developer {
         if let Some(view) = &overlays.tone_curve {
             self.paint_tone_curve_view(params, view, size, img);
         }
+        if let Some(view) = &overlays.tone_range {
+            self.paint_tone_range_view(params, view, size, img);
+        }
         let (_, frame_height, _) = self.output_size(params, size);
         let region = self.output_region(params, size);
         let sensor = overlays.sensor.then(|| self.sensor_clip_mask(params, size));
@@ -1007,6 +1011,19 @@ impl Developer {
         let Some(input) = self.module_input(params, &view.id, size) else { return };
         if input.len() == img.width * img.height {
             clipping::paint_colors(img, &tone_curve::view_colors(&p, &input, view.channel.unwrap_or(0), view.node));
+        }
+    }
+
+    /// Paint where one range of colour balance instance `view.id` applies on `img`, a
+    /// render of `params` within `size`: the range's weight on the instance's input.
+    fn paint_tone_range_view(&mut self, params: &EditParams, view: &clipping::ToneRangeView, size: RenderSize, img: &mut Rgba8) {
+        let Some(instance) = params.modules.iter().find(|m| m.id == view.id) else { return };
+        let Some(p) = <params::ColorBalance as params::ModuleParams>::get(&instance.module).cloned() else { return };
+        let Some(input) = self.module_input(params, &view.id, size) else { return };
+        if input.len() == img.width * img.height {
+            let range = view.range.min(2);
+            let weights: Vec<f32> = input.iter().map(|c| color_balance::range_weights(&p, crate::color::luminance(*c))[range]).collect();
+            clipping::paint_mask(img, &weights);
         }
     }
 

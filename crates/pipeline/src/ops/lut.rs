@@ -59,7 +59,9 @@ pub fn log2_fast(x: f32) -> f32 {
 #[inline]
 pub fn exp2_fast(x: f32) -> f32 {
     let x = x.clamp(-126.0, 127.0);
-    let i = x.floor();
+    // floor(x), without a call (no `roundss` before SSE4.1), so that loops vectorise.
+    let t = x as i32 as f32;
+    let i = if t > x { t - 1.0 } else { t };
     let f = x - i;
     let poly = 1.0 + f * (0.693_151_3 + f * (0.240_164_4 + f * (0.055_799_9 + f * (0.009_017_03 + f * 0.001_867_13))));
     poly * f32::from_bits(((i as i32 + 127) as u32) << 23)
