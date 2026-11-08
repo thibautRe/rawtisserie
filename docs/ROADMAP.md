@@ -15,6 +15,11 @@ Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 
 4.11 (blend modes, with LUT masks) done 2026-11-07; 4.12 (glow) and 8.3 (culling
 loupe) done the same day. 4.7 (colour balance RGB) and 4.10 (tone equalizer, merged into
 the tone curve, now shown as "Tones") done 2026-11-08.
+Photoshoot feedback (2026-11-09): done the same day: burst order, "edited" ignoring the
+automatic lens correction entry, primaries sliders stopping before a singular mix, wider
+colour balance ranges and "Colorfulness: standard" in the default recipe, the library
+view restored when leaving the developer, and a film roll under the developer. Left:
+8.6 (copy and paste edits), 8.7 (auto-tune on apply) and 8.8 (append or apply per module).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1321,6 +1326,64 @@ output colour space, as a ZIP or per file.
 - **Notifications:** an in-app notification centre (polling or SSE) first. Email when
   the job finishes needs transactional email, which the server doesn't send yet. It's
   also useful for account flows and 7.5's quota warnings.
+
+### 8.6 Copy and paste edits (S–M, after 8.1)
+
+Copy part of a recipe from one photo and paste it onto others, in the developer and in
+the library. It's a style that isn't saved: build it on 4.2's code rather than next to it.
+
+- **Copy in the developer:** like "Create a style" (`CreateStyleDialog`): pick module
+  instances (and, for kinds with `PRESET_GROUPS`, parts of them, like a module preset)
+  — Ctrl+Shift+C opens the picker, Ctrl+C copies what was picked last time. Geometry,
+  retouch and lens correction off by default (they belong to one image), as Lightroom
+  and darktable do.
+- **Copy in the library:** one photo's recipe, by module kind only (the grid shows no
+  instances): the style picker's kinds. Ctrl+C on the focused photo.
+- **Paste:** Ctrl+V in the developer (one history entry, "Paste from DSC01234") and
+  on the library's selection, through 8.1's batch path (`runBatchEdit`, Undo toast).
+  Hovering "Paste" previews it like a style (`useEditPreview`).
+- **Where the clipboard lives:** the client, in `sessionStorage` (a `Style` payload and
+  the source's name), so it survives going between the library and the developer.
+  Carries the shapes it uses, renamed on paste (`styleFromRecipe`/`applyStyle` already
+  do).
+- Append vs replace: today's style submenu, until 8.8 settles it per module.
+
+### 8.7 Auto-tune when applying a preset or style (M)
+
+A preset or style can ask for its modules' auto-tunes to run once applied: filmic's
+white/black exposure, and the tone curve's "fit the nodes to the image" wand (which
+would make "Lift shadows" lift the right tones on every photo). Stored in the payload
+(`autoTune: ModuleKind[]`, normalised like the rest), with a checkbox per tunable module
+in the save dialogs.
+
+- **Developer:** apply, then run the auto-tunes on the result (they already run on the
+  worker: `autoTuneFilmic`, `onFitToneCurve`), as one history entry. The auto-tunes must
+  be pure functions of (recipe, image) so the result doesn't depend on the zoom or the
+  preview size: measure on the same fitted preview each time.
+- **Library (8.1):** the client doesn't have the images. Either run the auto-tunes on
+  the server (the render worker already decodes each RAW; a `tune` op for
+  `POST /api/versions/history` that the server resolves before writing the entry), or
+  on the client from the small linear proxies 8.1 mentions. The server is simpler and
+  works for big selections; it needs filmic's and the wand's measurements exposed from
+  the wasm module (filmic's is, `Developer::auto_tune_filmic`).
+- Later, the same flag on 4.2's auto-apply rules, so new uploads can start auto-tuned.
+
+### 8.8 Append or apply per module in styles (S–M, needs a decision)
+
+Today a style is applied with "Apply" (replace the instances of its kinds) or "Append"
+(add them), chosen in a submenu each time. Instead, each instance in a style would
+carry its own mode, set when the style (or the copy, 8.6) is made: a masked exposure
+vignette always appends, a filmic look always replaces. The menus lose their submenu,
+and paste becomes one action.
+
+- **Default:** "append" for an instance that isn't its kind's first in the source
+  recipe, "apply" otherwise; editable per instance in the save dialog.
+- **Format:** `mode: 'replace' | 'append'` per style module, normalised (missing =
+  today's behaviour of the menu entry used, i.e. replace); single-instance kinds always
+  replace. Rust doesn't see styles, so TS only (`normalizeStyle`, `applyStyle`).
+- **To decide:** whether replacing removes *all* the target's instances of a kind or
+  only the first (a target with two exposures and a style with one); and whether an
+  "Append everything" escape hatch stays (e.g. Shift+click).
 
 ---
 
