@@ -68,6 +68,8 @@ import {
   RGB_NORMS,
   type RgbNorm,
   TONE_CURVE_MAX_OFFSET,
+  TONE_EDGE_RANGE,
+  TONE_SMOOTHING_RANGE,
   TONE_CURVE_NODES,
   TONE_HISTOGRAM_RANGE,
   toneCurveRange,
@@ -137,7 +139,7 @@ import type { RangeKey } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
 import type { IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView, ToneRangeView } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
-import { sinhCurve, tracks } from './slider.ts';
+import { type SliderCurve, sinhCurve, tracks } from './slider.ts';
 
 interface Props {
   params: EditParams;
@@ -623,6 +625,8 @@ const NORMALIZE_KEYS = {
 const HUE_CURVE = sinhCurve(90);
 /** Glow radius: fine at the small radii of halation, coarse up to large blooms. */
 const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
+/** For parameters that span decades (positive). */
+const LOG_CURVE: SliderCurve = { toPosition: (v) => Math.log10(Math.max(v, 1e-9)), toValue: (p) => 10 ** p };
 
 const MIXER_MODES = {
   primaries: { read: primariesFromMatrix, write: primariesToMatrix, identity: IDENTITY_PRIMARIES },
@@ -2216,7 +2220,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
 
       {sections('toneCurve', [toneInputs, fittingTone, toneView], (e) => {
         const v = e.values;
-        const independent = v.channels === 'independent';
+        const local = v.preserveDetail;
+        // Preserving detail, the curve is linked and reads a norm.
+        const independent = v.channels === 'independent' && !local;
+        const norms = local ? RGB_NORMS.filter((n) => n !== 'none') : RGB_NORMS;
+        const norm = local && v.preserveColors === 'none' ? 'norm' : v.preserveColors;
         const key = independent ? e.view.toneChannel : 'rgb';
         const channel = TONE_CHANNELS.indexOf(e.view.toneChannel);
         const range = toneCurveRange(v);
@@ -2237,26 +2245,32 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         return (
           <>
             <HStack gap="2">
-              <NativeSelect.Root size="xs" flex="1">
-                <NativeSelect.Field
-                  value={v.channels}
-                  onChange={(ev) => e.set({ channels: ev.target.value as ModuleParams['toneCurve']['channels'] })}
-                  aria-label="Channels"
-                >
-                  <option value="linked">RGB, linked</option>
-                  <option value="independent">RGB, independent</option>
-                </NativeSelect.Field>
-                <NativeSelect.Indicator />
-              </NativeSelect.Root>
+              {!local && (
+                <NativeSelect.Root size="xs" flex="1">
+                  <NativeSelect.Field
+                    value={v.channels}
+                    onChange={(ev) => e.set({ channels: ev.target.value as ModuleParams['toneCurve']['channels'] })}
+                    aria-label="Channels"
+                  >
+                    <option value="linked">RGB, linked</option>
+                    <option value="independent">RGB, independent</option>
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
               {!independent && (
                 <NativeSelect.Root size="xs" flex="1">
                   <NativeSelect.Field
-                    value={v.preserveColors}
+                    value={norm}
                     onChange={(ev) => e.set({ preserveColors: ev.target.value as RgbNorm })}
                     aria-label="Preserve colors"
-                    title="Preserve colors: what the curve reads; the pixel is scaled as a whole, keeping its hue and saturation"
+                    title={
+                      local
+                        ? 'Preserve colors: what the mask is made of; the pixel is scaled as a whole, keeping its hue and saturation'
+                        : 'Preserve colors: what the curve reads; the pixel is scaled as a whole, keeping its hue and saturation'
+                    }
                   >
-                    {RGB_NORMS.map((n) => (
+                    {norms.map((n) => (
                       <option key={n} value={n}>
                         {RGB_NORM_LABELS[n]}
                       </option>
@@ -2277,7 +2291,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               </IconButton>
               <IconButton
                 aria-label={showing ? 'Hide what the curve reads' : 'Show what the curve reads on the image'}
-                title="Show what the curve reads on the image: black at the darkest node, white at the brightest; the selected node's tones in yellow"
+                title={`Show what the curve reads on the image${local ? ' (its mask)' : ''}: black at the darkest node, white at the brightest; the selected node's tones in yellow`}
                 size="2xs"
                 variant={showing ? 'subtle' : 'outline'}
                 colorPalette={showing ? 'orange' : 'gray'}
@@ -2290,6 +2304,17 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 <Eye />
               </IconButton>
             </HStack>
+            <Switch.Root
+              size="xs"
+              colorPalette="orange"
+              checked={local}
+              onCheckedChange={(d) => e.set({ preserveDetail: d.checked })}
+              title="Preserve detail: read each area's tone from a smoothed, edge-aware mask rather than each pixel's own, so that areas move as a whole and keep their texture (tone equalizer). Best for shadows and highlights; contrast curves work best without it."
+            >
+              <Switch.HiddenInput />
+              <Switch.Control />
+              <Switch.Label textStyle="xs">Preserve detail</Switch.Label>
+            </Switch.Root>
             {independent && (
               <Tabs.Root
                 size="sm"
@@ -2312,7 +2337,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             )}
             <CurveEditor
               key={key}
-              label={independent ? `Tone curve, ${key}` : 'Tone curve'}
+              label={independent ? `Tones, ${key}` : 'Tones'}
               values={toneToUnit(v[key])}
               defaults={TONE_FLAT}
               neutral={0.5}
@@ -2348,6 +2373,33 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               track={tracks.grey}
               {...bindToneRange(e, 1)}
             />
+            {local && (
+              <>
+                <ParamSlider
+                  label="Smoothing"
+                  min={0.005}
+                  max={0.25}
+                  hardMin={TONE_SMOOTHING_RANGE[0]}
+                  hardMax={TONE_SMOOTHING_RANGE[1]}
+                  step={0.001}
+                  scale={100}
+                  curve={LOG_CURVE}
+                  format={(s) => `${(s * 100).toFixed(1)} %`}
+                  {...e.bind('smoothing')}
+                />
+                <ParamSlider
+                  label="Edge refinement"
+                  min={0.1}
+                  max={100}
+                  hardMin={TONE_EDGE_RANGE[0]}
+                  hardMax={TONE_EDGE_RANGE[1]}
+                  step={0.01}
+                  curve={LOG_CURVE}
+                  format={fmt.fixed2}
+                  {...e.bind('edgeRefinement')}
+                />
+              </>
+            )}
           </>
         );
       })}

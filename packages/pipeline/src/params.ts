@@ -192,6 +192,7 @@ export interface ModuleParams {
    * an exposure offset in EV (0 = no change, ±`TONE_CURVE_MAX_OFFSET`) at
    * `TONE_CURVE_NODES` input exposures evenly spread over `range`, drawn smoothly
    * through them (`curveAt` on 0 … 1). Past the end nodes the offset stays the end node's.
+   * Shown as "Tones": preserving detail makes it Ansel's tone equalizer.
    */
   toneCurve: {
     /** One curve for all channels (`rgb`), or one per channel. */
@@ -204,6 +205,16 @@ export interface ModuleParams {
     red: number[];
     green: number[];
     blue: number[];
+    /**
+     * Read each pixel's exposure from an edge-aware smoothed mask of its surroundings
+     * (Ansel's tone equalizer): areas move as a whole and keep their texture. The curve
+     * is then linked and scales the pixel as a whole ('none' reads the 'norm').
+     */
+    preserveDetail: boolean;
+    /** With `preserveDetail`: the mask's smoothing diameter, a fraction of the frame's long side, `TONE_SMOOTHING_RANGE`. */
+    smoothing: number;
+    /** With `preserveDetail`: how closely the mask follows edges, `TONE_EDGE_RANGE`; higher keeps more of them. */
+    edgeRefinement: number;
   };
   /** Filmic RGB tone mapping, after Ansel (spline v3, colour science v8 "AgX"). */
   filmic: {
@@ -330,6 +341,10 @@ export const TONE_CURVE_RANGE = [-9, 3] as const;
 export const TONE_CURVE_MIN_RANGE = 1;
 /** Exposures the tone curve's input histogram covers (`toneCurveInput`), EV. Mirrors `tone_curve::HISTOGRAM_RANGE`. */
 export const TONE_HISTOGRAM_RANGE = [-16, 8] as const;
+/** Smoothing diameters a tone curve's mask takes (fractions of the long side). Mirrors `TONE_SMOOTHING_RANGE`. */
+export const TONE_SMOOTHING_RANGE = [0.001, 1] as const;
+/** Edge refinements a tone curve's mask takes. Mirrors `TONE_EDGE_RANGE`. */
+export const TONE_EDGE_RANGE = [0.01, 10000] as const;
 /** Largest tone curve offset, EV either way. Mirrors `TONE_CURVE_MAX_OFFSET`. */
 export const TONE_CURVE_MAX_OFFSET = 2;
 export const TONE_CURVE_CURVES = ['rgb', 'red', 'green', 'blue'] as const;
@@ -660,6 +675,10 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     red: Array<number>(TONE_CURVE_NODES).fill(0),
     green: Array<number>(TONE_CURVE_NODES).fill(0),
     blue: Array<number>(TONE_CURVE_NODES).fill(0),
+    preserveDetail: false,
+    // Ansel's: 5 % of the long side, edges refinement 1.
+    smoothing: 0.05,
+    edgeRefinement: 1,
   },
   // Ansel's defaults for RAW files, paired with the +0.7 EV exposure default.
   filmic: {

@@ -13,7 +13,8 @@ option); 8.5 (export options); 8.3 (culling loupe).
 Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
 4.10 (tone equalizer) added to it on 2026-11-06; see [1.0 release scope](#10-release-scope).
 4.11 (blend modes, with LUT masks) done 2026-11-07; 4.12 (glow) and 8.3 (culling
-loupe) done the same day.
+loupe) done the same day. 4.7 (colour balance RGB) and 4.10 (tone equalizer, merged into
+the tone curve, now shown as "Tones") done 2026-11-08.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -988,6 +989,30 @@ inside the frame). It could be shown only on export and in a "show frame" previe
 
 ### 4.10 Tone equalizer (L, after 4.6, before 1.0)
 
+> **Done** (2026-11-08) as a mode of the tone curve rather than a new kind: the two
+> overlapped almost entirely (same nodes, editor, histogram, wand and overlay), so the
+> module is shown as "Tones" (the kind stays `toneCurve`) and gets a "Preserve detail"
+> switch (`preserveDetail`, with `smoothing` and `edgeRefinement`). Off, it's the global
+> curve as before (all RGB modes; golden images unchanged). On, the curve is linked and
+> reads Ansel's EIGF-smoothed mask of a norm (`ops/tone_curve.rs`, `Local`), whose
+> histogram and overlay the editor then shows. The global curve stays for contrast
+> (a local curve moves areas and keeps their texture) and per-channel looks.
+> Pipeline: the mask's statistics (smoothed local mean and variance of the norm) are
+> computed with the point masks (`PointMask::Tones` in `PointMasksKey`, so
+> `is_spatial_cached` covers them), from samples of the module's input every 4 px,
+> jittered by a hash so regular textures don't alias, in cells aligned on the frame
+> (regions match, `Local::reach` pads them). They travel as two planes
+> (`tone_curve::plane_ids`) to the point pass, which blends them with the pixel's norm
+> (EIGF's last step), so the pool works unchanged. Measured at 2400 px (native, single
+> thread): node drags +3 % over a global curve; edits before it (exposure…) +10 % for
+> the statistics, where computing the whole input would have doubled the frame. The
+> input of masks and tone curves is now built with the cached colour primaries tables
+> (`PointOpsCache::input_ops`). Golden recipe `tones_local.json`; built-in presets "Lift
+> shadows" (now preserving detail), "Compress highlights", "Compress dynamic range"; the
+> contrast presets turn it off. Not done: Ansel's quantization, iterations, averaged
+> (geometric mean) filters and mask contrast compensation (the node range and the wand
+> do its job); picking a node from the image.
+
 A port of Ansel's `toneequal.c`: exposure corrections by tone, like the tone curve, but
 read from a smoothed luminance mask instead of each pixel's own value. Lifting the
 shadows then moves a whole shadow area by about the same number of stops and keeps
@@ -1438,7 +1463,7 @@ Required before 1.0, on top of what's done:
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
-   8.3 culling~~. Then 4.7 colour balance RGB, 4.8 3D LUT, 4.10 tone equalizer, ~~3.8 perspective~~, 3.6 lensfun,
+   8.3 culling~~. Then ~~4.7 colour balance RGB~~, 4.8 3D LUT, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
    step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

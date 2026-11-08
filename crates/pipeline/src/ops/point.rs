@@ -15,6 +15,9 @@
 //! its input, and its drawn part is read from the planes that come with the spatial
 //! image ([`PointOps::render_masked`]). A creative LUT's mask is measured on filmic's
 //! input, and it blends display-referred, on encoded sRGB.
+//!
+//! A tone curve preserving detail reads its mask's statistics from planes of its own
+//! that come the same way (`crate::ops::tone_curve::plane_ids`).
 
 use crate::color::{MIDDLE_GREY, Mat3, mul_vec};
 use crate::ops::blend::Blend;
@@ -343,6 +346,15 @@ impl Step {
         }
     }
 
+    /// The ids of the planes a tone curve preserving detail reads.
+    fn tone_planes(&self) -> Option<&[String; 2]> {
+        match self {
+            Step::ToneCurve(stage) => stage.planes.as_ref(),
+            Step::Masked(m) => m.step.tone_planes(),
+            _ => None,
+        }
+    }
+
     /// Position in the fixed chain.
     fn rank(&self) -> u8 {
         match self {
@@ -363,15 +375,16 @@ fn affine(c: Rgb, offset: &Rgb, gain: &Rgb) -> Rgb {
 }
 
 /// An unmasked step on many pixels: one loop per kind of step, so that the step's
-/// type is matched once rather than per pixel.
+/// type is matched once rather than per pixel. `tones`: a tone curve's mask at those
+/// pixels, when it preserves detail.
 #[inline]
-fn apply_unmasked(step: &Step, pixels: &mut [Rgb]) {
+fn apply_unmasked(step: &Step, pixels: &mut [Rgb], tones: Option<[&[f32]; 2]>) {
     match step {
         Step::Affine { offset, gain } => pixels.iter_mut().for_each(|c| *c = affine(*c, offset, gain)),
         Step::Calibration(stage) => stage.apply_all(pixels),
         Step::ColorBalance(stage) => stage.apply_all(pixels),
         Step::ColorPrimaries(stage) => pixels.iter_mut().for_each(|c| *c = stage.apply(*c)),
-        Step::ToneCurve(stage) => stage.apply_all(pixels),
+        Step::ToneCurve(stage) => stage.apply_all(pixels, tones),
         Step::Masked(_) => pixels.iter_mut().for_each(|c| *c = step.apply(*c)),
     }
 }
@@ -384,10 +397,19 @@ fn apply_steps(steps: &[Step], px: Rgb) -> Rgb {
 /// Most pixels [`PointOps::adjust_all`] takes at once.
 const MAX_CHUNK: usize = 64;
 
-/// The drawn planes the point operations read, by position.
+/// The planes a step reads.
+#[derive(Clone, Copy, Default)]
+struct StepPlanes<'a> {
+    /// Its mask's drawn part (or whole mask), if it's masked with one.
+    mask: Option<&'a [f32]>,
+    /// A tone curve's mask statistics, when it preserves detail.
+    tones: Option<[&'a [f32]; 2]>,
+}
+
+/// The planes the point operations read, by position.
 struct Planes<'a> {
-    /// Of each step, if it's masked with one.
-    steps: Vec<Option<&'a [f32]>>,
+    /// Of each step.
+    steps: Vec<StepPlanes<'a>>,
     /// Of each LUT, if it's masked with one.
     looks: Vec<Option<&'a [f32]>>,
 }
@@ -408,7 +430,8 @@ enum Chain {
 
 impl Chain {
     fn new(steps: Vec<Step>) -> Self {
-        let masked = steps.iter().any(|s| matches!(s, Step::Masked(_)));
+        // Steps that read planes, which the fixed chain doesn't.
+        let masked = steps.iter().any(|s| matches!(s, Step::Masked(_)) || s.tone_planes().is_some());
         if masked || !steps.windows(2).all(|w| w[0].rank() < w[1].rank()) {
             return Chain::Steps(steps);
         }
@@ -485,7 +508,7 @@ impl PointOps {
                     None => continue,
                 },
                 Module::ColorPrimaries(cp) if !cp.is_identity() => Step::ColorPrimaries(primaries(cp)),
-                Module::ToneCurve(t) => match ToneCurveStage::new(t) {
+                Module::ToneCurve(t) => match ToneCurveStage::new(t, &instance.id) {
                     Some(stage) => Step::ToneCurve(Box::new(stage)),
                     None => continue,
                 },
@@ -580,9 +603,8 @@ impl PointOps {
     /// chain is a long dependency chain (colour calibration alone has four matrix
     /// products and three divisions), which made the fused pass latency-bound.
     ///
-    /// `planes[i]` is the drawn plane of step `i` if it is masked with one; `start`, the
-    /// index of `pixels[0]` in those planes.
-    fn adjust_all(&self, pixels: &mut [Rgb], planes: &[Option<&[f32]>], start: usize) {
+    /// `planes[i]`: the planes step `i` reads; `start`, the index of `pixels[0]` in them.
+    fn adjust_all(&self, pixels: &mut [Rgb], planes: &[StepPlanes], start: usize) {
         match &self.chain {
             Chain::Fixed { affine: (offset, gain), calibration, color_balance, primaries, tone_curve } => {
                 pixels.iter_mut().for_each(|c| *c = affine(*c, offset, gain));
@@ -596,19 +618,21 @@ impl PointOps {
                     pixels.iter_mut().for_each(|c| *c = stage.apply(*c));
                 }
                 if let Some(stage) = tone_curve {
-                    stage.apply_all(pixels);
+                    stage.apply_all(pixels, None);
                 }
             }
             Chain::Steps(steps) => {
+                let n = pixels.len();
                 for (i, step) in steps.iter().enumerate() {
+                    let at = planes.get(i).copied().unwrap_or_default();
+                    let tones = at.tones.map(|p| p.map(|p| &p[start..start + n]));
                     match step {
                         Step::Calibration(stage) => stage.apply_all(pixels),
                         Step::Masked(m) => {
                             // The mask, the step on a copy, then the blend: each a loop of
                             // independent pixels, like the rest of the pass.
-                            let n = pixels.len();
                             let mut alpha = [0.0f32; MAX_CHUNK];
-                            match planes.get(i).copied().flatten() {
+                            match at.mask {
                                 Some(plane) => m.mask.eval_all(pixels, &plane[start..start + n], &mut alpha[..n]),
                                 // A missing plane (none given) leaves the pixels alone.
                                 None if m.mask.drawn => continue,
@@ -620,27 +644,31 @@ impl PointOps {
                             let mut out = [[0.0f32; 3]; MAX_CHUNK];
                             let out = &mut out[..n];
                             out.copy_from_slice(pixels);
-                            apply_unmasked(&m.step, out);
+                            apply_unmasked(&m.step, out, tones);
                             m.blend.mix_all(pixels, out, &alpha[..n]);
                         }
-                        _ => apply_unmasked(step, pixels),
+                        _ => apply_unmasked(step, pixels, tones),
                     }
                 }
             }
         }
     }
 
-    /// The drawn plane of each step and of each LUT, from `masks` (see
+    /// The planes of each step and the drawn plane of each LUT, from `masks` (see
     /// [`adjust_all`](Self::adjust_all)).
     fn planes<'a>(&self, masks: &'a [MaskPlane]) -> Planes<'a> {
-        let find = |stage: &MaskStage, id: &str| if stage.drawn { masks.iter().find(|p| p.id == id).map(|p| p.alpha.as_slice()) } else { None };
+        let plane = |id: &str| masks.iter().find(|p| p.id == id).map(|p| p.alpha.as_slice());
+        let find = |stage: &MaskStage, id: &str| if stage.drawn { plane(id) } else { None };
         let steps = match &self.chain {
             Chain::Fixed { .. } => Vec::new(),
             Chain::Steps(steps) => steps
                 .iter()
-                .map(|s| match s {
-                    Step::Masked(m) => find(&m.mask, &m.id),
-                    _ => None,
+                .map(|s| StepPlanes {
+                    mask: match s {
+                        Step::Masked(m) => find(&m.mask, &m.id),
+                        _ => None,
+                    },
+                    tones: s.tone_planes().and_then(|[m, v]| Some([plane(m)?, plane(v)?])),
                 })
                 .collect(),
         };

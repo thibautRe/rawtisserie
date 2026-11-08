@@ -699,6 +699,10 @@ export function DeveloperView({
                   committed.shapes,
                   m.params.channels,
                   m.params.preserveColors,
+                  // Preserving detail, it reads its mask.
+                  m.params.preserveDetail,
+                  m.params.smoothing,
+                  m.params.edgeRefinement,
                   job.width,
                   job.height,
                 ]),

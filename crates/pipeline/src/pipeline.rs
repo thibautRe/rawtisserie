@@ -16,7 +16,7 @@ use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
 use crate::ops::color_balance;
-use crate::ops::tone_curve::{self, InputHistogram};
+use crate::ops::tone_curve::{self, InputHistogram, Local};
 use crate::ops::lines::{self, GuideLine, Segment};
 use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
 use crate::ops::glow::GlowOp;
@@ -67,7 +67,8 @@ impl RenderSize {
 ///   └ geometry  lens, orientation, straighten, crop, resample    keyed by the above + lens + geometry + output size (3 sizes kept)
 ///      ├ masks  drawn parts of the instances' masks, feathered    keyed by the above + the masks' shapes and feather
 ///      └ detail blur, sharpen, equalizer, glow instances          keyed by the above + their parameters (and masks) at this scale
-///         ├ masks of point modules feathered whole                keyed by the above + the point modules before them
+///         ├ masks of point modules feathered whole, and of tone   keyed by the above + the point modules before them
+///         │ curves preserving detail
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass, reading the masks
 /// ```
 ///
@@ -273,14 +274,25 @@ struct Detail {
     step_masks: Vec<MaskPlane>,
 }
 
-/// What the masks of point modules feathered whole are computed from.
+/// What the masks of point modules feathered whole, and those of tone curves preserving
+/// detail, are computed from.
 #[derive(Clone, Debug, PartialEq)]
 struct PointMasksKey {
     geometry: GeometryKey,
     steps: Vec<DetailStep>,
     drawn: Vec<(String, Drawn)>,
-    /// Each one's instance id, the enabled point modules before it, and its mask.
-    masks: Vec<(String, Vec<ModuleInstance>, params::Mask)>,
+    /// In pipeline order: each one's instance id, the enabled point modules before it,
+    /// and what it is.
+    masks: Vec<(String, Vec<ModuleInstance>, PointMask)>,
+}
+
+/// A plane computed on a point module's input.
+#[derive(Clone, Debug, PartialEq)]
+enum PointMask {
+    /// Its mask, feathered whole.
+    Whole(params::Mask),
+    /// A tone curve's mask, preserving detail: its statistics (`tone_curve::plane_ids`).
+    Tones(Local),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -359,6 +371,22 @@ impl PointOpsCache {
         self.primaries = used;
         self.primaries_weights = weights;
         ops
+    }
+
+    /// The point operations before filmic of `before` (the modules before an instance):
+    /// what gives that instance's input. Colour primaries tables come from cache, and
+    /// new ones join it without evicting those of the whole recipe.
+    fn input_ops(&mut self, before: &EditParams, as_shot: Option<[f32; 2]>) -> PointOps {
+        let cache = &mut self.primaries;
+        let mut stage = |p: &ColorPrimaries| match cache.iter().find(|(q, _)| q == p) {
+            Some((_, stage)) => stage.clone(),
+            None => {
+                let stage = Rc::new(ColorPrimariesStage::build(p));
+                cache.push((p.clone(), stage.clone()));
+                stage
+            }
+        };
+        PointOps::with_stages(before, as_shot, None, &mut stage, &ClutStore::default())
     }
 
     /// Filmic for interactive renders: computed exactly right after its parameters
@@ -532,7 +560,9 @@ impl Developer {
             let detail = steps.iter().map(|s| s.margin((width, height))).sum::<usize>();
             let whole = params.modules.iter().filter(|m| m.enabled).filter_map(mask::active).filter(|m| m.feathers_whole());
             let whole = whole.map(|m| mask::feather_margin(m.feather, m.edge_aware, scale));
-            let feather = drawn.iter().map(|(_, d)| d.margin(scale)).chain(whole).max().unwrap_or(0);
+            let tones = params.modules.iter().filter(|m| m.enabled).filter_map(|m| Local::of(<params::ToneCurve as params::ModuleParams>::get(&m.module)?));
+            let tones = tones.map(|l| l.reach((width, height)));
+            let feather = drawn.iter().map(|(_, d)| d.margin(scale)).chain(whole).chain(tones).max().unwrap_or(0);
             (detail + feather).next_multiple_of(32).min(MAX_PADDING)
         } else {
             0
@@ -789,10 +819,11 @@ impl Developer {
         (img, masks)
     }
 
-    /// The masks of the point modules feathered whole (`key`), in pipeline order, each
-    /// measured on its input (the padded spatial image through the point modules before
-    /// it) and feathered steered by it; with the other drawn planes, cropped to `inner`.
-    fn point_masks(&self, key: &PointMasksKey, plan: &Plan, inner: Region, params: &EditParams) -> Vec<MaskPlane> {
+    /// The masks of the point modules feathered whole and of the tone curves preserving
+    /// detail (`key`), in pipeline order, each computed on its input (the padded spatial
+    /// image through the point modules before it), the former feathered steered by it;
+    /// with the other drawn planes, cropped to `inner`.
+    fn point_masks(&mut self, key: &PointMasksKey, plan: &Plan, inner: Region, params: &EditParams) -> Vec<MaskPlane> {
         let slot = &self.slots[0];
         let img = match &slot.detail {
             Some(d) => d.padded.as_ref().unwrap_or(&d.image),
@@ -801,7 +832,29 @@ impl Developer {
         let mut planes = slot.masks.as_ref().expect("masks were built").1.clone();
         for (id, before, m) in &key.masks {
             let before = EditParams { version: params.version, modules: before.clone(), shapes: params.shapes.clone() };
-            let input = PointOps::with_filmic(&before, self.photo.as_shot_illuminant, None).adjust_image(img, &planes);
+            let ops = self.point_ops.input_ops(&before, self.photo.as_shot_illuminant);
+            let m = match m {
+                PointMask::Whole(m) => m,
+                PointMask::Tones(local) => {
+                    // Its statistics read the input at samples only.
+                    let (origin, size) = ((plan.padded.x, plan.padded.y), (img.width, img.height));
+                    let Some(samples) = local.samples(origin, size, plan.frame) else { continue };
+                    let pick = |v: &[f32]| samples.rows.iter().flat_map(|&y| samples.cols.iter().map(move |&x| v[y * img.width + x])).collect();
+                    let sampled = Image {
+                        width: samples.cols.len(),
+                        height: samples.rows.len(),
+                        pixels: samples.rows.iter().flat_map(|&y| samples.cols.iter().map(move |&x| img.pixels[y * img.width + x])).collect(),
+                    };
+                    let sampled_planes: Vec<MaskPlane> = planes.iter().map(|q| MaskPlane { id: q.id.clone(), alpha: pick(&q.alpha) }).collect();
+                    let input = ops.adjust_image(&sampled, &sampled_planes);
+                    let stats = local.stats(&samples, &input, origin, size);
+                    for (id, alpha) in tone_curve::plane_ids(id).into_iter().zip(stats) {
+                        planes.push(MaskPlane { id, alpha });
+                    }
+                    continue;
+                }
+            };
+            let input = ops.adjust_image(img, &planes);
             let at = planes.iter().position(|q| &q.id == id);
             let stage = MaskStage::parametric(m);
             let mut values: Vec<f32> = input.iter().enumerate().map(|(k, px)| stage.eval(*px, at.map_or(1.0, |i| planes[i].alpha[k]))).collect();
@@ -886,12 +939,13 @@ impl Developer {
         }
         let as_shot = self.photo.as_shot_illuminant;
         self.spatial(params, size);
-        let (img, masks) = self.output();
         if kind < ModuleKind::Exposure {
-            return Some(img.pixels.clone());
+            return Some(self.output().0.pixels.clone());
         }
         let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
-        Some(PointOps::with_filmic(&before, as_shot, None).adjust_image(img, masks))
+        let ops = self.point_ops.input_ops(&before, as_shot);
+        let (img, masks) = self.output();
+        Some(ops.adjust_image(img, masks))
     }
 
     /// The mask of instance `id` over a render of `params` within `size`, 0 … 1 per
@@ -914,6 +968,9 @@ impl Developer {
         let as_shot = self.photo.as_shot_illuminant;
         let spatial = kind < ModuleKind::Exposure;
         self.spatial(params, size);
+        // A point module's input: the point modules before it.
+        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
+        let ops = (!spatial).then(|| self.point_ops.input_ops(&before, as_shot));
         let (img, masks) = self.output();
         if spatial {
             // Kept by the detail stage, when the step is active.
@@ -927,9 +984,7 @@ impl Developer {
             let plane = masks.iter().find(|q| q.id == id);
             return Some(img.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q.alpha[k]))).collect());
         }
-        // A point module's input: the point modules before it.
-        let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
-        let input = PointOps::with_filmic(&before, as_shot, None).adjust_image(img, masks);
+        let input = ops.expect("built for point modules").adjust_image(img, masks);
         let plane = masks.iter().find(|q| q.id == id);
         Some(input.iter().enumerate().map(|(k, px)| stage.eval(*px, if stage.drawn { plane.map_or(0.0, |q| q.alpha[k]) } else { 1.0 })).collect())
     }
@@ -1009,8 +1064,9 @@ impl Developer {
         let Some(instance) = params.modules.iter().find(|m| m.id == view.id) else { return };
         let Some(p) = <params::ToneCurve as params::ModuleParams>::get(&instance.module).cloned() else { return };
         let Some(input) = self.module_input(params, &view.id, size) else { return };
+        let mask = self.tone_mask(&p, &view.id, &input);
         if input.len() == img.width * img.height {
-            clipping::paint_colors(img, &tone_curve::view_colors(&p, &input, view.channel.unwrap_or(0), view.node));
+            clipping::paint_colors(img, &tone_curve::view_colors(&p, &input, mask.as_deref(), view.channel.unwrap_or(0), view.node));
         }
     }
 
@@ -1034,7 +1090,19 @@ impl Developer {
         let instance = params.modules.iter().find(|m| m.id == id)?;
         let p = <params::ToneCurve as params::ModuleParams>::get(&instance.module)?.clone();
         let input = self.module_input(params, id, size)?;
-        tone_curve::measure(&p, &input)
+        let mask = self.tone_mask(&p, id, &input);
+        tone_curve::measure(&p, &input, mask.as_deref())
+    }
+
+    /// The mask tone curve instance `id` (`p`) reads when it preserves detail, over its
+    /// `input` in the last render (with its statistics from there).
+    fn tone_mask(&self, p: &params::ToneCurve, id: &str, input: &[Rgb]) -> Option<Vec<f32>> {
+        let local = Local::of(p)?;
+        let masks = self.output().1;
+        let plane = |id: &str| masks.iter().find(|q| q.id == id).map(|q| q.alpha.as_slice());
+        let [mean, var] = tone_curve::plane_ids(id);
+        let stats = plane(&mean).zip(plane(&var)).map(|(m, v)| [m, v]);
+        Some(local.mask(input, stats))
     }
 
     /// Make sure a base image suitable for `factor` is cached; returns its actual factor.
@@ -1073,11 +1141,13 @@ fn point_masks_key(params: &EditParams, plan: &Plan, geometry: GeometryKey) -> O
         .iter()
         .enumerate()
         .filter(|(_, m)| is_point(m))
-        .filter_map(|(i, m)| {
-            let mask = mask::active(m).filter(|mask| mask.feathers_whole())?;
+        .flat_map(|(i, m)| {
+            let before = move || params.modules[..i].iter().filter(|b| is_before_filmic(b)).cloned().collect::<Vec<_>>();
             // Invert, opacity and the blend apply afterwards, per pixel.
-            let mask = params::Mask { invert: false, opacity: 1.0, ..mask.selection() };
-            Some((m.id.clone(), params.modules[..i].iter().filter(|b| is_before_filmic(b)).cloned().collect(), mask))
+            let whole = mask::active(m).filter(|mask| mask.feathers_whole()).map(|mask| PointMask::Whole(params::Mask { invert: false, opacity: 1.0, ..mask.selection() }));
+            // Even with flat curves, for the histogram and the overlay.
+            let tones = <params::ToneCurve as params::ModuleParams>::get(&m.module).and_then(Local::of).map(PointMask::Tones);
+            [whole, tones].into_iter().flatten().map(move |p| (m.id.clone(), before(), p))
         })
         .collect();
     (!masks.is_empty()).then(|| PointMasksKey { geometry, steps: plan.steps.clone(), drawn: plan.drawn.clone(), masks })

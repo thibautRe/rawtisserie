@@ -101,6 +101,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     p.get_mut::<ToneCurve>().preserve_colors = rawtisserie_pipeline::params::RgbNorm::Luminance;
     p.get_mut::<Exposure>().ev += 0.1;
     time("exposure slider with tone curve", &mut dev, &p);
+    // Preserving detail: the mask is computed with the spatial stages, on the curve's
+    // input; nodes stay point edits, the modules before it don't.
+    p.get_mut::<ToneCurve>().preserve_detail = true;
+    time("tone curve preserving detail", &mut dev, &p);
+    for i in 0..3 {
+        p.get_mut::<ToneCurve>().rgb[2] = 0.2 * (i + 1) as f32;
+        time("tone curve drag, preserving detail", &mut dev, &p);
+    }
+    p.get_mut::<Exposure>().ev += 0.1;
+    time("exposure slider, preserving detail", &mut dev, &p);
+    p.get_mut::<ToneCurve>().preserve_detail = false;
+    p.get_mut::<ToneCurve>().rgb[2] = 0.0;
+    time("preserving detail off", &mut dev, &p);
 
     // Contrast equalizer: drag a curve node at draft size, release.
     for i in 0..3 {

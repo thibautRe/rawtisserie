@@ -1,0 +1,27 @@
+{
+  "size": 400,
+  "recipe": {
+    "version": 7,
+    "modules": [
+      { "kind": "exposure" },
+      { "kind": "colorCalibration" },
+      {
+        "kind": "toneCurve",
+        "params": { "preserveDetail": true, "range": [-8, 2], "rgb": [0.8, 0.7, 0.5, 0.3, 0.1, 0, -0.2, -0.5, -0.7] }
+      },
+      {
+        "kind": "toneCurve",
+        "params": {
+          "preserveDetail": true,
+          "preserveColors": "power",
+          "smoothing": 0.02,
+          "edgeRefinement": 20,
+          "rgb": [0, 0, 0, 0, 0, 0.2, 0.4, 0.2, 0]
+        },
+        "mask": { "luminance": [-4, -2, 1, 3], "feather": 30, "edgeAware": true }
+      },
+      { "kind": "toneCurve", "params": { "rgb": [0, 0, 0, -0.1, -0.2, -0.1, 0, 0.1, 0.1] } },
+      { "kind": "filmic" }
+    ]
+  }
+}

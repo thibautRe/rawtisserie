@@ -33,6 +33,10 @@ See README.md for the architecture overview and commands.
   before filmic (fulcrum = the neutral value), on encoded sRGB for LUTs. LUT masks are
   measured on filmic's input, and only uniform LUTs (no shapes, no ranges) may be baked
   into filmic's table (`point::bakeable`).
+- The tone curve ("Tones" in the UI) is also the tone equalizer: with `preserveDetail` it
+  reads an EIGF-smoothed mask. Its statistics are computed like masks feathered whole
+  (`PointMask::Tones` in `PointMasksKey`) from samples of its input, and travel as two
+  planes (`tone_curve::plane_ids`) that the point pass blends with the pixel.
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter

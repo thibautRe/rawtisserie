@@ -107,6 +107,10 @@ fn full_resolution_regions_match() {
     check("100 %, equalizer", &p, RenderSize::FULL);
     p.add(Glow { threshold: 0.0, radius: 300.0, ..Glow::default() });
     check("100 %, glow", &p, RenderSize::FULL);
+    let mut rgb = [0.0; 9];
+    rgb[2] = 1.0;
+    p.add(rawtisserie_pipeline::params::ToneCurve { preserve_detail: true, rgb, ..Default::default() });
+    check("100 %, tones", &p, RenderSize::FULL);
 }
 
 #[test]
@@ -203,6 +207,11 @@ fn masked_regions_match() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/recipes/blend.json");
     let blend: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     check("blend", &serde_json::from_value(blend["recipe"].clone()).unwrap(), RenderSize::fit(1200, 1200));
+    // Tone curves preserving detail: their masks are smoothed over a fraction of the frame.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/recipes/tones_local.json");
+    let tones: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let tones: EditParams = serde_json::from_value(tones["recipe"].clone()).unwrap();
+    check("tones", &tones, RenderSize::fit(1200, 1200));
     // Mask overlays as well: the mask, a range alone, and the values of each part.
     let mut dev = developer();
     let size = RenderSize::fit(1000, 1000);

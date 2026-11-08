@@ -18,7 +18,7 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   colorCalibration: 'Color calibration',
   colorBalance: 'Color balance',
   colorPrimaries: 'Color primaries',
-  toneCurve: 'Tone curve',
+  toneCurve: 'Tones',
   filmic: 'Filmic',
   lut: 'LUT',
 };

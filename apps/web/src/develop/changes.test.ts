@@ -36,7 +36,7 @@ test('mask changes are labelled', () => {
 
 test('tone curve changes name the curve', () => {
   const linked = updateModule(defaultEditParams, 'toneCurve', { params: { rgb: [0, 0, 0, 0, 0, 0, 0.5, 0, 0] } });
-  assert.equal(describeChange(defaultEditParams, linked).label, 'Tone curve: on, curve');
+  assert.equal(describeChange(defaultEditParams, linked).label, 'Tones: on, curve');
   const blue = updateModule(linked, 'toneCurve', { params: { blue: [0, 0, 0, 0, 0, 0, 0, 0.2, 0] } });
-  assert.equal(describeChange(linked, blue).label, 'Tone curve: blue curve');
+  assert.equal(describeChange(linked, blue).label, 'Tones: blue curve');
 });

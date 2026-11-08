@@ -224,6 +224,46 @@ fn tone_curve_fit_follows_the_modules_before_it() {
     assert!(dev.tone_curve_input(&p, "exposure", SIZE).is_none());
 }
 
+/// A tone curve preserving detail reads a mask computed with the spatial stages: its
+/// nodes stay point edits, what the mask is made from doesn't.
+#[test]
+fn preserving_detail_is_spatial_only_through_its_mask() {
+    use rawtisserie_pipeline::params::{Module, ToneCurve};
+    let mut dev = developer();
+    let mut p = EditParams::default_for(dev.metadata());
+    p.add(ToneCurve { preserve_detail: true, ..Default::default() });
+    let at = p.modules.iter().position(|m| matches!(m.module, Module::ToneCurve(_))).unwrap();
+    let id = p.modules[at].id.clone();
+    fn tones(p: &mut EditParams, at: usize) -> &mut ToneCurve {
+        let Module::ToneCurve(t) = &mut p.modules[at].module else { unreachable!() };
+        t
+    }
+    let (first, _, masks) = dev.spatial(&p, SIZE);
+    assert!(masks.iter().any(|m| m.id == format!("{id}#tones-mean")), "the mask comes with the spatial image, even with flat curves");
+    let plain = dev.render(&p, SIZE, Quality::Final);
+
+    tones(&mut p, at).rgb[4] = 1.5;
+    assert!(dev.is_spatial_cached(&p, SIZE), "moving a node is a point edit");
+    let lifted = dev.render(&p, SIZE, Quality::Final);
+    assert!(lifted.data != plain.data, "the node moves the image");
+    tones(&mut p, at).range = [-6.0, 1.0];
+    assert!(dev.is_spatial_cached(&p, SIZE), "so is the range");
+
+    tones(&mut p, at).smoothing = 0.1;
+    assert!(!dev.is_spatial_cached(&p, SIZE), "the smoothing changes the mask");
+    let (smoother, ..) = dev.spatial(&p, SIZE);
+    assert_ne!(smoother, first);
+    p.get_mut::<Exposure>().ev += 0.5;
+    assert!(!dev.is_spatial_cached(&p, SIZE), "the mask is measured on the module's input");
+
+    // Its histogram is the mask's: smoother than the pixels', so narrower.
+    tones(&mut p, at).preserve_detail = false;
+    let pixels = dev.tone_curve_input(&p, &id, SIZE).unwrap();
+    tones(&mut p, at).preserve_detail = true;
+    let mask = dev.tone_curve_input(&p, &id, SIZE).unwrap();
+    assert!(mask.fit[1] - mask.fit[0] < pixels.fit[1] - pixels.fit[0], "{:?} vs {:?}", mask.fit, pixels.fit);
+}
+
 /// A `.cube` file of `f` on a `size³` grid.
 fn cube(size: usize, f: impl Fn([f32; 3]) -> [f32; 3]) -> String {
     let mut s = format!("LUT_3D_SIZE {size}\n");

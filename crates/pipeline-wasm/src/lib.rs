@@ -236,7 +236,8 @@ impl Developer {
         serde_json::to_string(&masks.iter().map(|m| &m.id).collect::<Vec<_>>()).map_err(js_err)
     }
 
-    /// Rows `y0..y1` of those drawn planes, one after the other (0 … 1 per pixel).
+    /// Rows `y0..y1` of those planes, one after the other (0 … 1 per pixel for masks;
+    /// linear values for a tone curve's mask statistics).
     #[wasm_bindgen(js_name = spatialMaskRows)]
     pub fn spatial_mask_rows(&mut self, params_json: &str, max_width: u32, max_height: u32, y0: u32, y1: u32, region: Option<Vec<u32>>) -> Result<Vec<f32>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;

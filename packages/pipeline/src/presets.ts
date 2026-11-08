@@ -88,7 +88,20 @@ export const PRESET_GROUPS: { readonly [K in ModuleKind]?: Readonly<Record<strin
   },
   // The range is fitted to each image: a look is usually saved without it.
   toneCurve: {
-    curves: { label: 'Curves', keys: ['channels', 'preserveColors', 'rgb', 'red', 'green', 'blue'] },
+    curves: {
+      label: 'Curves and detail preservation',
+      keys: [
+        'channels',
+        'preserveColors',
+        'rgb',
+        'red',
+        'green',
+        'blue',
+        'preserveDetail',
+        'smoothing',
+        'edgeRefinement',
+      ],
+    },
     range: { label: 'Node range (fitted to this image)', keys: ['range'] },
   },
   filmic: {
@@ -404,20 +417,36 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   }),
   // Darker shadows and brighter highlights around middle grey (nodes every 1.5 EV from
   // -9 EV), back to no change at the ends.
+  // Contrast is global: preserving detail would move whole areas and leave their texture.
   builtIn('toneCurve', 'contrast-low', 'Contrast: low', {
     channels: 'linked',
+    preserveDetail: false,
     rgb: [0, 0, -0.1, -0.2, -0.2, -0.1, 0, 0.15, 0.1],
   }),
   builtIn('toneCurve', 'contrast-medium', 'Contrast: medium', {
     channels: 'linked',
+    preserveDetail: false,
     rgb: [0, -0.1, -0.25, -0.4, -0.4, -0.2, 0, 0.3, 0.2],
   }),
   builtIn('toneCurve', 'contrast-high', 'Contrast: high', {
     channels: 'linked',
+    preserveDetail: false,
     rgb: [0, -0.15, -0.4, -0.65, -0.65, -0.35, 0, 0.5, 0.35],
   }),
+  // Dynamic range: the tone equalizer's job, keeping the texture of what moves.
   builtIn('toneCurve', 'lift-shadows', 'Lift shadows', {
     channels: 'linked',
+    preserveDetail: true,
     rgb: [0.5, 0.6, 0.6, 0.45, 0.25, 0.1, 0, 0, 0],
+  }),
+  builtIn('toneCurve', 'compress-highlights', 'Compress highlights', {
+    channels: 'linked',
+    preserveDetail: true,
+    rgb: [0, 0, 0, 0, 0, -0.1, -0.3, -0.6, -0.9],
+  }),
+  builtIn('toneCurve', 'compress-dynamic-range', 'Compress dynamic range', {
+    channels: 'linked',
+    preserveDetail: true,
+    rgb: [0.6, 0.6, 0.5, 0.35, 0.15, 0, -0.2, -0.45, -0.7],
   }),
 ];

@@ -1119,7 +1119,23 @@ pub struct ToneCurve {
     pub red: [f32; TONE_CURVE_NODES],
     pub green: [f32; TONE_CURVE_NODES],
     pub blue: [f32; TONE_CURVE_NODES],
+    /// Read each pixel's exposure from an edge-aware smoothed mask of its surroundings
+    /// rather than from the pixel (Ansel's tone equalizer): areas move as a whole and
+    /// keep their texture. The curve is then linked and scales the pixel as a whole
+    /// (see [`ToneCurve::local_norm`]).
+    pub preserve_detail: bool,
+    /// With `preserve_detail`: the mask's smoothing diameter, a fraction of the frame's
+    /// long side, [`TONE_SMOOTHING_RANGE`].
+    pub smoothing: f32,
+    /// With `preserve_detail`: how closely the mask follows edges (Ansel's "edges
+    /// refinement"), [`TONE_EDGE_RANGE`]; higher keeps more of them.
+    pub edge_refinement: f32,
 }
+
+/// Smoothing diameters a tone curve's mask takes (fractions of the long side).
+pub const TONE_SMOOTHING_RANGE: [f32; 2] = [0.001, 1.0];
+/// Edge refinements a tone curve's mask takes.
+pub const TONE_EDGE_RANGE: [f32; 2] = [0.01, 10000.0];
 
 impl Default for ToneCurve {
     fn default() -> Self {
@@ -1132,11 +1148,24 @@ impl Default for ToneCurve {
             red: flat,
             green: flat,
             blue: flat,
+            preserve_detail: false,
+            // Ansel's: 5 % of the long side, edges refinement 1.
+            smoothing: 0.05,
+            edge_refinement: 1.0,
         }
     }
 }
 
 impl ToneCurve {
+    /// The norm a curve preserving detail reads and scales the pixel by: what
+    /// `preserve_colors` says, or the euclidean norm (Ansel's default) without one.
+    pub fn local_norm(&self) -> RgbNorm {
+        match self.preserve_colors {
+            RgbNorm::None => RgbNorm::Norm,
+            norm => norm,
+        }
+    }
+
     /// `range` as used: at least [`TONE_CURVE_MIN_RANGE`] wide (widened upward). Must
     /// match `toneCurveRange` in TS.
     pub fn range(&self) -> [f32; 2] {
@@ -1144,9 +1173,11 @@ impl ToneCurve {
         [lo, hi.max(lo + TONE_CURVE_MIN_RANGE)]
     }
 
-    /// The curves in use: `rgb`, or red, green and blue.
+    /// The curves in use: `rgb` (linked channels, or preserving detail), or red, green
+    /// and blue.
     pub fn curves(&self) -> Vec<&[f32; TONE_CURVE_NODES]> {
         match self.channels {
+            _ if self.preserve_detail => vec![&self.rgb],
             CurveChannels::Linked => vec![&self.rgb],
             CurveChannels::Independent => vec![&self.red, &self.green, &self.blue],
         }
