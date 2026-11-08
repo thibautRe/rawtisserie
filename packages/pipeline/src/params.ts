@@ -647,10 +647,12 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     shadows: defaultToneMixer(),
     midtones: defaultToneMixer(),
     highlights: defaultToneMixer(),
-    fulcrum: 0,
-    midtonesRange: 4,
-    shadowsFalloff: 2,
-    highlightsFalloff: 2,
+    // Wide shadows and highlights, centred a little under middle grey: narrower ones
+    // left most of a typical photo to the mid-tones.
+    fulcrum: -1,
+    midtonesRange: 3,
+    shadowsFalloff: 4,
+    highlightsFalloff: 4,
     // Ansel's default, 1 EV (a luminance of 2): log₂(2 / 0.1845).
     whiteFulcrum: 3.44,
   },
@@ -732,9 +734,21 @@ export function toneRangeWeights(
   return [1 - s, s * (1 - h), s * h];
 }
 
+/**
+ * The defaults with the tonal ranges v7 recipes started with, which migrated recipes keep.
+ * Mirrors `ColorBalance::with_v7_ranges`.
+ */
+const legacyRanges = (): ModuleParams['colorBalance'] => ({
+  ...structuredClone(defaultModuleParams.colorBalance),
+  fulcrum: 0,
+  midtonesRange: 4,
+  shadowsFalloff: 2,
+  highlightsFalloff: 2,
+});
+
 /** What a v1–v6 colour instance becomes, approximately. Mirrors `ColorBalance::from_color`. */
 function fromColor(saturation: number, vibrance: number): ModuleParams['colorBalance'] {
-  const p = structuredClone(defaultModuleParams.colorBalance);
+  const p = legacyRanges();
   const clamp = (v: number) => Math.min(1, Math.max(-1, v));
   p.chroma[0] = clamp(saturation);
   p.vibrance = clamp(vibrance);
@@ -743,7 +757,7 @@ function fromColor(saturation: number, vibrance: number): ModuleParams['colorBal
 
 /** What a v1–v6 shadows/highlights instance becomes, approximately. Mirrors `ColorBalance::from_shadows_highlights`. */
 function fromShadowsHighlights(shadows: number, highlights: number): ModuleParams['colorBalance'] {
-  const p = structuredClone(defaultModuleParams.colorBalance);
+  const p = legacyRanges();
   const clamp = (v: number) => Math.min(1, Math.max(-1, v));
   p.brilliance[1] = clamp(shadows);
   p.brilliance[3] = clamp(highlights);
@@ -777,12 +791,20 @@ function migrateColorBalance(raw: Record<string, unknown>) {
 const instance = <K extends ModuleKind>(kind: K, id = ''): ModuleInstance<K> =>
   ({ id, label: null, enabled: true, kind, params: structuredClone(defaultModuleParams[kind]) }) as ModuleInstance<K>;
 
-/** The recipe a new image starts with: exposure, white balance as shot (colour calibration) and filmic. */
+/**
+ * The recipe a new image starts with: exposure, white balance as shot (colour
+ * calibration), colour balance's "Colorfulness: standard" preset and filmic. Mirrors
+ * `EditParams::default`.
+ */
 export const defaultEditParams: EditParams = Object.freeze({
   version: EDIT_PARAMS_VERSION,
   modules: [
     instance('exposure', 'exposure'),
     instance('colorCalibration', 'colorCalibration'),
+    {
+      ...instance('colorBalance', 'colorBalance'),
+      params: { ...defaultModuleParams.colorBalance, saturation: [0.2, 0.25, 0, 0] },
+    },
     instance('filmic', 'filmic'),
   ],
 });

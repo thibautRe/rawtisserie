@@ -17,7 +17,8 @@
           "fulcrum": -0.5, "midtonesRange": 3, "shadowsFalloff": 2.5, "highlightsFalloff": 1.5
         } },
       { "kind": "colorBalance", "label": "split, masked",
-        "params": { "midtones": { "temperature": 3500 }, "midtonesRange": 0 },
+        "params": { "midtones": { "temperature": 3500 }, "midtonesRange": 0,
+          "fulcrum": 0, "shadowsFalloff": 2, "highlightsFalloff": 2 },
         "mask": { "drawn": [{ "shape": "spot" }], "feather": 10, "opacity": 0.7 } },
       { "kind": "filmic" }
     ],

@@ -210,12 +210,14 @@ impl ModuleKind {
 }
 
 /// The recipe a new image starts with: Ansel's defaults for RAW files, a +0.7 EV
-/// exposure push, white balance as shot (colour calibration) and filmic.
+/// exposure push, white balance as shot (colour calibration), colour balance's
+/// "Colorfulness: standard" preset and filmic. Must match `defaultEditParams` in TS.
 impl Default for EditParams {
     fn default() -> Self {
         let mut params = Self { version: CURRENT_VERSION, modules: Vec::new(), shapes: BTreeMap::new() };
         params.add(Exposure::default());
         params.add(ColorCalibration::default());
+        params.add(ColorBalance { saturation: [0.2, 0.25, 0.0, 0.0], ..ColorBalance::default() });
         params.add(Filmic::default());
         params
     }
@@ -949,10 +951,12 @@ impl Default for ColorBalance {
             shadows: ToneMixer::default(),
             midtones: ToneMixer::default(),
             highlights: ToneMixer::default(),
-            fulcrum: 0.0,
-            midtones_range: 4.0,
-            shadows_falloff: 2.0,
-            highlights_falloff: 2.0,
+            // Wide shadows and highlights, centred a little under middle grey: narrower
+            // ones left most of a typical photo to the mid-tones.
+            fulcrum: -1.0,
+            midtones_range: 3.0,
+            shadows_falloff: 4.0,
+            highlights_falloff: 4.0,
             // Ansel's default, 1 EV (a luminance of 2): log₂(2 / 0.1845).
             white_fulcrum: 3.44,
         }
@@ -965,10 +969,16 @@ impl ColorBalance {
         [&self.shadows, &self.midtones, &self.highlights]
     }
 
+    /// The defaults with the tonal ranges v7 recipes started with, which migrated
+    /// recipes keep (`brilliance` by range depends on them). Must match `legacyRanges` in TS.
+    pub(crate) fn with_v7_ranges() -> Self {
+        Self { fulcrum: 0.0, midtones_range: 4.0, shadows_falloff: 2.0, highlights_falloff: 2.0, ..Self::default() }
+    }
+
     /// What a v1–v6 colour instance (saturation and vibrance, -1 … 1) becomes,
     /// approximately. Must match `fromColor` in TS.
     pub fn from_color(saturation: f32, vibrance: f32) -> Self {
-        let mut p = Self::default();
+        let mut p = Self::with_v7_ranges();
         p.chroma[0] = saturation.clamp(-1.0, 1.0);
         p.vibrance = vibrance.clamp(-1.0, 1.0);
         p
@@ -977,7 +987,7 @@ impl ColorBalance {
     /// What a v1–v6 shadows/highlights instance (-1 … 1 each) becomes, approximately.
     /// Must match `fromShadowsHighlights` in TS.
     pub fn from_shadows_highlights(shadows: f32, highlights: f32) -> Self {
-        let mut p = Self::default();
+        let mut p = Self::with_v7_ranges();
         p.brilliance[1] = shadows.clamp(-1.0, 1.0);
         p.brilliance[3] = highlights.clamp(-1.0, 1.0);
         p
@@ -1507,12 +1517,13 @@ mod tests {
     }
 
     #[test]
-    fn default_is_exposure_calibration_and_filmic() {
+    fn default_is_exposure_calibration_balance_and_filmic() {
         let p = EditParams::default();
-        assert_eq!(kinds(&p), [ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::ColorBalance, ModuleKind::Filmic]);
         assert_eq!(p.modules[1].id, "colorCalibration");
         assert_eq!(p.modules[0].id, "exposure");
         assert_eq!(p.get::<Exposure>().unwrap().ev, 0.7);
+        assert_eq!(p.get::<ColorBalance>().unwrap().saturation, [0.2, 0.25, 0.0, 0.0]);
         assert_eq!(p.get::<Filmic>(), Some(&Filmic::default()));
     }
 
@@ -1522,14 +1533,22 @@ mod tests {
         assert_eq!(EditParams::default_for(&plain), EditParams::default());
         let sony = PhotoMetadata { lens_correction: Some("sony".into()), ..Default::default() };
         let p = EditParams::default_for(&sony);
-        assert_eq!(kinds(&p), [ModuleKind::Lens, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Lens, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::ColorBalance, ModuleKind::Filmic]);
         assert_eq!(p.modules[0].id, "lens");
+    }
+
+    /// The default recipe as it was before colour balance joined it (what old recipes migrate to).
+    fn default_without_balance() -> EditParams {
+        let mut p = EditParams::default();
+        p.remove(ModuleKind::ColorBalance);
+        p
     }
 
     #[test]
     fn empty_json_is_default() {
         assert_eq!(EditParams::from_json("").unwrap(), EditParams::default());
-        assert_eq!(EditParams::from_json("{}").unwrap(), EditParams::default());
+        // An empty object is a v1 recipe: its modules' defaults, without colour balance.
+        assert_eq!(EditParams::from_json("{}").unwrap(), default_without_balance());
     }
 
     #[test]
@@ -1589,7 +1608,7 @@ mod tests {
     #[test]
     fn migrates_white_balance_to_calibration() {
         let p = EditParams::from_json(r#"{"version":5,"modules":[{"kind":"exposure"},{"kind":"filmic"}]}"#).unwrap();
-        assert_eq!(p, EditParams::default());
+        assert_eq!(p, default_without_balance());
 
         let p = EditParams::from_json(
             r#"{"version":5,"modules":[{"kind":"whiteBalance","params":{"warmth":0.4}},{"kind":"whiteBalance","enabled":false,"params":{"tint":1}},{"kind":"whiteBalance","params":{"tint":-0.2}}]}"#,
@@ -1736,7 +1755,9 @@ mod tests {
         assert_eq!((a.chroma, a.vibrance), ([0.4, 0.0, 0.0, 0.0], -0.2));
         assert_eq!((p.modules[0].id.as_str(), p.modules[0].label.as_deref(), p.modules[0].mask.as_ref().map(|m| m.opacity)), ("pop", Some("pop"), Some(0.5)));
         assert_eq!((b.brilliance, p.modules[1].enabled), ([0.0, 0.3, 0.0, -1.0], false));
-        assert_eq!(c, ColorBalance::default());
+        assert_eq!(c, ColorBalance::from_color(0.0, 0.0));
+        // Migrated instances keep the ranges they were made with.
+        assert_eq!((c.fulcrum, c.midtones_range, c.shadows_falloff), (0.0, 4.0, 2.0));
 
         let p = EditParams::from_json(r#"{"version":2,"color":{"vibrance":0.2},"shadowsHighlights":{"highlights":-0.4}}"#).unwrap();
         let balances: Vec<_> = p.all::<ColorBalance>().collect();

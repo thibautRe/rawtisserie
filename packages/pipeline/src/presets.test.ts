@@ -92,8 +92,9 @@ test('stored module presets keep only the valid fields they have', () => {
 });
 
 test('styles replace or append instances', () => {
+  // The default recipe's colour balance (colorfulness: standard).
   const balance = (p: Partial<(typeof defaultModuleParams)['colorBalance']>) => ({
-    ...defaultModuleParams.colorBalance,
+    ...findModule(defaultEditParams, 'colorBalance')!.params,
     ...p,
   });
   let source = updateModule(defaultEditParams, 'colorBalance', { params: { chroma: [-1, 0, 0, 0] } });

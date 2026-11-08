@@ -315,6 +315,21 @@ test('lutIds lists the LUTs of enabled instances once', () => {
   assert.deepEqual(p.modules[1]!.params, defaultModuleParams.lut);
 });
 
+/** Colour balance's defaults with the ranges it had in v7 (which migrated recipes keep). */
+const legacyBalance = {
+  ...defaultModuleParams.colorBalance,
+  fulcrum: 0,
+  midtonesRange: 4,
+  shadowsFalloff: 2,
+  highlightsFalloff: 2,
+};
+
+/** The default recipe before colour balance joined it: what old recipes migrate to. */
+const defaultWithoutBalance = {
+  ...defaultEditParams,
+  modules: defaultEditParams.modules.filter((m) => m.kind !== 'colorBalance'),
+};
+
 test('normalizeEditParams fills gaps and ignores junk', () => {
   const p = normalizeEditParams({
     version: 3,
@@ -331,8 +346,8 @@ test('normalizeEditParams fills gaps and ignores junk', () => {
     ['exposure', 'colorCalibration', 'colorBalance', 'filmic'],
   );
   assert.deepEqual(findModule(p, 'exposure')!.params, { ev: 2, black: 0 });
-  // A v3–v6 colour instance with junk becomes a neutral colour balance.
-  assert.deepEqual(findModule(p, 'colorBalance')!.params, defaultModuleParams.colorBalance);
+  // A v3–v6 colour instance with junk becomes a neutral colour balance, with the ranges of v7.
+  assert.deepEqual(findModule(p, 'colorBalance')!.params, legacyBalance);
   assert.equal(findModule(p, 'filmic')!.params.bleach, 'medium');
   const c = normalizeEditParams({
     version: 6,
@@ -344,9 +359,9 @@ test('normalizeEditParams fills gaps and ignores junk', () => {
 test('v1–v5 recipes get colour calibration, with their warmth/tint', () => {
   assert.deepEqual(
     normalizeEditParams({ version: 5, modules: [{ kind: 'exposure' }, { kind: 'filmic' }] }),
-    defaultEditParams,
+    defaultWithoutBalance,
   );
-  assert.deepEqual(normalizeEditParams({}), defaultEditParams);
+  assert.deepEqual(normalizeEditParams({}), defaultWithoutBalance);
   const p = normalizeEditParams({ version: 5, modules: [{ kind: 'whiteBalance', params: { warmth: 0.5 } }] });
   assert.deepEqual(
     p.modules.map((m) => m.kind),
@@ -430,7 +445,7 @@ test('instances can be duplicated, moved, renamed, reset and removed', () => {
   const two = addInstance(base, 'exposure');
   assert.deepEqual(
     two.modules.map((m) => m.id),
-    ['exposure', 'exposure-2', 'colorCalibration', 'filmic'],
+    ['exposure', 'exposure-2', 'colorCalibration', 'colorBalance', 'filmic'],
   );
   // Starts from scratch, and a new exposure doesn't change the image.
   assert.deepEqual(two.modules[1]!.params, { ev: 0, black: 0 });
@@ -457,7 +472,7 @@ test('instances can be duplicated, moved, renamed, reset and removed', () => {
   const moved = moveInstance(two, 'exposure-2', -1);
   assert.deepEqual(
     moved.modules.map((m) => m.id),
-    ['exposure-2', 'exposure', 'colorCalibration', 'filmic'],
+    ['exposure-2', 'exposure', 'colorCalibration', 'colorBalance', 'filmic'],
   );
   // Only within its kind.
   assert.equal(moveInstance(two, 'exposure-2', 1), two);
@@ -634,7 +649,7 @@ test('invalid masks get their defaults', () => {
 });
 
 test('colour balance range weights add up to 1, like Rust', () => {
-  const p = defaultModuleParams.colorBalance;
+  const p = legacyBalance;
   for (const ev of [-12, -4, -2, -0.5, 0, 1, 2, 3, 8]) {
     const w = toneRangeWeights(p, ev);
     assert.ok(Math.abs(w[0] + w[1] + w[2] - 1) < 1e-12, `${ev}: ${w}`);

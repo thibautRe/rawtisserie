@@ -534,7 +534,8 @@ mod tests {
 
     #[test]
     fn weights_add_up_to_one_and_follow_the_settings() {
-        let p = ColorBalance::default();
+        // Mid-tones 4 EV wide around middle grey, 2 EV fall-offs.
+        let p = ColorBalance::with_v7_ranges();
         for ev in [-12.0f32, -4.0, -2.0, -0.5, 0.0, 1.0, 2.0, 3.0, 8.0] {
             let w = range_weights(&p, MIDDLE_GREY * ev.exp2());
             assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-6 && w.iter().all(|&x| (0.0..=1.0).contains(&x)), "{ev}: {w:?}");
@@ -546,7 +547,7 @@ mod tests {
         // The fall-off is the 90 % → 10 % width.
         assert!((at(-3.0)[0] - 0.9).abs() < 1e-3 && (at(-1.0)[0] - 0.1).abs() < 0.01, "{:?} {:?}", at(-3.0), at(-1.0));
         // The fulcrum moves everything.
-        let moved = ColorBalance { fulcrum: 1.0, ..ColorBalance::default() };
+        let moved = ColorBalance { fulcrum: 1.0, ..p.clone() };
         assert_eq!(range_weights(&moved, MIDDLE_GREY * 2.0), at(0.0));
         // Black is shadows.
         assert!(range_weights(&p, 0.0)[0] > 0.999 && range_weights(&p, -1.0)[0] > 0.999);

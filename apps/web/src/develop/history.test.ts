@@ -82,7 +82,7 @@ test('compress keeps one entry per changed instance, in order of last change', (
   // Filmic is back to its original state: no entry.
   assert.deepEqual(
     out.map((e) => e.label),
-    ['Sharpen: on, amount 1', 'Exposure: ev 2', 'Color balance: on, vibrance 0.2'],
+    ['Sharpen: on, amount 1', 'Exposure: ev 2', 'Color balance: vibrance 0.2'],
   );
   assert.deepEqual(out.at(-1)!.recipe, r6);
   assert.deepEqual(compressHistory(defaultEditParams, [at(r1), at(defaultEditParams)]), []);

@@ -831,6 +831,7 @@ mod tests {
         p.get_mut::<params::Exposure>().ev = 0.0;
         p.remove(params::ModuleKind::Filmic);
         p.remove(params::ModuleKind::ColorCalibration);
+        p.remove(params::ModuleKind::ColorBalance);
         f(&mut p);
         PointOps::new(&p)
     }
