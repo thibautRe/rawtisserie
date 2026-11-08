@@ -29,11 +29,15 @@ export const PhotoFilters = z.object({
 });
 export type PhotoFilters = z.infer<typeof PhotoFilters>;
 
+/**
+ * Capture times tie within a burst: many cameras (Sony's) record whole seconds only. The
+ * file name's counter orders those, in the same direction as the date.
+ */
 export const SORTS = {
-  capturedDesc: sql`p.captured_at DESC NULLS LAST, p.id, v.position, v.id`,
-  capturedAsc: sql`p.captured_at ASC NULLS LAST, p.id, v.position, v.id`,
-  importedDesc: sql`p.created_at DESC, p.id, v.position, v.id`,
-  ratingDesc: sql`v.rating DESC, p.captured_at DESC NULLS LAST, p.id, v.position, v.id`,
+  capturedDesc: sql`p.captured_at DESC NULLS LAST, p.original_filename DESC, p.id, v.position, v.id`,
+  capturedAsc: sql`p.captured_at ASC NULLS LAST, p.original_filename, p.id, v.position, v.id`,
+  importedDesc: sql`p.created_at DESC, p.original_filename DESC, p.id, v.position, v.id`,
+  ratingDesc: sql`v.rating DESC, p.captured_at DESC NULLS LAST, p.original_filename DESC, p.id, v.position, v.id`,
   filename: sql`p.original_filename, p.id, v.position, v.id`,
 } as const;
 
