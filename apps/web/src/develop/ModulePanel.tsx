@@ -1328,7 +1328,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
    * is read from it, and a change rebuilds it (a degenerate mix is ignored, as in Ansel).
    */
   function bindMixer(t: MixerTarget, mode: MixerMode, key: MixerKey) {
-    const { write, identity } = MIXER_MODES[mode];
+    const { read, write, identity } = MIXER_MODES[mode];
     const with_ = (v: number) => {
       const { white, rows } = t.current();
       const next = mixerValues(t.id, mode, white, rows);
@@ -1337,7 +1337,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       // Remember the angles, so that one survives its magnitude going through zero.
       for (const [angle] of MIXER_ANGLES[mode]) setAngle(t.id, `${mode}.${angle}`, next[angle]);
       const m = write(white, next as never);
-      return m ? t.edit(mixerRows(m)) : latest.current.params;
+      // A mix this mode can't read back (e.g. a primary on the white, at purity 0, or a
+      // hue that makes it singular) would replace the sliders with a message mid-drag:
+      // the slider stops at the last mix it can show instead.
+      return m && read(white, m) ? t.edit(mixerRows(m)) : latest.current.params;
     };
     const defaultValue = (identity as Record<MixerKey, number>)[key];
     return {
