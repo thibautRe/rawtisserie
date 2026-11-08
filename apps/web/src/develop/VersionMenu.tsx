@@ -8,6 +8,7 @@ import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVers
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { versionLabel } from '../lib/format.ts';
+import { libraryPath } from '../library/libraryView.ts';
 
 const failed = (title: string) => (err: unknown) =>
   toaster.create({ type: 'error', title, description: err instanceof Error ? err.message : undefined });
@@ -56,7 +57,7 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
     toaster.create({ type: 'info', title: done });
     const next = photo.versions[index + 1] ?? photo.versions[index - 1];
     if (next) open(next.id, true);
-    else navigate('/', { replace: true });
+    else navigate(libraryPath(), { replace: true });
   };
 
   return (

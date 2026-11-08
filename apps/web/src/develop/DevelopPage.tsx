@@ -1,4 +1,4 @@
-import { Box, Button, Center, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
+import { Box, Button, Center, Flex, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
 import {
   AUTO_RECIPE_LABEL,
   type PhotoMetadata,
@@ -16,6 +16,7 @@ import { toaster } from '../components/toaster.tsx';
 import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
+import { FilmRoll } from './FilmRoll.tsx';
 import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
 import type { HistoryOp, HistorySnapshot } from './history.ts';
 import { VersionMenu } from './VersionMenu.tsx';
@@ -226,10 +227,22 @@ function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
 // ── Library developer: originals fetched from the server, recipes saved back ──
 
 export function LibraryDevelopPage() {
-  const { id } = useParams();
+  const id = useParams().id!;
+  return (
+    <Flex direction="column" h="full">
+      <Box flex="1" minH="0">
+        <LibraryDeveloper id={id} />
+      </Box>
+      {/* Outside the developer: it stays while the next photo loads. */}
+      <FilmRoll currentId={id} />
+    </Flex>
+  );
+}
+
+function LibraryDeveloper({ id }: { id: string }) {
   const backend = useLocalBackend();
   const { data: photo, error: photoError } = usePhoto(id);
-  const save = useSaveHistory(id!);
+  const save = useSaveHistory(id);
   const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
   const [loaded, setLoaded] = useState<{ url: string; metadata: PhotoMetadata } | null>(null);

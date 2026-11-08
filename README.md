@@ -8,10 +8,11 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
 - **Library**: every photo you own, filterable by EXIF metadata (camera, lens, ISO,
   focal length, aperture, date), tags, rating, flags and colour labels. Cull with the
   keyboard (rate, pick/reject, label, delete), in the grid or in a full-window loupe
-  that zooms to 100 % (tiles rendered by the server), and correct metadata. Originals are never
+  that zooms to 100 % (tiles rendered by the server), and correct metadata. Going back from the
+  developer restores the filters, scroll position and selection. Originals are never
   modified; edits live in the database. Each photo has one or more _versions_ (like
   darktable duplicates), each with its own rating, labels and edit history.
-- **Developer**: lens correction from the camera's embedded data (Sony, auto-applied to
+- **Developer**: a film roll of the library's current photos along the bottom, lens correction from the camera's embedded data (Sony, auto-applied to
   new imports), exposure, colour calibration (white balance by chromatic adaptation and
   channel mixing), colour balance (chroma, saturation and brilliance by tonal range, and
   split-toning: a light correction and channel mix per range), colour primaries and a
