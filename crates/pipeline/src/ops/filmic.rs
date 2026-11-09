@@ -3,7 +3,7 @@
 //! what Ansel ships by default:
 //!
 //! * spline v3 with the "perceptual" sigmoid toe and shoulder,
-//! * auto hardness (the display power is derived from the dynamic range),
+//! * auto hardness by default (the display power is derived from the dynamic range),
 //! * colour science v8 "AgX": the curve runs per channel in an *inset* rendering
 //!   space, an *outset* matrix re-expands the result, hue is then recovered in
 //!   Kirk/Filmlight Ych, and the result is gamut-mapped to the output space (sRGB for
@@ -91,8 +91,6 @@ fn ych_to_rgb(ych: Ych, from_lms: &Mat3) -> Rgb {
 const SAFETY_MARGIN: f32 = 0.01;
 const GREY_SOURCE: f32 = 0.1845;
 const GREY_TARGET: f32 = 0.1845;
-const BLACK_TARGET: f32 = 0.000_151_763_4; // 0.01517634 %
-const WHITE_TARGET: f32 = 1.0;
 const TOE_POWER: f32 = 1.5;
 
 /// The filmic S curve, in log-encoded input / display-encoded output space.
@@ -120,19 +118,26 @@ fn sigmoid_scale(limit_x: f32, limit_y: f32, transition_x: f32, transition_y: f3
     base.powf(-1.0 / power).min(1e9)
 }
 
+/// Auto hardness: the power that brings the log-encoded grey to display grey. Mirrors
+/// `filmicAutoHardness` in TS.
+fn auto_hardness(grey_log: f32) -> f32 {
+    GREY_TARGET.ln() / grey_log.ln()
+}
+
 impl Spline {
     pub fn new(p: &FilmicParams) -> Self {
         let white_source = p.white_exposure.clamp(0.1, 16.0);
         let black_source = p.black_exposure.clamp(-16.0, -0.1);
         let dynamic_range = white_source - black_source;
         let grey_log = black_source.abs() / dynamic_range;
-        // Auto hardness: the power that brings the log-encoded grey to display grey.
-        let power = GREY_TARGET.ln() / grey_log.ln();
+        let power = if p.auto_hardness { auto_hardness(grey_log) } else { p.hardness.clamp(1.0, 10.0) };
+        let black_target = p.black_target.clamp(0.0, 20.0) / 100.0;
+        let white_target = p.white_target.clamp(20.0, 100.0) / 100.0;
 
         // Geometry of the linear segment (spline v3).
         let grey_display = GREY_TARGET.powf(1.0 / power);
-        let black_display = BLACK_TARGET.min(GREY_TARGET).powf(1.0 / power);
-        let white_display = WHITE_TARGET.max(GREY_TARGET).powf(1.0 / power);
+        let black_display = black_target.min(GREY_TARGET).powf(1.0 / power);
+        let white_display = white_target.max(GREY_TARGET).powf(1.0 / power);
         let slope = p.contrast.clamp(0.0, 5.0) * dynamic_range / 8.0;
         let min_contrast = 1.0f32
             .max((white_display - grey_display) / (1.0 - grey_log))
@@ -586,6 +591,27 @@ mod tests {
         let s = Spline::new(&p);
         let expected = 0.1845f32.ln() / (8.85f32 / 12.0).ln();
         assert!((s.power - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn default_targets_are_ansels() {
+        // Bit for bit what the constants were, so that renders don't move.
+        let s = Spline::new(&defaults());
+        assert_eq!(s.y[0], 0.000_151_763_4f32.powf(1.0 / s.power));
+        assert_eq!(s.y[4], 1.0);
+    }
+
+    #[test]
+    fn hardness_and_targets() {
+        let p = FilmicParams { auto_hardness: false, hardness: 3.0, ..defaults() };
+        assert_eq!(Spline::new(&p).power, 3.0);
+        // Grey still maps to grey; white and black land on their targets.
+        let p = FilmicParams { black_target: 1.0, white_target: 80.0, ..p };
+        let s = Spline::new(&p);
+        assert!((s.tone_map(MIDDLE_GREY) - MIDDLE_GREY).abs() < 2e-3, "{}", s.tone_map(MIDDLE_GREY));
+        assert!((s.display_white() - 0.8).abs() < 1e-5 && (s.display_black() - 0.01).abs() < 1e-5);
+        let white = MIDDLE_GREY * p.white_exposure.exp2();
+        assert!((s.tone_map(white) - 0.8).abs() < 1e-3);
     }
 
     #[test]

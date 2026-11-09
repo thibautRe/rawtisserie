@@ -1327,6 +1327,15 @@ pub struct Filmic {
     /// one, in %, -50 … +200. Auto-tune applies it to the measured range; the editor
     /// keeps it in step with the white and black exposures.
     pub dynamic_range_scaling: f32,
+    /// Derive the display power from the dynamic range (Ansel's "auto adjust hardness"),
+    /// instead of `hardness`.
+    pub auto_hardness: bool,
+    /// Display power ("hardness") applied after the curve, 1 … 10, without `auto_hardness`.
+    pub hardness: f32,
+    /// Display luminance that black maps to, in %, 0 … 20 (Ansel's "target black luminance").
+    pub black_target: f32,
+    /// Display luminance that white maps to, in %, 20 … 100 (Ansel's "target white luminance").
+    pub white_target: f32,
 }
 
 impl Default for Filmic {
@@ -1342,6 +1351,11 @@ impl Default for Filmic {
             hue_preservation: 0.0,
             bleach: Bleach::Medium,
             dynamic_range_scaling: 0.0,
+            auto_hardness: true,
+            // Ansel's.
+            hardness: 4.0,
+            black_target: 0.015_176_34,
+            white_target: 100.0,
         }
     }
 }

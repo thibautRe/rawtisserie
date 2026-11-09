@@ -237,6 +237,14 @@ export interface ModuleParams {
      * step with the white and black exposures (`apps/web/src/develop/filmicRange.ts`).
      */
     dynamicRangeScaling: number;
+    /** Derive the display power from the dynamic range (`filmicAutoHardness`) instead of `hardness`. */
+    autoHardness: boolean;
+    /** Display power ("hardness") applied after the curve, 1 … 10, without `autoHardness`. */
+    hardness: number;
+    /** Display luminance that black maps to, %, 0 … 20. */
+    blackTarget: number;
+    /** Display luminance that white maps to, %, 20 … 100. */
+    whiteTarget: number;
   };
   /**
    * A creative 3D LUT, display-referred: after filmic, on encoded sRGB, converted to the
@@ -693,6 +701,11 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     huePreservation: 0,
     bleach: 'medium',
     dynamicRangeScaling: 0,
+    autoHardness: true,
+    // Ansel's.
+    hardness: 4,
+    blackTarget: 0.01517634,
+    whiteTarget: 100,
   },
   lut: {
     lut: null,
@@ -996,6 +1009,17 @@ function mul(a: Mat3, b: Mat3): Mat3 {
       return s;
     }),
   );
+}
+
+/**
+ * Filmic's display power with `autoHardness`: the one that brings the log-encoded grey to
+ * display grey. Mirrors `Spline::new` (`ops/filmic.rs`).
+ */
+export function filmicAutoHardness(p: Pick<ModuleParams['filmic'], 'whiteExposure' | 'blackExposure'>): number {
+  const white = Math.min(16, Math.max(0.1, p.whiteExposure));
+  const black = Math.min(-0.1, Math.max(-16, p.blackExposure));
+  const greyLog = Math.abs(black) / (white - black);
+  return Math.log(0.1845) / Math.log(greyLog);
 }
 
 /** The CAT16 mix equal to per-channel gains in linear Rec.2020. Mirrors `mix_for_rgb_gains`. */

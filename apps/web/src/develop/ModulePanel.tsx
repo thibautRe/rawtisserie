@@ -83,6 +83,7 @@ import {
   addInstance,
   applyModulePreset,
   defaultModuleParams,
+  filmicAutoHardness,
   instanceDefaults,
   isInstanceModified,
   moveInstance,
@@ -625,6 +626,20 @@ const NORMALIZE_KEYS = {
 const HUE_CURVE = sinhCurve(90);
 /** Glow radius: fine at the small radii of halation, coarse up to large blooms. */
 const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
+/**
+ * Filmic's target black: 0 … 1 % (already plain to see) takes the first half of its
+ * 0 … 5 % track. `v = p^k`, with 5 · 0.5^k = 1.
+ */
+const TARGET_K = Math.log2(5);
+const BLACK_TARGET_CURVE: SliderCurve = {
+  toPosition: (v) => Math.max(v, 0) ** (1 / TARGET_K),
+  toValue: (p) => Math.max(p, 0) ** TARGET_K,
+};
+/** Target white, the same way from the top: 100 … 90 % takes the upper half of 50 … 100 %. */
+const WHITE_TARGET_CURVE: SliderCurve = {
+  toPosition: (v) => -(Math.max(100 - v, 0) ** (1 / TARGET_K)),
+  toValue: (p) => 100 - Math.max(-p, 0) ** TARGET_K,
+};
 /** For parameters that span decades (positive). */
 const LOG_CURVE: SliderCurve = { toPosition: (v) => Math.log10(Math.max(v, 1e-9)), toValue: (p) => 10 ** p };
 
@@ -1599,6 +1614,24 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     };
   };
 
+  /**
+   * Props for filmic's hardness slider: it shows the automatic one until moved, and
+   * resetting it (to that value) goes back to automatic.
+   */
+  const bindHardness = (e: ReturnType<typeof editor<'filmic'>>) => {
+    const auto = filmicAutoHardness(e.values);
+    const with_ = (v: number) => {
+      const reset = v === filmicAutoHardness(e.current());
+      return e.edit(reset ? { autoHardness: true } : { autoHardness: false, hardness: v });
+    };
+    return {
+      value: e.values.autoHardness ? auto : e.values.hardness,
+      defaultValue: auto,
+      onChange: (v: number) => latest.current.onChange(with_(v)),
+      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+    };
+  };
+
   // A drag on a filmic range slider works from the values it started with, so that a
   // clamped white or black doesn't drift.
   const rangeDrag = useRef<{ id: string; key: keyof FilmicRange; from: FilmicRange } | null>(null);
@@ -2515,6 +2548,34 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               detents
               format={(i) => BLEACH_LABELS[BLEACH_LEVELS[i]!]}
               {...bindBleach(e)}
+            />
+            <ParamSlider
+              label={e.values.autoHardness ? 'Hardness (auto)' : 'Hardness'}
+              min={1}
+              max={10}
+              step={0.01}
+              format={fmt.fixed2}
+              {...bindHardness(e)}
+            />
+            <ParamSlider
+              label="Target black luminance"
+              min={0}
+              max={5}
+              hardMax={20}
+              step={0.001}
+              curve={BLACK_TARGET_CURVE}
+              format={(v) => `${v.toFixed(v < 1 ? 3 : 2)} %`}
+              {...e.bind('blackTarget')}
+            />
+            <ParamSlider
+              label="Target white luminance"
+              min={50}
+              max={100}
+              hardMin={20}
+              step={0.1}
+              curve={WHITE_TARGET_CURVE}
+              format={(v) => `${v.toFixed(1)} %`}
+              {...e.bind('whiteTarget')}
             />
           </>
         ),

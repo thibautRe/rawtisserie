@@ -539,7 +539,7 @@ perspective").
 > are applied on the client and give a plain recipe, so the pipeline never sees them. A
 > module preset can hold part of a module: kinds with distinct parts declare
 > `PRESET_GROUPS` (colour calibration: CAT / mixer / output; filmic: white and black
-> exposure / look; primaries: colour edits / range and smoothing), the save dialog picks
+> exposure / look / display; primaries: colour edits / range and smoothing), the save dialog picks
 > some, and applying sets only those, whole at the top level, so there's no merging inside
 > a value. Kinds without groups are saved whole. No geometry presets (they belong to one
 > image). Built-in presets live in code (`BUILTIN_PRESETS`); there are no built-in styles.

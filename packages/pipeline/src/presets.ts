@@ -110,6 +110,10 @@ export const PRESET_GROUPS: { readonly [K in ModuleKind]?: Readonly<Record<strin
       label: 'Look (contrast, toe, shoulder, hues)',
       keys: ['contrast', 'toe', 'shoulder', 'huePreservation', 'bleach'],
     },
+    display: {
+      label: 'Display (hardness, target black and white)',
+      keys: ['autoHardness', 'hardness', 'blackTarget', 'whiteTarget'],
+    },
   },
   colorPrimaries: {
     colors: { label: 'Color edits', keys: PRIMARIES },
