@@ -469,8 +469,27 @@ export function StylePicker({
   value: StyleSelection;
   onChange: (value: StyleSelection) => void;
 }) {
+  const all = recipe.modules.map((m) => m.id);
   return (
     <Stack gap="2">
+      <HStack gap="1">
+        <Button
+          size="2xs"
+          variant="outline"
+          disabled={value.ids.length === all.length}
+          onClick={() => onChange({ ...value, ids: all })}
+        >
+          Select all
+        </Button>
+        <Button
+          size="2xs"
+          variant="outline"
+          disabled={value.ids.length === 0}
+          onClick={() => onChange({ ...value, ids: [] })}
+        >
+          Select none
+        </Button>
+      </HStack>
       {recipe.modules.map((m) => {
         const checked = value.ids.includes(m.id);
         const groups = groupsOf(m.kind);
