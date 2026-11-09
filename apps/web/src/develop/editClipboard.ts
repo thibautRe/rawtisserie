@@ -82,6 +82,7 @@ interface LastPick {
   unpicked: string[];
   modes: Record<string, StyleMode>;
   groups: Record<string, string[]>;
+  autoTune?: Record<string, boolean>;
 }
 
 export function rememberPick(recipe: EditParams, selection: StyleSelection) {
@@ -90,6 +91,7 @@ export function rememberPick(recipe: EditParams, selection: StyleSelection) {
     unpicked: recipe.modules.map((m) => m.id).filter((id) => !selection.ids.includes(id)),
     modes: { ...selection.modes },
     groups: Object.fromEntries(Object.entries(selection.groups).map(([id, g]) => [id, [...g]])),
+    autoTune: { ...selection.autoTune },
   };
   localStorage.setItem(PICK_KEY, JSON.stringify(pick));
 }
@@ -113,7 +115,7 @@ export function lastSelection(recipe: EditParams): StyleSelection {
     .map((m) => m.id);
   const only = <T>(record: Record<string, T> | undefined) =>
     Object.fromEntries(Object.entries(record ?? {}).filter(([id]) => ids.includes(id)));
-  return { ids, modes: only(last.modes), groups: only(last.groups) };
+  return { ids, modes: only(last.modes), groups: only(last.groups), autoTune: only(last.autoTune) };
 }
 
 /** Pasting the clipboard, each instance by its mode or, with `appendAll`, all appended. */

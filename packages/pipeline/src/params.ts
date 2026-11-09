@@ -408,6 +408,12 @@ export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry',
  * Kinds whose instances can have a mask: the spatial and point modules before filmic, and
  * the creative LUTs after it. Mirrors `ModuleKind::maskable`.
  */
+/**
+ * Kinds with an auto-tune that a preset or style can ask for: filmic's white and black
+ * exposure, the tone curve's node range. Must match `ModuleKind::auto_tunable` in Rust.
+ */
+export const AUTO_TUNE_KINDS: readonly ModuleKind[] = ['filmic', 'toneCurve'];
+
 export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'blur',
   'sharpen',
@@ -554,6 +560,11 @@ export type ModuleInstance<K extends ModuleKind = ModuleKind> = {
     params: ModuleParams[P];
     /** Where it applies (maskable kinds only); absent: everywhere. */
     mask?: Mask;
+    /**
+     * Its auto-tune is to run, and hasn't yet (roadmap 8.7: a preset or style asked for
+     * it; see `autoTune.ts`). Rendering ignores it. `AUTO_TUNE_KINDS` only; absent when not.
+     */
+    autoTune?: true;
   };
 }[K];
 
@@ -882,6 +893,7 @@ function v3Modules(raw: Record<string, unknown>): ModuleInstance[] {
       params: moduleParams(m.kind, m.params),
     } as ModuleInstance;
     if (isObject(m.mask)) instance.mask = maskParams(m.mask);
+    if (m.autoTune === true) instance.autoTune = true;
     modules.push(instance);
   }
   return modules;
@@ -1112,6 +1124,10 @@ function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}):
   for (const [i, m] of modules.entries()) {
     const params = mapShapeRefs(m.kind, m.params, exists);
     if (params !== m.params) modules[i] = { ...m, params } as ModuleInstance;
+    if (m.autoTune && !AUTO_TUNE_KINDS.includes(m.kind)) {
+      const { autoTune: _, ...rest } = modules[i]!;
+      modules[i] = rest as ModuleInstance;
+    }
     if (m.mask && !MASKABLE_KINDS.includes(m.kind)) {
       const { mask: _, ...rest } = modules[i]!;
       modules[i] = rest as ModuleInstance;

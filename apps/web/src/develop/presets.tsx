@@ -19,6 +19,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import {
+  AUTO_TUNE_KINDS,
   BUILTIN_PRESETS,
   type EditParams,
   type Mask,
@@ -46,6 +47,12 @@ import { useStableCallback } from './useStableCallback.ts';
 
 export const NO_PRESETS: readonly ModulePreset[] = [];
 const NO_STYLES: readonly Style[] = [];
+
+/** What a kind's auto-tune does to each photo a preset or style is applied to (roadmap 8.7). */
+const AUTO_TUNE_LABELS: Partial<Record<ModuleKind, string>> = {
+  filmic: 'Auto-tune white and black exposure on each photo',
+  toneCurve: 'Fit the node range to each photo',
+};
 
 const groupsOf = (kind: ModuleKind) =>
   Object.entries((PRESET_GROUPS[kind] ?? {}) as Record<string, PresetGroup<ModuleKind>>);
@@ -370,6 +377,7 @@ export function SavePresetDialog({
   const [selected, setSelected] = useState(() => groups.map(([g]) => g));
   // Off by default: ranges travel well between photos, drawn shapes rarely.
   const [withMask, setWithMask] = useState(false);
+  const [autoTune, setAutoTune] = useState(false);
   const trimmed = name.trim();
   const taken = existing.some((p) => !p.builtIn && p.name === trimmed);
   return (
@@ -390,6 +398,7 @@ export function SavePresetDialog({
             shapes,
             groups.length ? selected : undefined,
             withMask ? mask : undefined,
+            autoTune,
           ),
         })
       }
@@ -398,6 +407,11 @@ export function SavePresetDialog({
       {mask && (
         <CheckItem checked={withMask} onChange={setWithMask}>
           Include the mask{mask.drawn.length ? ' (its shapes stay where they are on the sensor)' : ''}
+        </CheckItem>
+      )}
+      {AUTO_TUNE_KINDS.includes(kind) && (
+        <CheckItem checked={autoTune} onChange={setAutoTune}>
+          {AUTO_TUNE_LABELS[kind]} when applied
         </CheckItem>
       )}
       {groups.length > 0 && (
@@ -430,6 +444,7 @@ export function defaultSelection(recipe: EditParams, exclude: readonly ModuleKin
     ids: recipe.modules.filter((m) => m.enabled && !exclude.includes(m.kind)).map((m) => m.id),
     modes: {},
     groups: {},
+    autoTune: {},
   };
 }
 
@@ -491,6 +506,18 @@ export function StylePicker({
                 </SegmentGroup.Root>
               )}
             </HStack>
+            {checked && AUTO_TUNE_KINDS.includes(m.kind) && (
+              <Box pl="6">
+                <CheckItem
+                  checked={!!value.autoTune[m.id]}
+                  onChange={(on) => onChange({ ...value, autoTune: { ...value.autoTune, [m.id]: on } })}
+                >
+                  <Text as="span" textStyle="xs">
+                    {AUTO_TUNE_LABELS[m.kind]}
+                  </Text>
+                </CheckItem>
+              </Box>
+            )}
             {checked && groups.length > 0 && (
               <Stack gap="1" pl="6">
                 {groups.map(([g, { label }]) => (

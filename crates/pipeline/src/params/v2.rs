@@ -58,7 +58,7 @@ impl Default for FilmicV2 {
 impl From<EditParams> for super::EditParams {
     fn from(v2: EditParams) -> Self {
         let mut modules = Vec::new();
-        let mut push = |enabled: bool, module: Module| modules.push(ModuleInstance { id: String::new(), label: None, enabled, module, mask: None });
+        let mut push = |enabled: bool, module: Module| modules.push(ModuleInstance { id: String::new(), label: None, enabled, module, mask: None, auto_tune: false });
         if v2.geometry != Geometry::default() {
             push(true, v2.geometry.into());
         }

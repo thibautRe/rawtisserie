@@ -20,6 +20,7 @@
  */
 
 import {
+  AUTO_TUNE_KINDS,
   EDIT_PARAMS_VERSION,
   MASKABLE_KINDS,
   type Mask,
@@ -139,6 +140,8 @@ export interface ModulePresetPayload<K extends ModuleKind = ModuleKind> {
   mask?: Mask;
   /** The shapes `params` and `mask` refer to (retouch spots, drawn mask parts); absent without any. */
   shapes?: Record<string, Shape>;
+  /** Run the kind's auto-tune once applied (`AUTO_TUNE_KINDS` only; roadmap 8.7); absent when not. */
+  autoTune?: true;
 }
 
 /**
@@ -230,8 +233,9 @@ export function modulePresetPayload<K extends ModuleKind>(
   shapes: Record<string, Shape> | undefined,
   groups?: readonly string[],
   mask?: Mask,
+  autoTune = false,
 ): ModulePresetPayload<K> {
-  return withShapes(kind, presetParams(kind, params, groups), structuredClone(shapes ?? {}), mask);
+  return withShapes(kind, presetParams(kind, params, groups), structuredClone(shapes ?? {}), mask, autoTune);
 }
 
 /** A stored module preset's payload (untrusted input), migrated and with only valid fields. */
@@ -243,7 +247,13 @@ export function normalizeModulePreset<K extends ModuleKind>(kind: K, input: unkn
     if (shape) shapes[id] = shape;
   }
   const mask = isObject(input) && isObject(input.mask) ? maskParams(input.mask) : undefined;
-  return withShapes(kind, presetParams(kind, params, 'given'), shapes, mask);
+  return withShapes(
+    kind,
+    presetParams(kind, params, 'given'),
+    shapes,
+    mask,
+    isObject(input) && input.autoTune === true,
+  );
 }
 
 /**
@@ -255,6 +265,7 @@ function withShapes<K extends ModuleKind>(
   params: Partial<ModuleParams[K]>,
   available: Record<string, Shape>,
   mask?: Mask,
+  autoTune = false,
 ): ModulePresetPayload<K> {
   const exists = (id: string) => (id in available ? id : null);
   const kept = mapShapeRefs(kind, params, exists);
@@ -262,6 +273,7 @@ function withShapes<K extends ModuleKind>(
   if (mask && MASKABLE_KINDS.includes(kind)) payload.mask = structuredClone(mapMaskShapeRefs(mask, exists));
   const used = new Set([...paramShapeRefs(kind, kept), ...maskShapeRefs(payload.mask)]);
   if (used.size) payload.shapes = sortedShapes(Object.fromEntries([...used].map((id) => [id, available[id]!])));
+  if (autoTune && AUTO_TUNE_KINDS.includes(kind)) payload.autoTune = true;
   return payload;
 }
 
@@ -357,6 +369,8 @@ export interface StylePick {
   modes?: Readonly<Record<string, StyleMode>>;
   /** For kinds with `PRESET_GROUPS`, the groups to take of an instance; all if absent. */
   groups?: Readonly<Record<string, readonly string[]>>;
+  /** Instances (of `AUTO_TUNE_KINDS`) to auto-tune once applied. */
+  autoTune?: Readonly<Record<string, boolean>>;
 }
 
 /** A style made of some of a recipe's instances, by id, in pipeline order. */
@@ -364,7 +378,12 @@ export function styleFromRecipe(recipe: EditParams, ids: Iterable<string>, pick:
   const wanted = new Set(ids);
   const modules = recipe.modules
     .filter((m) => wanted.has(m.id))
-    .map((m) => styleInstance(m, pick.modes?.[m.id] ?? defaultStyleMode(recipe, m.id), pick.groups?.[m.id]));
+    .map((m) => {
+      const instance = styleInstance(m, pick.modes?.[m.id] ?? defaultStyleMode(recipe, m.id), pick.groups?.[m.id]);
+      if (pick.autoTune?.[m.id] && AUTO_TUNE_KINDS.includes(m.kind)) instance.autoTune = true;
+      else delete instance.autoTune;
+      return instance;
+    });
   const payload: StylePayload = { version: EDIT_PARAMS_VERSION, modules };
   const shapes = styleShapes(modules, recipe.shapes);
   if (shapes) payload.shapes = shapes;
@@ -374,18 +393,23 @@ export function styleFromRecipe(recipe: EditParams, ids: Iterable<string>, pick:
 /**
  * Apply a module preset to one instance (adding it if it isn't there), and switch it on.
  * A preset with a mask replaces the instance's; one without leaves it alone. Its shapes
- * come along; those the instance used before go if nothing else uses them.
+ * come along; those the instance used before go if nothing else uses them. A preset
+ * asking for its auto-tune marks the instance for it.
  */
 export function applyModulePreset<K extends ModuleKind>(
   recipe: EditParams,
   kind: K,
   id: string,
-  payload: Pick<ModulePresetPayload<K>, 'params' | 'shapes' | 'mask'>,
+  payload: Pick<ModulePresetPayload<K>, 'params' | 'shapes' | 'mask' | 'autoTune'>,
 ): EditParams {
   const { shapes, rename } = importShapes(recipe.shapes ?? {}, payload.shapes);
   const params = mapShapeRefs(kind, structuredClone(payload.params), rename);
   const mask = payload.mask && mapMaskShapeRefs(structuredClone(payload.mask), rename);
-  const next = updateInstance(recipe, kind, id, { enabled: true, params, mask });
+  let next = updateInstance(recipe, kind, id, { enabled: true, params, mask });
+  // Marked for its auto-tune (resolved by whoever renders it next: `autoTune.ts`).
+  if (payload.autoTune && AUTO_TUNE_KINDS.includes(kind)) {
+    next = { ...next, modules: next.modules.map((m) => (m.id === id ? { ...m, autoTune: true as const } : m)) };
+  }
   return withUsedShapes(Object.keys(shapes).length ? { ...next, shapes } : next);
 }
 
@@ -430,11 +454,13 @@ export function applyStyle(recipe: EditParams, style: StylePayload, appendAll = 
     if (groups) {
       const base =
         onto ?? ({ id: '', label: copy.label, kind: m.kind, params: defaultModuleParams[m.kind] } as ModuleInstance);
-      return {
+      const made = {
         ...base,
         enabled: copy.enabled,
         params: { ...base.params, ...pickGroups(m.kind, copy.params, groups) },
       } as ModuleInstance;
+      if (copy.autoTune) made.autoTune = true;
+      return made;
     }
     const made = { ...copy, id: onto?.id ?? '', params: mapShapeRefs(m.kind, copy.params, rename) } as ModuleInstance;
     if (copy.mask) made.mask = mapMaskShapeRefs(copy.mask, rename);
@@ -455,13 +481,14 @@ const builtIn = <K extends ModuleKind>(
   slug: string,
   name: string,
   params: Partial<ModuleParams[K]>,
+  autoTune = false,
 ): ModulePreset => ({
   id: `builtin:${kind}:${slug}`,
   name,
   builtIn: true,
   type: 'module',
   moduleKind: kind,
-  payload: { version: EDIT_PARAMS_VERSION, params },
+  payload: { version: EDIT_PARAMS_VERSION, params, ...(autoTune && { autoTune: true as const }) },
 });
 
 /** Presets shipped with the app. Most only set some parameters, and keep the rest. */
@@ -553,20 +580,40 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     preserveDetail: false,
     rgb: [0, -0.15, -0.4, -0.65, -0.65, -0.35, 0, 0.5, 0.35],
   }),
-  // Dynamic range: the tone equalizer's job, keeping the texture of what moves.
-  builtIn('toneCurve', 'lift-shadows', 'Lift shadows', {
-    channels: 'linked',
-    preserveDetail: true,
-    rgb: [0.5, 0.6, 0.6, 0.45, 0.25, 0.1, 0, 0, 0],
-  }),
-  builtIn('toneCurve', 'compress-highlights', 'Compress highlights', {
-    channels: 'linked',
-    preserveDetail: true,
-    rgb: [0, 0, 0, 0, 0, -0.1, -0.3, -0.6, -0.9],
-  }),
-  builtIn('toneCurve', 'compress-dynamic-range', 'Compress dynamic range', {
-    channels: 'linked',
-    preserveDetail: true,
-    rgb: [0.6, 0.6, 0.5, 0.35, 0.15, 0, -0.2, -0.45, -0.7],
-  }),
+  // Dynamic range: the tone equalizer's job, keeping the texture of what moves. The node
+  // range is fitted to each photo (its auto-tune), so that they act on its own shadows
+  // and highlights.
+  builtIn(
+    'toneCurve',
+    'lift-shadows',
+    'Lift shadows',
+    {
+      channels: 'linked',
+      preserveDetail: true,
+      rgb: [0.5, 0.6, 0.6, 0.45, 0.25, 0.1, 0, 0, 0],
+    },
+    true,
+  ),
+  builtIn(
+    'toneCurve',
+    'compress-highlights',
+    'Compress highlights',
+    {
+      channels: 'linked',
+      preserveDetail: true,
+      rgb: [0, 0, 0, 0, 0, -0.1, -0.3, -0.6, -0.9],
+    },
+    true,
+  ),
+  builtIn(
+    'toneCurve',
+    'compress-dynamic-range',
+    'Compress dynamic range',
+    {
+      channels: 'linked',
+      preserveDetail: true,
+      rgb: [0.6, 0.6, 0.5, 0.35, 0.15, 0, -0.2, -0.45, -0.7],
+    },
+    true,
+  ),
 ];

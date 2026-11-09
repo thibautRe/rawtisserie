@@ -5,7 +5,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parentPort } from 'node:worker_threads';
-import { defaultEditParams, defaultRecipe as recipeFor, type EditParams } from '@rawtisserie/pipeline';
+import {
+  defaultEditParams,
+  defaultRecipe as recipeFor,
+  developerMeasures,
+  type EditParams,
+  hasPendingAutoTune,
+  resolveAutoTunes,
+} from '@rawtisserie/pipeline';
 import { Developer, initPipeline, readMetadata } from '@rawtisserie/pipeline/node';
 import type { RenderJob, RenderResult } from './types.ts';
 
@@ -22,9 +29,15 @@ parentPort!.on('message', async (job: RenderJob) => {
       if (recipe !== defaultEditParams) defaultRecipe = recipe;
     }
     const dev = new Developer(bytes);
+    let resolvedRecipe: EditParams | null = null;
     try {
       for (const file of job.luts) dev.loadLut(await readFile(file));
-      const params = JSON.stringify(defaultRecipe ?? job.params ?? {});
+      // Auto-tunes a preset or style asked for (roadmap 8.7): measured first, at the
+      // preview's size, so the renders below reuse the cached base.
+      if (!defaultRecipe && hasPendingAutoTune(job.params)) {
+        resolvedRecipe = await resolveAutoTunes(job.params!, developerMeasures(dev));
+      }
+      const params = JSON.stringify(defaultRecipe ?? resolvedRecipe ?? job.params ?? {});
       // Largest first, so the smaller renders can reuse the cached base image.
       for (const output of [...job.outputs].sort((a, b) => b.maxSize - a.maxSize)) {
         const jpeg = dev.renderJpeg(params, output.maxSize, output.maxSize, output.quality);
@@ -34,7 +47,13 @@ parentPort!.on('message', async (job: RenderJob) => {
     } finally {
       dev.free();
     }
-    result = { jobId: job.jobId, ok: true, metadata: job.extractMetadata ? metadata : null, defaultRecipe };
+    result = {
+      jobId: job.jobId,
+      ok: true,
+      metadata: job.extractMetadata ? metadata : null,
+      defaultRecipe,
+      resolvedRecipe,
+    };
   } catch (err) {
     result = { jobId: job.jobId, ok: false, error: err instanceof Error ? err.message : String(err) };
   }

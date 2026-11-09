@@ -58,6 +58,12 @@ pub struct ModuleInstance {
     /// [`ModuleKind::maskable`] keep theirs. Left out of the JSON when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mask: Option<Mask>,
+    /// Its auto-tune is to run (roadmap 8.7: a preset or style asked for it), and hasn't
+    /// yet: the renderer that resolves it (in TS) writes the values and drops the flag.
+    /// Rendering ignores it. Only kinds that [`ModuleKind::auto_tunable`] keep it; left
+    /// out of the JSON when false.
+    #[serde(rename = "autoTune", skip_serializing_if = "std::ops::Not::not")]
+    pub auto_tune: bool,
 }
 
 /// Implemented by the parameters of each module kind.
@@ -176,6 +182,12 @@ impl ModuleKind {
         matches!(self, ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
     }
 
+    /// Kinds with an auto-tune a preset or style can ask for: filmic's white and black
+    /// exposure, the tone curve's node range. Must match `AUTO_TUNE_KINDS` in TS.
+    pub fn auto_tunable(self) -> bool {
+        matches!(self, ModuleKind::Filmic | ModuleKind::ToneCurve)
+    }
+
     /// Kinds whose instances can have a [`Mask`]: the spatial and point modules before
     /// filmic, and the creative LUTs after it. Must match `MASKABLE_KINDS` in TS.
     pub fn maskable(self) -> bool {
@@ -274,7 +286,7 @@ impl EditParams {
         let kind = module.kind();
         let id = self.fresh_id(kind, |_| false);
         let i = self.modules.partition_point(|m| m.module.kind() <= kind);
-        self.modules.insert(i, ModuleInstance { id, label: None, enabled: true, module, mask: None });
+        self.modules.insert(i, ModuleInstance { id, label: None, enabled: true, module, mask: None, auto_tune: false });
         i
     }
 
@@ -316,6 +328,7 @@ impl EditParams {
             if !m.module.kind().maskable() {
                 m.mask = None;
             }
+            m.auto_tune &= m.module.kind().auto_tunable();
             if let Some(mask) = &mut m.mask {
                 mask.drawn.retain(|d| shapes.contains_key(&d.shape));
             }
@@ -353,10 +366,17 @@ struct RawInstance {
     params: Value,
     #[serde(default)]
     mask: Option<Mask>,
+    /// Only `true` counts: anything else is no auto-tune, rather than an invalid recipe.
+    #[serde(default, deserialize_with = "is_true")]
+    auto_tune: bool,
 }
 
 fn yes() -> bool {
     true
+}
+
+fn is_true<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Value::deserialize(d)? == Value::Bool(true))
 }
 
 impl TryFrom<Value> for EditParams {
@@ -376,7 +396,14 @@ impl TryFrom<Value> for EditParams {
             };
             let modules = raw
                 .into_iter()
-                .map(|m| Ok(ModuleInstance { id: m.id, label: m.label, enabled: m.enabled, module: Module::from_json(m.kind, m.params)?, mask: m.mask }))
+                .map(|m| Ok(ModuleInstance {
+                        id: m.id,
+                        label: m.label,
+                        enabled: m.enabled,
+                        module: Module::from_json(m.kind, m.params)?,
+                        mask: m.mask,
+                        auto_tune: m.auto_tune,
+                    }))
                 .collect::<serde_json::Result<_>>()?;
             let shapes = match json.get("shapes") {
                 Some(Value::Null) | None => BTreeMap::new(),
@@ -389,7 +416,7 @@ impl TryFrom<Value> for EditParams {
         if version < 6 {
             // The base image used to be balanced as shot; now colour calibration does it.
             let calibration = ColorCalibration::from_white_balance(&white_balance);
-            params.modules.push(ModuleInstance { id: String::new(), label: None, enabled: true, module: calibration.into(), mask: None });
+            params.modules.push(ModuleInstance { id: String::new(), label: None, enabled: true, module: calibration.into(), mask: None, auto_tune: false });
         }
         params.normalize();
         Ok(params)

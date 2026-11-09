@@ -33,10 +33,16 @@ test('the copy picks what was picked last time, and the defaults for instances i
   assert.ok(!ids(recipe).includes('retouch'), 'retouch is not copied by default');
   assert.ok(ids(recipe).includes('exposure'));
 
-  rememberPick(recipe, { ids: ['retouch', 'filmic'], modes: {}, groups: { filmic: ['look'] } });
+  rememberPick(recipe, {
+    ids: ['retouch', 'filmic'],
+    modes: {},
+    groups: { filmic: ['look'] },
+    autoTune: { filmic: true },
+  });
   const other = addInstance(recipe, 'exposure');
   const picked = lastSelection(other);
   assert.ok(picked.ids.includes('exposure-2'), 'not seen last time: picked by default');
   assert.ok(!picked.ids.includes('exposure'), 'unpicked last time');
   assert.deepEqual(picked.groups, { filmic: ['look'] });
+  assert.deepEqual(picked.autoTune, { filmic: true });
 });

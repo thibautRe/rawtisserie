@@ -33,6 +33,11 @@ See README.md for the architecture overview and commands.
   before filmic (fulcrum = the neutral value), on encoded sRGB for LUTs. LUT masks are
   measured on filmic's input, and only uniform LUTs (no shapes, no ranges) may be baked
   into filmic's table (`point::bakeable`).
+- An instance may carry `autoTune: true` (filmic and tone curve only, both languages):
+  a preset or style asked for its auto-tune, not run yet. Renderers ignore it; whoever
+  has the image resolves it with `resolveAutoTunes` (`autoTune.ts`) at `AUTO_TUNE_SIZE`:
+  the developer on commit and on open, the server's render worker (writing the entry
+  back) and zoom worker. Measures must stay pure functions of (recipe, image).
 - The tone curve ("Tones" in the UI) is also the tone equalizer: with `preserveDetail` it
   reads an EIGF-smoothed mask. Its statistics are computed like masks feathered whole
   (`PointMask::Tones` in `PointMasksKey`) from samples of its input, and travel as two

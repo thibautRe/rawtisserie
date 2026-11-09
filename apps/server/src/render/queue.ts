@@ -126,6 +126,7 @@ export class RenderQueue {
         UPDATE versions SET render_status = 'ready', render_error = NULL, render_version = render_version + 1
         WHERE id = ${versionId}`);
       if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
+      if (result.resolvedRecipe && job.params) await resolveEntry(tx, versionId, job.params, result.resolvedRecipe);
       if (result.metadata) {
         await photos(tx).update({ id: job.photoId }, metadataColumns(result.metadata));
         // The in-camera rating seeds versions that haven't been rated yet.
@@ -148,6 +149,20 @@ async function addDefaultRecipe(tx: Queryable, versionId: string, recipe: EditPa
     WHERE NOT EXISTS (SELECT 1 FROM history_entries WHERE version_id = ${versionId})
     RETURNING seq`);
   if (inserted.length) await versions(tx).update({ id: versionId, history_end: 0 }, { history_end: 1 });
+}
+
+/**
+ * Write the auto-tunes resolved while rendering (roadmap 8.7) into the history entry
+ * they were rendered from, if it's still the current one and unchanged. Like the default
+ * recipe, the revision isn't bumped: a developer opened before resolves them itself and
+ * saves over it. If the version changed meanwhile, it's rendered (and resolved) again.
+ */
+async function resolveEntry(tx: Queryable, versionId: string, rendered: EditParams, resolved: EditParams) {
+  await tx.query(sql`
+    UPDATE history_entries h SET recipe = ${JSON.stringify(resolved)}::jsonb
+    FROM versions v
+    WHERE v.id = ${versionId} AND h.version_id = v.id AND h.seq = v.history_end
+      AND h.recipe = ${JSON.stringify(rendered)}::jsonb`);
 }
 
 /** Map extracted metadata onto the indexed (and user-editable) columns. */

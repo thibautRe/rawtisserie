@@ -5,7 +5,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { parentPort } from 'node:worker_threads';
-import { defaultRecipe } from '@rawtisserie/pipeline';
+import { defaultRecipe, developerMeasures, hasPendingAutoTune, resolveAutoTunes } from '@rawtisserie/pipeline';
 import { Developer, initPipeline } from '@rawtisserie/pipeline/node';
 import { ZOOM_TILE, type ZoomLevels, type ZoomRequest, type ZoomResponse, type ZoomSource } from './zoomTypes.ts';
 
@@ -15,11 +15,17 @@ initPipeline();
 const PREVIEW_EDGE = 2048;
 
 let current: { path: string; dev: Developer } | null = null;
+/**
+ * Recipes with pending auto-tunes (roadmap 8.7), resolved: the loupe can ask for tiles
+ * before the preview's render has written them into the history.
+ */
+const resolved = new Map<string, string>();
 
 async function developer(path: string): Promise<Developer> {
   if (current?.path === path) return current.dev;
   current?.dev.free();
   current = null;
+  resolved.clear();
   const dev = new Developer(await readFile(path));
   current = { path, dev };
   return dev;
@@ -29,7 +35,14 @@ async function prepare(source: ZoomSource) {
   const dev = await developer(source.sourcePath);
   for (const [id, file] of source.luts) if (!dev.hasLut(id)) dev.loadLut(await readFile(file));
   const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata())) : (source.params ?? {});
-  return { dev, params: JSON.stringify(recipe) };
+  const params = JSON.stringify(recipe);
+  if (!source.autoDefaults && hasPendingAutoTune(source.params)) {
+    if (!resolved.has(params)) {
+      resolved.set(params, JSON.stringify(await resolveAutoTunes(source.params!, developerMeasures(dev))));
+    }
+    return { dev, params: resolved.get(params)! };
+  }
+  return { dev, params };
 }
 
 function levels(dev: Developer, params: string): ZoomLevels {

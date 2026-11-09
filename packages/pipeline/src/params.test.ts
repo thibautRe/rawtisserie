@@ -287,6 +287,16 @@ const samples: unknown[] = [
       { kind: 'lut', enabled: false },
     ],
   },
+  // Pending auto-tunes (roadmap 8.7): only on kinds that have one, and only `true`.
+  {
+    version: 7,
+    modules: [
+      { kind: 'filmic', autoTune: true },
+      { kind: 'toneCurve', autoTune: true },
+      { kind: 'toneCurve', autoTune: 'yes' },
+      { kind: 'exposure', autoTune: true },
+    ],
+  },
 ];
 
 test('normalizeEditParams matches Rust', () => {

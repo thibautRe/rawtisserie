@@ -19,8 +19,8 @@ Photoshoot feedback (2026-11-09): done the same day: burst order, "edited" ignor
 automatic lens correction entry, primaries sliders stopping before a singular mix, wider
 colour balance ranges and "Colorfulness: standard" in the default recipe, the library
 view restored when leaving the developer, and a film roll under the developer. 8.8
-(append or apply per module) done the same day. 8.6 (copy and paste) too. Left: 8.7
-(auto-tune on apply, decided: lazily on the server).
+(append or apply per module) done the same day. 8.6 (copy and paste) and 8.7
+(auto-tune on apply) too.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1362,6 +1362,24 @@ the library. It's a style that isn't saved: build it on 4.2's code rather than n
 - Append vs replace: today's style submenu, until 8.8 settles it per module.
 
 ### 8.7 Auto-tune when applying a preset or style (M)
+
+> **Done** (2026-11-09, `packages/pipeline/src/autoTune.ts`). As built, simpler than
+> planned below: applying a module preset or style that asks for it marks the instance
+> `autoTune: true` (filmic, tone curve: `AUTO_TUNE_KINDS`; in Rust too, which renders
+> without looking at it). Whoever renders it next resolves it at a fixed size
+> (`AUTO_TUNE_SIZE`, 2048 px, the library preview's) and clears the mark: the developer
+> before committing (one entry), or on opening a photo still pending ("Auto-tune"); the
+> server's render worker while rendering the preview, writing the values into the
+> history entry it rendered (if still current and unchanged; no revision bump, like the
+> lens-correction entry), and the loupe's zoom worker for its tiles until then. No values
+> are stored next to the renders. Measured on 8 photos: white exposure and the tone
+> curve's range are within 0.02 EV / 0.1 between 2048 px and full size, filmic's black
+> exposure up to 0.5 EV (full size is darker: noise), and within 0.03 EV between 2048
+> and 2400 px. The manual auto-tune and fit buttons measure at the same fixed size now.
+> Resolving costs ~1.6 s per photo on the server. The save dialogs (module preset,
+> style, copy) have a checkbox per tunable instance; "Lift shadows", "Compress
+> highlights" and "Compress dynamic range" fit their range. Left: hover previews (library
+> and developer) show the preset before its auto-tune.
 
 A preset or style can ask for its modules' auto-tunes to run once applied: filmic's
 white/black exposure, and the tone curve's "fit the nodes to the image" wand (which

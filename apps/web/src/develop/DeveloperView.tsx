@@ -1,5 +1,6 @@
 import { Box, Button, Center, Flex, HStack, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
 import {
+  AUTO_TUNE_SIZE,
   type CropRect,
   EXPORT_FORMATS,
   type EditParams,
@@ -7,17 +8,23 @@ import {
   type PhotoMetadata,
   type Style,
   applyStyle,
+  clearAutoTunes,
   defaultEditParams,
   exportFilename,
   exportOptions,
   findModule,
+  hasPendingAutoTune,
   illuminantFromXy,
+  resolveAutoTunes,
+  roundFilmicExposure,
+  roundToneRange,
   updateInstance,
   updateModule,
 } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
+import { backendMeasures } from './autoTune.ts';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
 import { type CropAspect, FREE_ASPECT, aspectRatio, constrainAspect, flipCrop, isPortrait } from './aspect.ts';
@@ -388,6 +395,15 @@ export function DeveloperView({
     rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
+  // Auto-tunes still pending when the photo is opened (a preset or style applied from
+  // the library, before its preview was rendered): run once the image is in, as an entry.
+  const tunedOnOpen = useRef(false);
+  useEffect(() => {
+    if (!frame || tunedOnOpen.current) return;
+    tunedOnOpen.current = true;
+    const current = store.getState().live;
+    if (hasPendingAutoTune(current)) void commitTuned(current, 'Auto-tune');
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The image is seen through a window: the viewport, or the inside of the ISO 12646
   // frame, which keeps its place and shape when zooming.
@@ -484,6 +500,29 @@ export function DeveloperView({
     });
   };
   const commit = (p?: EditParams, label?: string) => {
+    if (p && hasPendingAutoTune(p)) return void commitTuned(p, label);
+    commitNow(p, label);
+  };
+  /**
+   * Commit `p` once the auto-tunes a preset or style asked for (roadmap 8.7) have run on
+   * it, as one entry. If they fail, it's committed with its values as they are.
+   */
+  const commitTuned = async (p: EditParams, label?: string) => {
+    setAutoTuning(true);
+    try {
+      commitNow(await resolveAutoTunes(p, backendMeasures(backend)), label);
+    } catch (err) {
+      commitNow(clearAutoTunes(p), label);
+      toaster.create({
+        type: 'error',
+        title: 'Auto-tune failed',
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setAutoTuning(false);
+    }
+  };
+  const commitNow = (p?: EditParams, label?: string) => {
     const snapshot = store.snapshot();
     const dropped = store.commit(p, undefined, label);
     if (store.snapshot().entries === snapshot.entries) return;
@@ -675,16 +714,20 @@ export function DeveloperView({
   const closeExport = useStableCallback(() => setExportOpen(false));
   const onExport = useStableCallback((settings: ExportSettings) => void exportPhoto(settings));
 
-  // Filmic auto-tune, measured on the full-size preview (with the current crop).
+  // Filmic auto-tune, measured on the image with the current crop.
   const autoTuneFilmic = async () => {
     setAutoTuning(true);
     try {
-      const result = await backend.autoTuneFilmic(params, job.width, job.height);
+      // At a fixed size, like the auto-tunes of presets (`autoTune.ts`): the result
+      // doesn't depend on the zoom or the window.
+      const result = await backend.autoTuneFilmic(params, AUTO_TUNE_SIZE, AUTO_TUNE_SIZE);
       if (!result) throw new Error('Nothing to measure');
-      const round = (v: number) => Math.round(v * 100) / 100;
       commit(
         updateModule(params, 'filmic', {
-          params: { whiteExposure: round(result.white), blackExposure: round(result.black) },
+          params: {
+            whiteExposure: roundFilmicExposure(result.white),
+            blackExposure: roundFilmicExposure(result.black),
+          },
         }),
       );
     } catch (err) {
@@ -765,10 +808,11 @@ export function DeveloperView({
     setFittingTone(id);
     try {
       const recipe = updateInstance(params, 'toneCurve', id, { enabled: true });
-      const input = await backend.toneCurveInput(recipe, id, job.width, job.height);
+      // At a fixed size, like the auto-tunes of presets (`autoTune.ts`).
+      const input = await backend.toneCurveInput(recipe, id, AUTO_TUNE_SIZE, AUTO_TUNE_SIZE);
       if (!input) throw new Error('Nothing to measure');
       setToneInputs((t) => ({ ...t, [id]: input }));
-      const range = input.fit.map((v) => Math.round(v * 10) / 10);
+      const range = input.fit.map(roundToneRange);
       commit(updateInstance(recipe, 'toneCurve', id, { params: { range } }));
     } catch (err) {
       toaster.create({
