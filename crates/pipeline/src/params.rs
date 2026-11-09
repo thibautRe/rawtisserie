@@ -1167,8 +1167,13 @@ pub struct ToneCurve {
     /// With `preserve_detail`: how closely the mask follows edges (Ansel's "edges
     /// refinement"), [`TONE_EDGE_RANGE`]; higher keeps more of them.
     pub edge_refinement: f32,
+    /// How much of the curves applies: their offsets (EV) are scaled by it, 0 (off) to
+    /// [`TONE_STRENGTH_MAX`], 1 as drawn.
+    pub strength: f32,
 }
 
+/// Largest strength a tone curve takes.
+pub const TONE_STRENGTH_MAX: f32 = 2.0;
 /// Smoothing diameters a tone curve's mask takes (fractions of the long side).
 pub const TONE_SMOOTHING_RANGE: [f32; 2] = [0.001, 1.0];
 /// Edge refinements a tone curve's mask takes.
@@ -1189,6 +1194,7 @@ impl Default for ToneCurve {
             // Ansel's: 5 % of the long side, edges refinement 1.
             smoothing: 0.05,
             edge_refinement: 1.0,
+            strength: 1.0,
         }
     }
 }
@@ -1220,9 +1226,14 @@ impl ToneCurve {
         }
     }
 
-    /// Whether the curves in use are all flat at 0.
+    /// `strength` as used, in 0 … [`TONE_STRENGTH_MAX`].
+    pub fn strength(&self) -> f32 {
+        if self.strength.is_nan() { 1.0 } else { self.strength.clamp(0.0, TONE_STRENGTH_MAX) }
+    }
+
+    /// Whether the curves leave the image alone: all flat at 0, or no strength.
     pub fn is_identity(&self) -> bool {
-        self.curves().iter().all(|c| c.iter().all(|&v| v == 0.0))
+        self.strength() == 0.0 || self.curves().iter().all(|c| c.iter().all(|&v| v == 0.0))
     }
 }
 
@@ -1751,6 +1762,8 @@ mod tests {
         let t = p.get::<ToneCurve>().unwrap();
         assert_eq!((t.channels, t.preserve_colors, t.rgb, t.green[4]), (CurveChannels::Independent, RgbNorm::Max, [0.0; TONE_CURVE_NODES], 0.5));
         assert!(!t.is_identity());
+        assert_eq!(t.strength, 1.0, "full strength when absent");
+        assert!(ToneCurve { strength: 0.0, ..t.clone() }.is_identity());
         assert!(EditParams::from_json(r#"{"version":6,"modules":[{"kind":"toneCurve","params":{"rgb":[1,2]}}]}"#).is_err());
     }
 

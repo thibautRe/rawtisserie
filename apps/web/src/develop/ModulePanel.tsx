@@ -70,6 +70,7 @@ import {
   TONE_CURVE_MAX_OFFSET,
   TONE_EDGE_RANGE,
   TONE_SMOOTHING_RANGE,
+  TONE_STRENGTH_MAX,
   TONE_CURVE_NODES,
   TONE_HISTOGRAM_RANGE,
   toneCurveRange,
@@ -2373,7 +2374,15 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 histogram={bins && toneHistogram(bins, range)}
                 onFocusChange={(node) => updateView({ node })}
                 color={independent ? TONE_CHANNEL_COLORS[key as ToneChannel] : undefined}
-                others={others}
+                others={
+                  v.strength === 1
+                    ? others
+                    : [
+                        ...others,
+                        // What applies, at this strength.
+                        { values: toneToUnit(v[key].map((o) => o * v.strength)), color: 'var(--chakra-colors-fg)' },
+                      ]
+                }
                 format={(i, value) => `${signedEv(toneNodeEv(i, range))}: ${signedEv(toneFromUnit([value])[0]!)}`}
                 onChange={(values) => latest.current.onChange(e.edit({ [key]: toneFromUnit(values) }))}
                 onCommit={(values) => e.set({ [key]: toneFromUnit(values) })}
@@ -2399,6 +2408,15 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 format={fmt.ev}
                 track={tracks.grey}
                 {...bindToneRange(e, 1)}
+              />
+              <ParamSlider
+                label="Strength"
+                min={0}
+                max={TONE_STRENGTH_MAX}
+                step={0.01}
+                scale={100}
+                format={(s) => `${(s * 100).toFixed(0)} %`}
+                {...e.bind('strength')}
               />
               {local && (
                 <>

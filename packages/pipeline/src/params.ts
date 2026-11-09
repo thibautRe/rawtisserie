@@ -215,6 +215,8 @@ export interface ModuleParams {
     smoothing: number;
     /** With `preserveDetail`: how closely the mask follows edges, `TONE_EDGE_RANGE`; higher keeps more of them. */
     edgeRefinement: number;
+    /** How much of the curves applies: their offsets (EV) are scaled by it, 0 (off) to `TONE_STRENGTH_MAX`, 1 as drawn. */
+    strength: number;
   };
   /** Filmic RGB tone mapping, after Ansel (spline v3, colour science v8 "AgX"). */
   filmic: {
@@ -353,6 +355,8 @@ export const TONE_HISTOGRAM_RANGE = [-16, 8] as const;
 export const TONE_SMOOTHING_RANGE = [0.001, 1] as const;
 /** Edge refinements a tone curve's mask takes. Mirrors `TONE_EDGE_RANGE`. */
 export const TONE_EDGE_RANGE = [0.01, 10000] as const;
+/** Largest tone curve strength. Mirrors `TONE_STRENGTH_MAX`. */
+export const TONE_STRENGTH_MAX = 2;
 /** Largest tone curve offset, EV either way. Mirrors `TONE_CURVE_MAX_OFFSET`. */
 export const TONE_CURVE_MAX_OFFSET = 2;
 export const TONE_CURVE_CURVES = ['rgb', 'red', 'green', 'blue'] as const;
@@ -700,6 +704,7 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     // Ansel's: 5 % of the long side, edges refinement 1.
     smoothing: 0.05,
     edgeRefinement: 1,
+    strength: 1,
   },
   // Ansel's defaults for RAW files, paired with the +0.7 EV exposure default.
   filmic: {

@@ -90,7 +90,7 @@ export const PRESET_GROUPS: { readonly [K in ModuleKind]?: Readonly<Record<strin
   // The range is fitted to each image: a look is usually saved without it.
   toneCurve: {
     curves: {
-      label: 'Curves and detail preservation',
+      label: 'Curves, detail preservation and strength',
       keys: [
         'channels',
         'preserveColors',
@@ -101,6 +101,7 @@ export const PRESET_GROUPS: { readonly [K in ModuleKind]?: Readonly<Record<strin
         'preserveDetail',
         'smoothing',
         'edgeRefinement',
+        'strength',
       ],
     },
     range: { label: 'Node range (fitted to this image)', keys: ['range'] },

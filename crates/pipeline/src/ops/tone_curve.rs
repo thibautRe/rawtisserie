@@ -57,9 +57,10 @@ pub fn offset(nodes: &[f32; TONE_CURVE_NODES], [lo, hi]: [f32; 2], ev: f32) -> f
     (equalizer::curve(&unit, (ev - lo) / (hi - lo)) - 0.5) * 2.0 * m
 }
 
-/// The curve's gain on linear values: what to multiply `v` by.
-fn gain_table(nodes: &[f32; TONE_CURVE_NODES], range: [f32; 2]) -> BitsLut<f32> {
-    BitsLut::new(FLOOR, CEILING, FINE, |v| offset(nodes, range, (v / MIDDLE_GREY).log2()).exp2())
+/// The curve's gain on linear values, its offsets scaled by `strength`: what to
+/// multiply `v` by.
+fn gain_table(nodes: &[f32; TONE_CURVE_NODES], range: [f32; 2], strength: f32) -> BitsLut<f32> {
+    BitsLut::new(FLOOR, CEILING, FINE, |v| (offset(nodes, range, (v / MIDDLE_GREY).log2()) * strength).exp2())
 }
 
 /// The ids of the planes holding the mask statistics of tone curve instance `id` when
@@ -450,12 +451,12 @@ impl ToneCurveStage {
         if p.is_identity() {
             return None;
         }
-        let r = p.range();
+        let (r, k) = (p.range(), p.strength());
         let mode = match reads(p) {
-            Reads::Channels => Mode::Channels(Box::new([gain_table(&p.red, r), gain_table(&p.green, r), gain_table(&p.blue, r)])),
-            Reads::Linked => Mode::Linked(gain_table(&p.rgb, r)),
-            Reads::Norm(norm) => Mode::Norm(norm, gain_table(&p.rgb, r)),
-            Reads::Mask => Mode::Norm(p.local_norm(), gain_table(&p.rgb, r)),
+            Reads::Channels => Mode::Channels(Box::new([gain_table(&p.red, r, k), gain_table(&p.green, r, k), gain_table(&p.blue, r, k)])),
+            Reads::Linked => Mode::Linked(gain_table(&p.rgb, r, k)),
+            Reads::Norm(norm) => Mode::Norm(norm, gain_table(&p.rgb, r, k)),
+            Reads::Mask => Mode::Norm(p.local_norm(), gain_table(&p.rgb, r, k)),
         };
         let feathering = Local::of(p).map_or(1.0, |l| l.feathering);
         Some(Self { mode, planes: p.preserve_detail.then(|| plane_ids(id)), feathering })
@@ -535,6 +536,18 @@ mod tests {
         assert_eq!(offset(&[0.0; TONE_CURVE_NODES], R, 1.3), 0.0);
         // Clamped to the editor's range.
         assert!((offset(&[5.0; TONE_CURVE_NODES], R, 0.0) - TONE_CURVE_MAX_OFFSET).abs() < 1e-6);
+    }
+
+    #[test]
+    fn strength_scales_the_offsets() {
+        let mut p = ToneCurve::default();
+        p.rgb[6] = 1.0; // +1 EV at middle grey
+        let grey = |p: &ToneCurve| ToneCurveStage::new(p, "t").map_or(MIDDLE_GREY, |s| s.apply([MIDDLE_GREY; 3])[1]);
+        let ev = |p: &ToneCurve| (grey(p) / MIDDLE_GREY).log2();
+        assert!((ev(&p) - 1.0).abs() < 1e-3);
+        assert!((ev(&ToneCurve { strength: 0.5, ..p.clone() }) - 0.5).abs() < 1e-3);
+        assert!((ev(&ToneCurve { strength: 2.0, ..p.clone() }) - 2.0).abs() < 1e-3);
+        assert!(ToneCurveStage::new(&ToneCurve { strength: 0.0, ..p }, "t").is_none());
     }
 
     #[test]
@@ -701,7 +714,7 @@ mod tests {
         let s = ToneCurveStage::new(&p, "t").unwrap();
         let mut got = img.pixels.clone();
         s.apply_all(&mut got, Some([&mean, &var]));
-        let lut = gain_table(&p.rgb, p.range());
+        let lut = gain_table(&p.rgb, p.range(), p.strength());
         for ((g, c), m) in got.iter().zip(&img.pixels).zip(&mask) {
             assert!((g[0] - c[0] * lut.eval(*m)).abs() <= g[0] * 1e-6, "{g:?} {c:?} {m}");
         }
