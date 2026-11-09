@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { usePresetLibrary } from '../develop/presets.tsx';
 import { MODULE_TITLES } from '../develop/changes.ts';
 import { useShiftKey } from '../lib/useShiftKey.ts';
+import { pasteEdit, readClipboard, useClipboard } from '../develop/editClipboard.ts';
+import { ClipboardPaste, Copy } from 'lucide-react';
 import { type BatchEdit, presetEdit, styleEdit } from './batchEdit.ts';
 
 /**
@@ -16,9 +18,12 @@ export function ApplyMenu({
   onApply,
   onPreview,
   onOpenChange,
+  onCopy,
   children,
 }: {
   onApply: (edit: BatchEdit) => void;
+  /** Copy the photo's settings (one photo selected): opens the copy dialog. */
+  onCopy?: () => void;
   onPreview?: (edit: BatchEdit | null) => void;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
@@ -26,13 +31,20 @@ export function ApplyMenu({
   const { styles, modulePresets } = usePresetLibrary();
   const kinds = MODULE_KINDS.filter((k) => modulePresets[k]?.length) as ModuleKind[];
   const [open, setOpen] = useState(false);
-  // The highlighted style, previewed with Shift's mode as it changes.
-  const [highlighted, setHighlighted] = useState<Style | null>(null);
+  const clipboard = useClipboard();
+  // The highlighted style or paste, previewed with Shift's mode as it changes.
+  const [highlighted, setHighlighted] = useState<Style | 'paste' | null>(null);
   const shift = useShiftKey(open);
+  const editOf = (item: Style | 'paste', appendAll: boolean) => {
+    if (item !== 'paste') return styleEdit(item, appendAll);
+    const clip = readClipboard();
+    return clip && pasteEdit(clip, appendAll);
+  };
   useEffect(() => {
-    if (open && highlighted) onPreview?.(styleEdit(highlighted, shift.held));
+    if (open && highlighted) onPreview?.(editOf(highlighted, shift.held));
   }, [open, highlighted, shift.held]); // eslint-disable-line react-hooks/exhaustive-deps
-  const findStyle = (value: string | null) => styles.find((s) => value === `style:${s.id}`) ?? null;
+  const findStyle = (value: string | null) =>
+    value === 'paste' ? 'paste' : (styles.find((s) => value === `style:${s.id}`) ?? null);
 
   const styleItem = (s: Style) => (
     <Menu.Item key={s.id} value={`style:${s.id}`}>
@@ -110,14 +122,37 @@ export function ApplyMenu({
         if (!style) onPreview?.(null);
       }}
       onSelect={({ value }) => {
-        const style = findStyle(value);
-        if (style) onApply(styleEdit(style, shift.ref.current));
+        if (value === 'copy') return onCopy?.();
+        const item = findStyle(value);
+        const edit = item && editOf(item, shift.ref.current);
+        if (edit) onApply(edit);
       }}
     >
       <Menu.Trigger asChild>{children}</Menu.Trigger>
       <Portal>
         <Menu.Positioner>
           <Menu.Content minW="52">
+            {(clipboard || onCopy) && (
+              <>
+                <Menu.ItemGroup>
+                  {onCopy && (
+                    <Menu.Item value="copy">
+                      <Copy /> Copy settings… <Menu.ItemCommand>Ctrl+Shift+C</Menu.ItemCommand>
+                    </Menu.Item>
+                  )}
+                  {clipboard && (
+                    <Menu.Item value="paste">
+                      <ClipboardPaste />
+                      <Text flex="1" truncate maxW="48">
+                        Paste from {clipboard.source}
+                      </Text>
+                      <Menu.ItemCommand>Ctrl+V</Menu.ItemCommand>
+                    </Menu.Item>
+                  )}
+                </Menu.ItemGroup>
+                <Menu.Separator />
+              </>
+            )}
             <Menu.ItemGroup>
               <Menu.ItemGroupLabel>Styles</Menu.ItemGroupLabel>
               {styles.map(styleItem)}
@@ -128,7 +163,7 @@ export function ApplyMenu({
               )}
               {styles.length > 0 && (
                 <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
-                  Shift: append all of its modules
+                  Shift: append all of its modules (also when pasting)
                 </Text>
               )}
             </Menu.ItemGroup>

@@ -19,8 +19,8 @@ Photoshoot feedback (2026-11-09): done the same day: burst order, "edited" ignor
 automatic lens correction entry, primaries sliders stopping before a singular mix, wider
 colour balance ranges and "Colorfulness: standard" in the default recipe, the library
 view restored when leaving the developer, and a film roll under the developer. 8.8
-(append or apply per module) done the same day. Left: 8.6 (copy and paste edits) and
-8.7 (auto-tune on apply, decided: lazily on the server).
+(append or apply per module) done the same day. 8.6 (copy and paste) too. Left: 8.7
+(auto-tune on apply, decided: lazily on the server).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1329,6 +1329,18 @@ output colour space, as a ZIP or per file.
   also useful for account flows and 7.5's quota warnings.
 
 ### 8.6 Copy and paste edits (S–M, after 8.1)
+
+> **Done** (2026-11-09, `develop/editClipboard.ts`). As built: a copy is a `StylePayload`
+> with its source's name in `sessionStorage`. Ctrl+Shift+C (or "Copy settings…" in the
+> Styles menu, or the library's palette menu) opens `CopyEditsDialog`, the style dialog's
+> `StylePicker`; Ctrl+C copies what was picked last time (kept by instance id in
+> `localStorage`; instances it never saw get the default, which leaves out geometry,
+> retouch and lens). In the library the dialog lists the source's instances too (its
+> recipe is fetched), not only kinds. Ctrl+V pastes (Ctrl+Shift+V: all appended), in the
+> developer as one entry and on the library's selection through `runBatchEdit`;
+> "Paste from …" in both menus is previewed. Ctrl+C is left to the browser while text is
+> selected. Browsers bind Ctrl+Shift+C to their inspector: if one keeps it, the menu items
+> are the fallback.
 
 Copy part of a recipe from one photo and paste it onto others, in the developer and in
 the library. It's a style that isn't saved: build it on 4.2's code rather than next to it.

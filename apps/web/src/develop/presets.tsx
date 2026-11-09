@@ -36,7 +36,7 @@ import {
   modulePresetPayload,
   styleFromRecipe,
 } from '@rawtisserie/pipeline';
-import { Bookmark, BookmarkPlus, ChevronDown, Palette, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, BookmarkPlus, ChevronDown, ClipboardPaste, Copy, Palette, Plus, Trash2 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useShiftKey } from '../lib/useShiftKey.ts';
 import { type PresetInput, useDeletePreset, useMe, useSavePreset, useUserPresets } from '../api/hooks.ts';
@@ -262,6 +262,7 @@ function SaveDialog({
   title,
   subtitle,
   replacing,
+  submitLabel,
   canSave,
   onClose,
   onSubmit,
@@ -271,6 +272,8 @@ function SaveDialog({
   subtitle?: string;
   /** Saving replaces an existing one. */
   replacing: boolean;
+  /** The submit button's label, instead of Create/Replace. */
+  submitLabel?: string;
   canSave: boolean;
   onClose: () => void;
   onSubmit: () => void;
@@ -304,7 +307,7 @@ function SaveDialog({
                   <Button variant="outline">Cancel</Button>
                 </Dialog.ActionTrigger>
                 <Button type="submit" colorPalette="orange" disabled={!canSave}>
-                  {replacing ? 'Replace' : 'Create'}
+                  {submitLabel ?? (replacing ? 'Replace' : 'Create')}
                 </Button>
               </Dialog.Footer>
               <Dialog.CloseTrigger asChild>
@@ -551,34 +554,78 @@ export function CreateStyleDialog({
 }
 
 /**
- * The toolbar's styles menu: apply one, create, delete. A style applies each module as
- * it was saved (replacing or appending); with Shift, all of them are appended. The
- * highlighted style is previewed until the menu closes. Memoised.
+ * Pick what to copy of the recipe (roadmap 8.6), starting from `initial` (what was
+ * picked last time). Mount it to open it.
+ */
+export function CopyEditsDialog({
+  recipe,
+  initial,
+  onClose,
+  onCopy,
+}: {
+  recipe: EditParams;
+  initial: StyleSelection;
+  onClose: () => void;
+  onCopy: (selection: StyleSelection) => void;
+}) {
+  const [selection, setSelection] = useState(initial);
+  return (
+    <SaveDialog
+      title="Copy settings"
+      replacing={false}
+      submitLabel="Copy"
+      canSave={selectionValid(recipe, selection)}
+      onClose={onClose}
+      onSubmit={() => onCopy(selection)}
+    >
+      <Text textStyle="xs" color="fg.muted">
+        Modules to copy, with their current settings. Pasted, each replaces the photo&apos;s instance of its kind or is
+        appended as a new one.
+      </Text>
+      <StylePicker recipe={recipe} value={selection} onChange={setSelection} />
+    </SaveDialog>
+  );
+}
+
+/**
+ * The toolbar's styles menu: apply one, create, delete, and copy and paste settings
+ * (roadmap 8.6). A style applies each module as it was saved (replacing or appending);
+ * with Shift, all of them are appended. The highlighted style (or paste) is previewed
+ * until the menu closes. Memoised.
  */
 export const StyleMenu = memo(function StyleMenu({
   styles,
+  paste,
   onApply,
   onPreview,
   onEndPreview,
   onCreate,
   onDelete,
+  onCopy,
+  onPaste,
 }: {
   styles: readonly Style[];
+  /** What the clipboard holds (its source's name), or null. */
+  paste: string | null;
   onApply: (style: Style, appendAll: boolean) => void;
-  /** Show the image with this style (or without any, null) for now. */
-  onPreview: (style: Style | null, appendAll: boolean) => void;
+  /** Show the image with this style or the paste (or without any, null) for now. */
+  onPreview: (style: Style | 'paste' | null, appendAll: boolean) => void;
   /** Go back to the recipe from before the previews. */
   onEndPreview: () => void;
   onCreate: () => void;
   onDelete: (style: Style) => void;
+  /** Open the copy dialog. */
+  onCopy: () => void;
+  onPaste: (appendAll: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState<Style | null>(null);
+  const [highlighted, setHighlighted] = useState<Style | 'paste' | null>(null);
   const shift = useShiftKey(open);
   useEffect(() => {
     if (open) onPreview(highlighted, shift.held);
   }, [open, highlighted, shift.held]); // eslint-disable-line react-hooks/exhaustive-deps
-  const find = (value: string | null) => styles.find((s) => value === `apply:${s.id}`) ?? null;
+  const find = (value: string | null) =>
+    value === 'paste' ? 'paste' : (styles.find((s) => value === `apply:${s.id}`) ?? null);
   return (
     <Menu.Root
       lazyMount
@@ -593,8 +640,10 @@ export const StyleMenu = memo(function StyleMenu({
       }}
       onSelect={({ value }) => {
         if (value === 'create') return onCreate();
-        const style = find(value);
-        if (style) onApply(style, shift.ref.current);
+        if (value === 'copy') return onCopy();
+        const found = find(value);
+        if (found === 'paste') onPaste(shift.ref.current);
+        else if (found) onApply(found, shift.ref.current);
       }}
     >
       <Menu.Trigger asChild>
@@ -617,10 +666,21 @@ export const StyleMenu = memo(function StyleMenu({
             ))}
             {styles.length > 0 && (
               <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
-                Shift: append all of its modules
+                Shift: append all of its modules (also when pasting)
               </Text>
             )}
             {styles.length > 0 && <Menu.Separator />}
+            <Menu.Item value="copy">
+              <Copy /> Copy settings… <Menu.ItemCommand>Ctrl+Shift+C</Menu.ItemCommand>
+            </Menu.Item>
+            <Menu.Item value="paste" disabled={!paste}>
+              <ClipboardPaste />
+              <Text flex="1" truncate maxW="48">
+                {paste ? `Paste from ${paste}` : 'Paste'}
+              </Text>
+              <Menu.ItemCommand>Ctrl+V</Menu.ItemCommand>
+            </Menu.Item>
+            <Menu.Separator />
             <Menu.Item value="create">
               <Plus /> Create style…
             </Menu.Item>

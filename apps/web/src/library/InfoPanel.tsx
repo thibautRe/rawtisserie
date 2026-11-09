@@ -52,6 +52,8 @@ interface Actions {
   onDuplicate: (fromOriginal: boolean) => void;
   /** Apply a preset or style to the selected versions. */
   onApplyEdit: (edit: BatchEdit) => void;
+  /** Pick settings of the selected version to copy. */
+  onCopy: () => void;
 }
 
 /** Duplicate / Duplicate from original. */
@@ -88,7 +90,8 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
         <Text>Select a photo to see and edit its metadata.</Text>
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>D</b>{' '}
-          develop · <b>Ctrl+D</b> duplicate · <b>Del</b> delete · arrows to move
+          develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings · <b>Del</b> delete ·
+          arrows to move
         </Text>
       </Stack>
     );
@@ -222,7 +225,7 @@ function parseExposure(s: string): number | null {
   return numOrNull(s.replace(/[″"s]$/, ''));
 }
 
-function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit }: { photo: Photo } & Actions) {
+function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit, onCopy }: { photo: Photo } & Actions) {
   const { data: detail } = usePhoto(listPhoto.id);
   // The render state comes from the list: it's polled while previews are rendered, the detail isn't.
   const photo = detail
@@ -302,7 +305,12 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit }: {
             <Download />
           </a>
         </IconButton>
-        <ApplyMenu onApply={onApplyEdit} onPreview={preview.onPreview} onOpenChange={preview.onOpenChange}>
+        <ApplyMenu
+          onApply={onApplyEdit}
+          onCopy={onCopy}
+          onPreview={preview.onPreview}
+          onOpenChange={preview.onOpenChange}
+        >
           <IconButton size="sm" variant="outline" aria-label="Apply a preset or style" title="Apply a preset or style">
             <Palette />
           </IconButton>

@@ -25,7 +25,16 @@ import { CropOverlay } from './CropOverlay.tsx';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
-import { CreateStyleDialog, StyleMenu, usePresetLibrary } from './presets.tsx';
+import {
+  copyEdits,
+  lastSelection,
+  pasteEdit,
+  readClipboard,
+  rememberPick,
+  sourceName,
+  useClipboard,
+} from './editClipboard.ts';
+import { CopyEditsDialog, CreateStyleDialog, type StyleSelection, StyleMenu, usePresetLibrary } from './presets.tsx';
 import { type LutChoice, useLutLibrary, useMissingLuts } from './luts.ts';
 import { useRecipePreview } from './preview.ts';
 import { GuideOverlay } from './GuideOverlay.tsx';
@@ -810,9 +819,11 @@ export function DeveloperView({
     () => store.getState().live,
     (p) => store.setLive(p),
   );
-  const onPreviewStyle = useStableCallback((style: Style | null, appendAll: boolean) =>
-    stylePreview.preview(style && ((p) => applyStyle(p, style.payload, appendAll))),
-  );
+  const onPreviewStyle = useStableCallback((style: Style | 'paste' | null, appendAll: boolean) => {
+    if (style !== 'paste') return stylePreview.preview(style && ((p) => applyStyle(p, style.payload, appendAll)));
+    const clip = readClipboard();
+    stylePreview.preview(clip && pasteEdit(clip, appendAll).apply);
+  });
   const onApplyStyle = useStableCallback((style: Style, appendAll: boolean) => {
     setCropDraft(null);
     setGuides(null);
@@ -820,19 +831,54 @@ export function DeveloperView({
     commit(applyStyle(before, style.payload, appendAll), `Style: ${style.name}${appendAll ? ' (appended)' : ''}`);
   });
   const onCreateStyle = useStableCallback(() => setCreatingStyle(true));
+
+  // ── Copy and paste (roadmap 8.6) ──
+  const clipboard = useClipboard();
+  const [copying, setCopying] = useState(false);
+  const copy = (selection: StyleSelection) => {
+    const n = copyEdits(store.getState().live, selection, sourceName(filename));
+    toaster.create({ type: 'info', title: n === 1 ? 'Copied 1 module' : `Copied ${n} modules`, duration: 2500 });
+  };
+  /** Copy what was picked last time (Ctrl+C). */
+  const copyLast = () => copy(lastSelection(store.getState().live));
+  const onCopyPicked = useStableCallback((selection: StyleSelection) => {
+    rememberPick(store.getState().live, selection);
+    copy(selection);
+  });
+  const onOpenCopy = useStableCallback(() => setCopying(true));
+  const onPaste = useStableCallback((appendAll: boolean) => {
+    const clip = readClipboard();
+    if (!clip) {
+      toaster.create({
+        type: 'info',
+        title: 'Nothing copied yet',
+        description: 'Copy settings with Ctrl+C',
+        duration: 2500,
+      });
+      return;
+    }
+    setCropDraft(null);
+    setGuides(null);
+    const edit = pasteEdit(clip, appendAll);
+    commit(edit.apply(stylePreview.end()), edit.label);
+  });
+
   const stylesNode = useMemo(
     () =>
       presets.save && (
         <StyleMenu
           styles={presets.styles}
+          paste={clipboard?.source ?? null}
           onApply={onApplyStyle}
           onPreview={onPreviewStyle}
           onEndPreview={stylePreview.end}
           onCreate={onCreateStyle}
           onDelete={presets.remove}
+          onCopy={onOpenCopy}
+          onPaste={onPaste}
         />
       ),
-    [presets.styles, !!presets.save], // eslint-disable-line react-hooks/exhaustive-deps
+    [presets.styles, !!presets.save, clipboard?.source], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // The module panel is memoised: its handlers must keep their identity.
@@ -870,8 +916,8 @@ export function DeveloperView({
     const down = (e: KeyboardEvent) => {
       // An open menu or dialog closes on Esc (in the capture phase): that's all this press does.
       if (e.key === 'Escape' && e.defaultPrevented) return;
-      // The export dialog is modal: the shortcuts would act on the photo behind it.
-      if (exportOpen) return;
+      // The export and copy dialogs are modal: the shortcuts would act on the photo behind them.
+      if (exportOpen || copying) return;
       const field =
         e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) ? e.target : null;
       // Esc leaves a field first (it may also be closing a native dropdown), except a
@@ -886,6 +932,10 @@ export function DeveloperView({
       if (mod && key === 'z' && !e.shiftKey) goto(history.end - 1);
       else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) goto(history.end + 1);
       else if (mod && key === 's') autosave.flush();
+      // Copy settings, unless there's text selected to copy.
+      else if (mod && key === 'c' && e.shiftKey) setCopying(true);
+      else if (mod && key === 'c' && !window.getSelection()?.toString()) copyLast();
+      else if (mod && key === 'v') onPaste(e.shiftKey);
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'c') startCrop();
       else if (mod && key === 'b') setAssessment((a) => !a);
@@ -1181,6 +1231,14 @@ export function DeveloperView({
           onShapeUi={onShapeUi}
         />
       </Box>
+      {copying && (
+        <CopyEditsDialog
+          recipe={store.getState().live}
+          initial={lastSelection(store.getState().live)}
+          onClose={() => setCopying(false)}
+          onCopy={onCopyPicked}
+        />
+      )}
       {creatingStyle && presets.save && (
         <CreateStyleDialog
           recipe={params}

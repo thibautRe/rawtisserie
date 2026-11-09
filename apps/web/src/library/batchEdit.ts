@@ -92,6 +92,14 @@ export function appendChange(current: CurrentRecipe, edit: BatchEdit): HistoryCh
   };
 }
 
+/** A version's current recipe, or null while it's being imported (its starting recipe isn't known). */
+export async function fetchRecipe(id: string): Promise<EditParams | null> {
+  const { versions } = await api.post<{ versions: CurrentRecipe[]; notReady: string[] }>('/api/versions/recipes', {
+    ids: [id],
+  });
+  return versions[0]?.recipe ?? null;
+}
+
 const chunks = <T>(items: readonly T[]) =>
   Array.from({ length: Math.ceil(items.length / CHUNK) }, (_, i) => items.slice(i * CHUNK, (i + 1) * CHUNK));
 

@@ -13,6 +13,7 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
+import type { EditParams } from '@rawtisserie/pipeline';
 import { Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
@@ -29,6 +30,16 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVersionsDialog.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
+import {
+  copyEdits,
+  lastSelection,
+  pasteEdit,
+  readClipboard,
+  rememberPick,
+  sourceName,
+} from '../develop/editClipboard.ts';
+import { CopyEditsDialog } from '../develop/presets.tsx';
+import { fetchRecipe } from './batchEdit.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
@@ -163,6 +174,53 @@ export function LibraryPage() {
     [photos, selection, duplicate],
   );
 
+  // ── Copy and paste settings (roadmap 8.6) ──
+  const [copyDialog, setCopyDialog] = useState<{ recipe: EditParams; source: string } | null>(null);
+  /** The photo to copy from: the focused one if it's selected, or the only one selected. */
+  const copySource = () => {
+    const id = focusedId && selection.has(focusedId) ? focusedId : selection.size === 1 ? [...selection][0]! : null;
+    return photos.find((p) => p.id === id) ?? null;
+  };
+  /** Copy what was picked last time from the selected photo, or (`pick`) open the dialog. */
+  const copyFrom = async (pick: boolean) => {
+    const photo = copySource();
+    if (!photo) return;
+    try {
+      const recipe = await fetchRecipe(photo.id);
+      if (!recipe) {
+        toaster.create({ type: 'warning', title: `${photo.filename} is still being imported`, duration: 4000 });
+        return;
+      }
+      const source = sourceName(photo.filename);
+      if (pick) return setCopyDialog({ recipe, source });
+      const n = copyEdits(recipe, lastSelection(recipe), source);
+      toaster.create({
+        type: 'info',
+        title: `Copied ${n === 1 ? '1 module' : `${n} modules`} from ${source}`,
+        duration: 2500,
+      });
+    } catch (err) {
+      toaster.create({
+        type: 'error',
+        title: 'Could not copy',
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
+  };
+  const pasteToSelection = (appendAll: boolean) => {
+    const clip = readClipboard();
+    if (!clip)
+      toaster.create({
+        type: 'info',
+        title: 'Nothing copied yet',
+        description: 'Copy settings with Ctrl+C',
+        duration: 2500,
+      });
+    else void batchEdit([...selection], pasteEdit(clip, appendAll));
+  };
+  const latestCopy = useRef({ copyFrom, pasteToSelection });
+  latestCopy.current = { copyFrom, pasteToSelection };
+
   const applyToSelection = useCallback(
     (patch: BulkPatch) => {
       if (selection.size) bulk.mutate({ ids: [...selection], patch });
@@ -188,6 +246,17 @@ export function LibraryPage() {
       if ((e.metaKey || e.ctrlKey) && key === 'a') {
         e.preventDefault();
         setSelection(new Set(photos.map((p) => p.id)));
+        return;
+      }
+      // Copy and paste settings, unless there's text selected to copy.
+      if ((e.metaKey || e.ctrlKey) && key === 'c' && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        void latestCopy.current.copyFrom(e.shiftKey);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && key === 'v' && selection.size) {
+        e.preventDefault();
+        latestCopy.current.pasteToSelection(e.shiftKey);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && key === 'd') {
@@ -423,7 +492,24 @@ export function LibraryPage() {
         onDelete={setPendingDelete}
         onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
         onApplyEdit={(edit) => batchEdit([...selection], edit)}
+        onCopy={() => void copyFrom(true)}
       />
+      {copyDialog && (
+        <CopyEditsDialog
+          recipe={copyDialog.recipe}
+          initial={lastSelection(copyDialog.recipe)}
+          onClose={() => setCopyDialog(null)}
+          onCopy={(selection) => {
+            rememberPick(copyDialog.recipe, selection);
+            const n = copyEdits(copyDialog.recipe, selection, copyDialog.source);
+            toaster.create({
+              type: 'info',
+              title: `Copied ${n === 1 ? '1 module' : `${n} modules`} from ${copyDialog.source}`,
+              duration: 2500,
+            });
+          }}
+        />
+      )}
 
       {dragging && (
         <Center
