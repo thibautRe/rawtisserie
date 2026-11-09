@@ -21,6 +21,10 @@ colour balance ranges and "Colorfulness: standard" in the default recipe, the li
 view restored when leaving the developer, and a film roll under the developer. 8.8
 (append or apply per module) done the same day. 8.6 (copy and paste) and 8.7
 (auto-tune on apply) too.
+Feedback (2026-11-10): done the same day: select all/none when copying settings or
+creating a style, the crop aspect starting at "Original", Tones' auto-tune in its header
+with A for every auto-tune, and a Tones strength. Added: 4.13 (mask UI redesign), and
+8.4's decisions (in the browser, one ZIP, export from the library with it).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -271,7 +275,8 @@ Open questions: how a step is shown (focus one slider, dim the rest, show a hint
 what to look at, e.g. turn on clipping indicators for the exposure steps), which keys
 change the value, step forward/back and skip, and whether the sequence is fixed or a
 preset. It builds on 2.5 (every slider usable from the keyboard) and fits the history
-(2.2): one entry per step.
+(2.2): one entry per step. Prototype it with 4.13's mask sidebar: both change how the
+panels are laid out and navigated.
 
 ---
 
@@ -882,7 +887,8 @@ result lands, not which pixels give off light: the blur still reads everything.
 > curve is baked into a gain table over the float bits (`BitsLut`, 256 per stop); it
 > runs last before filmic, in the fixed chain, and is maskable. Cost: ~+3 % on a full
 > point render at 2400 px (native). Built-in presets: "Contrast: low / medium / high",
-> "Lift shadows" (they don't set the range). Golden recipe `tone_curve.json`. Not
+> "Lift shadows" (they don't set the range). Golden recipe `tone_curve.json`. A
+> strength (0 … 200 %, 2026-11-10) scales the offsets in EV, baked into the tables. Not
 > done: a histogram before the instance has been created (the wand creates it), picking
 > a node from the image, and a local (edge-preserving) variant like the tone
 > equalizer's (see 4.10).
@@ -1043,6 +1049,24 @@ global" gap.
 - Maskable, a golden recipe, `bench.rs` cases (the filter at 2400 px and full size).
 - Alternative: a "local" mode of the tone curve rather than a new kind. A separate kind
   is simpler to explain and keeps the tone curve's RGB modes out of it.
+
+### 4.13 Mask UI redesign (M–L, before 1.0, needs a prototype)
+
+The mask editor (4.5) is confusing and clutters the panel: a mask button in each
+maskable module's header opens, inside the module, a switch, the shape tools, an op per
+shape, up to seven range sliders with four handles, feather, opacity and invert. It
+needs redoing for 1.0 so that it makes sense and stays out of the way.
+
+- **Idea to prototype:** masks in a secondary sidebar next to the modules, showing the
+  mask of the module being edited (or a list of the recipe's masks), so the module
+  panel keeps only a mask indicator.
+- Prototype it with 2.6 (keyboard-driven editing): both change how the panels are laid
+  out and navigated.
+- To work out with the prototype: which controls are shown by default (drawn shapes and
+  a luminance range cover most uses) and which are behind an "advanced" disclosure; how
+  the overlay modes (the mask, one range alone, what a range measures) are reached; and
+  where mask presets (4.5's "not done yet") would fit.
+- Format and pipeline stay as they are: it's a UI change.
 
 ---
 
@@ -1315,18 +1339,39 @@ Preload the neighbours' previews. Previews may need a larger size than the grid 
 (check the stored preview size, or decode the embedded JPEG from the RAW). This fits
 with M5's compare (two-up culling of a burst).
 
-### 8.4 Batch export (L)
+### 8.4 Export from the library: one photo or a selection (M–L)
 
-Export a selection as JPEG (later TIFF/AVIF) with a size, quality, naming pattern and
-output colour space, as a ZIP or per file.
+Decided 2026-11-10: **in the browser, delivered as one ZIP**, with single-photo export
+from the library built as part of it (not before). Server-side jobs wait for M6 (cloud
+compute is planned as a paid option, and with 7.8's local originals the server doesn't
+have the RAW).
 
-- **Where:** server-side jobs. Better after M6 step 1 (native multithreaded renderer);
-  until then, a client-side export with progress is possible for small selections.
-- **Jobs:** a `jobs` table (kind, owner, status, progress, result key, expiry). Results
-  go to storage (7.1) with a short-lived link and are deleted after N days.
-- **Notifications:** an in-app notification centre (polling or SSE) first. Email when
-  the job finishes needs transactional email, which the server doesn't send yet. It's
-  also useful for account flows and 7.5's quota warnings.
+- **Entry points:** "Export…" in the library's selection actions (and its context
+  menu), with a shortcut (the developer has none yet: give both the same, e.g. Ctrl+E).
+  One photo selected behaves like the developer's export: the file itself, no ZIP.
+- **Dialog:** 8.5's `ExportDialog`, same settings, presets and last settings. With
+  several photos: "Export N photos" as the title; sizes that depend on the photo are
+  described rather than computed ("long edge 2048 px"); the file name pattern must give
+  unique names, so collisions (versions of one file, `{name}` alone) get `-2`, `-3`… (or
+  the dialog suggests adding `{version}`).
+- **Rendering:** a runner outside the library page (so moving to the developer and back
+  doesn't stop it) going through the photos one at a time in a pipeline worker: fetch
+  the original as the developer does, decode, load the recipe's LUTs, resolve pending
+  auto-tunes (8.7: `resolveAutoTunes` at `AUTO_TUNE_SIZE`, the values the server's
+  previews use), export with the photo's metadata and the library's corrections
+  (`photoExportInfo`), release the cache. Fetching the next original while one exports
+  hides the download. One worker at a time to start with (a 60 MP decode is large);
+  measure before trying two.
+- **ZIP:** stored (JPEG/PNG/TIFF don't compress further), written as each file
+  finishes into a `Blob` of parts so the browser can keep it out of memory, ZIP64 past
+  4 GB, saved at the end. A small writer of our own (local headers, CRC-32, central
+  directory) rather than a dependency.
+- **Progress:** a progress panel in the app shell (n of N, the current photo, cancel);
+  leaving the page warns (`beforeunload`). A photo that fails is skipped and listed at
+  the end; the ZIP holds the others.
+- **Later:** server-side jobs (the earlier plan: a `jobs` table, results in storage
+  (7.1) behind a short-lived link, an in-app notification centre, email once the server
+  sends any) for cloud-compute users, after M6 step 1; AVIF/JPEG XL.
 
 ### 8.6 Copy and paste edits (S–M, after 8.1)
 
@@ -1558,8 +1603,9 @@ Required before 1.0, on top of what's done:
 - **Modules:** 3.5 raw denoise (AI), 3.6 lensfun, 3.7 diffuse and sharpen, 3.8 perspective /
   vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame, 4.10 tone equalizer (guided mask).
 - **Library:** 8.1 presets on a selection, 8.2 folder/SD import skipping known files,
-  8.3 fullscreen culling, 8.4 batch export (with notifications), 8.5 export options
-  (colour space/ICC at least).
+  8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
+  export options (colour space/ICC at least).
+- **UI:** 4.13 mask UI redesign.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
   (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules.
@@ -1577,8 +1623,9 @@ Required before 1.0, on top of what's done:
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, 4.8 3D LUT, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
-   3.7 diffuse and sharpen, 8.2 folder/SD import. 8.4 batch export goes best after M6
-   step 1 (native renderer). 3.5 denoise starts with a spike (port the executor,
+   3.7 diffuse and sharpen, 8.2 folder/SD import, 8.4 export from the library (in the
+   browser; server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
+   with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
 7. M5 compare.
 8. M6 cloud processing. Move it earlier if slow-hardware users are a near-term priority;
