@@ -215,7 +215,7 @@ export function LocalDevelopPage() {
 }
 
 /**
- * The history a local file starts with: what the server records for a new upload
+ * The history a new file starts with: what the server records for a new upload
  * (`addDefaultRecipe` in the render queue), i.e. lens correction when the file has data.
  */
 function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
@@ -307,6 +307,9 @@ function LibraryDeveloper({ id }: { id: string }) {
       }}
       save={save}
       revision={photo.revision}
+      // No metadata yet: the server hasn't processed the file, and would record its
+      // automatic entry after the developer opened (the version keeps it either way).
+      startWith={!photo.exif && photo.history.length === 0 ? autoApplied(metadata) : null}
       versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
       onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
     />

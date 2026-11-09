@@ -66,6 +66,11 @@ interface Props {
   save?: SaveFn;
   /** The version's `revision` that `initialHistory` comes from. */
   revision?: number;
+  /**
+   * The history it should start with instead, which the server doesn't have yet (a new
+   * upload opened before its first render): shown and saved at once.
+   */
+  startWith?: HistorySnapshot | null;
   /** Extra toolbar actions, given the current history. */
   actions?: (history: HistorySnapshot) => React.ReactNode;
   /** Shown next to the file name (the version switcher), given a way to wait for pending saves. */
@@ -230,6 +235,7 @@ export function DeveloperView({
   initialHistory,
   save,
   revision = 0,
+  startWith,
   actions,
   versions,
   onBack,
@@ -241,6 +247,11 @@ export function DeveloperView({
   /** A live change (e.g. a slider being dragged) has not been committed yet. */
   const live = params !== committed;
   const autosave = useAutosave(store, revision, save);
+  // After the autosave's effect, which listens to the store.
+  useEffect(() => {
+    if (startWith && store.getState().entries.length === 0) store.restore(startWith);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
+  }, []);
 
   const [comparing, setComparing] = useState(false);
   // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
