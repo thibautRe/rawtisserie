@@ -83,7 +83,7 @@ export const PhotoCard = memo(function PhotoCard({ photo, selected, focused, onC
           </Badge>
         )}
         {photo.edited && (
-          <Badge size="xs" variant="solid" colorPalette="orange">
+          <Badge size="xs" bg="blackAlpha.700" color="white">
             edited
           </Badge>
         )}

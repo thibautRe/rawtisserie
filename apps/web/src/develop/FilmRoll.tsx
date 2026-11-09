@@ -105,11 +105,12 @@ const RollItem = memo(function RollItem({
       bg="bg.muted"
       borderRadius="xs"
       overflow="hidden"
-      outline={current ? '2px solid' : undefined}
-      outlineColor="orange.solid"
+      // Not dimmed: neighbours are there to compare brightness with. The current one is
+      // outlined in orange, the one under the pointer in grey.
+      outline="2px solid"
+      outlineColor={current ? 'orange.solid' : 'transparent'}
       outlineOffset="-2px"
-      opacity={current ? 1 : 0.6}
-      _hover={{ opacity: 1 }}
+      _hover={current ? undefined : { outlineColor: 'fg.muted' }}
       title={photo.filename}
       aria-current={current || undefined}
       onClick={() => !current && onOpen(photo.id)}

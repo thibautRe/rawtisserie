@@ -69,18 +69,20 @@ export function LibraryPage() {
   const [focusedId, setFocusedId] = useState<string | null>(restored.focusedId);
   const anchorRef = useRef<string | null>(restored.focusedId);
   const scrollTop = useRef(restored.scrollTop);
-  const view = useRef({ search: search.search, selection, focusedId });
-  view.current = { search: search.search, selection, focusedId };
-  useEffect(
-    () => () =>
-      saveLibraryView({
-        search: view.current.search,
-        scrollTop: scrollTop.current,
-        selection: [...view.current.selection],
-        focusedId: view.current.focusedId,
-      }),
-    [],
-  );
+  // Saved as it changes, not when the library unmounts: the developer's film roll reads
+  // it while its route renders, before the library's cleanup would run.
+  const save = () =>
+    saveLibraryView({
+      search: search.search,
+      scrollTop: scrollTop.current,
+      selection: [...selection],
+      focusedId,
+    });
+  const latestSave = useRef(save);
+  latestSave.current = save;
+  useEffect(() => latestSave.current(), [search.search, selection, focusedId]);
+  // The scroll position only matters when coming back: saved on the way out.
+  useEffect(() => () => latestSave.current(), []);
   const gridRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(() => Number(localStorage.getItem('library.cellSize')) || 200);
   const [pendingDelete, setPendingDelete] = useState<Photo[] | null>(null);
