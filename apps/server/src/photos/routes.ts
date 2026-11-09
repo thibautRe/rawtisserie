@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { AUTO_RECIPE_LABEL, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
+import { AUTO_RECIPE_LABEL, defaultEditParams, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
@@ -328,6 +328,16 @@ export async function photoRoutes(
         await tx.query(sql`
           INSERT INTO history_entries (version_id, seq, created_at, label, recipe)
           SELECT ${copy!.id}, seq, created_at, label, recipe FROM history_entries WHERE version_id = ${id}`);
+      } else {
+        // From the original: what a new upload starts with (lens correction when the file
+        // has its data), now rather than after its first render, which the developer
+        // opening it right away would miss.
+        const photo = await photos(tx).findOne({ id: photo_id });
+        const recipe = photo?.exif && defaultRecipe({ lensCorrection: photo.exif.lensCorrection ?? null });
+        if (recipe && recipe !== defaultEditParams) {
+          await historyEntries(tx).insert({ version_id: copy!.id, seq: 1, label: AUTO_RECIPE_LABEL, recipe });
+          await versions(tx).update({ id: copy!.id }, { history_end: 1 });
+        }
       }
       return copy!;
     });
