@@ -218,11 +218,13 @@ export function LibraryPage() {
       else return;
       e.preventDefault();
     };
-    // Keys pressed in an open dialog or menu are theirs: Escape closes it, and mustn't also
-    // clear the selection. Checked before they handle it (a menu closes on Escape at once).
+    // Keys pressed in an open dialog (confirmations are alert dialogs) or menu are theirs:
+    // Escape closes it and mustn't also clear the selection, Space presses its button.
+    // Checked before they handle it (a menu closes on Escape at once).
     const forOverlay = new WeakSet<KeyboardEvent>();
     const claim = (e: KeyboardEvent) => {
-      if (document.querySelector('[role="dialog"], [role="menu"][data-state="open"]')) forOverlay.add(e);
+      const overlay = '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"]';
+      if (document.querySelector(overlay)) forOverlay.add(e);
     };
     window.addEventListener('keydown', claim, true);
     window.addEventListener('keydown', onKey);
