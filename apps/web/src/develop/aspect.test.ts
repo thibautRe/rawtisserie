@@ -37,6 +37,9 @@ test('presets and flipping', () => {
   close(aspectRatio({ preset: '3:2', custom: '', flipped: true }, frame)!, 2 / 3);
   close(aspectRatio({ preset: 'xpan', custom: '', flipped: false }, frame)!, 65 / 24);
   close(aspectRatio({ preset: 'original', custom: '', flipped: true }, frame)!, 1 / 1.5);
+  // Landscape until flipped, like the presets, whichever way the photo is.
+  close(aspectRatio({ preset: 'original', custom: '', flipped: false }, 1 / 1.5)!, 1.5);
+  close(aspectRatio({ preset: 'original', custom: '', flipped: true }, 1 / 1.5)!, 1 / 1.5);
   close(aspectRatio({ preset: 'custom', custom: '51:48', flipped: false }, frame)!, 51 / 48);
   assert.equal(aspectRatio({ preset: 'custom', custom: 'nope', flipped: false }, frame), null);
   assert.equal(aspectLabel('XPan (65:24)', true), 'XPan (24:65)');

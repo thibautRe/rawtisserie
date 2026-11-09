@@ -50,10 +50,15 @@ export function parseAspect(text: string): number | null {
   return Number.isFinite(ratio) && ratio >= 0.01 && ratio <= 100 ? ratio : null;
 }
 
-/** The width / height ratio in pixels the crop must keep, or null for free-form. */
-export function aspectRatio(aspect: CropAspect, frameAspect: number): number | null {
+/**
+ * The width / height ratio in pixels the crop must keep, or null for free-form.
+ * `originalAspect`: the photo's, oriented but not corrected (the frame's can be anything
+ * with "Auto-crop: largest area"). Like the presets, "Original" is landscape until flipped.
+ */
+export function aspectRatio(aspect: CropAspect, originalAspect: number): number | null {
   const preset = ASPECTS.find((a) => a.value === aspect.preset)?.ratio ?? null;
-  const ratio = preset === 'original' ? frameAspect : preset === 'custom' ? parseAspect(aspect.custom) : preset;
+  const original = Math.max(originalAspect, 1 / originalAspect);
+  const ratio = preset === 'original' ? original : preset === 'custom' ? parseAspect(aspect.custom) : preset;
   return ratio && aspect.flipped ? 1 / ratio : ratio;
 }
 

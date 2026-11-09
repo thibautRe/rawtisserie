@@ -505,7 +505,15 @@ export function DeveloperView({
 
   // ── Crop ──
   const frameAspect = frame ? frame.fullWidth / frame.fullHeight : 1;
-  const crop = findModule(params, 'geometry')?.params.crop ?? FULL_CROP;
+  const geometry = findModule(params, 'geometry')?.params;
+  // The photo's, before the correction and auto-crop: what "Original" crops to.
+  const originalAspect =
+    metadata.width && metadata.height
+      ? (geometry?.rotation ?? 0) % 2
+        ? metadata.height / metadata.width
+        : metadata.width / metadata.height
+      : frameAspect;
+  const crop = geometry?.crop ?? FULL_CROP;
   const startCrop = () => {
     if (cropDraft) return applyCrop();
     if (guides) applyGuides();
@@ -519,14 +527,20 @@ export function DeveloperView({
   /** Switch to `next`, fitting the crop (from `rect`, or the current one) to it. */
   const setCropAspect = (next: CropAspect, rect?: CropRect) => {
     setAspect(next);
-    const ratio = aspectRatio(next, frameAspect);
+    const ratio = aspectRatio(next, originalAspect);
     const base = rect ?? cropDraft;
     if (base) setCropDraft(constrainAspect(base, ratio, frameAspect));
     else if (ratio) setCropDraft(constrainAspect(crop, ratio, frameAspect));
   };
-  // A preset keeps the crop's orientation; a typed ratio is taken as written.
+  // A preset keeps the crop's orientation, "Original" takes the photo's; a typed ratio is
+  // taken as written.
   const changeAspect = (preset: string) =>
-    setCropAspect({ ...aspect, preset, flipped: preset !== 'custom' && isPortrait(cropDraft ?? crop, frameAspect) });
+    setCropAspect({
+      ...aspect,
+      preset,
+      flipped:
+        preset === 'original' ? originalAspect < 1 : preset !== 'custom' && isPortrait(cropDraft ?? crop, frameAspect),
+    });
   const changeCustomAspect = (custom: string) => setCropAspect({ preset: 'custom', custom, flipped: false });
   const flipAspect = () =>
     setCropAspect({ ...aspect, flipped: !aspect.flipped }, flipCrop(cropDraft ?? crop, frameAspect));
@@ -1035,7 +1049,7 @@ export function DeveloperView({
               {cropDraft && !comparing && (
                 <CropOverlay
                   rect={cropDraft}
-                  aspect={aspectRatio(aspect, frameAspect)}
+                  aspect={aspectRatio(aspect, originalAspect)}
                   frameAspect={frameAspect}
                   onChange={setCropDraft}
                 />
