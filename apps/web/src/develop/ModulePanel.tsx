@@ -2252,191 +2252,197 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         </>
       ))}
 
-      {sections('toneCurve', [toneInputs, fittingTone, toneView], (e) => {
-        const v = e.values;
-        const local = v.preserveDetail;
-        // Preserving detail, the curve is linked and reads a norm.
-        const independent = v.channels === 'independent' && !local;
-        const norms = local ? RGB_NORMS.filter((n) => n !== 'none') : RGB_NORMS;
-        const norm = local && v.preserveColors === 'none' ? 'norm' : v.preserveColors;
-        const key = independent ? e.view.toneChannel : 'rgb';
-        const channel = TONE_CHANNELS.indexOf(e.view.toneChannel);
-        const range = toneCurveRange(v);
-        const input = toneInputs[e.id];
-        const bins = input?.bins.length === 3 ? input.bins[channel] : input?.bins[0];
-        const showing = toneView?.id === e.id;
-        /** Update the overlay, if it shows this instance. */
-        const updateView = (patch: Partial<ToneCurveView>) => {
-          const now = latest.current.toneView;
-          if (now?.id === e.id) latest.current.onToneView({ ...now, ...patch });
-        };
-        const others = independent
-          ? TONE_CHANNELS.filter((c) => c !== key).map((c) => ({
-              values: toneToUnit(v[c]),
-              color: TONE_CHANNEL_COLORS[c],
-            }))
-          : [];
-        return (
-          <>
-            <HStack gap="2">
-              {!local && (
-                <NativeSelect.Root size="xs" flex="1">
-                  <NativeSelect.Field
-                    value={v.channels}
-                    onChange={(ev) => e.set({ channels: ev.target.value as ModuleParams['toneCurve']['channels'] })}
-                    aria-label="Channels"
-                  >
-                    <option value="linked">RGB, linked</option>
-                    <option value="independent">RGB, independent</option>
-                  </NativeSelect.Field>
-                  <NativeSelect.Indicator />
-                </NativeSelect.Root>
-              )}
-              {!independent && (
-                <NativeSelect.Root size="xs" flex="1">
-                  <NativeSelect.Field
-                    value={norm}
-                    onChange={(ev) => e.set({ preserveColors: ev.target.value as RgbNorm })}
-                    aria-label="Preserve colors"
-                    title={
-                      local
-                        ? 'Preserve colors: what the mask is made of; the pixel is scaled as a whole, keeping its hue and saturation'
-                        : 'Preserve colors: what the curve reads; the pixel is scaled as a whole, keeping its hue and saturation'
-                    }
-                  >
-                    {norms.map((n) => (
-                      <option key={n} value={n}>
-                        {RGB_NORM_LABELS[n]}
-                      </option>
+      {sections(
+        'toneCurve',
+        [toneInputs, fittingTone, toneView],
+        (e) => {
+          const v = e.values;
+          const local = v.preserveDetail;
+          // Preserving detail, the curve is linked and reads a norm.
+          const independent = v.channels === 'independent' && !local;
+          const norms = local ? RGB_NORMS.filter((n) => n !== 'none') : RGB_NORMS;
+          const norm = local && v.preserveColors === 'none' ? 'norm' : v.preserveColors;
+          const key = independent ? e.view.toneChannel : 'rgb';
+          const channel = TONE_CHANNELS.indexOf(e.view.toneChannel);
+          const range = toneCurveRange(v);
+          const input = toneInputs[e.id];
+          const bins = input?.bins.length === 3 ? input.bins[channel] : input?.bins[0];
+          const showing = toneView?.id === e.id;
+          /** Update the overlay, if it shows this instance. */
+          const updateView = (patch: Partial<ToneCurveView>) => {
+            const now = latest.current.toneView;
+            if (now?.id === e.id) latest.current.onToneView({ ...now, ...patch });
+          };
+          const others = independent
+            ? TONE_CHANNELS.filter((c) => c !== key).map((c) => ({
+                values: toneToUnit(v[c]),
+                color: TONE_CHANNEL_COLORS[c],
+              }))
+            : [];
+          return (
+            <>
+              <HStack gap="2">
+                {!local && (
+                  <NativeSelect.Root size="xs" flex="1">
+                    <NativeSelect.Field
+                      value={v.channels}
+                      onChange={(ev) => e.set({ channels: ev.target.value as ModuleParams['toneCurve']['channels'] })}
+                      aria-label="Channels"
+                    >
+                      <option value="linked">RGB, linked</option>
+                      <option value="independent">RGB, independent</option>
+                    </NativeSelect.Field>
+                    <NativeSelect.Indicator />
+                  </NativeSelect.Root>
+                )}
+                {!independent && (
+                  <NativeSelect.Root size="xs" flex="1">
+                    <NativeSelect.Field
+                      value={norm}
+                      onChange={(ev) => e.set({ preserveColors: ev.target.value as RgbNorm })}
+                      aria-label="Preserve colors"
+                      title={
+                        local
+                          ? 'Preserve colors: what the mask is made of; the pixel is scaled as a whole, keeping its hue and saturation'
+                          : 'Preserve colors: what the curve reads; the pixel is scaled as a whole, keeping its hue and saturation'
+                      }
+                    >
+                      {norms.map((n) => (
+                        <option key={n} value={n}>
+                          {RGB_NORM_LABELS[n]}
+                        </option>
+                      ))}
+                    </NativeSelect.Field>
+                    <NativeSelect.Indicator />
+                  </NativeSelect.Root>
+                )}
+                <IconButton
+                  aria-label={showing ? 'Hide what the curve reads' : 'Show what the curve reads on the image'}
+                  title={`Show what the curve reads on the image${local ? ' (its mask)' : ''}: black at the darkest node, white at the brightest; the selected node's tones in yellow`}
+                  size="2xs"
+                  variant={showing ? 'subtle' : 'outline'}
+                  colorPalette={showing ? 'orange' : 'gray'}
+                  aria-pressed={showing}
+                  disabled={!e.enabled}
+                  onClick={() =>
+                    latest.current.onToneView(showing ? null : { id: e.id, channel: Math.max(0, channel), node: null })
+                  }
+                >
+                  <Eye />
+                </IconButton>
+              </HStack>
+              <Switch.Root
+                size="xs"
+                colorPalette="orange"
+                checked={local}
+                onCheckedChange={(d) => e.set({ preserveDetail: d.checked })}
+                title="Preserve detail: read each area's tone from a smoothed, edge-aware mask rather than each pixel's own, so that areas move as a whole and keep their texture (tone equalizer). Best for shadows and highlights; contrast curves work best without it."
+              >
+                <Switch.HiddenInput />
+                <Switch.Control />
+                <Switch.Label textStyle="xs">Preserve detail</Switch.Label>
+              </Switch.Root>
+              {independent && (
+                <Tabs.Root
+                  size="sm"
+                  variant="subtle"
+                  value={e.view.toneChannel}
+                  onValueChange={(d) => {
+                    e.setView({ toneChannel: d.value as ToneChannel });
+                    updateView({ channel: TONE_CHANNELS.indexOf(d.value as ToneChannel), node: null });
+                  }}
+                >
+                  <Tabs.List aria-label="Channel" gap="0.5" minH="0" p="0" alignItems="center">
+                    {TONE_CHANNELS.map((c) => (
+                      <Tabs.Trigger key={c} value={c} h="5" px="1.5" textStyle="2xs" textTransform="capitalize">
+                        <Box boxSize="2" borderRadius="full" bg={TONE_CHANNEL_COLORS[c]} />
+                        {c}
+                      </Tabs.Trigger>
                     ))}
-                  </NativeSelect.Field>
-                  <NativeSelect.Indicator />
-                </NativeSelect.Root>
+                  </Tabs.List>
+                </Tabs.Root>
               )}
-              <IconButton
-                aria-label="Fit the nodes to the image"
-                title="Fit the nodes to the image: spread them from its darkest to its brightest tones"
-                size="2xs"
-                variant="outline"
-                loading={fittingTone === e.id}
-                onClick={() => latest.current.onFitToneCurve(e.id)}
-              >
-                <WandSparkles />
-              </IconButton>
-              <IconButton
-                aria-label={showing ? 'Hide what the curve reads' : 'Show what the curve reads on the image'}
-                title={`Show what the curve reads on the image${local ? ' (its mask)' : ''}: black at the darkest node, white at the brightest; the selected node's tones in yellow`}
-                size="2xs"
-                variant={showing ? 'subtle' : 'outline'}
-                colorPalette={showing ? 'orange' : 'gray'}
-                aria-pressed={showing}
-                disabled={!e.enabled}
-                onClick={() =>
-                  latest.current.onToneView(showing ? null : { id: e.id, channel: Math.max(0, channel), node: null })
-                }
-              >
-                <Eye />
-              </IconButton>
-            </HStack>
-            <Switch.Root
-              size="xs"
-              colorPalette="orange"
-              checked={local}
-              onCheckedChange={(d) => e.set({ preserveDetail: d.checked })}
-              title="Preserve detail: read each area's tone from a smoothed, edge-aware mask rather than each pixel's own, so that areas move as a whole and keep their texture (tone equalizer). Best for shadows and highlights; contrast curves work best without it."
-            >
-              <Switch.HiddenInput />
-              <Switch.Control />
-              <Switch.Label textStyle="xs">Preserve detail</Switch.Label>
-            </Switch.Root>
-            {independent && (
-              <Tabs.Root
-                size="sm"
-                variant="subtle"
-                value={e.view.toneChannel}
-                onValueChange={(d) => {
-                  e.setView({ toneChannel: d.value as ToneChannel });
-                  updateView({ channel: TONE_CHANNELS.indexOf(d.value as ToneChannel), node: null });
-                }}
-              >
-                <Tabs.List aria-label="Channel" gap="0.5" minH="0" p="0" alignItems="center">
-                  {TONE_CHANNELS.map((c) => (
-                    <Tabs.Trigger key={c} value={c} h="5" px="1.5" textStyle="2xs" textTransform="capitalize">
-                      <Box boxSize="2" borderRadius="full" bg={TONE_CHANNEL_COLORS[c]} />
-                      {c}
-                    </Tabs.Trigger>
-                  ))}
-                </Tabs.List>
-              </Tabs.Root>
-            )}
-            <CurveEditor
-              key={key}
-              label={independent ? `Tones, ${key}` : 'Tones'}
-              values={toneToUnit(v[key])}
-              defaults={TONE_FLAT}
-              neutral={0.5}
-              left={signedEv(range[0])}
-              right={signedEv(range[1])}
-              histogram={bins && toneHistogram(bins, range)}
-              onFocusChange={(node) => updateView({ node })}
-              color={independent ? TONE_CHANNEL_COLORS[key as ToneChannel] : undefined}
-              others={others}
-              format={(i, value) => `${signedEv(toneNodeEv(i, range))}: ${signedEv(toneFromUnit([value])[0]!)}`}
-              onChange={(values) => latest.current.onChange(e.edit({ [key]: toneFromUnit(values) }))}
-              onCommit={(values) => e.set({ [key]: toneFromUnit(values) })}
-            />
-            <ParamSlider
-              label="Darkest node"
-              min={-14}
-              max={0}
-              hardMin={-16}
-              hardMax={8}
-              step={0.1}
-              format={fmt.ev}
-              track={tracks.grey}
-              {...bindToneRange(e, 0)}
-            />
-            <ParamSlider
-              label="Brightest node"
-              min={-2}
-              max={8}
-              hardMin={-16}
-              hardMax={8}
-              step={0.1}
-              format={fmt.ev}
-              track={tracks.grey}
-              {...bindToneRange(e, 1)}
-            />
-            {local && (
-              <>
-                <ParamSlider
-                  label="Smoothing"
-                  min={0.005}
-                  max={0.25}
-                  hardMin={TONE_SMOOTHING_RANGE[0]}
-                  hardMax={TONE_SMOOTHING_RANGE[1]}
-                  step={0.001}
-                  scale={100}
-                  curve={LOG_CURVE}
-                  format={(s) => `${(s * 100).toFixed(1)} %`}
-                  {...e.bind('smoothing')}
-                />
-                <ParamSlider
-                  label="Edge refinement"
-                  min={0.1}
-                  max={100}
-                  hardMin={TONE_EDGE_RANGE[0]}
-                  hardMax={TONE_EDGE_RANGE[1]}
-                  step={0.01}
-                  curve={LOG_CURVE}
-                  format={fmt.fixed2}
-                  {...e.bind('edgeRefinement')}
-                />
-              </>
-            )}
-          </>
-        );
-      })}
+              <CurveEditor
+                key={key}
+                label={independent ? `Tones, ${key}` : 'Tones'}
+                values={toneToUnit(v[key])}
+                defaults={TONE_FLAT}
+                neutral={0.5}
+                left={signedEv(range[0])}
+                right={signedEv(range[1])}
+                histogram={bins && toneHistogram(bins, range)}
+                onFocusChange={(node) => updateView({ node })}
+                color={independent ? TONE_CHANNEL_COLORS[key as ToneChannel] : undefined}
+                others={others}
+                format={(i, value) => `${signedEv(toneNodeEv(i, range))}: ${signedEv(toneFromUnit([value])[0]!)}`}
+                onChange={(values) => latest.current.onChange(e.edit({ [key]: toneFromUnit(values) }))}
+                onCommit={(values) => e.set({ [key]: toneFromUnit(values) })}
+              />
+              <ParamSlider
+                label="Darkest node"
+                min={-14}
+                max={0}
+                hardMin={-16}
+                hardMax={8}
+                step={0.1}
+                format={fmt.ev}
+                track={tracks.grey}
+                {...bindToneRange(e, 0)}
+              />
+              <ParamSlider
+                label="Brightest node"
+                min={-2}
+                max={8}
+                hardMin={-16}
+                hardMax={8}
+                step={0.1}
+                format={fmt.ev}
+                track={tracks.grey}
+                {...bindToneRange(e, 1)}
+              />
+              {local && (
+                <>
+                  <ParamSlider
+                    label="Smoothing"
+                    min={0.005}
+                    max={0.25}
+                    hardMin={TONE_SMOOTHING_RANGE[0]}
+                    hardMax={TONE_SMOOTHING_RANGE[1]}
+                    step={0.001}
+                    scale={100}
+                    curve={LOG_CURVE}
+                    format={(s) => `${(s * 100).toFixed(1)} %`}
+                    {...e.bind('smoothing')}
+                  />
+                  <ParamSlider
+                    label="Edge refinement"
+                    min={0.1}
+                    max={100}
+                    hardMin={TONE_EDGE_RANGE[0]}
+                    hardMax={TONE_EDGE_RANGE[1]}
+                    step={0.01}
+                    curve={LOG_CURVE}
+                    format={fmt.fixed2}
+                    {...e.bind('edgeRefinement')}
+                  />
+                </>
+              )}
+            </>
+          );
+        },
+        (e) => (
+          <IconButton
+            aria-label="Auto-tune: fit the nodes to the image"
+            title="Auto-tune: spread the nodes from the image's darkest to its brightest tones (A: all the auto-tunes)"
+            size="2xs"
+            variant="ghost"
+            loading={fittingTone === e.id}
+            onClick={() => latest.current.onFitToneCurve(e.id)}
+          >
+            <WandSparkles />
+          </IconButton>
+        ),
+      )}
 
       {sections('contrastEqualizer', [], (e) => (
         <>
@@ -2580,7 +2586,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         (e) => (
           <IconButton
             aria-label="Auto-tune filmic"
-            title="Auto-tune: set white and black relative exposure from the image"
+            title="Auto-tune: set white and black relative exposure from the image (A: all the auto-tunes)"
             size="2xs"
             variant="ghost"
             disabled={!e.enabled}

@@ -7,6 +7,7 @@ import {
   type ExportSettings,
   type PhotoMetadata,
   type Style,
+  AUTO_TUNE_KINDS,
   applyStyle,
   clearAutoTunes,
   defaultEditParams,
@@ -771,6 +772,19 @@ export function DeveloperView({
     }
   };
 
+  // Every auto-tune at once (A): each enabled filmic and tone curve instance, in pipeline
+  // order (`resolveAutoTunes`), as one history entry.
+  const autoTuneAll = () => {
+    if (autoTuning || fittingTone) return;
+    const p = {
+      ...params,
+      modules: params.modules.map((m) =>
+        m.enabled && AUTO_TUNE_KINDS.includes(m.kind) ? { ...m, autoTune: true as const } : m,
+      ),
+    };
+    if (hasPendingAutoTune(p)) void commitTuned(p, 'Auto-tune');
+  };
+
   // Colour calibration's illuminant detection, measured on the full-size preview.
   const detectIlluminant = async (id: string, method: IlluminantDetection) => {
     setDetecting(id);
@@ -1012,6 +1026,7 @@ export function DeveloperView({
       else if (mod && key === 'v') onPaste(e.shiftKey);
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'c') startCrop();
+      else if (!mod && key === 'a' && !e.shiftKey && !e.altKey) autoTuneAll();
       else if (mod && key === 'b') setAssessment((a) => !a);
       else if (!mod && key === 'o' && e.shiftKey) setClipping({ sensor: !clipping.sensor });
       else if (!mod && key === 'o') setClipping({ display: !clipping.display });
