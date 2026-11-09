@@ -7,3 +7,5 @@ target/
 *.log
 .DS_Store
 /crates/pipeline/tests/golden/raws/
+
+NOTES.md
