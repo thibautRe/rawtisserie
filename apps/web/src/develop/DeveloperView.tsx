@@ -27,7 +27,15 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { backendMeasures } from './autoTune.ts';
 import { toaster } from '../components/toaster.tsx';
 import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
-import { type CropAspect, FREE_ASPECT, aspectRatio, constrainAspect, flipCrop, isPortrait } from './aspect.ts';
+import {
+  type CropAspect,
+  FREE_ASPECT,
+  aspectRatio,
+  constrainAspect,
+  flipCrop,
+  isCropped,
+  isPortrait,
+} from './aspect.ts';
 import { CropOverlay } from './CropOverlay.tsx';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
@@ -282,7 +290,8 @@ export function DeveloperView({
   // The last fit while editing guides: run again whenever they change.
   const [guideFit, setGuideFit] = useState<PerspectiveFit | null>(null);
   const [fittingPerspective, setFittingPerspective] = useState<PerspectiveFit | null>(null);
-  const [aspect, setAspect] = useState<CropAspect>(FREE_ASPECT);
+  // The crop aspect picked in this session, or null for the default (see `aspect` below).
+  const [pickedAspect, setAspect] = useState<CropAspect | null>(null);
   const [exporting, setExporting] = useState(false);
   const [autoTuning, setAutoTuning] = useState(false);
   const [detecting, setDetecting] = useState<string | null>(null);
@@ -561,6 +570,27 @@ export function DeveloperView({
         : metadata.width / metadata.height
       : frameAspect;
   const crop = geometry?.crop ?? FULL_CROP;
+  // Until one is picked, "Original" in the crop's orientation (the photo's when uncropped),
+  // unless the photo already has a crop of another shape: free-form then, so editing it
+  // doesn't snap it.
+  const cropRatio = (crop.width * frameAspect) / crop.height;
+  const defaultAspect = !isCropped(crop)
+    ? originalAspect < 1
+      ? 'portrait'
+      : 'landscape'
+    : Math.abs(Math.abs(Math.log(cropRatio)) - Math.abs(Math.log(originalAspect))) < 0.005
+      ? cropRatio < 1
+        ? 'portrait'
+        : 'landscape'
+      : 'free';
+  const aspect = useMemo(
+    () =>
+      pickedAspect ??
+      (defaultAspect === 'free'
+        ? FREE_ASPECT
+        : { preset: 'original', custom: '', flipped: defaultAspect === 'portrait' }),
+    [pickedAspect, defaultAspect],
+  );
   const startCrop = () => {
     if (cropDraft) return applyCrop();
     if (guides) applyGuides();

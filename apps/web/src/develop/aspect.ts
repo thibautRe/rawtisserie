@@ -99,6 +99,9 @@ function place(rect: CropRect, w: number, h: number): CropRect {
   return { x: clamp(cx - w / 2, 0, 1 - w), y: clamp(cy - h / 2, 0, 1 - h), width: w, height: h };
 }
 
+/** Whether the crop leaves anything out. */
+export const isCropped = (c: CropRect) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
+
 /** Whether the crop is taller than wide, in pixels. */
 export const isPortrait = (rect: CropRect, frameAspect: number) => rect.height > rect.width * frameAspect;
 

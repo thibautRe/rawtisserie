@@ -124,7 +124,7 @@ import {
 } from 'lucide-react';
 import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { RenameDialog } from '../components/RenameDialog.tsx';
-import { ASPECTS, type CropAspect, aspectLabel, parseAspect } from './aspect.ts';
+import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor } from './CurveEditor.tsx';
 import type { PresetInput } from '../api/hooks.ts';
@@ -946,8 +946,6 @@ function flipRatioText(text: string): string {
   const r = parseAspect(text);
   return r ? `1:${text.trim()}` : text;
 }
-
-const isCropped = (c: ModuleParams['geometry']['crop']) => c.x !== 0 || c.y !== 0 || c.width !== 1 || c.height !== 1;
 
 /** Scroll a spot's row into view within its list (but not the panel). */
 const scrollIntoList = (row: HTMLDivElement | null) => {
