@@ -2734,32 +2734,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               <Crop /> {cropping ? 'Cropping…' : 'Crop'}
             </Button>
           </HStack>
-          <ParamSlider
-            label="Straighten"
-            min={-45}
-            max={45}
-            step={0.1}
-            format={(v) => `${v.toFixed(1)}°`}
-            {...e.bind('angle')}
-          />
-          <PerspectiveTools
-            guides={guides}
-            fitting={fittingPerspective}
-            onGuides={() => latest.current.onStartGuides()}
-            onFit={(mode) => latest.current.onFitPerspective(mode)}
-          />
-          <ParamSlider label="Vertical" min={-40} max={40} step={0.1} format={degrees} {...e.bind('vertical')} />
-          <ParamSlider label="Horizontal" min={-40} max={40} step={0.1} format={degrees} {...e.bind('horizontal')} />
-          <ParamSlider
-            label="Shear"
-            min={-0.5}
-            max={0.5}
-            step={0.005}
-            format={(v) => v.toFixed(3)}
-            {...e.bind('shear')}
-          />
-          <ParamSlider label="Aspect" min={-1} max={1} step={0.01} format={fmt.fixed2} {...e.bind('aspect')} />
-          <AutoCropSelect value={e.values.autoCrop} onChange={(autoCrop) => e.set({ autoCrop })} />
           <HStack>
             <SelectRow label="Aspect">
               {(id) => (
@@ -2815,6 +2789,32 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
             />
           )}
+          <ParamSlider
+            label="Straighten"
+            min={-45}
+            max={45}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)}°`}
+            {...e.bind('angle')}
+          />
+          <PerspectiveTools
+            guides={guides}
+            fitting={fittingPerspective}
+            onGuides={() => latest.current.onStartGuides()}
+            onFit={(mode) => latest.current.onFitPerspective(mode)}
+          />
+          <ParamSlider label="Vertical" min={-40} max={40} step={0.1} format={degrees} {...e.bind('vertical')} />
+          <ParamSlider label="Horizontal" min={-40} max={40} step={0.1} format={degrees} {...e.bind('horizontal')} />
+          <ParamSlider
+            label="Shear"
+            min={-0.5}
+            max={0.5}
+            step={0.005}
+            format={(v) => v.toFixed(3)}
+            {...e.bind('shear')}
+          />
+          <ParamSlider label="Aspect" min={-1} max={1} step={0.01} format={fmt.fixed2} {...e.bind('aspect')} />
+          <AutoCropSelect value={e.values.autoCrop} onChange={(autoCrop) => e.set({ autoCrop })} />
         </>
       ))}
       {sections('retouch', [shapeUi, retouchShapes], (e) => {
