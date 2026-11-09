@@ -19,7 +19,8 @@ Photoshoot feedback (2026-11-09): done the same day: burst order, "edited" ignor
 automatic lens correction entry, primaries sliders stopping before a singular mix, wider
 colour balance ranges and "Colorfulness: standard" in the default recipe, the library
 view restored when leaving the developer, and a film roll under the developer. Left:
-8.6 (copy and paste edits), 8.7 (auto-tune on apply) and 8.8 (append or apply per module).
+8.6 (copy and paste edits), 8.7 (auto-tune on apply, decided: lazily on the server) and
+8.8 (append or apply per module, decided: replace the first instance).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1360,12 +1361,21 @@ in the save dialogs.
   worker: `autoTuneFilmic`, `onFitToneCurve`), as one history entry. The auto-tunes must
   be pure functions of (recipe, image) so the result doesn't depend on the zoom or the
   preview size: measure on the same fitted preview each time.
-- **Library (8.1):** the client doesn't have the images. Either run the auto-tunes on
-  the server (the render worker already decodes each RAW; a `tune` op for
-  `POST /api/versions/history` that the server resolves before writing the entry), or
-  on the client from the small linear proxies 8.1 mentions. The server is simpler and
-  works for big selections; it needs filmic's and the wand's measurements exposed from
-  the wasm module (filmic's is, `Developer::auto_tune_filmic`).
+- **Library (8.1): on the server, lazily** (decided 2026-11-09). A recipe can hold an
+  auto-tune that isn't resolved yet (`autoTune: pending` on the instance, normalised in
+  both languages and ignored by `normalize`'s equality), whose values the server's
+  preview render computes on its reduced pipeline (the binned base it already renders
+  previews from) and stores next to the renders, keyed by the recipe's revision. The
+  library's previews, the loupe's 100 % tiles and exports reuse those values, so no
+  full-size pass is needed. The developer resolves it exactly once the original is
+  loaded, on the full-size preview, and writes the result as a history entry (or folds
+  it into the next one): that's when the slider values become known.
+  To check before building it: how far the reduced-pipeline values are from the
+  full-size ones (filmic's white/black exposure should be close; the wand's node range
+  depends on the extremes, which binning softens); what an export started from the
+  library uses (the stored values, so it matches the preview); what a style applied on
+  top of a pending auto-tune does (re-tune, since the input changed); and what undo
+  shows for an entry whose values were filled in later.
 - Later, the same flag on 4.2's auto-apply rules, so new uploads can start auto-tuned.
 
 ### 8.8 Append or apply per module in styles (S–M, needs a decision)
@@ -1381,9 +1391,10 @@ and paste becomes one action.
 - **Format:** `mode: 'replace' | 'append'` per style module, normalised (missing =
   today's behaviour of the menu entry used, i.e. replace); single-instance kinds always
   replace. Rust doesn't see styles, so TS only (`normalizeStyle`, `applyStyle`).
-- **To decide:** whether replacing removes *all* the target's instances of a kind or
-  only the first (a target with two exposures and a style with one); and whether an
-  "Append everything" escape hatch stays (e.g. Shift+click).
+- **Decided (2026-11-09):** "apply" replaces only the target's *first* instance of the
+  kind (today's "Apply" removes them all: `applyStyle`), the others stay; a style with
+  two instances of a kind replaces the first two. A hidden power-user modifier
+  (Shift+click, or Shift+Enter) appends everything.
 
 ---
 
