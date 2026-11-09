@@ -44,7 +44,7 @@ test('nothing is appended when the recipe already has it', () => {
   assert.equal(appendChange({ id: 'v', historyEnd: 1, revision: 1, recipe }, presetEdit(preset)), null);
 });
 
-test('styles replace or append', () => {
+test('styles replace, or append everything with Shift', () => {
   const source = updateModule(defaultEditParams, 'exposure', { params: { ev: 1 } });
   const style: Style = {
     id: 's',
@@ -54,13 +54,15 @@ test('styles replace or append', () => {
     moduleKind: null,
     payload: styleFromRecipe(source, [findModule(source, 'exposure')!.id]),
   };
-  const exposures = (mode: 'replace' | 'append') => {
-    const op = appendChange({ id: 'v', historyEnd: 0, revision: 0, recipe: defaultEditParams }, styleEdit(style, mode))
-      ?.ops[0];
+  const exposures = (appendAll: boolean) => {
+    const op = appendChange(
+      { id: 'v', historyEnd: 0, revision: 0, recipe: defaultEditParams },
+      styleEdit(style, appendAll),
+    )?.ops[0];
     assert.ok(op?.type === 'splice');
     return op.entries[0]!.recipe.modules.filter((m) => m.kind === 'exposure').length;
   };
-  assert.equal(exposures('replace'), 1);
-  assert.equal(exposures('append'), 2);
-  assert.equal(styleEdit(style, 'append').label, 'Style: Look (appended)');
+  assert.equal(exposures(false), 1);
+  assert.equal(exposures(true), 2);
+  assert.equal(styleEdit(style, true).label, 'Style: Look (appended)');
 });

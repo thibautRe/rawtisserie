@@ -110,7 +110,7 @@ test('styles replace or append instances', () => {
   let target = updateModule(defaultEditParams, 'colorBalance', { params: { vibrance: 0.5 } });
   target = updateModule(target, 'filmic', { params: { contrast: 1 } });
 
-  const replaced = applyStyle(target, style, 'replace');
+  const replaced = applyStyle(target, style);
   assert.deepEqual(
     replaced.modules.map((m) => [m.id, m.kind]),
     [
@@ -124,7 +124,7 @@ test('styles replace or append instances', () => {
   assert.equal(findModule(replaced, 'colorBalance')!.label, 'mono');
   assert.equal(findModule(replaced, 'filmic')!.params.contrast, 1.6);
 
-  const appended = applyStyle(target, style, 'append');
+  const appended = applyStyle(target, style, true);
   const colors = appended.modules.filter((m) => m.kind === 'colorBalance');
   assert.deepEqual(
     colors.map((m) => [m.id, m.params]),
@@ -139,7 +139,7 @@ test('styles replace or append instances', () => {
 
 test('a style can be applied twice', () => {
   const style = styleFromRecipe(addInstance(defaultEditParams, 'exposure'), ['exposure', 'exposure-2']);
-  const twice = applyStyle(applyStyle(defaultEditParams, style, 'append'), style, 'append');
+  const twice = applyStyle(applyStyle(defaultEditParams, style, true), style, true);
   const ids = twice.modules.map((m) => m.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(twice.modules.filter((m) => m.kind === 'exposure').length, 5);
@@ -163,14 +163,14 @@ test('styles carry the shapes of their retouch spots', () => {
 
   // Appended to a recipe with its own spot: a second instance, its shape renamed.
   const [other] = addSpot(defaultEditParams, 'retouch', at(0.8), {});
-  const appended = applyStyle(other, style, 'append');
+  const appended = applyStyle(other, style, true);
   assert.deepEqual(appended.shapes, { s1: at(0.8), s2: at(0.3) });
   assert.deepEqual(
     appended.modules.filter((m) => m.kind === 'retouch').map((m) => spotsOf(appended, m.id)[0]!.shape),
     ['s1', 's2'],
   );
   // Replacing: the style's instance takes the place of the recipe's.
-  const replaced = applyStyle(other, style, 'replace');
+  const replaced = applyStyle(other, style);
   assert.deepEqual(replaced.shapes, { s1: at(0.3) });
   assert.equal(spotsOf(replaced, 'retouch')[0]!.mode, 'clone');
   assert.equal(PRESET_KINDS.includes('retouch'), true);
@@ -250,7 +250,7 @@ test('masks travel with styles, and with presets when asked', () => {
     at(0.7),
   );
   const [taken] = addMaskShape(other, 'colorBalance', 'colorBalance', at(0.6));
-  const appended = applyStyle(taken, style, 'append');
+  const appended = applyStyle(taken, style, true);
   const added = appended.modules.filter((m) => m.kind === 'exposure').at(-1)!;
   assert.equal(added.mask!.drawn[0]!.shape, 's3');
   assert.deepEqual(appended.shapes!.s3, at(0.3));
@@ -274,4 +274,95 @@ test('masks travel with styles, and with presets when asked', () => {
     modulePresetPayload('filmic', defaultModuleParams.filmic, recipe.shapes, undefined, mask).mask,
     undefined,
   );
+});
+
+test('style instances replace by rank or append, each by its own mode', () => {
+  // Source: exposure, exposure-2 (a vignette, say), filmic.
+  let source = updateModule(defaultEditParams, 'exposure', { params: { ev: 1 } });
+  source = addInstance(source, 'exposure');
+  source = updateInstance(source, 'exposure', 'exposure-2', { params: { ev: -0.5 }, label: 'vignette' });
+  const style = styleFromRecipe(source, ['exposure', 'exposure-2', 'filmic']);
+  assert.deepEqual(
+    style.modules.map((m) => m.mode),
+    ['replace', 'append', 'replace'],
+    "a kind's first instance replaces, the others append",
+  );
+  assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
+
+  // Target: two exposures. The first is replaced (keeping its id), the second stays,
+  // the vignette is added after them.
+  let target = addInstance(defaultEditParams, 'exposure');
+  target = updateInstance(target, 'exposure', 'exposure-2', { params: { ev: 0.3 } });
+  const applied = applyStyle(target, style);
+  assert.deepEqual(
+    applied.modules.filter((m) => m.kind === 'exposure').map((m) => [m.id, m.params.ev, m.label]),
+    [
+      ['exposure', 1, null],
+      ['exposure-2', 0.3, null],
+      ['exposure-3', -0.5, 'vignette'],
+    ],
+  );
+  // Shift: everything appended (filmic still replaces, being single-instance).
+  const all = applyStyle(target, style, true);
+  assert.deepEqual(
+    all.modules.filter((m) => m.kind === 'exposure').map((m) => m.params.ev),
+    [findModule(target, 'exposure')!.params.ev, 0.3, 1, -0.5],
+  );
+  assert.equal(all.modules.filter((m) => m.kind === 'filmic').length, 1);
+
+  // Two replacing instances replace the first two; modes can be chosen when saving.
+  const both = styleFromRecipe(source, ['exposure', 'exposure-2'], { modes: { 'exposure-2': 'replace' } });
+  assert.deepEqual(
+    applyStyle(target, both)
+      .modules.filter((m) => m.kind === 'exposure')
+      .map((m) => m.params.ev),
+    [1, -0.5],
+  );
+  // Single-instance kinds can't append.
+  assert.equal(styleFromRecipe(source, ['filmic'], { modes: { filmic: 'append' } }).modules[0]!.mode, 'replace');
+
+  // Styles saved before modes existed replace.
+  const legacy = normalizeStyle({ version: EDIT_PARAMS_VERSION, modules: [{ kind: 'exposure', params: {} }] });
+  assert.equal(legacy.modules[0]!.mode, 'replace');
+});
+
+test('a style instance can hold some groups of a module, applied onto the target', () => {
+  let source = updateModule(defaultEditParams, 'filmic', { params: { contrast: 1.6, whiteExposure: 2 } });
+  const [masked] = addMaskShape(source, 'colorBalance', 'colorBalance', {
+    type: 'ellipse',
+    center: [0.5, 0.5],
+    radii: [0.1, 0.1],
+    rotation: 0,
+    feather: 0,
+    opacity: 1,
+  });
+  source = updateModule(masked, 'colorBalance', { params: { vibrance: 0.7, fulcrum: 0.3 } });
+  const style = styleFromRecipe(source, ['filmic', 'colorBalance'], {
+    groups: { filmic: ['look'], colorBalance: ['master'] },
+    modes: { colorBalance: 'append' },
+  });
+  assert.deepEqual(
+    style.modules.map((m) => [m.groups, m.mode, 'mask' in m]),
+    [
+      [['master'], 'replace', false],
+      [['look'], 'replace', false],
+    ],
+    'partial instances replace, without their mask',
+  );
+  assert.equal(style.shapes, undefined);
+  assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
+  // All the groups: the whole instance.
+  assert.equal(
+    styleFromRecipe(source, ['filmic'], { groups: { filmic: ['scene', 'look', 'display'] } }).modules[0]!.groups,
+    undefined,
+  );
+
+  const target = updateModule(defaultEditParams, 'filmic', { params: { contrast: 1, whiteExposure: 5 } });
+  const applied = applyStyle(target, style, true);
+  assert.equal(findModule(applied, 'filmic')!.params.contrast, 1.6);
+  assert.equal(findModule(applied, 'filmic')!.params.whiteExposure, 5, 'other groups stay');
+  const balance = applied.modules.filter((m) => m.kind === 'colorBalance');
+  assert.equal(balance.length, 1);
+  assert.equal(balance[0]!.params.vibrance, 0.7);
+  assert.equal(balance[0]!.params.fulcrum, findModule(target, 'colorBalance')!.params.fulcrum);
 });

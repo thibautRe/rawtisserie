@@ -1,13 +1,16 @@
-import { Menu, Portal, Stack, Text } from '@chakra-ui/react';
-import { type ModuleKind, MODULE_KINDS, type ModulePreset, type Style, type StyleMode } from '@rawtisserie/pipeline';
+import { Menu, Portal, Text } from '@chakra-ui/react';
+import { type ModuleKind, MODULE_KINDS, type ModulePreset, type Style } from '@rawtisserie/pipeline';
+import { useEffect, useState } from 'react';
 import { usePresetLibrary } from '../develop/presets.tsx';
 import { MODULE_TITLES } from '../develop/changes.ts';
+import { useShiftKey } from '../lib/useShiftKey.ts';
 import { type BatchEdit, presetEdit, styleEdit } from './batchEdit.ts';
 
 /**
- * Apply a style or a module preset to the selected versions (roadmap 8.1). A style asks
- * whether to replace or append, once for the whole selection. With `onPreview`, the
- * highlighted edit is previewed (null: none) while the menu is open (`onOpenChange`).
+ * Apply a style or a module preset to the selected versions (roadmap 8.1). A style
+ * applies each module as it was saved (replace or append), or with Shift appends them
+ * all. With `onPreview`, the highlighted edit is previewed (null: none) while the menu is
+ * open (`onOpenChange`).
  */
 export function ApplyMenu({
   onApply,
@@ -22,45 +25,24 @@ export function ApplyMenu({
 }) {
   const { styles, modulePresets } = usePresetLibrary();
   const kinds = MODULE_KINDS.filter((k) => modulePresets[k]?.length) as ModuleKind[];
+  const [open, setOpen] = useState(false);
+  // The highlighted style, previewed with Shift's mode as it changes.
+  const [highlighted, setHighlighted] = useState<Style | null>(null);
+  const shift = useShiftKey(open);
+  useEffect(() => {
+    if (open && highlighted) onPreview?.(styleEdit(highlighted, shift.held));
+  }, [open, highlighted, shift.held]); // eslint-disable-line react-hooks/exhaustive-deps
+  const findStyle = (value: string | null) => styles.find((s) => value === `style:${s.id}`) ?? null;
 
   const styleItem = (s: Style) => (
-    <Menu.Root
-      key={s.id}
-      positioning={{ placement: 'left-start', gutter: 2 }}
-      onSelect={({ value }) => onApply(styleEdit(s, value as StyleMode))}
-      onHighlightChange={({ highlightedValue: v }) => onPreview?.(v ? styleEdit(s, v as StyleMode) : null)}
-    >
-      <Menu.TriggerItem onPointerEnter={() => onPreview?.(styleEdit(s, 'replace'))}>
-        <Text flex="1" truncate>
-          {s.name}
-        </Text>
-        <Text textStyle="2xs" color="fg.subtle">
-          {s.payload.modules.length}
-        </Text>
-      </Menu.TriggerItem>
-      <Portal>
-        <Menu.Positioner>
-          <Menu.Content minW="56">
-            <Menu.Item value="replace">
-              <Stack gap="0">
-                <Text>Apply</Text>
-                <Text textStyle="2xs" color="fg.muted">
-                  Replaces the modules it has
-                </Text>
-              </Stack>
-            </Menu.Item>
-            <Menu.Item value="append">
-              <Stack gap="0">
-                <Text>Append</Text>
-                <Text textStyle="2xs" color="fg.muted">
-                  Adds its modules as new instances
-                </Text>
-              </Stack>
-            </Menu.Item>
-          </Menu.Content>
-        </Menu.Positioner>
-      </Portal>
-    </Menu.Root>
+    <Menu.Item key={s.id} value={`style:${s.id}`}>
+      <Text flex="1" truncate>
+        {s.name}
+      </Text>
+      <Text textStyle="2xs" color="fg.subtle">
+        {s.payload.modules.length}
+      </Text>
+    </Menu.Item>
   );
 
   const presetGroup = (kind: ModuleKind) => {
@@ -83,7 +65,14 @@ export function ApplyMenu({
           onPreview?.(preset ? presetEdit(preset) : null);
         }}
       >
-        <Menu.TriggerItem onPointerEnter={() => onPreview?.(null)}>{MODULE_TITLES[kind]}</Menu.TriggerItem>
+        <Menu.TriggerItem
+          onPointerEnter={() => {
+            setHighlighted(null);
+            onPreview?.(null);
+          }}
+        >
+          {MODULE_TITLES[kind]}
+        </Menu.TriggerItem>
         <Portal>
           <Menu.Positioner>
             <Menu.Content minW="52" maxW="md">
@@ -107,7 +96,24 @@ export function ApplyMenu({
   };
 
   return (
-    <Menu.Root lazyMount unmountOnExit onOpenChange={({ open }) => onOpenChange?.(open)}>
+    <Menu.Root
+      lazyMount
+      unmountOnExit
+      onOpenChange={({ open }) => {
+        setOpen(open);
+        if (!open) setHighlighted(null);
+        onOpenChange?.(open);
+      }}
+      onHighlightChange={({ highlightedValue: value }) => {
+        const style = findStyle(value);
+        setHighlighted(style);
+        if (!style) onPreview?.(null);
+      }}
+      onSelect={({ value }) => {
+        const style = findStyle(value);
+        if (style) onApply(styleEdit(style, shift.ref.current));
+      }}
+    >
       <Menu.Trigger asChild>{children}</Menu.Trigger>
       <Portal>
         <Menu.Positioner>
@@ -118,6 +124,11 @@ export function ApplyMenu({
               {!styles.length && (
                 <Text px="2" py="1.5" textStyle="xs" color="fg.muted">
                   No styles yet: create them in the developer
+                </Text>
+              )}
+              {styles.length > 0 && (
+                <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
+                  Shift: append all of its modules
                 </Text>
               )}
             </Menu.ItemGroup>

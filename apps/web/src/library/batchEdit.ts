@@ -8,7 +8,6 @@ import {
   type ModuleKind,
   type ModulePreset,
   type Style,
-  type StyleMode,
   applyModulePreset,
   applyStyle,
   findModule,
@@ -25,11 +24,12 @@ export interface BatchEdit {
   apply: (recipe: EditParams) => EditParams;
 }
 
-export function styleEdit(style: Style, mode: StyleMode): BatchEdit {
+/** A style, each instance by its mode, or with `appendAll` all appended (Shift). */
+export function styleEdit(style: Pick<Style, 'id' | 'name' | 'payload'>, appendAll = false): BatchEdit {
   return {
-    key: `style:${style.id}:${mode}`,
-    label: `Style: ${style.name}${mode === 'append' ? ' (appended)' : ''}`,
-    apply: (recipe) => applyStyle(recipe, style.payload, mode),
+    key: `style:${style.id}:${appendAll ? 'append' : 'apply'}`,
+    label: `Style: ${style.name}${appendAll ? ' (appended)' : ''}`,
+    apply: (recipe) => applyStyle(recipe, style.payload, appendAll),
   };
 }
 

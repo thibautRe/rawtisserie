@@ -18,9 +18,9 @@ the tone curve, now shown as "Tones") done 2026-11-08.
 Photoshoot feedback (2026-11-09): done the same day: burst order, "edited" ignoring the
 automatic lens correction entry, primaries sliders stopping before a singular mix, wider
 colour balance ranges and "Colorfulness: standard" in the default recipe, the library
-view restored when leaving the developer, and a film roll under the developer. Left:
-8.6 (copy and paste edits), 8.7 (auto-tune on apply, decided: lazily on the server) and
-8.8 (append or apply per module, decided: replace the first instance).
+view restored when leaving the developer, and a film roll under the developer. 8.8
+(append or apply per module) done the same day. Left: 8.6 (copy and paste edits) and
+8.7 (auto-tune on apply, decided: lazily on the server).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1378,7 +1378,16 @@ in the save dialogs.
   shows for an entry whose values were filled in later.
 - Later, the same flag on 4.2's auto-apply rules, so new uploads can start auto-tuned.
 
-### 8.8 Append or apply per module in styles (S–M, needs a decision)
+### 8.8 Append or apply per module in styles (S–M)
+
+> **Done** (2026-11-09). As built: each `StyleInstance` has a `mode` (missing in older
+> styles: `replace`); the k-th `replace` instance of a kind takes the place of the
+> target's k-th instance (keeping its id), or is added. The style dialog (`StylePicker`,
+> shared with 8.6's copy) sets the mode per instance and, for kinds with `PRESET_GROUPS`,
+> which parts to take: a partial instance always replaces and is applied onto the
+> target's instance like a module preset (its mask stays). Shift while selecting a style
+> (`useShiftKey`, in both menus, also for the preview) appends everything that can be
+> appended.
 
 Today a style is applied with "Apply" (replace the instances of its kinds) or "Append"
 (add them), chosen in a submenu each time. Instead, each instance in a style would

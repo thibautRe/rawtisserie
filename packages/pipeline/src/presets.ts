@@ -141,12 +141,33 @@ export interface ModulePresetPayload<K extends ModuleKind = ModuleKind> {
   shapes?: Record<string, Shape>;
 }
 
-/** A module instance in a style: it gets a fresh id when applied. */
-export type StyleInstance = ModuleInstance extends infer M ? (M extends ModuleInstance ? Omit<M, 'id'> : never) : never;
+/**
+ * How a style's instance is applied (roadmap 8.8):
+ * - `replace`: it takes the place of the target's instance of its kind at the same rank
+ *   (a style's first `replace` instance of a kind replaces the target's first one, its
+ *   second the target's second…), or is added if the target has fewer.
+ * - `append`: it's added after the target's instances of its kind.
+ * Single-instance kinds (filmic…) and partial instances always replace.
+ */
+export type StyleMode = 'replace' | 'append';
+
+/** A module instance in a style: it gets a fresh id when applied (or the one of the instance it replaces). */
+export type StyleInstance = ModuleInstance extends infer M
+  ? M extends ModuleInstance
+    ? Omit<M, 'id'> & {
+        mode: StyleMode;
+        /**
+         * Only these `PRESET_GROUPS` of its parameters are applied, onto the target's
+         * instance (like a module preset; its mask stays). Absent: the whole instance.
+         */
+        groups?: string[];
+      }
+    : never
+  : never;
 
 export interface StylePayload {
   version: number;
-  /** With their masks. */
+  /** With their masks (whole instances only). */
   modules: StyleInstance[];
   /** The shapes the instances use (retouch spots, masks); absent without any. */
   shapes?: Record<string, Shape>;
@@ -263,30 +284,90 @@ function importShapes(
   return { shapes: sortedShapes(shapes), rename: (id) => renamed.get(id) ?? id };
 }
 
-/** A stored style's payload (untrusted input), migrated like a recipe. */
+/**
+ * The valid groups of `kind` in `input`, or undefined for the whole instance (no groups,
+ * none valid, or all of them).
+ */
+function styleGroups(kind: ModuleKind, input: unknown): string[] | undefined {
+  const defined = Object.keys(PRESET_GROUPS[kind] ?? {});
+  if (!Array.isArray(input)) return undefined;
+  const groups = defined.filter((g) => input.includes(g));
+  return groups.length && groups.length < defined.length ? groups : undefined;
+}
+
+/** A style instance's mode, as stored: partial instances and single-instance kinds always replace. */
+function styleMode(kind: ModuleKind, mode: unknown, groups: readonly string[] | undefined): StyleMode {
+  return mode === 'append' && !groups && !SINGLE_INSTANCE_KINDS.includes(kind) ? 'append' : 'replace';
+}
+
+/** A style instance from a recipe's instance: without its id, and its mask if partial. */
+function styleInstance(m: ModuleInstance, mode: unknown, groups: unknown): StyleInstance {
+  const { id: _, ...rest } = structuredClone(m);
+  const kept = styleGroups(m.kind, groups);
+  const instance = { ...rest, mode: styleMode(m.kind, mode, kept) } as StyleInstance;
+  if (kept) {
+    instance.groups = kept;
+    delete instance.mask;
+  }
+  return instance;
+}
+
+/** The shapes of `available` that `modules` use, if any. */
+function styleShapes(modules: readonly StyleInstance[], available: Record<string, Shape> | undefined) {
+  const used = new Set(shapeRefs(modules as unknown as ModuleInstance[]));
+  const shapes = Object.entries(available ?? {}).filter(([id]) => used.has(id));
+  return shapes.length ? structuredClone(Object.fromEntries(shapes)) : undefined;
+}
+
+/**
+ * A stored style's payload (untrusted input), migrated like a recipe. Instances without
+ * a mode (saved before 8.8) replace.
+ */
 export function normalizeStyle(input: unknown): StylePayload {
   const raw = isObject(input) ? input : {};
   const version = typeof raw.version === 'number' ? raw.version : EDIT_PARAMS_VERSION;
-  const { modules, shapes } = normalizeEditParams({ version, modules: raw.modules, shapes: raw.shapes });
-  const payload: StylePayload = {
-    version: EDIT_PARAMS_VERSION,
-    modules: modules.map(({ id: _, ...m }) => m as StyleInstance),
-  };
-  if (shapes) payload.shapes = shapes;
+  const rawModules = (Array.isArray(raw.modules) ? raw.modules : []) as unknown[];
+  // Tagged with their index, so that their mode and groups can be found after normalising
+  // (which drops invalid instances and sorts them).
+  const tagged = rawModules.map((m, i) => (isObject(m) ? { ...m, id: `style-${i}` } : m));
+  const { modules, shapes } = normalizeEditParams({ version, modules: tagged, shapes: raw.shapes });
+  const styled = modules.map((m) => {
+    // Instances added by a migration have no source.
+    const source = m.id.startsWith('style-') ? rawModules[Number(m.id.slice(6))] : undefined;
+    return isObject(source) ? styleInstance(m, source.mode, source.groups) : styleInstance(m, 'replace', undefined);
+  });
+  const payload: StylePayload = { version: EDIT_PARAMS_VERSION, modules: styled };
+  const kept = styleShapes(styled, shapes);
+  if (kept) payload.shapes = kept;
   return payload;
 }
 
+/**
+ * How an instance of a recipe goes into a style by default: `replace` for its kind's
+ * first instance (or a single-instance kind), `append` for the others.
+ */
+export function defaultStyleMode(recipe: EditParams, id: string): StyleMode {
+  const instance = recipe.modules.find((m) => m.id === id);
+  if (!instance) return 'replace';
+  return recipe.modules.find((m) => m.kind === instance.kind) === instance ? 'replace' : 'append';
+}
+
+export interface StylePick {
+  /** Each instance's mode; `defaultStyleMode` if absent. */
+  modes?: Readonly<Record<string, StyleMode>>;
+  /** For kinds with `PRESET_GROUPS`, the groups to take of an instance; all if absent. */
+  groups?: Readonly<Record<string, readonly string[]>>;
+}
+
 /** A style made of some of a recipe's instances, by id, in pipeline order. */
-export function styleFromRecipe(recipe: EditParams, ids: Iterable<string>): StylePayload {
+export function styleFromRecipe(recipe: EditParams, ids: Iterable<string>, pick: StylePick = {}): StylePayload {
   const wanted = new Set(ids);
-  const chosen = recipe.modules.filter((m) => wanted.has(m.id));
-  const payload: StylePayload = {
-    version: EDIT_PARAMS_VERSION,
-    modules: chosen.map(({ id: _, ...m }) => structuredClone(m) as StyleInstance),
-  };
-  const used = new Set(shapeRefs(chosen));
-  const shapes = Object.entries(recipe.shapes ?? {}).filter(([id]) => used.has(id));
-  if (shapes.length) payload.shapes = structuredClone(Object.fromEntries(shapes));
+  const modules = recipe.modules
+    .filter((m) => wanted.has(m.id))
+    .map((m) => styleInstance(m, pick.modes?.[m.id] ?? defaultStyleMode(recipe, m.id), pick.groups?.[m.id]));
+  const payload: StylePayload = { version: EDIT_PARAMS_VERSION, modules };
+  const shapes = styleShapes(modules, recipe.shapes);
+  if (shapes) payload.shapes = shapes;
   return payload;
 }
 
@@ -308,30 +389,65 @@ export function applyModulePreset<K extends ModuleKind>(
   return withUsedShapes(Object.keys(shapes).length ? { ...next, shapes } : next);
 }
 
-/**
- * - `replace`: the style's instances take the place of every instance of their kinds.
- * - `append`: they are added after the existing ones (those of single-instance kinds,
- *   like filmic, still replace theirs).
- */
-export type StyleMode = 'replace' | 'append';
+/** The parameters of `groups` of `params`. */
+function pickGroups(kind: ModuleKind, params: object, groups: readonly string[]): Record<string, unknown> {
+  const p = params as Record<string, unknown>;
+  return Object.fromEntries(groupKeys(kind, groups).map((k) => [k, structuredClone(p[k])]));
+}
 
-/** Apply a style. Instances that stay keep their ids; added ones get fresh ids. */
-export function applyStyle(recipe: EditParams, style: StylePayload, mode: StyleMode): EditParams {
-  const kinds = new Set(style.modules.map((m) => m.kind));
-  const replaced = (m: ModuleInstance) =>
-    kinds.has(m.kind) && (mode === 'replace' || SINGLE_INSTANCE_KINDS.includes(m.kind));
-  const kept = recipe.modules.filter((m) => !replaced(m));
+/**
+ * Apply a style (roadmap 8.8): each instance by its mode, or, with `appendAll`, all of
+ * them appended (except those that always replace). Instances it doesn't replace keep
+ * their ids, and so do replaced ones; added ones get fresh ids.
+ */
+export function applyStyle(recipe: EditParams, style: StylePayload, appendAll = false): EditParams {
+  const mode = (m: StyleInstance): StyleMode =>
+    appendAll && styleMode(m.kind, 'append', m.groups) === 'append' ? 'append' : m.mode;
+  // Which of the recipe's instances each `replace` instance takes the place of.
+  const replacing = new Map<string, StyleInstance>();
+  const added: StyleInstance[] = [];
+  const rank = new Map<ModuleKind, number>();
+  for (const m of style.modules) {
+    if (mode(m) === 'append') {
+      added.push(m);
+      continue;
+    }
+    const n = rank.get(m.kind) ?? 0;
+    rank.set(m.kind, n + 1);
+    const target = recipe.modules.filter((t) => t.kind === m.kind)[n];
+    if (target) replacing.set(target.id, m);
+    else added.push(m);
+  }
+  const whole = (m: StyleInstance | undefined) => !!m && !m.groups;
   // The style's shapes, renamed where the recipe keeps a shape with the same id.
-  const taken = new Set(shapeRefs(kept));
+  const taken = new Set(shapeRefs(recipe.modules.filter((t) => !whole(replacing.get(t.id)))));
   const keptShapes = Object.fromEntries(Object.entries(recipe.shapes ?? {}).filter(([id]) => taken.has(id)));
   const { shapes, rename } = importShapes(keptShapes, style.shapes);
-  const added = style.modules.map((m) => {
-    const copy = { ...structuredClone(m), id: '' } as ModuleInstance;
-    const renamed = { ...copy, params: mapShapeRefs(copy.kind, copy.params, rename) } as ModuleInstance;
-    if (copy.mask) renamed.mask = mapMaskShapeRefs(copy.mask, rename);
-    return renamed;
-  });
-  return normalizeEditParams({ version: EDIT_PARAMS_VERSION, modules: [...kept, ...added], shapes });
+
+  /** A style instance made into a recipe's, `onto` an instance it replaces or a new one. */
+  const instance = (m: StyleInstance, onto: ModuleInstance | undefined): ModuleInstance => {
+    const { mode: _, groups, ...copy } = structuredClone(m);
+    if (groups) {
+      const base =
+        onto ?? ({ id: '', label: copy.label, kind: m.kind, params: defaultModuleParams[m.kind] } as ModuleInstance);
+      return {
+        ...base,
+        enabled: copy.enabled,
+        params: { ...base.params, ...pickGroups(m.kind, copy.params, groups) },
+      } as ModuleInstance;
+    }
+    const made = { ...copy, id: onto?.id ?? '', params: mapShapeRefs(m.kind, copy.params, rename) } as ModuleInstance;
+    if (copy.mask) made.mask = mapMaskShapeRefs(copy.mask, rename);
+    return made;
+  };
+  const modules = [
+    ...recipe.modules.map((t) => {
+      const m = replacing.get(t.id);
+      return m ? instance(m, t) : t;
+    }),
+    ...added.map((m) => instance(m, undefined)),
+  ];
+  return normalizeEditParams({ version: EDIT_PARAMS_VERSION, modules, shapes });
 }
 
 const builtIn = <K extends ModuleKind>(

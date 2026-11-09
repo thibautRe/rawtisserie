@@ -14,6 +14,7 @@ import {
   Input,
   Menu,
   Portal,
+  SegmentGroup,
   Stack,
   Text,
 } from '@chakra-ui/react';
@@ -27,13 +28,17 @@ import {
   type ModulePreset,
   PRESET_GROUPS,
   type PresetGroup,
+  SINGLE_INSTANCE_KINDS,
   type Style,
   type StyleMode,
+  type StylePick,
+  defaultStyleMode,
   modulePresetPayload,
   styleFromRecipe,
 } from '@rawtisserie/pipeline';
 import { Bookmark, BookmarkPlus, ChevronDown, Palette, Plus, Trash2 } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { useShiftKey } from '../lib/useShiftKey.ts';
 import { type PresetInput, useDeletePreset, useMe, useSavePreset, useUserPresets } from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
 import { instanceTitle } from './changes.ts';
@@ -408,6 +413,105 @@ export function SavePresetDialog({
   );
 }
 
+/** Instances of a recipe picked for a style (or a copy), with their modes and groups. */
+export interface StyleSelection extends Required<StylePick> {
+  ids: readonly string[];
+}
+
+/**
+ * The recipe's enabled instances, except those of `exclude` (they belong to the image
+ * they were made for), whole and with their default modes.
+ */
+export function defaultSelection(recipe: EditParams, exclude: readonly ModuleKind[]): StyleSelection {
+  return {
+    ids: recipe.modules.filter((m) => m.enabled && !exclude.includes(m.kind)).map((m) => m.id),
+    modes: {},
+    groups: {},
+  };
+}
+
+/** Whether every picked instance has something to take. */
+export const selectionValid = (recipe: EditParams, s: StyleSelection) =>
+  s.ids.length > 0 &&
+  s.ids.every((id) => {
+    const m = recipe.modules.find((i) => i.id === id);
+    return !m || !groupsOf(m.kind).length || (s.groups[id] ?? groupsOf(m.kind).map(([g]) => g)).length > 0;
+  });
+
+/**
+ * Pick some of a recipe's instances (roadmap 8.6, 8.8): for each, whether it replaces the
+ * target's instance or is appended, and for kinds with `PRESET_GROUPS`, which parts of it.
+ */
+export function StylePicker({
+  recipe,
+  value,
+  onChange,
+}: {
+  recipe: EditParams;
+  value: StyleSelection;
+  onChange: (value: StyleSelection) => void;
+}) {
+  return (
+    <Stack gap="2">
+      {recipe.modules.map((m) => {
+        const checked = value.ids.includes(m.id);
+        const groups = groupsOf(m.kind);
+        const picked = value.groups[m.id] ?? groups.map(([g]) => g);
+        const partial = picked.length < groups.length;
+        const mode = value.modes[m.id] ?? defaultStyleMode(recipe, m.id);
+        const canAppend = !SINGLE_INSTANCE_KINDS.includes(m.kind) && !partial;
+        return (
+          <Stack key={m.id} gap="1">
+            <HStack justify="space-between" minH="6">
+              <CheckItem checked={checked} onChange={(on) => onChange({ ...value, ids: toggle(value.ids, m.id, on) })}>
+                {instanceTitle(recipe, m)}
+                {!m.enabled && (
+                  <Box as="span" color="fg.subtle">
+                    {' '}
+                    (off)
+                  </Box>
+                )}
+              </CheckItem>
+              {checked && canAppend && (
+                <SegmentGroup.Root
+                  size="xs"
+                  value={mode}
+                  onValueChange={(e) => onChange({ ...value, modes: { ...value.modes, [m.id]: e.value as StyleMode } })}
+                >
+                  <SegmentGroup.Indicator />
+                  <SegmentGroup.Items
+                    items={[
+                      { value: 'replace', label: <span title="Takes the place of the photo's instance">Replace</span> },
+                      { value: 'append', label: <span title="Added as a new instance">Append</span> },
+                    ]}
+                  />
+                </SegmentGroup.Root>
+              )}
+            </HStack>
+            {checked && groups.length > 0 && (
+              <Stack gap="1" pl="6">
+                {groups.map(([g, { label }]) => (
+                  <CheckItem
+                    key={g}
+                    checked={picked.includes(g)}
+                    onChange={(on) =>
+                      onChange({ ...value, groups: { ...value.groups, [m.id]: toggle(picked, g, on) } })
+                    }
+                  >
+                    <Text as="span" textStyle="xs">
+                      {label}
+                    </Text>
+                  </CheckItem>
+                ))}
+              </Stack>
+            )}
+          </Stack>
+        );
+      })}
+    </Stack>
+  );
+}
+
 /** Make a style out of some of the recipe's instances. Mount it to open it. */
 export function CreateStyleDialog({
   recipe,
@@ -421,45 +525,35 @@ export function CreateStyleDialog({
   onSave: (input: PresetInput) => void;
 }) {
   const [name, setName] = useState('');
-  // Geometry and lens correction belong to the image they were made for.
-  const [ids, setIds] = useState(() =>
-    recipe.modules.filter((m) => m.enabled && m.kind !== 'geometry' && m.kind !== 'lens').map((m) => m.id),
-  );
+  const [selection, setSelection] = useState(() => defaultSelection(recipe, ['geometry', 'lens']));
   const trimmed = name.trim();
   const taken = existing.some((s) => s.name === trimmed);
   return (
     <SaveDialog
       title="New style"
       replacing={taken}
-      canSave={!!trimmed && ids.length > 0}
+      canSave={!!trimmed && selectionValid(recipe, selection)}
       onClose={onClose}
-      onSubmit={() => onSave({ type: 'style', name: trimmed, payload: styleFromRecipe(recipe, ids) })}
+      onSubmit={() =>
+        onSave({ type: 'style', name: trimmed, payload: styleFromRecipe(recipe, selection.ids, selection) })
+      }
     >
       <NameField value={name} onChange={setName} taken={taken} />
       <Stack gap="2">
         <Text textStyle="xs" color="fg.muted">
-          Modules to include, with their current settings:
+          Modules to include, with their current settings. Each replaces the photo&apos;s first instance of its kind
+          (its second for a second one…), or is appended as a new one.
         </Text>
-        {recipe.modules.map((m) => (
-          <CheckItem key={m.id} checked={ids.includes(m.id)} onChange={(on) => setIds((s) => toggle(s, m.id, on))}>
-            {instanceTitle(recipe, m)}
-            {!m.enabled && (
-              <Box as="span" color="fg.subtle">
-                {' '}
-                (off)
-              </Box>
-            )}
-          </CheckItem>
-        ))}
+        <StylePicker recipe={recipe} value={selection} onChange={setSelection} />
       </Stack>
     </SaveDialog>
   );
 }
 
 /**
- * The toolbar's styles menu: apply one (replacing or appending), create, delete. The
- * highlighted style is previewed (applied, or appended while "Append" is highlighted)
- * until the menu closes. Memoised.
+ * The toolbar's styles menu: apply one, create, delete. A style applies each module as
+ * it was saved (replacing or appending); with Shift, all of them are appended. The
+ * highlighted style is previewed until the menu closes. Memoised.
  */
 export const StyleMenu = memo(function StyleMenu({
   styles,
@@ -470,25 +564,38 @@ export const StyleMenu = memo(function StyleMenu({
   onDelete,
 }: {
   styles: readonly Style[];
-  onApply: (style: Style, mode: StyleMode) => void;
+  onApply: (style: Style, appendAll: boolean) => void;
   /** Show the image with this style (or without any, null) for now. */
-  onPreview: (style: Style | null, mode: StyleMode) => void;
+  onPreview: (style: Style | null, appendAll: boolean) => void;
   /** Go back to the recipe from before the previews. */
   onEndPreview: () => void;
   onCreate: () => void;
   onDelete: (style: Style) => void;
 }) {
-  const triggerId = (s: Style) => `style-menu:${s.id}`;
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState<Style | null>(null);
+  const shift = useShiftKey(open);
+  useEffect(() => {
+    if (open) onPreview(highlighted, shift.held);
+  }, [open, highlighted, shift.held]); // eslint-disable-line react-hooks/exhaustive-deps
+  const find = (value: string | null) => styles.find((s) => value === `apply:${s.id}`) ?? null;
   return (
     <Menu.Root
       lazyMount
       unmountOnExit
-      // A style's item (it opens its submenu) previews it applied; its submenu's items, as they say.
-      onHighlightChange={({ highlightedValue: value }) =>
-        onPreview(styles.find((s) => value === triggerId(s)) ?? null, 'replace')
-      }
-      onOpenChange={({ open }) => !open && onEndPreview()}
-      onSelect={({ value }) => value === 'create' && onCreate()}
+      onHighlightChange={({ highlightedValue: value }) => setHighlighted(find(value))}
+      onOpenChange={({ open }) => {
+        setOpen(open);
+        if (!open) {
+          setHighlighted(null);
+          onEndPreview();
+        }
+      }}
+      onSelect={({ value }) => {
+        if (value === 'create') return onCreate();
+        const style = find(value);
+        if (style) onApply(style, shift.ref.current);
+      }}
     >
       <Menu.Trigger asChild>
         <Button size="sm" variant="ghost" title="Styles: sets of modules to apply to other photos">
@@ -497,60 +604,50 @@ export const StyleMenu = memo(function StyleMenu({
       </Menu.Trigger>
       <Portal>
         <Menu.Positioner>
-          <Menu.Content minW="52">
+          <Menu.Content minW="56">
             {styles.map((s) => (
-              <Menu.Root
-                key={s.id}
-                ids={{ trigger: triggerId(s) }}
-                positioning={{ placement: 'left-start', gutter: 2 }}
-                onHighlightChange={({ highlightedValue: value }) =>
-                  (value === 'replace' || value === 'append') && onPreview(s, value)
-                }
-                onSelect={({ value }) => {
-                  if (value === 'delete') onDelete(s);
-                  else onApply(s, value as StyleMode);
-                }}
-              >
-                <Menu.TriggerItem>
-                  <Text flex="1" truncate>
-                    {s.name}
-                  </Text>
-                  <Text textStyle="2xs" color="fg.subtle">
-                    {s.payload.modules.length}
-                  </Text>
-                </Menu.TriggerItem>
-                <Portal>
-                  <Menu.Positioner>
-                    <Menu.Content minW="56">
-                      <Menu.Item value="replace">
-                        <Stack gap="0">
-                          <Text>Apply</Text>
-                          <Text textStyle="2xs" color="fg.muted">
-                            Replaces the modules it has
-                          </Text>
-                        </Stack>
-                      </Menu.Item>
-                      <Menu.Item value="append">
-                        <Stack gap="0">
-                          <Text>Append</Text>
-                          <Text textStyle="2xs" color="fg.muted">
-                            Adds its modules as new instances
-                          </Text>
-                        </Stack>
-                      </Menu.Item>
-                      <Menu.Separator />
-                      <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
-                        <Trash2 /> Delete
-                      </Menu.Item>
-                    </Menu.Content>
-                  </Menu.Positioner>
-                </Portal>
-              </Menu.Root>
+              <Menu.Item key={s.id} value={`apply:${s.id}`}>
+                <Text flex="1" truncate>
+                  {s.name}
+                </Text>
+                <Text textStyle="2xs" color="fg.subtle">
+                  {s.payload.modules.length}
+                </Text>
+              </Menu.Item>
             ))}
+            {styles.length > 0 && (
+              <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
+                Shift: append all of its modules
+              </Text>
+            )}
             {styles.length > 0 && <Menu.Separator />}
             <Menu.Item value="create">
               <Plus /> Create style…
             </Menu.Item>
+            {styles.length > 0 && (
+              <Menu.Root
+                positioning={{ placement: 'left-start', gutter: 2 }}
+                onSelect={({ value }) => {
+                  const style = styles.find((s) => s.id === value);
+                  if (style) onDelete(style);
+                }}
+              >
+                <Menu.TriggerItem>
+                  <Trash2 /> Delete style
+                </Menu.TriggerItem>
+                <Portal>
+                  <Menu.Positioner>
+                    <Menu.Content>
+                      {styles.map((s) => (
+                        <Menu.Item key={s.id} value={s.id}>
+                          {s.name}
+                        </Menu.Item>
+                      ))}
+                    </Menu.Content>
+                  </Menu.Positioner>
+                </Portal>
+              </Menu.Root>
+            )}
           </Menu.Content>
         </Menu.Positioner>
       </Portal>

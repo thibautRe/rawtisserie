@@ -6,7 +6,6 @@ import {
   type ExportSettings,
   type PhotoMetadata,
   type Style,
-  type StyleMode,
   applyStyle,
   defaultEditParams,
   exportFilename,
@@ -811,14 +810,14 @@ export function DeveloperView({
     () => store.getState().live,
     (p) => store.setLive(p),
   );
-  const onPreviewStyle = useStableCallback((style: Style | null, mode: StyleMode) =>
-    stylePreview.preview(style && ((p) => applyStyle(p, style.payload, mode))),
+  const onPreviewStyle = useStableCallback((style: Style | null, appendAll: boolean) =>
+    stylePreview.preview(style && ((p) => applyStyle(p, style.payload, appendAll))),
   );
-  const onApplyStyle = useStableCallback((style: Style, mode: StyleMode) => {
+  const onApplyStyle = useStableCallback((style: Style, appendAll: boolean) => {
     setCropDraft(null);
     setGuides(null);
     const before = stylePreview.end();
-    commit(applyStyle(before, style.payload, mode), `Style: ${style.name}${mode === 'append' ? ' (appended)' : ''}`);
+    commit(applyStyle(before, style.payload, appendAll), `Style: ${style.name}${appendAll ? ' (appended)' : ''}`);
   });
   const onCreateStyle = useStableCallback(() => setCreatingStyle(true));
   const stylesNode = useMemo(
