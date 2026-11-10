@@ -3,9 +3,6 @@
  * type, colours and components together, try the fonts, and write down which pattern
  * is for what. See the design system in docs/ROADMAP.md (M9).
  */
-// With the width axis too (font-stretch 50–150 %), to try narrower or wider headings.
-import '@fontsource-variable/anybody/wdth.css';
-import '@fontsource-variable/lilex';
 import {
   Box,
   Button,
@@ -42,16 +39,15 @@ import { Culling } from '../library/InfoPanel.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
 const INTER = "'Inter Variable', Inter, system-ui, sans-serif";
-/** Font pairings to compare: headings, body, and small uppercase labels (module titles, section labels). */
+/**
+ * Fonts to compare with the app's (`theme.ts`, under "new"): headings, body, small
+ * uppercase labels (module titles, section labels) and values.
+ */
 const FONTS = {
-  current: { heading: INTER, body: INTER, label: INTER },
-  new: {
-    heading: "'Anybody Variable', 'Inter Variable', sans-serif",
-    body: "'Lilex Variable', ui-monospace, monospace",
-    label: "'Anybody Variable', 'Inter Variable', sans-serif",
-  },
+  current: { heading: INTER, body: INTER, label: INTER, numeric: INTER },
+  new: null,
 } as const;
-const FONT_ROLES = ['heading', 'body', 'label'] as const;
+const FONT_ROLES = ['heading', 'body', 'label', 'numeric'] as const;
 type Fonts = keyof typeof FONTS;
 
 /**
@@ -61,7 +57,8 @@ type Fonts = keyof typeof FONTS;
 function useDocumentLook(fonts: Fonts, mode: 'dark' | 'light') {
   useEffect(() => {
     const html = document.documentElement;
-    for (const role of FONT_ROLES) html.style.setProperty(`--chakra-fonts-${role}`, FONTS[fonts][role]);
+    const override = FONTS[fonts];
+    if (override) for (const role of FONT_ROLES) html.style.setProperty(`--chakra-fonts-${role}`, override[role]);
     html.classList.toggle('dark', mode === 'dark');
     html.classList.toggle('light', mode === 'light');
     html.style.colorScheme = mode;
@@ -103,9 +100,19 @@ function Example({ label, children, w }: { label: string; children: React.ReactN
 }
 
 /** A side panel's width and look, for components that live in one. */
-function Panel({ children, w = '72' }: { children: React.ReactNode; w?: string }) {
+function Panel({ children, w = '72', modules }: { children: React.ReactNode; w?: string; modules?: boolean }) {
+  // The developer's module panel: modules are blocks of their own on the darker background.
   return (
-    <Stack w={w} p="3" gap="2" bg="bg.panel" borderWidth="1px" rounded="l2">
+    <Stack
+      w={w}
+      p={modules ? '0' : '3'}
+      py={modules ? '1.5' : undefined}
+      gap="2"
+      bg={modules ? 'bg' : 'bg.panel'}
+      borderWidth="1px"
+      rounded="l2"
+      overflow="hidden"
+    >
       {children}
     </Stack>
   );
@@ -130,7 +137,7 @@ const COLOURS = [
 
 export function UiPage() {
   const [params, setParams] = useSearchParams();
-  const fonts: Fonts = params.get('fonts') === 'new' ? 'new' : 'current';
+  const fonts: Fonts = params.get('fonts') === 'inter' ? 'current' : 'new';
   const mode = params.get('mode') === 'light' ? 'light' : 'dark';
   const setParam = (key: string, value: string | null) =>
     setParams(
@@ -167,13 +174,13 @@ export function UiPage() {
               <SegmentGroup.Root
                 size="xs"
                 value={fonts}
-                onValueChange={(e) => setParam('fonts', e.value === 'new' ? 'new' : null)}
+                onValueChange={(e) => setParam('fonts', e.value === 'current' ? 'inter' : null)}
               >
                 <SegmentGroup.Indicator />
                 <SegmentGroup.Items
                   items={[
                     { value: 'current', label: 'Inter' },
-                    { value: 'new', label: 'Anybody + Lilex' },
+                    { value: 'new', label: 'Barlow Semi Condensed + Lilex' },
                   ]}
                 />
               </SegmentGroup.Root>
@@ -198,7 +205,7 @@ export function UiPage() {
       <Container maxW="6xl" pb="16">
         <Block
           title="Typography"
-          guide="Headings use the heading face, everything else the body face. Panels mostly use the 2xs–sm text styles; numbers that change during a drag need fixed-width figures."
+          guide='Four font roles: heading, body, label (small uppercase labels, module titles) and numeric (values that change as you edit: fontFamily="numeric" with tabular figures). Panels mostly use the 2xs–sm text styles.'
         >
           <Stack gap="3">
             {(['4xl', '3xl', '2xl', 'xl', 'lg', 'md', 'sm', 'xs'] as const).map((size) => (
@@ -237,6 +244,11 @@ export function UiPage() {
               </Text>
               <Text textStyle="xs" color="fg.subtle">
                 Nothing yet
+              </Text>
+            </Example>
+            <Example label="Values (numeric: slider readouts, zoom, counts)">
+              <Text textStyle="xs" fontFamily="numeric" fontVariantNumeric="tabular-nums">
+                +0.70 EV · −12.0° · 4538 K · 100 % · 0.015 %
               </Text>
             </Example>
             <Example label="Code">
@@ -476,7 +488,7 @@ export function UiPage() {
               </Panel>
             </Example>
             <Example label="Module">
-              <Panel w="80">
+              <Panel w="80" modules>
                 <Module
                   title="Exposure"
                   enabled={enabled}

@@ -244,7 +244,7 @@ function RangeSlider({
           <Switch.Label textStyle="xs">Select by {c.label.toLowerCase()}</Switch.Label>
         </Switch.Root>
         <HStack gap="0.5">
-          <Text textStyle="2xs" color="fg.muted" fontVariantNumeric="tabular-nums" mr="1">
+          <Text textStyle="2xs" color="fg.muted" fontFamily="numeric" fontVariantNumeric="tabular-nums" mr="1">
             {value ? `${c.format(value[1])} … ${c.format(value[2])}` : 'All'}
           </Text>
           {value && (

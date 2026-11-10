@@ -28,6 +28,9 @@ with A for every auto-tune, and a Tones strength. Added: 4.13 (mask UI redesign)
 day: tags moved up and a folded "Technical" group (camera, lens, ISO, focal length, aperture)
 in the library's filters, tag completion (fuzzy, from the library's tags) and T to focus
 it. Added: M9's design system, then started its `/ui` page (with the new fonts to try).
+Then in the app: Barlow Semi Condensed with Lilex for values, modules as blocks of their
+own with bolder titles and the switch on the right, no text selection in the developer's
+side panels.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1511,15 +1514,15 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
   image.
-- **Typography:** trying (2026-11-10) **Anybody** for headings, the wordmark and small
-  uppercase labels (module titles, section labels: the `label` font token), and
-  **Lilex** for body (both Google Fonts, OFL), self-hosted like Inter (Fontsource) and
-  set as Chakra tokens. Previewed on the `/ui` page (`?fonts=new`); the app stays on
-  Inter until the switch. Anybody is loaded with its width axis (50–150 %), to try
-  narrower headings. A monospaced body gives sliders' numbers fixed widths for free,
-  but is wider than Inter: check the dense panels (module labels, the info panel's
-  two-column fields, the filters) for truncation. Tried first: Big Shoulders + Chivo
-  Mono, with Chivo for labels (Big Shoulders didn't read at the panels' small sizes).
+- **Typography:** in the app since 2026-11-10, still being tried: **Barlow Semi
+  Condensed** for headings, body and small uppercase labels (the `label` font token),
+  **Lilex** for values that change as you edit (the `numeric` token: slider readouts,
+  history numbers, mask ranges, the developer's camera/exposure line). Both Google
+  Fonts (OFL), self-hosted with Fontsource; Inter stays as the fallback and on
+  `/ui?fonts=inter` to compare. Tried before: Big Shoulders + Chivo Mono (Big Shoulders
+  doesn't read at the panels' small sizes), Anybody + Lilex (Lilex for all text is wide:
+  labels wrapped, the flag filter overflowed). Barlow is condensed: if panel text reads
+  too small, step the text styles up.
 - **Spinner:** a branded loading indicator instead of the default one. Reuse it for
   long loads (RAW decode, first render) with a progress hint.
 - **`/develop` page:** the public developer is the front door. Give it a proper landing
@@ -1531,8 +1534,8 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   - A component gallery: a `/ui` route in the app, everything on one page (decided
     2026-11-10: no Storybook for now). Started 2026-11-10 (`pages/UiPage.tsx`): type
     scale, colours, buttons, the four view switchers, `ParamSlider`, the three section
-    headers, fields, culling controls, with a dark/light toggle and one between Inter
-    and the new pair (`?fonts=new`). Still to add: mixer views, curve editors, the film
+    headers, fields, culling controls, with a dark/light toggle and one between the
+    app's fonts and Inter (`?fonts=inter`). Still to add: mixer views, curve editors, the film
     roll, the tag input with completion. `npm run test:ui` renders it in every mode and
     can save screenshots (`UI_SHOTS=dir`): a base for visual regression later.
   - Typography: the faces as tokens (see above), and a small set of text styles (today it's `2xs`,
@@ -1546,6 +1549,10 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   - Same for section headers (the filters' uppercase headings, the info panel's,
     `ModulePanel`'s), spacing in panels, and the collapsible pattern (the filters'
     "Technical", module sections).
+  - Modules (2026-11-10): blocks on `bg.panel` over the panel's darker `bg`, with gaps,
+    instead of separator lines (a bar on the side, coloured by state, was tried and
+    dropped: too busy). Titles 12 px bold; the switch is always rightmost. The other
+    panels (library sidebars, scopes and history) could follow the same surfaces.
 
 ---
 

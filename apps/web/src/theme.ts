@@ -9,10 +9,13 @@ const config = defineConfig({
   theme: {
     tokens: {
       fonts: {
-        heading: { value: `'Inter Variable', Inter, system-ui, sans-serif` },
-        body: { value: `'Inter Variable', Inter, system-ui, sans-serif` },
+        // Trying Barlow Semi Condensed, with Lilex for values (see M9 in docs/ROADMAP.md); Inter before.
+        heading: { value: `'Barlow Semi Condensed', 'Inter Variable', system-ui, sans-serif` },
+        body: { value: `'Barlow Semi Condensed', 'Inter Variable', system-ui, sans-serif` },
         /** Small uppercase labels: module titles, filter and panel section labels. */
-        label: { value: `'Inter Variable', Inter, system-ui, sans-serif` },
+        label: { value: `'Barlow Semi Condensed', 'Inter Variable', system-ui, sans-serif` },
+        /** Values that change as you edit: sliders' readouts, zoom, counts. Fixed-width figures. */
+        numeric: { value: `'Lilex Variable', ui-monospace, monospace` },
       },
     },
     semanticTokens: {

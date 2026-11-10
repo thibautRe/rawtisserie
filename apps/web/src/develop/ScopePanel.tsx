@@ -163,6 +163,7 @@ export const ScopePanel = memo(function ScopePanel({ settings, onChange, width, 
               variant="ghost"
               px="1"
               minW="0"
+              fontFamily="numeric"
               fontVariantNumeric="tabular-nums"
               title={zoom === 1 ? 'Zoom in on low saturations' : 'Show all saturations'}
               onClick={() => onChange({ zoom: zoom === 1 ? 2 : 1 })}

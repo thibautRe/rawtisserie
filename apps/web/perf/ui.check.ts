@@ -36,7 +36,7 @@ for (const fonts of ['current', 'new'])
       page.on('pageerror', (e) => errors.push(e.message));
       // No API: the page must not need one (the developer's `/develop` doesn't either).
       await page.route('**/api/**', (route) => route.fulfill({ status: 404, json: { error: 'not found' } }));
-      await page.goto(`http://localhost:${PORT}/ui?fonts=${fonts}&mode=${mode}`);
+      await page.goto(`http://localhost:${PORT}/ui?fonts=${fonts === 'new' ? '' : 'inter'}&mode=${mode}`);
       await page.getByRole('heading', { name: 'Typography' }).waitFor();
       await page.evaluate(() => document.fonts.ready);
       const look = await page.evaluate(() => ({
@@ -45,11 +45,13 @@ for (const fonts of ['current', 'new'])
         heading: getComputedStyle(document.querySelector('h2')!).fontFamily,
         label: getComputedStyle([...document.querySelectorAll('h2')].find((h) => h.textContent === 'Colour label')!)
           .fontFamily,
+        numeric: getComputedStyle(document.querySelector('[aria-label^="Exposure:"]')!).fontFamily,
       }));
       assert.equal(look.dark, mode === 'dark');
-      assert.match(look.body, fonts === 'new' ? /Lilex/ : /Inter/);
-      assert.match(look.heading, fonts === 'new' ? /Anybody/ : /Inter/);
-      assert.match(look.label, fonts === 'new' ? /Anybody/ : /Inter/);
+      assert.match(look.body, fonts === 'new' ? /Barlow Semi Condensed/ : /Inter/);
+      assert.match(look.heading, fonts === 'new' ? /Barlow Semi Condensed/ : /Inter/);
+      assert.match(look.label, fonts === 'new' ? /Barlow Semi Condensed/ : /Inter/);
+      assert.match(look.numeric, fonts === 'new' ? /Lilex/ : /Inter/);
       if (shots) {
         // The page scrolls inside the app's main box: grow the viewport to all of it.
         const height = await page.evaluate(() => document.querySelector('main > div')!.scrollHeight);

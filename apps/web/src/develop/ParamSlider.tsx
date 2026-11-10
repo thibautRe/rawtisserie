@@ -219,6 +219,7 @@ export const ParamSlider = memo(
               w="16"
               px="1"
               textStyle="xs"
+              fontFamily="numeric"
               textAlign="right"
               aria-label={label}
               autoFocus
@@ -235,13 +236,14 @@ export const ParamSlider = memo(
               }}
             />
           ) : detents ? (
-            <Text textStyle="xs" color={value === defaultValue ? 'fg.subtle' : 'fg'}>
+            <Text textStyle="xs" fontFamily="numeric" color={value === defaultValue ? 'fg.subtle' : 'fg'}>
               {format(value)}
             </Text>
           ) : (
             <Text
               as="button"
               textStyle="xs"
+              fontFamily="numeric"
               fontVariantNumeric="tabular-nums"
               color={value === defaultValue ? 'fg.subtle' : 'fg'}
               cursor={disabled ? undefined : 'text'}

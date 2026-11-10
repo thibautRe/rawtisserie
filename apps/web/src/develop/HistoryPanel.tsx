@@ -91,7 +91,15 @@ function Row({
       _hover={{ bg: selected ? 'orange.subtle' : 'bg.muted' }}
     >
       <button ref={ref} type="button" onClick={onClick}>
-        <Text as="span" w="6" flexShrink={0} textAlign="end" color="fg.subtle" fontVariantNumeric="tabular-nums">
+        <Text
+          as="span"
+          w="6"
+          flexShrink={0}
+          textAlign="end"
+          color="fg.subtle"
+          fontFamily="numeric"
+          fontVariantNumeric="tabular-nums"
+        >
           {seq}
         </Text>
         <Box as="span" flexShrink={0} opacity={undone ? 0.5 : 1}>

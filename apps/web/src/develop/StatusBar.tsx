@@ -66,7 +66,7 @@ export function StatusBar({
   return (
     <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
       {save && <SaveIndicator {...save} />}
-      <Text textStyle="2xs" color="fg.subtle" fontVariantNumeric="tabular-nums" px="1" flex="1">
+      <Text textStyle="2xs" color="fg.subtle" fontFamily="numeric" fontVariantNumeric="tabular-nums" px="1" flex="1">
         {ms !== null && `${Math.round(ms)} ms`}
       </Text>
       <ZoomMenu zoom={zoom} fitScale={fitScale} onZoom={onZoom} />

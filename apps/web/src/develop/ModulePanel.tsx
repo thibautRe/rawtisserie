@@ -327,18 +327,21 @@ export function Module({
   modified: boolean;
   /** Absent for single-instance kinds. */
   menu?: React.ReactNode;
-  /** Header buttons, shown left of the switch. */
+  /** Header buttons, shown left of the reset button and the switch. */
   actions?: React.ReactNode;
   onToggle: (enabled: boolean) => void;
   onReset: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <Stack gap="1.5" pt="1.5" pb="2.5" borderBottomWidth="1px">
+    // A block a shade lighter than the panel's background, with gaps between them, shows
+    // where each module starts and ends.
+    <Stack gap="1.5" px="3" pt="2" pb="3" bg="bg.panel">
       <HStack justify="space-between" h="6">
         <Heading
           size="xs"
-          fontSize="2xs"
+          fontSize="xs"
+          fontWeight="bold"
           fontFamily="label"
           textTransform="uppercase"
           letterSpacing="wider"
@@ -349,6 +352,10 @@ export function Module({
         <HStack gap="1">
           {menu}
           {actions}
+          <IconButton aria-label={`Reset ${title}`} size="2xs" variant="ghost" disabled={!modified} onClick={onReset}>
+            <RotateCcw />
+          </IconButton>
+          {/* Last, so every switch lines up on the right. */}
           <Switch.Root
             size="xs"
             colorPalette="orange"
@@ -359,9 +366,6 @@ export function Module({
             <Switch.HiddenInput />
             <Switch.Control />
           </Switch.Root>
-          <IconButton aria-label={`Reset ${title}`} size="2xs" variant="ghost" disabled={!modified} onClick={onReset}>
-            <RotateCcw />
-          </IconButton>
         </HStack>
       </HStack>
       <Stack gap="1.5" opacity={enabled ? 1 : 0.5}>
@@ -1652,7 +1656,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   };
 
   return (
-    <Box px="3">
+    <Stack gap="1.5" py="1.5">
       {sections('exposure', [], (e) => (
         <>
           <ParamSlider
@@ -3096,6 +3100,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           onSave={onSavePreset}
         />
       )}
-    </Box>
+    </Stack>
   );
 });

@@ -103,6 +103,12 @@ interface Props {
   onBack?: () => void;
 }
 
+/**
+ * The side panels are mostly sliders: a drag that strays off one mustn't select their
+ * text. What's typed into fields stays selectable.
+ */
+const NO_SELECT = { userSelect: 'none', '& input, & textarea': { userSelect: 'text' } } as const;
+
 const MAX_PREVIEW = 3200;
 /** Rendering takes ~70 ns per pixel, so this allows ~25 image updates per second during a drag. */
 const DRAFT_PIXELS = 500_000;
@@ -221,7 +227,7 @@ const Toolbar = memo(function Toolbar({
           </Text>
           {versions}
         </HStack>
-        <Text textStyle="xs" color="fg.muted" truncate>
+        <Text textStyle="xs" fontFamily="numeric" color="fg.muted" truncate>
           {exif.join(' · ')}
         </Text>
       </Stack>
@@ -1072,6 +1078,7 @@ export function DeveloperView({
         borderRightWidth="1px"
         bg="bg.panel"
         minH="0"
+        css={NO_SELECT}
       >
         <ScopePanel
           settings={scopes}
@@ -1281,7 +1288,7 @@ export function DeveloperView({
         />
       </Flex>
 
-      <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg.panel" overflowY="auto">
+      <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
         <ModulePanel
           params={params}
           lensCorrection={metadata.lensCorrection ?? null}
