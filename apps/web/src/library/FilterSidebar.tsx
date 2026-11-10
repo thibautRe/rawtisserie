@@ -115,16 +115,18 @@ export const LABEL_COLORS: Record<string, string> = {
 };
 
 /** The camera and capture settings filters, folded away by default. */
-const GEAR_FILTERS = ['camera', 'lens', 'isoMin', 'isoMax', 'focalMin', 'focalMax', 'apertureMin', 'apertureMax'];
-const GEAR_OPEN_KEY = 'library.filters.gearOpen';
+const TECHNICAL_FILTERS = ['camera', 'lens', 'isoMin', 'isoMax', 'focalMin', 'focalMax', 'apertureMin', 'apertureMax'];
+const TECHNICAL_OPEN_KEY = 'library.filters.technicalOpen';
 
 export function FilterSidebar({ search }: { search: LibrarySearch }) {
   const { data: facets } = useFacets(search.search);
   const p = search.params;
-  const gearFilters = GEAR_FILTERS.filter((k) => p.has(k)).length;
+  const technicalFilters = TECHNICAL_FILTERS.filter((k) => p.has(k)).length;
   // Open when it was left open, or when one of its filters is set (a shared link).
-  const [gearOpen, setGearOpen] = useState(() => localStorage.getItem(GEAR_OPEN_KEY) === '1' || gearFilters > 0);
-  useEffect(() => localStorage.setItem(GEAR_OPEN_KEY, gearOpen ? '1' : '0'), [gearOpen]);
+  const [technicalOpen, setTechnicalOpen] = useState(
+    () => localStorage.getItem(TECHNICAL_OPEN_KEY) === '1' || technicalFilters > 0,
+  );
+  useEffect(() => localStorage.setItem(TECHNICAL_OPEN_KEY, technicalOpen ? '1' : '0'), [technicalOpen]);
   const ratingMin = Number(p.get('ratingMin') ?? 0);
   const r = facets?.ranges;
 
@@ -248,17 +250,17 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
         </Stack>
       </Section>
 
-      <Collapsible.Root open={gearOpen} onOpenChange={(e) => setGearOpen(e.open)}>
+      <Collapsible.Root open={technicalOpen} onOpenChange={(e) => setTechnicalOpen(e.open)}>
         <Collapsible.Trigger asChild>
           <Button variant="ghost" size="xs" w="full" justifyContent="space-between" px="0">
             <HStack>
               <Heading size="xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
-                Gear
+                Technical
               </Heading>
-              {gearFilters > 0 && <Badge size="xs">{gearFilters}</Badge>}
+              {technicalFilters > 0 && <Badge size="xs">{technicalFilters}</Badge>}
             </HStack>
             <ChevronDown
-              style={{ transform: gearOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}
+              style={{ transform: technicalOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}
             />
           </Button>
         </Collapsible.Trigger>

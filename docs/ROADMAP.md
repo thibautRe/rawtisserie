@@ -25,7 +25,7 @@ Feedback (2026-11-10): done the same day: select all/none when copying settings 
 creating a style, the crop aspect starting at "Original", Tones' auto-tune in its header
 with A for every auto-tune, and a Tones strength. Added: 4.13 (mask UI redesign), and
 8.4's decisions (in the browser, one ZIP, export from the library with it). Later that
-day: tags moved up and a folded "Gear" group (camera, lens, ISO, focal length, aperture)
+day: tags moved up and a folded "Technical" group (camera, lens, ISO, focal length, aperture)
 in the library's filters, tag completion (fuzzy, from the library's tags) and T to focus
 it. Added: M9's design system.
 
@@ -1511,8 +1511,11 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
   image.
-- **Typography:** a more distinctive display face for headings and the wordmark. Keep a
-  very legible UI face for numbers and sliders (tabular figures), set as Chakra tokens.
+- **Typography:** decided 2026-11-10: **Big Shoulders** for headings and the wordmark,
+  **Chivo Mono** for body (both Google Fonts, OFL), self-hosted like Inter (Fontsource)
+  and set as Chakra tokens. A monospaced body gives sliders' numbers fixed widths for
+  free, but is wider than Inter: check the dense panels (module labels, the info panel's
+  two-column fields, the filters) for truncation, and try it on the `/ui` page first.
 - **Spinner:** a branded loading indicator instead of the default one. Reuse it for
   long loads (RAW decode, first render) with a progress hint.
 - **`/develop` page:** the public developer is the front door. Give it a proper landing
@@ -1521,13 +1524,14 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 - Check light and dark themes (`_light` before `_dark` in semantic tokens).
 - **Design system (M):** with the new fonts, settle the UI's vocabulary before it grows
   further, and make it visible:
-  - A component gallery: Storybook (Vite builder, the app's Chakra system as a
-    decorator, light/dark toggle, MDX pages for the guidelines). Stories for what's
-    ours (`ParamSlider`, the module header, `Section`, mixer views, curve editors, tag
-    input, film roll, rating/flag/label controls), and for the Chakra components we
-    restyle. The mocked-API Playwright harness (`perf/library.check.ts`) can screenshot
-    stories later for visual regression.
-  - Typography: the faces as tokens, and a small set of text styles (today it's `2xs`,
+  - A component gallery: a `/ui` route in the app, everything on one page (decided
+    2026-11-10: no Storybook for now). Sections for the type scale and colours (light
+    and dark side by side or a toggle), then our components (`ParamSlider`, the module
+    header, `Section`, mixer views, curve editors, tag input, film roll,
+    rating/flag/label controls) and the Chakra components we restyle, each with a
+    line of guidance. Fed with static data, no API. The mocked-API Playwright harness
+    (`perf/library.check.ts`) can screenshot it later for visual regression.
+  - Typography: the faces as tokens (see above), and a small set of text styles (today it's `2xs`,
     `xs`, `sm` ad hoc, headings as `Heading size="xs"` uppercase in some panels and
     sentence case in others). Tabular figures wherever numbers change during a drag.
   - One pattern per job. Switching between views is done four ways today: `Tabs`
@@ -1537,7 +1541,7 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
     control for a choice of value, attached icon buttons for tools; then migrate.
   - Same for section headers (the filters' uppercase headings, the info panel's,
     `ModulePanel`'s), spacing in panels, and the collapsible pattern (the filters'
-    "Gear", module sections).
+    "Technical", module sections).
 
 ---
 
