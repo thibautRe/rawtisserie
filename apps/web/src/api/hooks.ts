@@ -399,6 +399,18 @@ export function useSavePreset() {
   });
 }
 
+/** Rename a preset or style; fails if the user has another of that kind with the name. */
+export function useRenamePreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.patch<Preset>(`/api/presets/${id}`, { name }),
+    onSuccess: (preset) =>
+      qc.setQueryData<Preset[]>(['presets'], (list = []) =>
+        list.map((p) => (p.id === preset.id ? preset : p)).sort(byName),
+      ),
+  });
+}
+
 export function useDeletePreset() {
   const qc = useQueryClient();
   return useMutation({

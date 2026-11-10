@@ -1,12 +1,14 @@
 /**
  * The LUT module's picker: built-in LUTs and the user's, previewed on the image while
- * highlighted (like module presets), plus adding a file and removing the user's.
+ * highlighted (like module presets), plus adding a file, and a dialog to rename and
+ * remove the user's.
  */
 import { Box, Button, Menu, Portal, Stack, Text } from '@chakra-ui/react';
 import type { EditParams, LutRef } from '@rawtisserie/pipeline';
-import { ChevronDown, Plus, Trash2 } from 'lucide-react';
-import { memo, useRef } from 'react';
+import { ChevronDown, Pencil, Plus } from 'lucide-react';
+import { memo, useRef, useState } from 'react';
 import { LUT_ACCEPT, type LutChoice } from './luts.ts';
+import { ManagerDialog } from './ManagerDialog.tsx';
 import { MenuThumbnail } from './thumbnails.tsx';
 
 export const LutMenu = memo(
@@ -22,6 +24,7 @@ export const LutMenu = memo(
     onEndPreview,
     recipeFor,
     onAdd,
+    onRename,
     onRemove,
   }: {
     triggerId: string;
@@ -40,9 +43,14 @@ export const LutMenu = memo(
     /** The recipe from before the previews with this LUT: its thumbnail. */
     recipeFor: (lut: LutChoice) => EditParams;
     onAdd: (file: File) => void;
-    onRemove: (lut: LutChoice) => void;
+    /** Rename one of the user's LUTs; rejects if the name is taken. */
+    onRename: (lut: LutChoice, name: string) => Promise<unknown>;
+    onRemove: (lut: LutChoice) => unknown;
   }) => {
     const input = useRef<HTMLInputElement>(null);
+    const [managing, setManaging] = useState(false);
+    // The recipe keeps the name the LUT had when picked: show what it's called now.
+    const currentName = current && ([...builtIn, ...own].find((l) => l.id === current.id)?.name ?? current.name);
     const find = (value: string | null | undefined): LutChoice | undefined => {
       if (!value?.startsWith('lut:')) return undefined;
       const id = value.slice(4);
@@ -86,6 +94,7 @@ export const LutMenu = memo(
           onOpenChange={({ open }) => !open && onEndPreview()}
           onSelect={({ value }) => {
             if (value === 'add') return input.current?.click();
+            if (value === 'manage') return setManaging(true);
             const lut = find(value);
             if (lut) onPick(lut);
           }}
@@ -93,7 +102,7 @@ export const LutMenu = memo(
           <Menu.Trigger asChild>
             <Button size="xs" variant="outline" flex="1" minW="0" justifyContent="space-between">
               <Text truncate color={current ? undefined : 'fg.muted'}>
-                {current ? current.name || 'Unnamed LUT' : 'Choose a LUT…'}
+                {current ? currentName || 'Unnamed LUT' : 'Choose a LUT…'}
               </Text>
               <ChevronDown />
             </Button>
@@ -121,33 +130,29 @@ export const LutMenu = memo(
                   </Box>
                 </Menu.Item>
                 {own.length > 0 && (
-                  <Menu.Root
-                    positioning={{ placement: 'right-start', gutter: 2 }}
-                    onSelect={({ value }) => {
-                      const lut = own.find((l) => l.id === value);
-                      if (lut) onRemove(lut);
-                    }}
-                  >
-                    <Menu.TriggerItem>
-                      <Trash2 /> Remove a LUT
-                    </Menu.TriggerItem>
-                    <Portal>
-                      <Menu.Positioner>
-                        <Menu.Content>
-                          {own.map((l) => (
-                            <Menu.Item key={l.id} value={l.id}>
-                              {l.name}
-                            </Menu.Item>
-                          ))}
-                        </Menu.Content>
-                      </Menu.Positioner>
-                    </Portal>
-                  </Menu.Root>
+                  <Menu.Item value="manage">
+                    <Pencil /> Manage LUTs…
+                  </Menu.Item>
                 )}
               </Menu.Content>
             </Menu.Positioner>
           </Portal>
         </Menu.Root>
+        {managing && (
+          <ManagerDialog
+            title="LUTs"
+            description={
+              local
+                ? 'Rename or remove the LUTs kept in this browser. Removing one deletes it from this browser.'
+                : 'Rename or remove your LUTs. Photos that use a removed LUT keep it.'
+            }
+            items={own.map((l) => ({ id: l.id, name: l.name, recipe: () => recipeFor(l), lut: l }))}
+            empty="No LUTs of your own"
+            onRename={(item, name) => onRename(item.lut, name)}
+            onDelete={(item) => onRemove(item.lut)}
+            onClose={() => setManaging(false)}
+          />
+        )}
       </>
     );
   },

@@ -132,6 +132,8 @@ export interface LutLibrary {
   local: boolean;
   /** Store a decoded file as the user's, named `name` (or `name (2)`… if taken). */
   add: (parsed: ParsedLut, name: string) => Promise<LutChoice>;
+  /** Rename one of the user's LUTs; rejects if they already have one with that name. */
+  rename: (lut: LutChoice, name: string) => Promise<void>;
   /** Take a LUT off the user's list. Recipes that use it keep it (on the server). */
   remove: (lut: LutChoice) => Promise<void>;
 }
@@ -205,6 +207,26 @@ export function useLutLibrary(): LutLibrary {
     return choice;
   });
 
+  const rename = useStableCallback(async (lut: LutChoice, name: string) => {
+    const wanted = name.trim().slice(0, 200);
+    if (!wanted) throw new Error('A LUT needs a name');
+    if (local) {
+      // The server checks this for its own (ignoring case, like `freeLutName`).
+      if (own.some((l) => l.id !== lut.id && l.name.toLowerCase() === wanted.toLowerCase()))
+        throw new Error(`There is already a LUT named “${wanted}”`);
+      const stored = await localGet(lut.id);
+      if (!stored) throw new Error('This LUT is no longer in this browser');
+      const renamed = { ...stored, name: wanted };
+      await localPut(renamed);
+      setLocalLuts((list) => (list ?? []).map((l) => (l.id === lut.id ? renamed : l)));
+    } else if (lut.copyId) {
+      const renamed = await api.patch<UserLut>(`/api/luts/${lut.copyId}`, { name: wanted });
+      qc.setQueryData<UserLut[]>(['luts'], (list = []) =>
+        list.map((l) => (l.id === renamed.id ? renamed : l)).sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    }
+  });
+
   const remove = useStableCallback(async (lut: LutChoice) => {
     if (local) {
       await localDelete(lut.id);
@@ -215,5 +237,8 @@ export function useLutLibrary(): LutLibrary {
     }
   });
 
-  return useMemo(() => ({ builtIn: BUILTIN_CHOICES, own, local, add, remove }), [own, local, add, remove]);
+  return useMemo(
+    () => ({ builtIn: BUILTIN_CHOICES, own, local, add, rename, remove }),
+    [own, local, add, rename, remove],
+  );
 }

@@ -972,6 +972,7 @@ export function DeveloperView({
           onEndPreview={stylePreview.end}
           recipeFor={onStyleRecipe}
           onCreate={onCreateStyle}
+          onRename={presets.rename}
           onDelete={presets.remove}
           onCopy={onOpenCopy}
           onPaste={onPaste}
@@ -1303,10 +1304,12 @@ export function DeveloperView({
             onCommit={onPanelCommit}
             presets={presets.modulePresets}
             onSavePreset={presets.save}
+            onRenamePreset={presets.rename}
             onDeletePreset={presets.remove}
             luts={luts}
             missingLuts={missingLuts}
             onAddLut={onAddLut}
+            onRenameLut={luts.rename}
             onRemoveLut={onRemoveLut}
             cropping={!!cropDraft}
             aspect={aspect}

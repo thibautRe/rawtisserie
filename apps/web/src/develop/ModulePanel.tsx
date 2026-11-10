@@ -157,6 +157,7 @@ interface Props {
   presets: PresetLibrary['modulePresets'];
   /** Save a preset; null without an account. */
   onSavePreset: PresetLibrary['save'];
+  onRenamePreset: (preset: ModulePreset, name: string) => Promise<unknown>;
   onDeletePreset: (preset: ModulePreset) => void;
   cropping: boolean;
   aspect: CropAspect;
@@ -202,7 +203,8 @@ interface Props {
   missingLuts: ReadonlySet<string>;
   /** Decode and store a LUT file as the user's; null if it failed (and was reported). */
   onAddLut: (file: File) => Promise<LutChoice | null>;
-  onRemoveLut: (lut: LutChoice) => void;
+  onRenameLut: (lut: LutChoice, name: string) => Promise<unknown>;
+  onRemoveLut: (lut: LutChoice) => unknown;
 }
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
@@ -1179,6 +1181,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                           applyModulePreset(beforePreview(), kind, id, preset.payload as ModulePresetPayload<K>)
                         }
                         onSave={() => setSavingPreset({ kind, id, title })}
+                        onRename={(preset, name) => latest.current.onRenamePreset(preset, name)}
                         onDelete={(preset) => latest.current.onDeletePreset(preset)}
                       />
                     )}
@@ -2708,6 +2711,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                       if (lut) commit((p) => withLut(p, lut), `${title}: ${lut.name}`);
                     })
                   }
+                  onRename={(lut, name) => latest.current.onRenameLut(lut, name)}
                   onRemove={(lut) => latest.current.onRemoveLut(lut)}
                 />
               )}

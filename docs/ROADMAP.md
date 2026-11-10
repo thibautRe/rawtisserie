@@ -31,6 +31,8 @@ it. Added: M9's design system, then started its `/ui` page (with the new fonts t
 Then in the app: Barlow Semi Condensed with Lilex for values, modules as blocks of their
 own with bolder titles and the switch on the right, no text selection in the developer's
 side panels.
+2026-11-11: a manager dialog to rename and delete the user's own LUTs, module presets and
+styles ("Manage…" in their menus, replacing the delete submenus).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -941,9 +943,11 @@ new UI control.
 > and now styles), adds files (decoded in the pipeline worker, uploaded packed, or kept
 > in IndexedDB without an account) and removes them; the backend sends each table once
 > and the pipeline worker keeps the LUTs of recent recipes loaded (in its pool too).
-> Left: renaming LUTs, previews of each LUT as thumbnails, local LUTs uploaded on "Add
-> to library". Masks, opacity and blend modes: done with 4.11. No storage quota exists yet;
-> when it does, count each user's LUTs at full size.
+> Each LUT's thumbnail in the picker: done. Renaming: done 2026-11-11, in a manager
+> dialog ("Manage LUTs…" in the picker; `develop/ManagerDialog.tsx`, also used by the
+> preset and style menus). Left: local LUTs uploaded on "Add to library". Masks,
+> opacity and blend modes: done with 4.11. No storage quota exists yet; when it does,
+> count each user's LUTs at full size.
 
 Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
 choice of interpolation (tetrahedral, trilinear, pyramid).

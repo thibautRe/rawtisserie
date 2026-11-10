@@ -36,6 +36,7 @@ import { ParamSlider, fmt } from '../develop/ParamSlider.tsx';
 import { tracks } from '../develop/slider.ts';
 import { Section as FilterSection } from '../library/FilterSidebar.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
+import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
 const INTER = "'Inter Variable', Inter, system-ui, sans-serif";
@@ -118,6 +119,13 @@ function Panel({ children, w = '72', modules }: { children: React.ReactNode; w?:
   );
 }
 
+/** Sample items for the manager dialog. */
+const MANAGED = [
+  { id: 'a', name: 'Portra-ish', detail: '3 modules' },
+  { id: 'b', name: 'Bleach bypass', detail: '1 module' },
+  { id: 'c', name: 'Night street, cold shadows', detail: '5 modules' },
+];
+
 const SAMPLE = 'From raw to well done: 0123456789 — ƒ/2.8 · 1/250 s · ISO 400 · +0.33 EV';
 const COLOURS = [
   ['bg', 'page'],
@@ -162,6 +170,8 @@ export function UiPage() {
     flag: 'picked',
     colorLabel: 'blue',
   });
+  const [managed, setManaged] = useState(MANAGED);
+  const [managing, setManaging] = useState(false);
   const [tags, setTags] = useState(['beach', 'golden hour']);
 
   return (
@@ -593,6 +603,29 @@ export function UiPage() {
               </HStack>
             </Example>
           </Grid>
+        </Block>
+
+        <Block
+          title="Managing a list"
+          guide="The user's own LUTs, module presets and styles: “Manage…” at the bottom of their menu opens this dialog. Rename in place (pencil or double-click; Enter saves, Escape cancels), delete with a second click."
+        >
+          <Button size="xs" variant="outline" alignSelf="start" onClick={() => setManaging(true)}>
+            <Pencil /> Manage styles…
+          </Button>
+          {managing && (
+            <ManagerDialog
+              title="Styles"
+              description="Rename or delete your styles."
+              items={managed}
+              onRename={async (item, name) => {
+                if (managed.some((m) => m.id !== item.id && m.name.toLowerCase() === name.toLowerCase()))
+                  throw new Error(`There is already a style named “${name}”`);
+                setManaged((list) => list.map((m) => (m.id === item.id ? { ...m, name } : m)));
+              }}
+              onDelete={(item) => setManaged((list) => list.filter((m) => m.id !== item.id))}
+              onClose={() => setManaging(false)}
+            />
+          )}
         </Block>
 
         <Block

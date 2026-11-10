@@ -61,3 +61,45 @@ for (const fonts of ['current', 'new'])
       assert.deepEqual(errors, []);
       await page.close();
     });
+
+test('the manager dialog renames and deletes', async () => {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('**/api/**', (route) => route.fulfill({ status: 404, json: { error: 'not found' } }));
+  await page.goto(`http://localhost:${PORT}/ui`);
+  await page.getByRole('button', { name: 'Manage styles…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Styles' });
+  await dialog.waitFor();
+
+  // Rename with Enter.
+  await dialog.getByRole('button', { name: 'Rename Portra-ish' }).click();
+  await dialog.getByRole('textbox', { name: 'New name for Portra-ish' }).fill('Portra 400');
+  await page.keyboard.press('Enter');
+  await dialog.getByText('Portra 400').waitFor();
+
+  // A name that's taken says so and stays in the field.
+  await dialog.getByRole('button', { name: 'Rename Portra 400' }).click();
+  const field = dialog.getByRole('textbox', { name: 'New name for Portra 400' });
+  await field.fill('bleach BYPASS');
+  await page.keyboard.press('Enter');
+  await dialog.getByText('There is already a style named “bleach BYPASS”').waitFor();
+  assert.equal(await field.inputValue(), 'bleach BYPASS');
+
+  // Escape leaves the field, not the dialog.
+  await page.keyboard.press('Escape');
+  await field.waitFor({ state: 'detached' });
+  assert.ok(await dialog.isVisible());
+  if (shots) await page.screenshot({ path: `${shots}/ui-manager.png` });
+
+  // Deleting asks once more.
+  await dialog.getByRole('button', { name: 'Delete Bleach bypass' }).click();
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await dialog.getByText('Bleach bypass').waitFor({ state: 'detached' });
+  assert.equal(await dialog.getByRole('button', { name: /^Rename / }).count(), 2);
+
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  assert.deepEqual(errors, []);
+  await page.close();
+});

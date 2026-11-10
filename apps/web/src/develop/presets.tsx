@@ -37,11 +37,19 @@ import {
   modulePresetPayload,
   styleFromRecipe,
 } from '@rawtisserie/pipeline';
-import { Bookmark, BookmarkPlus, ChevronDown, ClipboardPaste, Copy, Palette, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, BookmarkPlus, ChevronDown, ClipboardPaste, Copy, Palette, Pencil, Plus } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useShiftKey } from '../lib/useShiftKey.ts';
-import { type PresetInput, useDeletePreset, useMe, useSavePreset, useUserPresets } from '../api/hooks.ts';
+import {
+  type PresetInput,
+  useDeletePreset,
+  useMe,
+  useRenamePreset,
+  useSavePreset,
+  useUserPresets,
+} from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
+import { ManagerDialog } from './ManagerDialog.tsx';
 import { MenuThumbnail } from './thumbnails.tsx';
 import { instanceTitle } from './changes.ts';
 import { useStableCallback } from './useStableCallback.ts';
@@ -64,6 +72,8 @@ export interface PresetLibrary {
   styles: readonly Style[];
   /** Null without an account: built-in presets only. */
   save: ((input: PresetInput) => void) | null;
+  /** Rename one of the user's; rejects if the name is taken (for its kind). */
+  rename: (preset: ModulePreset | Style, name: string) => Promise<unknown>;
   remove: (preset: ModulePreset | Style) => void;
 }
 
@@ -73,6 +83,7 @@ export function usePresetLibrary(): PresetLibrary {
   const { data: own } = useUserPresets();
   const saveMutation = useSavePreset();
   const deleteMutation = useDeletePreset();
+  const renameMutation = useRenamePreset();
 
   const failed = (title: string) => (err: unknown) =>
     toaster.create({ type: 'error', title, description: err instanceof Error ? err.message : undefined });
@@ -104,6 +115,10 @@ export function usePresetLibrary(): PresetLibrary {
     }),
   );
 
+  const rename = useStableCallback((preset: ModulePreset | Style, name: string) =>
+    renameMutation.mutateAsync({ id: preset.id, name }),
+  );
+
   const modulePresets = useMemo(() => {
     const byKind: Partial<Record<ModuleKind, ModulePreset[]>> = {};
     for (const p of [...BUILTIN_PRESETS, ...(own ?? [])]) {
@@ -113,7 +128,7 @@ export function usePresetLibrary(): PresetLibrary {
   }, [own]);
   const styles = useMemo(() => (own?.filter((p) => p.type === 'style') as Style[] | undefined) ?? NO_STYLES, [own]);
 
-  return { modulePresets, styles, save: me ? save : null, remove };
+  return { modulePresets, styles, save: me ? save : null, rename, remove };
 }
 
 /**
@@ -142,6 +157,7 @@ export const PresetMenu = memo(
     onEndPreview,
     recipeFor,
     onSave,
+    onRename,
     onDelete,
   }: {
     title: string;
@@ -155,8 +171,11 @@ export const PresetMenu = memo(
     /** The recipe from before the previews with this preset applied: its thumbnail. */
     recipeFor: (preset: ModulePreset) => EditParams;
     onSave: () => void;
+    /** Rename one of the user's presets; rejects if the name is taken. */
+    onRename: (preset: ModulePreset, name: string) => Promise<unknown>;
     onDelete: (preset: ModulePreset) => void;
   }) => {
+    const [managing, setManaging] = useState(false);
     const builtIn = presets.filter((p) => p.builtIn);
     const own = presets.filter((p) => !p.builtIn);
     const find = (id: string) => presets.find((p) => p.id === id);
@@ -177,80 +196,81 @@ export const PresetMenu = memo(
       );
     };
     return (
-      <Menu.Root
-        lazyMount
-        unmountOnExit
-        onHighlightChange={({ highlightedValue: value }) =>
-          onPreview((value?.startsWith('apply:') && find(value.slice(6))) || null)
-        }
-        onOpenChange={({ open }) => !open && onEndPreview()}
-        onSelect={({ value }) => {
-          if (value === 'save') return onSave();
-          const preset = value.startsWith('apply:') && find(value.slice(6));
-          if (preset) onApply(preset);
-        }}
-      >
-        <Menu.Trigger asChild>
-          <IconButton aria-label={`${title} presets`} title="Presets" size="2xs" variant="ghost">
-            <Bookmark />
-          </IconButton>
-        </Menu.Trigger>
-        <Portal>
-          <Menu.Positioner>
-            <Menu.Content minW="72" maxW="md">
-              {builtIn.length > 0 && (
-                <Menu.ItemGroup>
-                  <Menu.ItemGroupLabel>Built-in</Menu.ItemGroupLabel>
-                  {builtIn.map(item)}
-                </Menu.ItemGroup>
-              )}
-              {own.length > 0 && (
-                <Menu.ItemGroup>
-                  <Menu.ItemGroupLabel>Own</Menu.ItemGroupLabel>
-                  {own.map(item)}
-                </Menu.ItemGroup>
-              )}
-              {!presets.length && (
-                <Text px="2" py="1.5" textStyle="xs" color="fg.muted">
-                  No presets yet
-                </Text>
-              )}
-              {canSave && (
-                <>
-                  <Menu.Separator />
-                  <Menu.Item value="save">
-                    <BookmarkPlus /> Save as preset…
-                  </Menu.Item>
-                  {own.length > 0 && (
-                    <Menu.Root
-                      positioning={{ placement: 'right-start', gutter: 2 }}
-                      onSelect={({ value }) => {
-                        const preset = find(value);
-                        if (preset) onDelete(preset);
-                      }}
-                    >
-                      <Menu.TriggerItem>
-                        <Trash2 /> Delete preset
-                      </Menu.TriggerItem>
-                      <Portal>
-                        <Menu.Positioner>
-                          <Menu.Content>
-                            {own.map((p) => (
-                              <Menu.Item key={p.id} value={p.id}>
-                                {p.name}
-                              </Menu.Item>
-                            ))}
-                          </Menu.Content>
-                        </Menu.Positioner>
-                      </Portal>
-                    </Menu.Root>
-                  )}
-                </>
-              )}
-            </Menu.Content>
-          </Menu.Positioner>
-        </Portal>
-      </Menu.Root>
+      <>
+        <Menu.Root
+          lazyMount
+          unmountOnExit
+          onHighlightChange={({ highlightedValue: value }) =>
+            onPreview((value?.startsWith('apply:') && find(value.slice(6))) || null)
+          }
+          onOpenChange={({ open }) => !open && onEndPreview()}
+          onSelect={({ value }) => {
+            if (value === 'save') return onSave();
+            if (value === 'manage') return setManaging(true);
+            const preset = value.startsWith('apply:') && find(value.slice(6));
+            if (preset) onApply(preset);
+          }}
+        >
+          <Menu.Trigger asChild>
+            <IconButton aria-label={`${title} presets`} title="Presets" size="2xs" variant="ghost">
+              <Bookmark />
+            </IconButton>
+          </Menu.Trigger>
+          <Portal>
+            <Menu.Positioner>
+              <Menu.Content minW="72" maxW="md">
+                {builtIn.length > 0 && (
+                  <Menu.ItemGroup>
+                    <Menu.ItemGroupLabel>Built-in</Menu.ItemGroupLabel>
+                    {builtIn.map(item)}
+                  </Menu.ItemGroup>
+                )}
+                {own.length > 0 && (
+                  <Menu.ItemGroup>
+                    <Menu.ItemGroupLabel>Own</Menu.ItemGroupLabel>
+                    {own.map(item)}
+                  </Menu.ItemGroup>
+                )}
+                {!presets.length && (
+                  <Text px="2" py="1.5" textStyle="xs" color="fg.muted">
+                    No presets yet
+                  </Text>
+                )}
+                {canSave && (
+                  <>
+                    <Menu.Separator />
+                    <Menu.Item value="save">
+                      <BookmarkPlus /> Save as preset…
+                    </Menu.Item>
+                    {own.length > 0 && (
+                      <Menu.Item value="manage">
+                        <Pencil /> Manage presets…
+                      </Menu.Item>
+                    )}
+                  </>
+                )}
+              </Menu.Content>
+            </Menu.Positioner>
+          </Portal>
+        </Menu.Root>
+        {managing && (
+          <ManagerDialog
+            title={`${title} presets`}
+            description="Rename or delete your presets. Built-in ones can't be changed."
+            items={own.map((p) => ({
+              id: p.id,
+              name: p.name,
+              detail: presetHint(p),
+              recipe: () => recipeFor(p),
+              preset: p,
+            }))}
+            empty="No presets of your own"
+            onRename={(item, name) => onRename(item.preset, name)}
+            onDelete={(item) => onDelete(item.preset)}
+            onClose={() => setManaging(false)}
+          />
+        )}
+      </>
     );
   },
   (a, b) => a.title === b.title && a.presets === b.presets && a.canSave === b.canSave,
@@ -652,6 +672,7 @@ export const StyleMenu = memo(function StyleMenu({
   onEndPreview,
   recipeFor,
   onCreate,
+  onRename,
   onDelete,
   onCopy,
   onPaste,
@@ -667,12 +688,15 @@ export const StyleMenu = memo(function StyleMenu({
   /** The recipe from before the previews with this style applied: its thumbnail. */
   recipeFor: (style: Style) => EditParams;
   onCreate: () => void;
+  /** Rename one of the user's styles; rejects if the name is taken. */
+  onRename: (style: Style, name: string) => Promise<unknown>;
   onDelete: (style: Style) => void;
   /** Open the copy dialog. */
   onCopy: () => void;
   onPaste: (appendAll: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [highlighted, setHighlighted] = useState<Style | 'paste' | null>(null);
   const shift = useShiftKey(open);
   useEffect(() => {
@@ -681,91 +705,92 @@ export const StyleMenu = memo(function StyleMenu({
   const find = (value: string | null) =>
     value === 'paste' ? 'paste' : (styles.find((s) => value === `apply:${s.id}`) ?? null);
   return (
-    <Menu.Root
-      lazyMount
-      unmountOnExit
-      onHighlightChange={({ highlightedValue: value }) => setHighlighted(find(value))}
-      onOpenChange={({ open }) => {
-        setOpen(open);
-        if (!open) {
-          setHighlighted(null);
-          onEndPreview();
-        }
-      }}
-      onSelect={({ value }) => {
-        if (value === 'create') return onCreate();
-        if (value === 'copy') return onCopy();
-        const found = find(value);
-        if (found === 'paste') onPaste(shift.ref.current);
-        else if (found) onApply(found, shift.ref.current);
-      }}
-    >
-      <Menu.Trigger asChild>
-        <Button size="sm" variant="ghost" title="Styles: sets of modules to apply to other photos">
-          <Palette /> Styles <ChevronDown />
-        </Button>
-      </Menu.Trigger>
-      <Portal>
-        <Menu.Positioner>
-          <Menu.Content minW="56">
-            {styles.map((s) => (
-              <Menu.Item key={s.id} value={`apply:${s.id}`} py="1">
-                <MenuThumbnail recipe={() => recipeFor(s)} />
-                <Text flex="1" truncate>
-                  {s.name}
+    <>
+      <Menu.Root
+        lazyMount
+        unmountOnExit
+        onHighlightChange={({ highlightedValue: value }) => setHighlighted(find(value))}
+        onOpenChange={({ open }) => {
+          setOpen(open);
+          if (!open) {
+            setHighlighted(null);
+            onEndPreview();
+          }
+        }}
+        onSelect={({ value }) => {
+          if (value === 'create') return onCreate();
+          if (value === 'copy') return onCopy();
+          if (value === 'manage') return setManaging(true);
+          const found = find(value);
+          if (found === 'paste') onPaste(shift.ref.current);
+          else if (found) onApply(found, shift.ref.current);
+        }}
+      >
+        <Menu.Trigger asChild>
+          <Button size="sm" variant="ghost" title="Styles: sets of modules to apply to other photos">
+            <Palette /> Styles <ChevronDown />
+          </Button>
+        </Menu.Trigger>
+        <Portal>
+          <Menu.Positioner>
+            <Menu.Content minW="56">
+              {styles.map((s) => (
+                <Menu.Item key={s.id} value={`apply:${s.id}`} py="1">
+                  <MenuThumbnail recipe={() => recipeFor(s)} />
+                  <Text flex="1" truncate>
+                    {s.name}
+                  </Text>
+                  <Text textStyle="2xs" color="fg.subtle">
+                    {s.payload.modules.length}
+                  </Text>
+                </Menu.Item>
+              ))}
+              {styles.length > 0 && (
+                <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
+                  Shift: append all of its modules (also when pasting)
                 </Text>
-                <Text textStyle="2xs" color="fg.subtle">
-                  {s.payload.modules.length}
-                </Text>
+              )}
+              {styles.length > 0 && <Menu.Separator />}
+              <Menu.Item value="copy">
+                <Copy /> Copy settings… <Menu.ItemCommand>Ctrl+Shift+C</Menu.ItemCommand>
               </Menu.Item>
-            ))}
-            {styles.length > 0 && (
-              <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
-                Shift: append all of its modules (also when pasting)
-              </Text>
-            )}
-            {styles.length > 0 && <Menu.Separator />}
-            <Menu.Item value="copy">
-              <Copy /> Copy settings… <Menu.ItemCommand>Ctrl+Shift+C</Menu.ItemCommand>
-            </Menu.Item>
-            <Menu.Item value="paste" disabled={!paste}>
-              <ClipboardPaste />
-              <Text flex="1" truncate maxW="48">
-                {paste ? `Paste from ${paste}` : 'Paste'}
-              </Text>
-              <Menu.ItemCommand>Ctrl+V</Menu.ItemCommand>
-            </Menu.Item>
-            <Menu.Separator />
-            <Menu.Item value="create">
-              <Plus /> Create style…
-            </Menu.Item>
-            {styles.length > 0 && (
-              <Menu.Root
-                positioning={{ placement: 'left-start', gutter: 2 }}
-                onSelect={({ value }) => {
-                  const style = styles.find((s) => s.id === value);
-                  if (style) onDelete(style);
-                }}
-              >
-                <Menu.TriggerItem>
-                  <Trash2 /> Delete style
-                </Menu.TriggerItem>
-                <Portal>
-                  <Menu.Positioner>
-                    <Menu.Content>
-                      {styles.map((s) => (
-                        <Menu.Item key={s.id} value={s.id}>
-                          {s.name}
-                        </Menu.Item>
-                      ))}
-                    </Menu.Content>
-                  </Menu.Positioner>
-                </Portal>
-              </Menu.Root>
-            )}
-          </Menu.Content>
-        </Menu.Positioner>
-      </Portal>
-    </Menu.Root>
+              <Menu.Item value="paste" disabled={!paste}>
+                <ClipboardPaste />
+                <Text flex="1" truncate maxW="48">
+                  {paste ? `Paste from ${paste}` : 'Paste'}
+                </Text>
+                <Menu.ItemCommand>Ctrl+V</Menu.ItemCommand>
+              </Menu.Item>
+              <Menu.Separator />
+              <Menu.Item value="create">
+                <Plus /> Create style…
+              </Menu.Item>
+              {styles.length > 0 && (
+                <Menu.Item value="manage">
+                  <Pencil /> Manage styles…
+                </Menu.Item>
+              )}
+            </Menu.Content>
+          </Menu.Positioner>
+        </Portal>
+      </Menu.Root>
+      {managing && (
+        <ManagerDialog
+          title="Styles"
+          description="Rename or delete your styles."
+          items={styles.map((s) => ({
+            id: s.id,
+            name: s.name,
+            detail: s.payload.modules.length === 1 ? '1 module' : `${s.payload.modules.length} modules`,
+            recipe: () => recipeFor(s),
+            style: s,
+          }))}
+          empty="No styles yet"
+          onRename={(item, name) => onRename(item.style, name)}
+          onDelete={(item) => onDelete(item.style)}
+          onClose={() => setManaging(false)}
+        />
+      )}
+    </>
   );
 });
