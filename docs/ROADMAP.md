@@ -1511,14 +1511,15 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
   image.
-- **Typography:** decided 2026-11-10: **Big Shoulders** for headings and the wordmark,
-  **Chivo Mono** for body (both Google Fonts, OFL), self-hosted like Inter (Fontsource)
-  and set as Chakra tokens. A monospaced body gives sliders' numbers fixed widths for
-  free, but is wider than Inter: check the dense panels (module labels, the info panel's
-  two-column fields, the filters) for truncation, and try it on the `/ui` page first.
-  Big Shoulders doesn't read at the panels' small sizes: small uppercase labels (module
-  titles, section labels) use **Chivo** instead, through a `label` font token (Inter
-  until the switch).
+- **Typography:** trying (2026-11-10) **Anybody** for headings, the wordmark and small
+  uppercase labels (module titles, section labels: the `label` font token), and
+  **Lilex** for body (both Google Fonts, OFL), self-hosted like Inter (Fontsource) and
+  set as Chakra tokens. Previewed on the `/ui` page (`?fonts=new`); the app stays on
+  Inter until the switch. Anybody is loaded with its width axis (50–150 %), to try
+  narrower headings. A monospaced body gives sliders' numbers fixed widths for free,
+  but is wider than Inter: check the dense panels (module labels, the info panel's
+  two-column fields, the filters) for truncation. Tried first: Big Shoulders + Chivo
+  Mono, with Chivo for labels (Big Shoulders didn't read at the panels' small sizes).
 - **Spinner:** a branded loading indicator instead of the default one. Reuse it for
   long loads (RAW decode, first render) with a progress hint.
 - **`/develop` page:** the public developer is the front door. Give it a proper landing

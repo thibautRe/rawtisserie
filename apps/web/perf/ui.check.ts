@@ -47,9 +47,9 @@ for (const fonts of ['current', 'new'])
           .fontFamily,
       }));
       assert.equal(look.dark, mode === 'dark');
-      assert.match(look.body, fonts === 'new' ? /Chivo Mono/ : /Inter/);
-      assert.match(look.heading, fonts === 'new' ? /Big Shoulders/ : /Inter/);
-      assert.match(look.label, fonts === 'new' ? /^\W?Chivo Variable/ : /Inter/);
+      assert.match(look.body, fonts === 'new' ? /Lilex/ : /Inter/);
+      assert.match(look.heading, fonts === 'new' ? /Anybody/ : /Inter/);
+      assert.match(look.label, fonts === 'new' ? /Anybody/ : /Inter/);
       if (shots) {
         // The page scrolls inside the app's main box: grow the viewport to all of it.
         const height = await page.evaluate(() => document.querySelector('main > div')!.scrollHeight);

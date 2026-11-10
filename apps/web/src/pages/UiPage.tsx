@@ -3,9 +3,9 @@
  * type, colours and components together, try the fonts, and write down which pattern
  * is for what. See the design system in docs/ROADMAP.md (M9).
  */
-import '@fontsource-variable/big-shoulders/opsz.css';
-import '@fontsource-variable/chivo';
-import '@fontsource-variable/chivo-mono';
+// With the width axis too (font-stretch 50–150 %), to try narrower or wider headings.
+import '@fontsource-variable/anybody/wdth.css';
+import '@fontsource-variable/lilex';
 import {
   Box,
   Button,
@@ -46,9 +46,9 @@ const INTER = "'Inter Variable', Inter, system-ui, sans-serif";
 const FONTS = {
   current: { heading: INTER, body: INTER, label: INTER },
   new: {
-    heading: "'Big Shoulders Variable', 'Inter Variable', sans-serif",
-    body: "'Chivo Mono Variable', ui-monospace, monospace",
-    label: "'Chivo Variable', 'Inter Variable', sans-serif",
+    heading: "'Anybody Variable', 'Inter Variable', sans-serif",
+    body: "'Lilex Variable', ui-monospace, monospace",
+    label: "'Anybody Variable', 'Inter Variable', sans-serif",
   },
 } as const;
 const FONT_ROLES = ['heading', 'body', 'label'] as const;
@@ -173,7 +173,7 @@ export function UiPage() {
                 <SegmentGroup.Items
                   items={[
                     { value: 'current', label: 'Inter' },
-                    { value: 'new', label: 'Big Shoulders + Chivo Mono + Chivo' },
+                    { value: 'new', label: 'Anybody + Lilex' },
                   ]}
                 />
               </SegmentGroup.Root>
