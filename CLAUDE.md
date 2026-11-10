@@ -101,6 +101,10 @@ See README.md for the architecture overview and commands.
   commits against the slider library, in a browser too. Run it after changing either.
   `npm run test:library -w @rawtisserie/web` goes between the library and the developer (API
   mocked): run it after changing what they share (`library/libraryView.ts`, the film roll).
+- `/ui` (`pages/UiPage.tsx`) shows the UI's building blocks on one page, with static data
+  and a toggle between the current fonts and the planned ones: add new shared components
+  and patterns there. `npm run test:ui -w @rawtisserie/web` renders it in every mode
+  (`UI_SHOTS=dir` saves screenshots).
 - Golden-image tests (`crates/pipeline/tests/golden.rs`) need `./scripts/fetch-golden-raws.sh`
   once. A change that moves the output fails them; if it's intended, re-bless with
   `GOLDEN_UPDATE=1 cargo test --release -p rawtisserie-pipeline --test golden` and say

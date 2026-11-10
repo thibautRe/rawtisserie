@@ -12,11 +12,15 @@
     "test": "node --test 'src/**/*.test.ts'",
     "test:perf": "node perf/sliders.perf.ts",
     "test:sliders": "node --test perf/sliders.check.ts",
-    "test:library": "node --test perf/library.check.ts"
+    "test:library": "node --test perf/library.check.ts",
+    "test:ui": "node --test perf/ui.check.ts"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.37.0",
     "@emotion/react": "^11.14.0",
+    "@fontsource-variable/big-shoulders": "^5.3.0",
+    "@fontsource-variable/chivo-mono": "^5.3.0",
+    "@fontsource-variable/inter": "^5.3.0",
     "@rawtisserie/pipeline": "*",
     "@tanstack/react-query": "^5.105.0",
     "lucide-react": "^1.61.0",

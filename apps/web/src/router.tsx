@@ -13,6 +13,8 @@ export const router = createBrowserRouter([
       { path: '/login', element: <LoginPage /> },
       // The developer works on local files without an account: nothing is uploaded.
       { path: '/develop', element: <LocalDevelopPage /> },
+      // The UI's building blocks on one page (fonts loaded there only).
+      { path: '/ui', lazy: async () => ({ Component: (await import('./pages/UiPage.tsx')).UiPage }) },
       {
         element: <RequireAuth />,
         children: [

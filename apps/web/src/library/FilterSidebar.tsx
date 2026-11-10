@@ -20,7 +20,15 @@ import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue } from '../api/types.ts';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
-function Section({ title, children, onClear }: { title: string; children: React.ReactNode; onClear?: () => void }) {
+export function Section({
+  title,
+  children,
+  onClear,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClear?: () => void;
+}) {
   return (
     <Stack gap="2">
       <HStack justify="space-between" minH="6">

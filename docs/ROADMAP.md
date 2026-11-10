@@ -27,7 +27,7 @@ with A for every auto-tune, and a Tones strength. Added: 4.13 (mask UI redesign)
 8.4's decisions (in the browser, one ZIP, export from the library with it). Later that
 day: tags moved up and a folded "Technical" group (camera, lens, ISO, focal length, aperture)
 in the library's filters, tag completion (fuzzy, from the library's tags) and T to focus
-it. Added: M9's design system.
+it. Added: M9's design system, then started its `/ui` page (with the new fonts to try).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1525,12 +1525,12 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 - **Design system (M):** with the new fonts, settle the UI's vocabulary before it grows
   further, and make it visible:
   - A component gallery: a `/ui` route in the app, everything on one page (decided
-    2026-11-10: no Storybook for now). Sections for the type scale and colours (light
-    and dark side by side or a toggle), then our components (`ParamSlider`, the module
-    header, `Section`, mixer views, curve editors, tag input, film roll,
-    rating/flag/label controls) and the Chakra components we restyle, each with a
-    line of guidance. Fed with static data, no API. The mocked-API Playwright harness
-    (`perf/library.check.ts`) can screenshot it later for visual regression.
+    2026-11-10: no Storybook for now). Started 2026-11-10 (`pages/UiPage.tsx`): type
+    scale, colours, buttons, the four view switchers, `ParamSlider`, the three section
+    headers, fields, culling controls, with a dark/light toggle and one between Inter
+    and the new pair (`?fonts=new`). Still to add: mixer views, curve editors, the film
+    roll, the tag input with completion. `npm run test:ui` renders it in every mode and
+    can save screenshots (`UI_SHOTS=dir`): a base for visual regression later.
   - Typography: the faces as tokens (see above), and a small set of text styles (today it's `2xs`,
     `xs`, `sm` ad hoc, headings as `Heading size="xs"` uppercase in some panels and
     sentence case in others). Tabular figures wherever numbers change during a drag.

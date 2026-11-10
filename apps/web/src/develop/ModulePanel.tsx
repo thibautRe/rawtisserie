@@ -311,7 +311,7 @@ const MaskButton = memo(
  * One module instance. A kind without an instance shows its default parameters,
  * switched off; editing it (or switching it on) adds an instance.
  */
-function Module({
+export function Module({
   title,
   enabled,
   modified,
@@ -806,7 +806,7 @@ const RangeGraph = memo(
  * Tabs that choose what a module's panel shows (not the image), with a dot on those whose
  * parameters differ from the defaults.
  */
-function PageTabs<P extends string>({
+export function PageTabs<P extends string>({
   label,
   pages,
   labels,

@@ -103,7 +103,7 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
 
 // ── Shared culling controls ─────────────────────────────────────────────────
 
-function Culling({
+export function Culling({
   rating,
   flag,
   colorLabel,

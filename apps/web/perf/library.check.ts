@@ -183,6 +183,7 @@ test("T focuses the tag input, which completes from the library's tags", async (
   assert.equal(await input.inputValue(), '');
   // Arrows move through the suggestions; Escape closes them, Enter then adds what's typed.
   await page.keyboard.type('sea');
+  await page.getByRole('listbox').waitFor();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await page.waitForFunction(
@@ -190,6 +191,7 @@ test("T focuses the tag input, which completes from the library's tags", async (
   );
   assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'seagull'] });
   await page.keyboard.type('sea');
+  await page.getByRole('listbox').waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('listbox').count(), 0);
   await page.keyboard.press('Enter');
