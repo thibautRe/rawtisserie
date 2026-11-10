@@ -34,7 +34,8 @@ interface Props {
   track?: string;
   /**
    * Where the filled range starts. Defaults to the middle for symmetric ranges and to the
-   * start otherwise; set it for a neutral point elsewhere (0 in -50 … +200).
+   * start otherwise; set it for a neutral point elsewhere (0 in -50 … +200). With a
+   * `track`, a tick marks it (0 for symmetric ranges; none without a neutral point).
    */
   origin?: number;
   /**
@@ -178,6 +179,9 @@ export const ParamSlider = memo(
     const pos = curve.toPosition;
     const percent = (v: number) => `${((pos(v) - pos(lo)) / (pos(hi) - pos(lo))) * 100}%`;
     const segment: React.CSSProperties = { position: 'absolute', top: 0, bottom: 0 };
+    // The neutral point of a gradient track, which a tick marks.
+    const neutral = origin ?? (min === -max ? 0 : undefined);
+    const tick = track && neutral !== undefined && neutral > min && neutral < max ? neutral : null;
 
     return (
       <Slider.Root
@@ -259,7 +263,7 @@ export const ParamSlider = memo(
           )}
         </HStack>
         <Slider.Control minH="3.5">
-          <Slider.Track h="1px" bg="bg.emphasized">
+          <Slider.Track h="1px" bg="bg.emphasized" overflow="visible">
             {track ? (
               <div
                 style={{ ...segment, left: percent(min), right: `calc(100% - ${percent(max)})`, background: track }}
@@ -288,6 +292,19 @@ export const ParamSlider = memo(
             )}
             {lo < min && <div style={{ ...segment, left: 0, width: percent(min), background: PAST_RANGE }} />}
             {hi > max && <div style={{ ...segment, left: percent(max), right: 0, background: PAST_RANGE }} />}
+            {tick !== null && (
+              <div
+                aria-hidden
+                style={{
+                  ...segment,
+                  top: -3,
+                  bottom: -3,
+                  left: `calc(${percent(tick)} - 0.5px)`,
+                  width: 1,
+                  background: 'var(--chakra-colors-fg)',
+                }}
+              />
+            )}
           </Slider.Track>
           <Slider.Thumb
             index={0}
