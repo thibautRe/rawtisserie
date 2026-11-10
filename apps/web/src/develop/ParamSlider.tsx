@@ -34,8 +34,8 @@ interface Props {
   track?: string;
   /**
    * Where the filled range starts. Defaults to the middle for symmetric ranges and to the
-   * start otherwise; set it for a neutral point elsewhere (0 in -50 … +200). With a
-   * `track`, a tick marks it (0 for symmetric ranges; none without a neutral point).
+   * start otherwise; set it for a neutral point elsewhere (0 in -50 … +200). A tick
+   * marks it when it's inside the range (0 for symmetric ones; none otherwise).
    */
   origin?: number;
   /**
@@ -179,9 +179,9 @@ export const ParamSlider = memo(
     const pos = curve.toPosition;
     const percent = (v: number) => `${((pos(v) - pos(lo)) / (pos(hi) - pos(lo))) * 100}%`;
     const segment: React.CSSProperties = { position: 'absolute', top: 0, bottom: 0 };
-    // The neutral point of a gradient track, which a tick marks.
+    // The neutral point, which a tick marks (detents have a dot per value instead).
     const neutral = origin ?? (min === -max ? 0 : undefined);
-    const tick = track && neutral !== undefined && neutral > min && neutral < max ? neutral : null;
+    const tick = !detents && neutral !== undefined && neutral > min && neutral < max ? neutral : null;
 
     return (
       <Slider.Root
@@ -301,7 +301,7 @@ export const ParamSlider = memo(
                   bottom: -3,
                   left: `calc(${percent(tick)} - 0.5px)`,
                   width: 1,
-                  background: 'var(--chakra-colors-fg)',
+                  background: 'var(--chakra-colors-fg-muted)',
                 }}
               />
             )}
