@@ -24,7 +24,10 @@ view restored when leaving the developer, and a film roll under the developer. 8
 Feedback (2026-11-10): done the same day: select all/none when copying settings or
 creating a style, the crop aspect starting at "Original", Tones' auto-tune in its header
 with A for every auto-tune, and a Tones strength. Added: 4.13 (mask UI redesign), and
-8.4's decisions (in the browser, one ZIP, export from the library with it).
+8.4's decisions (in the browser, one ZIP, export from the library with it). Later that
+day: tags moved up and a folded "Gear" group (camera, lens, ISO, focal length, aperture)
+in the library's filters, tag completion (fuzzy, from the library's tags) and T to focus
+it. Added: M9's design system.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1516,6 +1519,25 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   state (drop zone, short pitch, sample RAWs to try, link to sign up) and polish its
   empty and loading states.
 - Check light and dark themes (`_light` before `_dark` in semantic tokens).
+- **Design system (M):** with the new fonts, settle the UI's vocabulary before it grows
+  further, and make it visible:
+  - A component gallery: Storybook (Vite builder, the app's Chakra system as a
+    decorator, light/dark toggle, MDX pages for the guidelines). Stories for what's
+    ours (`ParamSlider`, the module header, `Section`, mixer views, curve editors, tag
+    input, film roll, rating/flag/label controls), and for the Chakra components we
+    restyle. The mocked-API Playwright harness (`perf/library.check.ts`) can screenshot
+    stories later for visual regression.
+  - Typography: the faces as tokens, and a small set of text styles (today it's `2xs`,
+    `xs`, `sm` ad hoc, headings as `Heading size="xs"` uppercase in some panels and
+    sentence case in others). Tabular figures wherever numbers change during a drag.
+  - One pattern per job. Switching between views is done four ways today: `Tabs`
+    `line` (module pages, mask ranges), `Tabs` `subtle` (mixer views, colour balance
+    ranges, tone channels), `SegmentGroup` (library filters, style modes) and attached
+    `ButtonGroup`s (shape tools). Guidelines: tabs for pages of a panel, a segmented
+    control for a choice of value, attached icon buttons for tools; then migrate.
+  - Same for section headers (the filters' uppercase headings, the info panel's,
+    `ModulePanel`'s), spacing in panels, and the collapsible pattern (the filters'
+    "Gear", module sections).
 
 ---
 
