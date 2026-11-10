@@ -2,7 +2,8 @@
  * Going between the library and the developer, in a real browser on the production build,
  * with the API mocked (a library of six photos). Covers what depends on React's order of
  * rendering and effects across routes: the film roll lists what the library showed, and
- * going back restores the library's filters.
+ * going back restores the library's filters. Also completing tags in the info panel, whose
+ * keys are shared between Chakra's TagsInput and our suggestions.
  *
  *   npm run test:library -w @rawtisserie/web
  */
@@ -67,6 +68,17 @@ const detail = (p: Photo): PhotoDetail => ({
   versions: [{ id: p.id, name: null, index: 1, edited: false, thumbUrl: null }],
 });
 
+const TAGS = [
+  { value: 'beach', count: 4 },
+  { value: 'seascape', count: 3 },
+  { value: 'seagull', count: 1 },
+  { value: 'city', count: 2 },
+];
+/** The bodies of the edits sent, in order. */
+let sent: { path: string; body: unknown }[] = [];
+/** Each version's edits so far. */
+let patched = new Map<string, Partial<PhotoDetail>>();
+
 let server: PreviewServer;
 let browser: Browser;
 let page: Page;
@@ -87,10 +99,16 @@ async function open(path: string) {
   await page?.close();
   page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   page.on('pageerror', (e) => assert.fail(`page error: ${e.message}`));
+  sent = [];
+  patched = new Map();
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ json: body });
+    const method = route.request().method();
+    if (method !== 'GET') sent.push({ path, body: route.request().postDataJSON() });
+    if (path === '/api/tags') return json(TAGS);
+    if (path === '/api/versions/bulk') return json({ versions: [] });
     if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A' } });
     if (path === '/api/versions') {
       const q = url.searchParams.get('q') ?? '';
@@ -101,7 +119,8 @@ async function open(path: string) {
       return json({ cameras: [], lenses: [], tags: [], ratings: [], ranges: { total: PHOTOS.length } });
     const version = /^\/api\/versions\/(v\d+)$/.exec(path)?.[1];
     const p = PHOTOS.find((p) => p.id === version);
-    if (p) return json(detail(p));
+    if (p && method === 'PATCH') patched.set(p.id, { ...patched.get(p.id), ...route.request().postDataJSON() });
+    if (p) return json({ ...detail(p), ...patched.get(p.id) });
     if (path === '/api/presets') return json({ presets: [] });
     if (path === '/api/luts') return json({ luts: [] });
     // Originals and the rest: the developer shows an error, the film roll stays.
@@ -145,4 +164,56 @@ test('going back restores the filter, and the roll follows a new one', async () 
   await cards().first().dblclick();
   await page.waitForURL(/\/develop/);
   assert.equal((await rollIds()).length, 6);
+});
+
+test("T focuses the tag input, which completes from the library's tags", async () => {
+  await open('/');
+  await cards().first().click();
+  await page.keyboard.press('t');
+  const input = page.locator('#library-tag-input');
+  await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
+  // A typo still finds it, and Enter picks it.
+  await page.keyboard.type('baech');
+  await page.getByRole('option', { name: /beach/ }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 1,
+  );
+  assert.deepEqual(sent.at(-1), { path: '/api/versions/v1', body: { tags: ['beach'] } });
+  assert.equal(await input.inputValue(), '');
+  // Arrows move through the suggestions; Escape closes them, Enter then adds what's typed.
+  await page.keyboard.type('sea');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 2,
+  );
+  assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'seagull'] });
+  await page.keyboard.type('sea');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('listbox').count(), 0);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 3,
+  );
+  assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'seagull', 'sea'] });
+});
+
+test('T focuses the tag input of several photos too', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('t');
+  await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
+  await page.keyboard.type('cit');
+  await page.getByRole('option', { name: /city/ }).click();
+  assert.deepEqual(sent.at(-1), {
+    path: '/api/versions/bulk',
+    body: { ids: PHOTOS.map((p) => p.id), patch: { addTags: ['city'] } },
+  });
+  // Nothing matches: the form adds it as typed.
+  await page.keyboard.type('dusk');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => (document.activeElement as HTMLInputElement).value === '');
+  assert.deepEqual(sent.at(-1)?.body, { ids: PHOTOS.map((p) => p.id), patch: { addTags: ['dusk'] } });
 });

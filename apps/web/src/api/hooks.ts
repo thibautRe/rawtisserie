@@ -20,7 +20,7 @@ import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdi
 import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
-import type { BulkPatch, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
+import type { BulkPatch, FacetValue, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +114,15 @@ export function useFacets(search: string) {
     queryKey: ['facets', params.toString()],
     queryFn: () => api.get<Facets>(`/api/versions/facets?${params}`),
     placeholderData: (prev) => prev,
+  });
+}
+
+/** Every tag in the library with its use count. Under `facets`, so library changes refresh it. */
+export function useAllTags() {
+  return useQuery({
+    queryKey: ['facets', 'all-tags'],
+    queryFn: () => api.get<FacetValue[]>('/api/tags'),
+    staleTime: 60_000,
   });
 }
 

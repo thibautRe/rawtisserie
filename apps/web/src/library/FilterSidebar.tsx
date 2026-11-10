@@ -4,6 +4,7 @@ import {
   Button,
   Checkbox,
   Circle,
+  Collapsible,
   Flex,
   HStack,
   Heading,
@@ -13,7 +14,8 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Star, X } from 'lucide-react';
+import { ChevronDown, Star, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue } from '../api/types.ts';
 import type { LibrarySearch } from './useLibrarySearch.ts';
@@ -112,9 +114,17 @@ export const LABEL_COLORS: Record<string, string> = {
   purple: 'purple.500',
 };
 
+/** The camera and capture settings filters, folded away by default. */
+const GEAR_FILTERS = ['camera', 'lens', 'isoMin', 'isoMax', 'focalMin', 'focalMax', 'apertureMin', 'apertureMax'];
+const GEAR_OPEN_KEY = 'library.filters.gearOpen';
+
 export function FilterSidebar({ search }: { search: LibrarySearch }) {
   const { data: facets } = useFacets(search.search);
   const p = search.params;
+  const gearFilters = GEAR_FILTERS.filter((k) => p.has(k)).length;
+  // Open when it was left open, or when one of its filters is set (a shared link).
+  const [gearOpen, setGearOpen] = useState(() => localStorage.getItem(GEAR_OPEN_KEY) === '1' || gearFilters > 0);
+  useEffect(() => localStorage.setItem(GEAR_OPEN_KEY, gearOpen ? '1' : '0'), [gearOpen]);
   const ratingMin = Number(p.get('ratingMin') ?? 0);
   const r = facets?.ranges;
 
@@ -190,6 +200,10 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
         </HStack>
       </Section>
 
+      <Section title="Tags">
+        <FacetList name="tag" values={facets?.tags ?? []} search={search} />
+      </Section>
+
       <Section title="Edited">
         <SegmentGroup.Root
           size="xs"
@@ -205,16 +219,6 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
             ]}
           />
         </SegmentGroup.Root>
-      </Section>
-
-      <Section title="Camera">
-        <FacetList name="camera" values={facets?.cameras ?? []} search={search} />
-      </Section>
-      <Section title="Lens">
-        <FacetList name="lens" values={facets?.lenses ?? []} search={search} />
-      </Section>
-      <Section title="Tags">
-        <FacetList name="tag" values={facets?.tags ?? []} search={search} />
       </Section>
 
       <Section title="Date taken">
@@ -244,20 +248,45 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
         </Stack>
       </Section>
 
-      <Section title="ISO">
-        <RangeInputs search={search} min="isoMin" max="isoMax" placeholder={[r?.isoMin, r?.isoMax]} />
-      </Section>
-      <Section title="Focal length (mm)">
-        <RangeInputs search={search} min="focalMin" max="focalMax" placeholder={[r?.focalMin, r?.focalMax]} />
-      </Section>
-      <Section title="Aperture (ƒ)">
-        <RangeInputs
-          search={search}
-          min="apertureMin"
-          max="apertureMax"
-          placeholder={[r?.apertureMin, r?.apertureMax]}
-        />
-      </Section>
+      <Collapsible.Root open={gearOpen} onOpenChange={(e) => setGearOpen(e.open)}>
+        <Collapsible.Trigger asChild>
+          <Button variant="ghost" size="xs" w="full" justifyContent="space-between" px="0">
+            <HStack>
+              <Heading size="xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
+                Gear
+              </Heading>
+              {gearFilters > 0 && <Badge size="xs">{gearFilters}</Badge>}
+            </HStack>
+            <ChevronDown
+              style={{ transform: gearOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}
+            />
+          </Button>
+        </Collapsible.Trigger>
+        <Collapsible.Content>
+          <Stack gap="5" pt="3">
+            <Section title="Camera">
+              <FacetList name="camera" values={facets?.cameras ?? []} search={search} />
+            </Section>
+            <Section title="Lens">
+              <FacetList name="lens" values={facets?.lenses ?? []} search={search} />
+            </Section>
+            <Section title="ISO">
+              <RangeInputs search={search} min="isoMin" max="isoMax" placeholder={[r?.isoMin, r?.isoMax]} />
+            </Section>
+            <Section title="Focal length (mm)">
+              <RangeInputs search={search} min="focalMin" max="focalMax" placeholder={[r?.focalMin, r?.focalMax]} />
+            </Section>
+            <Section title="Aperture (ƒ)">
+              <RangeInputs
+                search={search}
+                min="apertureMin"
+                max="apertureMax"
+                placeholder={[r?.apertureMin, r?.apertureMax]}
+              />
+            </Section>
+          </Stack>
+        </Collapsible.Content>
+      </Collapsible.Root>
       <Box h="4" />
     </Stack>
   );

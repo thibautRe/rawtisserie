@@ -30,6 +30,7 @@ import { ApplyMenu } from './ApplyMenu.tsx';
 import type { BatchEdit } from './batchEdit.ts';
 import { useEditPreview } from './useEditPreview.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
+import { TAG_INPUT_ID, useTagCompletion } from './TagCompletion.tsx';
 
 const PANEL_PROPS = {
   as: 'aside',
@@ -89,9 +90,9 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
       <Stack {...PANEL_PROPS} justify="center" align="center" color="fg.muted" textAlign="center">
         <Text>Select a photo to see and edit its metadata.</Text>
         <Text textStyle="xs">
-          Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>D</b>{' '}
-          develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings · <b>Del</b> delete ·
-          arrows to move
+          Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
+          tag · <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings ·{' '}
+          <b>Del</b> delete · arrows to move
         </Text>
       </Stack>
     );
@@ -348,21 +349,7 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit, onC
         </Field.Label>
         <DescriptionInput value={photo.description ?? ''} onCommit={(v) => save({ description: textOrNull(v) })} />
       </Field.Root>
-      <TagsInput.Root
-        size="xs"
-        value={photo.tags}
-        onValueChange={(e) => save({ tags: e.value })}
-        addOnPaste
-        delimiter=","
-      >
-        <TagsInput.Label textStyle="xs" color="fg.muted">
-          Tags
-        </TagsInput.Label>
-        <TagsInput.Control>
-          <TagsInput.Items />
-          <TagsInput.Input placeholder="Add tag…" />
-        </TagsInput.Control>
-      </TagsInput.Root>
+      <PhotoTags key={photo.id} tags={photo.tags} onChange={(tags) => save({ tags })} />
 
       <Separator />
       <Heading size="xs">Capture</Heading>
@@ -443,6 +430,75 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit, onC
   );
 }
 
+/** One photo's tags, completed from the library's. */
+function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
+  const [input, setInput] = useState('');
+  const completion = useTagCompletion({
+    input,
+    exclude: tags,
+    onPick: (tag) => {
+      onChange([...tags, tag]);
+      setInput('');
+    },
+  });
+  return (
+    <TagsInput.Root
+      size="xs"
+      value={tags}
+      onValueChange={(e) => onChange(e.value)}
+      inputValue={input}
+      onInputValueChange={(e) => setInput(e.inputValue)}
+      ids={{ input: TAG_INPUT_ID }}
+      addOnPaste
+      delimiter=","
+    >
+      <TagsInput.Label textStyle="xs" color="fg.muted">
+        Tags
+      </TagsInput.Label>
+      <Box position="relative">
+        <TagsInput.Control>
+          <TagsInput.Items />
+          <TagsInput.Input placeholder="Add tag…" {...completion.inputProps} />
+        </TagsInput.Control>
+        {completion.list}
+      </Box>
+    </TagsInput.Root>
+  );
+}
+
+/** Adds a tag to every selected photo, completed from the library's. */
+function BulkTagInput({ exclude, onAdd }: { exclude: string[]; onAdd: (tag: string) => void }) {
+  const [tag, setTag] = useState('');
+  const add = (t: string) => {
+    if (t.trim()) onAdd(t.trim());
+    setTag('');
+  };
+  const completion = useTagCompletion({ input: tag, exclude, onPick: add });
+  return (
+    <HStack
+      as="form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        add(tag);
+      }}
+    >
+      <Box position="relative" flex="1">
+        <Input
+          size="xs"
+          placeholder="Add a tag to all…"
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
+          {...completion.inputProps}
+        />
+        {completion.list}
+      </Box>
+      <Button size="xs" type="submit" variant="outline">
+        Add
+      </Button>
+    </HStack>
+  );
+}
+
 function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -466,7 +522,6 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit }: { photos: Pho
     const first = get(photos[0]!);
     return photos.every((p) => get(p) === first) ? first : undefined;
   };
-  const [tag, setTag] = useState('');
   const commonTags = photos[0]!.tags.filter((t) => photos.every((p) => p.tags.includes(t)));
 
   return (
@@ -492,20 +547,7 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit }: { photos: Pho
           </Button>
         ))}
       </HStack>
-      <HStack
-        as="form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!tag.trim()) return;
-          bulk.mutate({ ids, patch: { addTags: [tag.trim()] } });
-          setTag('');
-        }}
-      >
-        <Input size="xs" placeholder="Add a tag to all…" value={tag} onChange={(e) => setTag(e.target.value)} />
-        <Button size="xs" type="submit" variant="outline">
-          Add
-        </Button>
-      </HStack>
+      <BulkTagInput exclude={commonTags} onAdd={(t) => bulk.mutate({ ids, patch: { addTags: [t] } })} />
       <Separator />
       <ApplyMenu onApply={onApplyEdit}>
         <Button size="sm" variant="outline">

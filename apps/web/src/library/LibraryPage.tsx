@@ -45,6 +45,7 @@ import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
+import { focusTagInput } from './TagCompletion.tsx';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
 const SORTS = [
@@ -276,7 +277,9 @@ export function LibraryPage() {
         const all = selectedPhotos.length > 0 && selectedPhotos.every((p) => p.flag === flag);
         applyToSelection({ flag: all ? null : flag });
       } else if (key === 'u') applyToSelection({ flag: null });
-      else if (key === 'arrowright') move(1);
+      else if (key === 't') {
+        if (!focusTagInput()) return;
+      } else if (key === 'arrowright') move(1);
       else if (key === 'arrowleft') move(-1);
       else if (key === 'arrowdown') move(columns);
       else if (key === 'arrowup') move(-columns);
