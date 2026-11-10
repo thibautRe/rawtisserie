@@ -140,5 +140,13 @@ export const tracks = {
     );
   },
   saturation: (hue: number) => ramp('#8a8a8a', `hsl(${hue} 85% 50%)`),
+  /** Greys from OKLCH lightness `lo` to `hi`, mixed in OKLab. */
+  lightness: (lo: number, hi: number) => `linear-gradient(in oklab to right, oklch(${lo} 0 0), oklch(${hi} 0 0))`,
+  /**
+   * Grey to a colour of OKLCH lightness `l`, chroma `c` and hue `h`: unlike HSL, the
+   * hue looks the same at any lightness. Mixed in OKLab, so it doesn't drift between.
+   */
+  chroma: (l: number, c: number, h: number) =>
+    `linear-gradient(in oklab to right, oklch(${(l - 0.045).toFixed(3)} 0 0), oklch(${l} ${c} ${h}))`,
   brightness: (hue: number) => ramp(`hsl(${hue} 70% 18%)`, `hsl(${hue} 70% 72%)`),
 };

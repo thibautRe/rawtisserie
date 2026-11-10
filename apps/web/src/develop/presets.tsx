@@ -42,6 +42,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import { useShiftKey } from '../lib/useShiftKey.ts';
 import { type PresetInput, useDeletePreset, useMe, useSavePreset, useUserPresets } from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
+import { MenuThumbnail } from './thumbnails.tsx';
 import { instanceTitle } from './changes.ts';
 import { useStableCallback } from './useStableCallback.ts';
 
@@ -139,6 +140,7 @@ export const PresetMenu = memo(
     onApply,
     onPreview,
     onEndPreview,
+    recipeFor,
     onSave,
     onDelete,
   }: {
@@ -150,6 +152,8 @@ export const PresetMenu = memo(
     onPreview: (preset: ModulePreset | null) => void;
     /** Go back to the recipe from before the previews. */
     onEndPreview: () => void;
+    /** The recipe from before the previews with this preset applied: its thumbnail. */
+    recipeFor: (preset: ModulePreset) => EditParams;
     onSave: () => void;
     onDelete: (preset: ModulePreset) => void;
   }) => {
@@ -159,7 +163,8 @@ export const PresetMenu = memo(
     const item = (p: ModulePreset) => {
       const hint = presetHint(p);
       return (
-        <Menu.Item key={p.id} value={`apply:${p.id}`}>
+        <Menu.Item key={p.id} value={`apply:${p.id}`} py="1">
+          <MenuThumbnail recipe={() => recipeFor(p)} />
           <Text flex="1" truncate>
             {p.name}
           </Text>
@@ -645,6 +650,7 @@ export const StyleMenu = memo(function StyleMenu({
   onApply,
   onPreview,
   onEndPreview,
+  recipeFor,
   onCreate,
   onDelete,
   onCopy,
@@ -658,6 +664,8 @@ export const StyleMenu = memo(function StyleMenu({
   onPreview: (style: Style | 'paste' | null, appendAll: boolean) => void;
   /** Go back to the recipe from before the previews. */
   onEndPreview: () => void;
+  /** The recipe from before the previews with this style applied: its thumbnail. */
+  recipeFor: (style: Style) => EditParams;
   onCreate: () => void;
   onDelete: (style: Style) => void;
   /** Open the copy dialog. */
@@ -701,7 +709,8 @@ export const StyleMenu = memo(function StyleMenu({
         <Menu.Positioner>
           <Menu.Content minW="56">
             {styles.map((s) => (
-              <Menu.Item key={s.id} value={`apply:${s.id}`}>
+              <Menu.Item key={s.id} value={`apply:${s.id}`} py="1">
+                <MenuThumbnail recipe={() => recipeFor(s)} />
                 <Text flex="1" truncate>
                   {s.name}
                 </Text>

@@ -30,7 +30,9 @@ pub use crate::shapes::Shape;
 /// v5: filmic's toe/shoulder measure the linear share instead of the curved one.
 /// v6: colour calibration replaces warmth/tint, and does the white balance.
 /// v7: colour balance replaces colour (saturation/vibrance) and shadows/highlights.
-pub const CURRENT_VERSION: u32 = 7;
+/// v8: colour balance's global chroma, saturation and brilliance are added to each
+///     range's (the ranges' weights add up to 1, so it looks the same).
+pub const CURRENT_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Value")]
@@ -229,7 +231,7 @@ impl Default for EditParams {
         let mut params = Self { version: CURRENT_VERSION, modules: Vec::new(), shapes: BTreeMap::new() };
         params.add(Exposure::default());
         params.add(ColorCalibration::default());
-        params.add(ColorBalance { saturation: [0.2, 0.25, 0.0, 0.0], ..ColorBalance::default() });
+        params.add(ColorBalance { saturation: [0.45, 0.2, 0.2], ..ColorBalance::default() });
         params.add(Filmic::default());
         params
     }
@@ -936,7 +938,9 @@ pub const NEUTRAL_TEMPERATURE: f32 = 6504.0;
 /// [`crate::ops::color_balance`]. The image is split into shadows, mid-tones and
 /// highlights by luminance, with weights that always add up to 1.
 ///
-/// The grading arrays hold `[global, shadows, mid-tones, highlights]`.
+/// The grading arrays hold `[shadows, mid-tones, highlights]`. The weights adding up
+/// to 1, the same value in all three acts everywhere: what v7's separate global value
+/// did (read from a 4-value array, it's added to each).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ColorBalance {
@@ -944,12 +948,15 @@ pub struct ColorBalance {
     pub hue_shift: f32,
     /// Chroma for the muted colours more than for the saturated ones, -1 … 1.
     pub vibrance: f32,
-    /// Linear chroma, -1 (grey) … 1 (double).
-    pub chroma: [f32; 4],
-    /// Perceptual saturation (dt UCS), -1 … 1.
-    pub saturation: [f32; 4],
-    /// Perceptual brilliance (dt UCS), -1 … 1.
-    pub brilliance: [f32; 4],
+    /// Linear chroma, -2 … 2 (-1: grey, 1: double).
+    #[serde(deserialize_with = "grading")]
+    pub chroma: [f32; 3],
+    /// Perceptual saturation (dt UCS), -2 … 2.
+    #[serde(deserialize_with = "grading")]
+    pub saturation: [f32; 3],
+    /// Perceptual brilliance (dt UCS), -2 … 2.
+    #[serde(deserialize_with = "grading")]
+    pub brilliance: [f32; 3],
     /// The light correction and channel mix of each range.
     pub shadows: ToneMixer,
     pub midtones: ToneMixer,
@@ -972,9 +979,9 @@ impl Default for ColorBalance {
         Self {
             hue_shift: 0.0,
             vibrance: 0.0,
-            chroma: [0.0; 4],
-            saturation: [0.0; 4],
-            brilliance: [0.0; 4],
+            chroma: [0.0; 3],
+            saturation: [0.0; 3],
+            brilliance: [0.0; 3],
             shadows: ToneMixer::default(),
             midtones: ToneMixer::default(),
             highlights: ToneMixer::default(),
@@ -1006,7 +1013,7 @@ impl ColorBalance {
     /// approximately. Must match `fromColor` in TS.
     pub fn from_color(saturation: f32, vibrance: f32) -> Self {
         let mut p = Self::with_v7_ranges();
-        p.chroma[0] = saturation.clamp(-1.0, 1.0);
+        p.chroma = [saturation.clamp(-1.0, 1.0); 3];
         p.vibrance = vibrance.clamp(-1.0, 1.0);
         p
     }
@@ -1015,9 +1022,24 @@ impl ColorBalance {
     /// Must match `fromShadowsHighlights` in TS.
     pub fn from_shadows_highlights(shadows: f32, highlights: f32) -> Self {
         let mut p = Self::with_v7_ranges();
-        p.brilliance[1] = shadows.clamp(-1.0, 1.0);
-        p.brilliance[3] = highlights.clamp(-1.0, 1.0);
+        p.brilliance[0] = shadows.clamp(-1.0, 1.0);
+        p.brilliance[2] = highlights.clamp(-1.0, 1.0);
         p
+    }
+}
+
+/// A colour balance grading array: `[shadows, mid-tones, highlights]`, or v7's
+/// `[global, shadows, mid-tones, highlights]` with the global value added to each (each
+/// clamped to ±1 first, as v7 rendered them), rounded to 1e-4 so that TS (in f64) gets
+/// the same. Must match `foldGrading` in TS.
+fn grading<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[f32; 3], D::Error> {
+    let v = Vec::<f32>::deserialize(d)?;
+    let c = |x: f32| x.clamp(-1.0, 1.0);
+    let add = |g: f32, r: f32| ((c(g) as f64 + c(r) as f64) * 1e4).round() as f32 / 1e4;
+    match v[..] {
+        [s, m, h] => Ok([s, m, h]),
+        [g, s, m, h] => Ok([add(g, s), add(g, m), add(g, h)]),
+        _ => Err(serde::de::Error::invalid_length(v.len(), &"3 or 4 values")),
     }
 }
 
@@ -1575,7 +1597,7 @@ mod tests {
         assert_eq!(p.modules[1].id, "colorCalibration");
         assert_eq!(p.modules[0].id, "exposure");
         assert_eq!(p.get::<Exposure>().unwrap().ev, 0.7);
-        assert_eq!(p.get::<ColorBalance>().unwrap().saturation, [0.2, 0.25, 0.0, 0.0]);
+        assert_eq!(p.get::<ColorBalance>().unwrap().saturation, [0.45, 0.2, 0.2]);
         assert_eq!(p.get::<Filmic>(), Some(&Filmic::default()));
     }
 
@@ -1609,7 +1631,7 @@ mod tests {
         p.get_mut::<Sharpen>().amount = 0.5;
         p.add(Exposure { ev: -1.0, black: 0.0 });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.starts_with(r#"{"version":7,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
+        assert!(json.starts_with(r#"{"version":8,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
         assert_eq!(EditParams::from_json(&json).unwrap(), p);
     }
 
@@ -1806,9 +1828,9 @@ mod tests {
         .unwrap();
         assert_eq!(kinds(&p), [ModuleKind::ColorBalance; 3]);
         let [a, b, c] = [0, 1, 2].map(|i| ColorBalance::get(&p.modules[i].module).unwrap().clone());
-        assert_eq!((a.chroma, a.vibrance), ([0.4, 0.0, 0.0, 0.0], -0.2));
+        assert_eq!((a.chroma, a.vibrance), ([0.4; 3], -0.2));
         assert_eq!((p.modules[0].id.as_str(), p.modules[0].label.as_deref(), p.modules[0].mask.as_ref().map(|m| m.opacity)), ("pop", Some("pop"), Some(0.5)));
-        assert_eq!((b.brilliance, p.modules[1].enabled), ([0.0, 0.3, 0.0, -1.0], false));
+        assert_eq!((b.brilliance, p.modules[1].enabled), ([0.3, 0.0, -1.0], false));
         assert_eq!(c, ColorBalance::from_color(0.0, 0.0));
         // Migrated instances keep the ranges they were made with.
         assert_eq!((c.fulcrum, c.midtones_range, c.shadows_falloff), (0.0, 4.0, 2.0));
@@ -1818,6 +1840,23 @@ mod tests {
         assert_eq!(balances, [&ColorBalance::from_color(0.0, 0.2), &ColorBalance::from_shadows_highlights(0.0, -0.4)]);
         // v7 recipes have no such kinds.
         assert!(EditParams::from_json(r#"{"version":7,"modules":[{"kind":"color"}]}"#).is_err());
+    }
+
+    #[test]
+    fn folds_v7_global_grading_into_the_ranges() {
+        let p = EditParams::from_json(
+            r#"{"version":7,"modules":[{"kind":"colorBalance","params":{
+                "chroma":[0.1,0.2,0,-0.3],"saturation":[1.5,0.5,0,-2],"brilliance":[0.2,0.1,0.3]}}]}"#,
+        )
+        .unwrap();
+        let b = p.get::<ColorBalance>().unwrap();
+        let close = |a: [f32; 3], e: [f32; 3]| a.iter().zip(e).all(|(a, e)| (a - e).abs() < 1e-6);
+        assert!(close(b.chroma, [0.3, 0.1, -0.2]), "{:?}", b.chroma);
+        // Each clamped to ±1 first, as v7 rendered them.
+        assert!(close(b.saturation, [1.5, 1.0, 0.0]), "{:?}", b.saturation);
+        // Already three: as they are.
+        assert!(close(b.brilliance, [0.2, 0.1, 0.3]));
+        assert!(EditParams::from_json(r#"{"version":8,"modules":[{"kind":"colorBalance","params":{"chroma":[0,0]}}]}"#).is_err());
     }
 
     #[test]

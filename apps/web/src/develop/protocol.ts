@@ -34,6 +34,8 @@ export type WorkerRequest =
       /** Also draw this scope of the render (`scopes.ts`), without the overlays. */
       scope: ScopeRequest | null;
     }
+  /** A small final-quality render (`Developer.renderThumbnail`), apart from the interactive ones' caches. */
+  | { type: 'thumbnail'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
   | { type: 'export'; id: number; params: EditParams; options: ExportOptions; metadata: ExportMetadata }
   | { type: 'autoTuneFilmic'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
   | {
@@ -122,6 +124,7 @@ export type WorkerResponse =
       scope: { mode: ScopeMode; bitmap: ImageBitmap } | null;
       ms: number;
     }
+  | { type: 'thumbnail'; id: number; bitmap: ImageBitmap; ms: number }
   | { type: 'exported'; id: number; file: ArrayBuffer; ms: number }
   | { type: 'autoTunedFilmic'; id: number; white: number | null; black: number | null; ms: number }
   | { type: 'detectedIlluminant'; id: number; xy: [number, number] | null; ms: number }

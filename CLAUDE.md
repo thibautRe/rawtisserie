@@ -137,7 +137,7 @@ See README.md for the architecture overview and commands.
   deleted, so recipes keep rendering); `collectLuts` removes tables nobody has, at start.
   Built-in LUTs are files in `packages/pipeline/luts/` listed in `BUILTIN_LUTS`: never
   change or remove one (recipes refer to its id), retire it instead.
-- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 7).
+- Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 8).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
   Saved presets and styles (`presets.payload`) hold recipe fragments too: a migration

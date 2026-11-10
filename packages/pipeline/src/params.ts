@@ -138,7 +138,8 @@ export interface ModuleParams {
    * Colour balance, after Ansel's colour balance rgb (master tab) and split-toning rgb (a
    * light correction and channel mix per range). The image is split into shadows,
    * mid-tones and highlights by luminance, with weights that add up to 1
-   * (`toneRangeWeights`). Grading arrays hold `[global, shadows, mid-tones, highlights]`.
+   * (`toneRangeWeights`). Grading arrays hold `[shadows, mid-tones, highlights]`: the same
+   * value in all three acts everywhere (v7's separate global value, folded in by `foldGrading`).
    * Mirrors `params::ColorBalance`.
    */
   colorBalance: {
@@ -146,11 +147,11 @@ export interface ModuleParams {
     hueShift: number;
     /** Chroma for the muted colours more than for the saturated ones, -1 … 1. */
     vibrance: number;
-    /** Linear chroma, -1 (grey) … 1 (double). */
+    /** Linear chroma, -2 … 2 (-1: grey, 1: double). */
     chroma: number[];
-    /** Perceptual saturation (dt UCS), -1 … 1. */
+    /** Perceptual saturation (dt UCS), -2 … 2. */
     saturation: number[];
-    /** Perceptual brilliance (dt UCS), -1 … 1. */
+    /** Perceptual brilliance (dt UCS), -2 … 2. */
     brilliance: number[];
     shadows: ToneMixer;
     midtones: ToneMixer;
@@ -606,8 +607,10 @@ export type Bleach = (typeof BLEACH_LEVELS)[number];
  * v5: filmic's toe/shoulder measure the linear share instead of the curved one.
  * v6: colour calibration replaces warmth/tint, and does the white balance.
  * v7: colour balance replaces colour (saturation/vibrance) and shadows/highlights.
+ * v8: colour balance's global chroma, saturation and brilliance are added to each
+ *     range's (the ranges' weights add up to 1, so it looks the same).
  */
-export const EDIT_PARAMS_VERSION = 7;
+export const EDIT_PARAMS_VERSION = 8;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
@@ -664,9 +667,9 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
   colorBalance: {
     hueShift: 0,
     vibrance: 0,
-    chroma: [0, 0, 0, 0],
-    saturation: [0, 0, 0, 0],
-    brilliance: [0, 0, 0, 0],
+    chroma: [0, 0, 0],
+    saturation: [0, 0, 0],
+    brilliance: [0, 0, 0],
     shadows: defaultToneMixer(),
     midtones: defaultToneMixer(),
     highlights: defaultToneMixer(),
@@ -779,7 +782,7 @@ const legacyRanges = (): ModuleParams['colorBalance'] => ({
 function fromColor(saturation: number, vibrance: number): ModuleParams['colorBalance'] {
   const p = legacyRanges();
   const clamp = (v: number) => Math.min(1, Math.max(-1, v));
-  p.chroma[0] = clamp(saturation);
+  p.chroma = [clamp(saturation), clamp(saturation), clamp(saturation)];
   p.vibrance = clamp(vibrance);
   return p;
 }
@@ -788,8 +791,8 @@ function fromColor(saturation: number, vibrance: number): ModuleParams['colorBal
 function fromShadowsHighlights(shadows: number, highlights: number): ModuleParams['colorBalance'] {
   const p = legacyRanges();
   const clamp = (v: number) => Math.min(1, Math.max(-1, v));
-  p.brilliance[1] = clamp(shadows);
-  p.brilliance[3] = clamp(highlights);
+  p.brilliance[0] = clamp(shadows);
+  p.brilliance[2] = clamp(highlights);
   return p;
 }
 
@@ -832,7 +835,7 @@ export const defaultEditParams: EditParams = Object.freeze({
     instance('colorCalibration', 'colorCalibration'),
     {
       ...instance('colorBalance', 'colorBalance'),
-      params: { ...defaultModuleParams.colorBalance, saturation: [0.2, 0.25, 0, 0] },
+      params: { ...defaultModuleParams.colorBalance, saturation: [0.45, 0.2, 0.2] },
     },
     instance('filmic', 'filmic'),
   ],
@@ -1054,12 +1057,37 @@ export function toneCurveRange(p: Pick<ModuleParams['toneCurve'], 'range'>): [nu
   return [lo, Math.max(hi, lo + TONE_CURVE_MIN_RANGE)];
 }
 
+/** Colour balance's grading arrays, one value per range. */
+export const GRADING_KEYS = ['chroma', 'saturation', 'brilliance'] as const;
+
+/**
+ * Colour balance parameters with v7's `[global, shadows, mid-tones, highlights]` grading
+ * arrays as `[shadows, mid-tones, highlights]`, the global value added to each (each
+ * clamped to ±1 first, as v7 rendered them), rounded to 1e-4 like Rust's (in f32).
+ * Recipes, presets and styles of any version
+ * go through it. Mirrors `params::grading`.
+ */
+function foldGrading(input: unknown): unknown {
+  if (!isObject(input)) return input;
+  const out = { ...input };
+  const clamp = (v: number) => Math.min(1, Math.max(-1, v));
+  for (const key of GRADING_KEYS) {
+    const v = out[key];
+    if (Array.isArray(v) && v.length === 4 && v.every((x) => typeof x === 'number' && Number.isFinite(x))) {
+      const [g, ...ranges] = (v as number[]).map(clamp);
+      out[key] = ranges.map((r) => Math.round((g! + r) * 1e4) / 1e4);
+    }
+  }
+  return out;
+}
+
 /** The parameters of a `kind` instance from untrusted input: missing or invalid fields get their defaults. */
 export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): ModuleParams[K] {
   if (kind === 'retouch') {
     const spots = isObject(input) && Array.isArray(input.spots) ? input.spots : [];
     return { spots: spots.map(spotParams) } as ModuleParams[K];
   }
+  if (kind === 'colorBalance') input = foldGrading(input);
   const params = merge(defaultModuleParams[kind], input as DeepPartial<ModuleParams[K]>);
   if (kind === 'filmic') {
     const f = params as ModuleParams['filmic'];

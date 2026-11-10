@@ -286,7 +286,10 @@ test('instances of a module do not affect each other', async () => {
       const before = await slider.textContent();
       await slider.scrollIntoViewIfNeeded();
       const box = (await slider.locator('[data-part="control"]').boundingBox())!;
-      await page.mouse.click(box.x + box.width * 0.8, box.y + box.height / 2);
+      // Varied positions: some sliders move others (colour balance's Global moves its
+      // ranges), which must still change when clicked next.
+      const at = [0.8, 0.3, 0.65, 0.15][i % 4]!;
+      await page.mouse.click(box.x + box.width * at, box.y + box.height / 2);
       await settle();
       assert.notEqual(await slider.textContent(), before, `${kind} slider ${i}`);
       assert.equal(await section(`${kind} 1`).textContent(), first, `${kind} slider ${i}`);

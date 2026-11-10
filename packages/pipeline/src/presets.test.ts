@@ -97,7 +97,7 @@ test('styles replace or append instances', () => {
     ...findModule(defaultEditParams, 'colorBalance')!.params,
     ...p,
   });
-  let source = updateModule(defaultEditParams, 'colorBalance', { params: { chroma: [-1, 0, 0, 0] } });
+  let source = updateModule(defaultEditParams, 'colorBalance', { params: { chroma: [-1, -1, -1] } });
   source = updateModule(source, 'filmic', { params: { contrast: 1.6 } });
   source = updateInstance(source, 'colorBalance', 'colorBalance', { label: 'mono' });
   const style = styleFromRecipe(source, ['colorBalance', 'filmic']);
@@ -120,7 +120,7 @@ test('styles replace or append instances', () => {
       ['filmic', 'filmic'],
     ],
   );
-  assert.deepEqual(findModule(replaced, 'colorBalance')!.params, balance({ chroma: [-1, 0, 0, 0] }));
+  assert.deepEqual(findModule(replaced, 'colorBalance')!.params, balance({ chroma: [-1, -1, -1] }));
   assert.equal(findModule(replaced, 'colorBalance')!.label, 'mono');
   assert.equal(findModule(replaced, 'filmic')!.params.contrast, 1.6);
 
@@ -130,7 +130,7 @@ test('styles replace or append instances', () => {
     colors.map((m) => [m.id, m.params]),
     [
       ['colorBalance', balance({ vibrance: 0.5 })],
-      ['colorBalance-2', balance({ chroma: [-1, 0, 0, 0] })],
+      ['colorBalance-2', balance({ chroma: [-1, -1, -1] })],
     ],
   );
   assert.equal(appended.modules.filter((m) => m.kind === 'filmic').length, 1, 'filmic is single-instance');
@@ -365,4 +365,12 @@ test('a style instance can hold some groups of a module, applied onto the target
   assert.equal(balance.length, 1);
   assert.equal(balance[0]!.params.vibrance, 0.7);
   assert.equal(balance[0]!.params.fulcrum, findModule(target, 'colorBalance')!.params.fulcrum);
+});
+
+test("v7 presets' global grading is added to each range", () => {
+  const payload = normalizeModulePreset('colorBalance', {
+    version: 7,
+    params: { saturation: [0.2, 0.25, 0, 0], chroma: [0.1, 0.2, 0.3] },
+  });
+  assert.deepEqual(payload.params, { saturation: [0.45, 0.2, 0.2], chroma: [0.1, 0.2, 0.3] });
 });

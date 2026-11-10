@@ -234,10 +234,10 @@ const CHUNK: usize = 64;
 struct Grading {
     /// Hue rotation (cos, sin); (1, 0) without one.
     hue: [f32; 2],
-    chroma: [f32; 4],
+    chroma: [f32; 3],
     vibrance: f32,
-    saturation: [f32; 4],
-    brilliance: [f32; 4],
+    saturation: [f32; 3],
+    brilliance: [f32; 3],
     lms_from_rgb: Mat3,
     rgb_from_xyz: Mat3,
     xyz_from_rgb: Mat3,
@@ -251,8 +251,8 @@ struct Grading {
 }
 
 #[inline(always)]
-fn weighted(v: &[f32; 4], w: &[f32; 3]) -> f32 {
-    v[0] + v[1] * w[0] + v[2] * w[1] + v[3] * w[2]
+fn weighted(v: &[f32; 3], w: &[f32; 3]) -> f32 {
+    v[0] * w[0] + v[1] * w[1] + v[2] * w[2]
 }
 
 /// `2^(e·l)` where `l = log₂ x`, for `x > 0` (`ok`), 0 otherwise.
@@ -264,11 +264,11 @@ fn exp_if(ok: bool, e: f32, l: f32) -> f32 {
 
 impl Grading {
     fn new(p: &ColorBalance) -> Option<Self> {
-        let clamp4 = |v: [f32; 4]| v.map(|x| x.clamp(-1.0, 1.0));
-        let (chroma, saturation, brilliance) = (clamp4(p.chroma), clamp4(p.saturation), clamp4(p.brilliance));
+        let clamp3 = |v: [f32; 3]| v.map(|x| x.clamp(-2.0, 2.0));
+        let (chroma, saturation, brilliance) = (clamp3(p.chroma), clamp3(p.saturation), clamp3(p.brilliance));
         let vibrance = p.vibrance.clamp(-1.0, 1.0);
         let hue_shift = p.hue_shift.clamp(-180.0, 180.0);
-        let zero = |v: &[f32; 4]| v.iter().all(|&x| x == 0.0);
+        let zero = |v: &[f32; 3]| v.iter().all(|&x| x == 0.0);
         if hue_shift == 0.0 && vibrance == 0.0 && zero(&chroma) && zero(&saturation) && zero(&brilliance) {
             return None;
         }
@@ -601,7 +601,7 @@ mod tests {
         let v = stage(|p| p.vibrance = 0.5);
         assert!(grey(v.apply([0.5; 3]), 1e-4), "{:?}", v.apply([0.5; 3]));
         // Within the gamut, a muted colour comes back as it was (up to the fast maths).
-        let id = stage(|p| p.saturation = [0.0, 0.0, 0.0, 1e-9]);
+        let id = stage(|p| p.saturation = [0.0, 0.0, 1e-9]);
         for px in [[0.3f32, 0.2, 0.1], [0.05, 0.08, 0.1], [2.0, 1.8, 1.9]] {
             assert!(approx(id.apply(px), px, 2e-4), "{px:?}: {:?}", id.apply(px));
         }
@@ -609,15 +609,15 @@ mod tests {
 
     #[test]
     fn chroma_minus_one_is_grey_and_chroma_adds_colour() {
-        let s = stage(|p| p.chroma[0] = -1.0);
+        let s = stage(|p| p.chroma = [-1.0; 3]);
         let px = [0.4, 0.2, 0.1];
         let out = s.apply(px);
         assert!(grey(out, 1e-3), "{out:?}");
         let spread = |c: Rgb| (c[0] - c[2]) / luminance(c);
-        let more = stage(|p| p.chroma[0] = 0.5).apply(px);
+        let more = stage(|p| p.chroma = [0.5; 3]).apply(px);
         assert!(spread(more) > spread(px), "{more:?}");
         // In the highlights only: shadows are left alone.
-        let high = stage(|p| p.chroma[3] = 1.0);
+        let high = stage(|p| p.chroma[2] = 1.0);
         let dark = [0.004, 0.002, 0.001];
         assert!(approx(high.apply(dark), dark, 2e-3), "{:?}", high.apply(dark));
         assert!(spread(high.apply(px.map(|v| v * 20.0))) > spread(px));
@@ -627,14 +627,14 @@ mod tests {
     fn saturation_and_brilliance() {
         let px = [0.3, 0.15, 0.08];
         let spread = |c: Rgb| (c[0] - c[2]) / luminance(c);
-        let sat = stage(|p| p.saturation[0] = 0.5).apply(px);
-        let desat = stage(|p| p.saturation[0] = -0.5).apply(px);
+        let sat = stage(|p| p.saturation = [0.5; 3]).apply(px);
+        let desat = stage(|p| p.saturation = [-0.5; 3]).apply(px);
         assert!(spread(sat) > spread(px) && spread(desat) < spread(px), "{sat:?} {desat:?}");
-        let bright = stage(|p| p.brilliance[0] = 0.5).apply(px);
-        let dim = stage(|p| p.brilliance[0] = -0.5).apply(px);
+        let bright = stage(|p| p.brilliance = [0.5; 3]).apply(px);
+        let dim = stage(|p| p.brilliance = [-0.5; 3]).apply(px);
         assert!(luminance(bright) > luminance(px) && luminance(dim) < luminance(px), "{bright:?} {dim:?}");
         // Brilliance on a grey only changes its brightness.
-        let g = stage(|p| p.brilliance[2] = 1.0).apply([0.18; 3]);
+        let g = stage(|p| p.brilliance[1] = 1.0).apply([0.18; 3]);
         assert!(grey(g, 1e-3) && g[1] > 0.25, "{g:?}");
     }
 

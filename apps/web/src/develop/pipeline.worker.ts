@@ -66,6 +66,26 @@ function prepareLuts(dev: Developer, params: EditParams) {
   }
 }
 
+/** The LUTs loaded for thumbnails only, least recently used first (the LUT menu's go through all). */
+let thumbnailLuts: string[] = [];
+
+/**
+ * Load the LUTs a thumbnail of `params` uses that the developer doesn't have, for
+ * thumbnails only: they don't go to the pool, and few stay.
+ */
+function prepareThumbnailLuts(dev: Developer, params: EditParams) {
+  const needed = lutIds(params).filter((id) => lutBytes.has(id) && !dev.hasLut(id));
+  for (const id of needed) {
+    if (!thumbnailLuts.includes(id)) dev.loadThumbnailLut(lutBytes.get(id)!);
+    thumbnailLuts = [...thumbnailLuts.filter((x) => x !== id), id];
+  }
+  while (thumbnailLuts.length > needed.length + SPARE_LUTS) {
+    const id = thumbnailLuts.find((x) => !needed.includes(x))!;
+    dev.unloadThumbnailLut(id);
+    thumbnailLuts = thumbnailLuts.filter((x) => x !== id);
+  }
+}
+
 /** The last sensor mapping, by the lens and geometry instances it comes from. */
 let mapping: { key: string; value: SensorMapping } | null = null;
 function sensorMapping(dev: Developer, params: EditParams, json: string): SensorMapping {
@@ -75,11 +95,25 @@ function sensorMapping(dev: Developer, params: EditParams, json: string): Sensor
 }
 
 // One message at a time: pool renders await their workers, and nothing else may touch
-// the developer meanwhile.
-let queue = Promise.resolve();
+// the developer meanwhile. Thumbnails (menu previews) wait until nothing else does, so
+// that a menu's worth of them doesn't hold up the render of the highlighted item.
+const urgent: WorkerRequest[] = [];
+const idle: WorkerRequest[] = [];
+let running = false;
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  queue = queue.then(() => handle(event.data));
+  (event.data.type === 'thumbnail' ? idle : urgent).push(event.data);
+  void run();
 };
+
+async function run() {
+  if (running) return;
+  running = true;
+  try {
+    for (let msg = urgent.shift() ?? idle.shift(); msg; msg = urgent.shift() ?? idle.shift()) await handle(msg);
+  } finally {
+    running = false;
+  }
+}
 
 async function handle(msg: WorkerRequest) {
   const started = performance.now();
@@ -104,6 +138,7 @@ async function handle(msg: WorkerRequest) {
       // The new developer has none: the pool's go too, and come back as recipes use them.
       for (const id of loadedLuts) pool?.unloadLut(id);
       loadedLuts = [];
+      thumbnailLuts = [];
       developer = new Developer(new Uint8Array(msg.bytes));
       mapping = null;
       pool?.invalidate();
@@ -111,7 +146,8 @@ async function handle(msg: WorkerRequest) {
       return;
     }
     if (!developer) throw new Error('No RAW file loaded');
-    if (msg.type !== 'fitPerspective') prepareLuts(developer, msg.params);
+    if (msg.type === 'thumbnail') prepareThumbnailLuts(developer, msg.params);
+    else if (msg.type !== 'fitPerspective') prepareLuts(developer, msg.params);
     const params = JSON.stringify(msg.params);
     if (msg.type === 'render') {
       const isDraft = msg.fullWidth !== msg.maxWidth || msg.fullHeight !== msg.maxHeight;
@@ -193,6 +229,12 @@ async function handle(msg: WorkerRequest) {
         developer.paintOverlays(params, msg.maxWidth, msg.maxHeight, data, width, height, json, region);
       }
       await rendered(data, width, height, scope);
+    } else if (msg.type === 'thumbnail') {
+      const img = developer.renderThumbnail(params, msg.maxWidth, msg.maxHeight);
+      const { width, height } = img;
+      const bitmap = await toBitmap(img.takeData(), width, height);
+      img.free();
+      post({ type: 'thumbnail', id: msg.id, bitmap, ms: performance.now() - started }, [bitmap]);
     } else if (msg.type === 'autoTuneFilmic') {
       const [white, black] = developer.autoTuneFilmic(params, msg.maxWidth, msg.maxHeight);
       post({

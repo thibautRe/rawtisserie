@@ -3,10 +3,11 @@
  * highlighted (like module presets), plus adding a file and removing the user's.
  */
 import { Box, Button, Menu, Portal, Stack, Text } from '@chakra-ui/react';
-import type { LutRef } from '@rawtisserie/pipeline';
+import type { EditParams, LutRef } from '@rawtisserie/pipeline';
 import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { memo, useRef } from 'react';
 import { LUT_ACCEPT, type LutChoice } from './luts.ts';
+import { MenuThumbnail } from './thumbnails.tsx';
 
 export const LutMenu = memo(
   ({
@@ -19,6 +20,7 @@ export const LutMenu = memo(
     onPick,
     onPreview,
     onEndPreview,
+    recipeFor,
     onAdd,
     onRemove,
   }: {
@@ -35,6 +37,8 @@ export const LutMenu = memo(
     onPreview: (lut: LutChoice | undefined) => void;
     /** Go back to the recipe from before the previews. */
     onEndPreview: () => void;
+    /** The recipe from before the previews with this LUT: its thumbnail. */
+    recipeFor: (lut: LutChoice) => EditParams;
     onAdd: (file: File) => void;
     onRemove: (lut: LutChoice) => void;
   }) => {
@@ -45,7 +49,8 @@ export const LutMenu = memo(
       return [...builtIn, ...own].find((l) => l.id === id);
     };
     const item = (l: LutChoice) => (
-      <Menu.Item key={l.id} value={`lut:${l.id}`}>
+      <Menu.Item key={l.id} value={`lut:${l.id}`} py="1">
+        <MenuThumbnail recipe={() => recipeFor(l)} />
         <Stack gap="0" flex="1" minW="0">
           <Text truncate fontWeight={l.id === current?.id ? 'semibold' : undefined}>
             {l.name}

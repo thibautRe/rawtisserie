@@ -51,6 +51,11 @@ export interface RenderBackend {
     region?: Region | null,
     scope?: ScopeRequest | null,
   ): Promise<Frame>;
+  /**
+   * A small final-quality render within `maxWidth × maxHeight` (menu previews), with
+   * caches of its own so it doesn't slow down the interactive renders after it.
+   */
+  thumbnail(params: EditParams, maxWidth: number, maxHeight: number): Promise<ImageBitmap>;
   /** A final-quality export: the file, typed by its format. */
   export(params: EditParams, options: ExportOptions, metadata: ExportMetadata): Promise<Blob>;
   /** Filmic white/black relative exposures measured on the image, or null. */

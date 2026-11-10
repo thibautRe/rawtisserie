@@ -54,14 +54,15 @@ const paramName = (kind: ModuleKind, key: string) =>
       : `${key} curve`
     : words(key);
 
-/** Colour balance's grading arrays: `[global, shadows, mid-tones, highlights]`. */
+/** Colour balance's grading arrays: `[shadows, mid-tones, highlights]`. */
 const BALANCE_ARRAYS = ['chroma', 'saturation', 'brilliance'];
-const BALANCE_RANGES = ['global', 'shadows', 'mid-tones', 'highlights'];
+const BALANCE_RANGES = ['shadows', 'mid-tones', 'highlights'];
 
 /**
  * One changed parameter, as named in history labels. Colour balance's arrays and mixers
  * name the range and the field when only one of them changed ("shadows saturation 0.3",
- * "highlights temperature 4500").
+ * "highlights temperature 4500"); an array whose ranges all moved by the same amount
+ * (its Global slider) is named by their average ("global saturation 0.3").
  */
 function describeParam(kind: ModuleKind, key: string, before: unknown, after: unknown): string {
   if (kind === 'colorBalance') {
@@ -69,6 +70,11 @@ function describeParam(kind: ModuleKind, key: string, before: unknown, after: un
     if (BALANCE_ARRAYS.includes(key) && Array.isArray(after) && Array.isArray(before)) {
       const changed = after.map((_, i) => i).filter((i) => !same(before[i], after[i]));
       if (changed.length === 1) return `${BALANCE_RANGES[changed[0]!]} ${key} ${formatValue(after[changed[0]!])}`;
+      const shifts = after.map((v, i) => (v as number) - (before[i] as number));
+      if (changed.length === after.length && shifts.every((d) => Math.abs(d - shifts[0]!) < 1e-6)) {
+        const mean = (after as number[]).reduce((a, b) => a + b, 0) / after.length;
+        return `global ${key} ${formatValue(mean)}`;
+      }
     } else if (typeof after === 'object' && after !== null && !Array.isArray(after) && before) {
       const fields = Object.entries(after).filter(([k, v]) => !same((before as Record<string, unknown>)[k], v));
       const [k, v] = fields[0] ?? [];

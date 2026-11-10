@@ -240,7 +240,7 @@ fn masked_regions_match() {
     assert!(worst <= 1, "tone curve overlay differs by up to {worst} levels");
     assert_ne!(part.data, plain.data, "the tone curve overlay shows");
     // And colour balance's ranges.
-    p.add(rawtisserie_pipeline::params::ColorBalance { chroma: [0.2, 0.0, 0.0, 0.0], ..Default::default() });
+    p.add(rawtisserie_pipeline::params::ColorBalance { chroma: [0.2; 3], ..Default::default() });
     let id = p.modules.iter().find(|m| m.module.kind() == rawtisserie_pipeline::params::ModuleKind::ColorBalance).unwrap().id.clone();
     for range in 0..3 {
         let view = rawtisserie_pipeline::ops::clipping::ToneRangeView { id: id.clone(), range };

@@ -217,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         time("masked exposure slider, soft light", &mut dev, &p);
     }
     p.modules[sky].mask.as_mut().unwrap().blend = BlendMode::Normal;
-    let i = p.add(ColorBalance { chroma: [0.5, 0.0, 0.0, 0.0], ..Default::default() });
+    let i = p.add(ColorBalance { chroma: [0.5; 3], ..Default::default() });
     p.modules[i].mask = Some(Mask { drawn: vec![DrawnShape { shape: "spot".into(), ..Default::default() }], ..Mask::default() });
     time("second mask added", &mut dev, &p);
     p.get_mut::<Exposure>().ev += 0.1;

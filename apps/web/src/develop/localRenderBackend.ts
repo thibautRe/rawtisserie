@@ -131,6 +131,17 @@ export class LocalRenderBackend implements RenderBackend {
     };
   }
 
+  async thumbnail(params: EditParams, maxWidth: number, maxHeight: number): Promise<ImageBitmap> {
+    await this.sendLuts(params);
+    const r = await this.call<Extract<WorkerResponse, { type: 'thumbnail' }>>({
+      type: 'thumbnail',
+      params,
+      maxWidth,
+      maxHeight,
+    });
+    return r.bitmap;
+  }
+
   async export(params: EditParams, options: ExportOptions, metadata: ExportMetadata): Promise<Blob> {
     await this.sendLuts(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({

@@ -508,12 +508,12 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     temperature: 3200,
     adaptation: 'cat16',
   }),
-  builtIn('colorBalance', 'vivid', 'Vivid', { chroma: [0.15, 0, 0, 0], vibrance: 0.3 }),
-  builtIn('colorBalance', 'muted', 'Muted', { chroma: [-0.3, 0, 0, 0], vibrance: 0 }),
+  builtIn('colorBalance', 'vivid', 'Vivid', { chroma: [0.15, 0.15, 0.15], vibrance: 0.3 }),
+  builtIn('colorBalance', 'muted', 'Muted', { chroma: [-0.3, -0.3, -0.3], vibrance: 0 }),
   // Ansel's colour balance rgb presets: more saturation, mostly in the shadows.
-  builtIn('colorBalance', 'colorfulness-skin', 'Colorfulness: natural skin', { saturation: [0.2, 0.3, 0, 0] }),
-  builtIn('colorBalance', 'colorfulness-standard', 'Colorfulness: standard', { saturation: [0.2, 0.25, 0, 0] }),
-  builtIn('colorBalance', 'colorfulness-vibrant', 'Colorfulness: vibrant', { saturation: [0.2, 0.5, 0, 0] }),
+  builtIn('colorBalance', 'colorfulness-skin', 'Colorfulness: natural skin', { saturation: [0.5, 0.2, 0.2] }),
+  builtIn('colorBalance', 'colorfulness-standard', 'Colorfulness: standard', { saturation: [0.45, 0.2, 0.2] }),
+  builtIn('colorBalance', 'colorfulness-vibrant', 'Colorfulness: vibrant', { saturation: [0.7, 0.2, 0.2] }),
   // Split-toning: shadows corrected as if lit by a warm light (so cooler), highlights as
   // if lit by a cool one (so warmer).
   builtIn('colorBalance', 'teal-orange', 'Split-toning: teal and orange', {

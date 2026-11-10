@@ -419,7 +419,7 @@ export function LibraryPage() {
             aria-label={['Thumbnail size']}
           >
             <Slider.Control>
-              <Slider.Track>
+              <Slider.Track h="1px">
                 <Slider.Range />
               </Slider.Track>
               <Slider.Thumbs />

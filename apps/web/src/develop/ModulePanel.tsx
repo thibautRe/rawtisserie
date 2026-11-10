@@ -112,7 +112,7 @@ import {
   Crop,
   EllipsisVertical,
   Ruler,
-  FlipHorizontal2,
+  TrianglesCenterlineDashedVertical,
   Pencil,
   Pipette,
   Plus,
@@ -751,7 +751,27 @@ const BALANCE_GRADING = [
     hint: 'Perceptual brightness (darktable UCS), keeping the saturation',
   },
 ] as const;
+/**
+ * Colour balance's grading sliders: Global (the ranges' average, which moves all three)
+ * and one per range (the values stored).
+ */
 const GRADING_LABELS = ['Global', 'Shadows', 'Mid-tones', 'Highlights'] as const;
+/** What a range's grading value can be typed to (dragging stays within ±1). */
+const GRADING_HARD = 2;
+/**
+ * Tracks of the grading sliders, as `GRADING_LABELS`: the global one plain, the ranges'
+ * darker for the shadows and brighter for the highlights. Chroma and saturation: the
+ * same OKLCH hue for all three, so they differ in lightness only (HSL's hue drifts to yellow).
+ */
+const GRADING_COLOR_TRACKS = [
+  undefined,
+  tracks.chroma(0.56, 0.15, 48),
+  tracks.chroma(0.678, 0.179, 48), // hsl(25 85% 50%), the orange of the other saturation tracks
+  tracks.chroma(0.78, 0.135, 48), // as much chroma as sRGB has at this lightness
+];
+const GRADING_GREY_TRACKS = [undefined, tracks.lightness(0.14, 0.66), tracks.grey, tracks.lightness(0.42, 0.99)];
+const mean3 = (v: readonly number[]) => (v[0]! + v[1]! + v[2]!) / 3;
+const sameValues = (a: readonly number[], b: readonly number[]) => a.every((x, i) => x === b[i]);
 /** The luminances the weights graph spans, EV relative to middle grey. */
 const RANGE_GRAPH_EV = [-10, 8] as const;
 
@@ -1025,10 +1045,16 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   // The instance (or the empty kind's future one) being saved as a preset.
   const [savingPreset, setSavingPreset] = useState<{ kind: ModuleKind; id: string; title: string } | null>(null);
   const onSavePresetClose = useStableCallback(() => setSavingPreset(null));
+  // A colour balance Global slider being dragged: the ranges it started from (see `bindGrading`).
+  const globalDrag = useRef<{ id: string; key: string; from: number[]; wrote: readonly number[] } | null>(null);
   const onSavePreset = useStableCallback((input: PresetInput) => latest.current.onSavePreset?.(input));
 
   // While a preset or LUT menu item is highlighted, it's shown on the image.
-  const { preview, end: endPreview } = useRecipePreview(
+  const {
+    preview,
+    end: endPreview,
+    before: beforePreview,
+  } = useRecipePreview(
     () => latest.current.params,
     (p) => latest.current.onChange(p),
   );
@@ -1149,6 +1175,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                           )
                         }
                         onEndPreview={endPreview}
+                        recipeFor={(preset) =>
+                          applyModulePreset(beforePreview(), kind, id, preset.payload as ModulePresetPayload<K>)
+                        }
                         onSave={() => setSavingPreset({ kind, id, title })}
                         onDelete={(preset) => latest.current.onDeletePreset(preset)}
                       />
@@ -1256,13 +1285,42 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   type BalanceEditor = ReturnType<typeof editor<'colorBalance'>>;
 
   /** Props for a slider bound to one entry of a colour balance grading array. */
+  /**
+   * Props for colour balance grading slider `i` of `GRADING_LABELS`. Global shows the
+   * ranges' average and moves all three by as much (the weights add up to 1, so that's
+   * the same as the global value v7 had); a range moving moves it by a third as much.
+   */
   function bindGrading(e: BalanceEditor, key: 'chroma' | 'saturation' | 'brilliance', i: number) {
-    const with_ = (v: number) => e.edit({ [key]: e.current()[key].map((c, j) => (j === i ? v : c)) });
+    if (i > 0) {
+      const with_ = (v: number) => e.edit({ [key]: e.current()[key].map((c, j) => (j === i - 1 ? v : c)) });
+      return {
+        value: e.values[key][i - 1]!,
+        defaultValue: e.defaults[key][i - 1]!,
+        onChange: (v: number) => latest.current.onChange(with_(v)),
+        onCommit: (v: number) => latest.current.onCommit(with_(v)),
+      };
+    }
+    // Shifted from where the ranges were when the drag started, so that one that hits
+    // the limit gets back to where it was when the others come back.
+    const with_ = (v: number) => {
+      const current = e.current()[key];
+      let o = globalDrag.current;
+      if (!o || o.id !== e.id || o.key !== key || !sameValues(current, o.wrote))
+        o = globalDrag.current = { id: e.id, key, from: [...current], wrote: current };
+      const shift = v - mean3(o.from);
+      const clamp = (x: number) => Math.min(GRADING_HARD, Math.max(-GRADING_HARD, x));
+      o.wrote = o.from.map((x) => Math.round(clamp(x + shift) * 1e4) / 1e4);
+      return e.edit({ [key]: o.wrote });
+    };
     return {
-      value: e.values[key][i]!,
-      defaultValue: e.defaults[key][i]!,
+      value: mean3(e.values[key]),
+      defaultValue: mean3(e.defaults[key]),
       onChange: (v: number) => latest.current.onChange(with_(v)),
-      onCommit: (v: number) => latest.current.onCommit(with_(v)),
+      onCommit: (v: number) => {
+        const p = with_(v);
+        globalDrag.current = null;
+        latest.current.onCommit(p);
+      },
     };
   }
 
@@ -1975,7 +2033,15 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 <ParamSlider label="Vibrance" min={-1} max={1} step={0.01} {...e.bind('vibrance')} />
                 {BALANCE_GRADING.map((g) => (
                   <Fragment key={g.key}>
-                    <Text textStyle="2xs" fontWeight="medium" color="fg.muted" pt="1" title={g.hint}>
+                    <Text
+                      textStyle="xs"
+                      fontFamily="label"
+                      fontWeight="semibold"
+                      textTransform="uppercase"
+                      letterSpacing="wider"
+                      pt="2"
+                      title={g.hint}
+                    >
                       {g.title}
                     </Text>
                     {GRADING_LABELS.map((label, i) => (
@@ -1984,8 +2050,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         label={label}
                         min={-1}
                         max={1}
+                        hardMin={-GRADING_HARD}
+                        hardMax={GRADING_HARD}
                         step={0.01}
-                        track={g.key === 'brilliance' ? tracks.grey : tracks.saturation(25)}
+                        track={(g.key === 'brilliance' ? GRADING_GREY_TRACKS : GRADING_COLOR_TRACKS)[i]}
                         {...bindGrading(e, g.key, i)}
                       />
                     ))}
@@ -2632,6 +2700,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   onPick={(lut) => latest.current.onCommit(withLut(endPreview(), lut), `${title}: ${lut.name}`)}
                   onPreview={(lut) => preview(lut === undefined ? null : (p) => withLut(p, lut))}
                   onEndPreview={endPreview}
+                  recipeFor={(lut) => withLut(beforePreview(), lut)}
                   onAdd={(file) =>
                     void latest.current.onAddLut(file).then((lut) => {
                       if (lut) commit((p) => withLut(p, lut), `${title}: ${lut.name}`);
@@ -2799,7 +2868,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 variant={e.values.flipHorizontal ? 'solid' : 'outline'}
                 onClick={() => e.set({ flipHorizontal: !e.values.flipHorizontal })}
               >
-                <FlipHorizontal2 />
+                <TrianglesCenterlineDashedVertical />
               </IconButton>
             </ButtonGroup>
             <Button

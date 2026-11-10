@@ -550,6 +550,13 @@ impl ClutStore {
         self.luts.remove(id).is_some()
     }
 
+    /// Also have `other`'s LUTs (shared, not copied).
+    pub fn extend(&mut self, other: &ClutStore) {
+        for (id, lut) in &other.luts {
+            self.luts.entry(id.clone()).or_insert_with(|| std::rc::Rc::clone(lut));
+        }
+    }
+
     pub fn ids(&self) -> impl Iterator<Item = &str> {
         self.luts.keys().map(String::as_str)
     }

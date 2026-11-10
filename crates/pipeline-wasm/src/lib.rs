@@ -151,6 +151,10 @@ impl RenderedImage {
 #[wasm_bindgen]
 pub struct Developer {
     inner: pipeline::Developer,
+    /// For `renderThumbnail`, created on first use.
+    thumbnails: Option<pipeline::Developer>,
+    /// LUTs loaded for thumbnails only (`loadThumbnailLut`).
+    thumbnail_luts: pipeline::ops::clut::ClutStore,
 }
 
 #[wasm_bindgen]
@@ -159,6 +163,8 @@ impl Developer {
     pub fn new(bytes: &[u8]) -> Result<Developer, JsError> {
         Ok(Self {
             inner: pipeline::Developer::from_bytes(bytes).map_err(js_err)?,
+            thumbnails: None,
+            thumbnail_luts: Default::default(),
         })
     }
 
@@ -194,6 +200,25 @@ impl Developer {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
         let overlays: Overlays = serde_json::from_str(overlays_json).map_err(js_err)?;
         let img = self.inner.render_with_overlays(&params, render_size(max_width, max_height, region)?, Quality::Interactive, &overlays);
+        Ok(RenderedImage {
+            width: img.width as u32,
+            height: img.height as u32,
+            data: img.data,
+        })
+    }
+
+    /// A small final-quality render (menu previews of presets and styles), from a
+    /// developer of the same photo with caches of its own: tiny renders would otherwise
+    /// evict the base image the interactive ones use. It has the LUTs loaded here and
+    /// those loaded for it (`loadThumbnailLut`).
+    #[wasm_bindgen(js_name = renderThumbnail)]
+    pub fn render_thumbnail(&mut self, params_json: &str, max_width: u32, max_height: u32) -> Result<RenderedImage, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let thumbnails = self.thumbnails.get_or_insert_with(|| self.inner.sibling());
+        let luts = thumbnails.luts_mut();
+        *luts = self.inner.luts().clone();
+        luts.extend(&self.thumbnail_luts);
+        let img = thumbnails.render(&params, RenderSize::fit(max_width, max_height), Quality::Final);
         Ok(RenderedImage {
             width: img.width as u32,
             height: img.height as u32,
@@ -353,6 +378,17 @@ impl Developer {
     #[wasm_bindgen(js_name = loadLut)]
     pub fn load_lut(&mut self, bytes: &[u8]) -> Result<String, JsError> {
         self.inner.luts_mut().load(bytes).map_err(js_err)
+    }
+
+    /// Make a LUT available to `renderThumbnail` only (menus show many); returns its id.
+    #[wasm_bindgen(js_name = loadThumbnailLut)]
+    pub fn load_thumbnail_lut(&mut self, bytes: &[u8]) -> Result<String, JsError> {
+        self.thumbnail_luts.load(bytes).map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = unloadThumbnailLut)]
+    pub fn unload_thumbnail_lut(&mut self, id: &str) -> bool {
+        self.thumbnail_luts.remove(id)
     }
 
     #[wasm_bindgen(js_name = hasLut)]

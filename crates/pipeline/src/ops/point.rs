@@ -861,8 +861,8 @@ mod tests {
     #[test]
     fn repeated_steps_use_the_generic_chain() {
         let o = ops(|p| {
-            p.get_mut::<params::ColorBalance>().chroma[0] = -0.5;
-            p.add(params::ColorBalance { chroma: [-1.0, 0.0, 0.0, 0.0], ..Default::default() });
+            p.get_mut::<params::ColorBalance>().chroma = [-0.5; 3];
+            p.add(params::ColorBalance { chroma: [-1.0; 3], ..Default::default() });
         });
         assert!(matches!(&o.chain, Chain::Steps(steps) if steps.len() == 3));
         let [r, g, b] = o.adjust([0.5, 0.2, 0.1]);
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn no_chroma_gives_grey() {
-        let [r, g, b] = ops(|p| p.get_mut::<params::ColorBalance>().chroma[0] = -1.0).adjust([0.5, 0.2, 0.1]);
+        let [r, g, b] = ops(|p| p.get_mut::<params::ColorBalance>().chroma = [-1.0; 3]).adjust([0.5, 0.2, 0.1]);
         assert!((r - g).abs() < 1e-4 && (g - b).abs() < 1e-4, "{r} {g} {b}");
     }
 
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn shadows_brilliance_lifts_darks_only() {
-        let o = ops(|p| p.get_mut::<params::ColorBalance>().brilliance[1] = 1.0);
+        let o = ops(|p| p.get_mut::<params::ColorBalance>().brilliance[0] = 1.0);
         let dark = o.adjust([0.01; 3])[0] / 0.01;
         let bright = o.adjust([4.0; 3])[0];
         assert!(dark > 1.5 && (bright / 4.0 - 1.0).abs() < 0.01, "{dark} {bright}");
@@ -900,12 +900,12 @@ mod tests {
     #[test]
     fn tone_curve_runs_last_in_the_fixed_chain() {
         let o = ops(|p| {
-            p.get_mut::<params::ColorBalance>().chroma[0] = -1.0;
+            p.get_mut::<params::ColorBalance>().chroma = [-1.0; 3];
             p.get_mut::<params::ToneCurve>().rgb = [1.0; params::TONE_CURVE_NODES];
         });
         assert!(matches!(o.chain, Chain::Fixed { color_balance: Some(_), tone_curve: Some(_), .. }));
         let [r, g, b] = o.adjust([0.3, 0.1, 0.05]);
-        let grey = ops(|p| p.get_mut::<params::ColorBalance>().chroma[0] = -1.0).adjust([0.3, 0.1, 0.05]);
+        let grey = ops(|p| p.get_mut::<params::ColorBalance>().chroma = [-1.0; 3]).adjust([0.3, 0.1, 0.05]);
         assert!((r - g).abs() < 1e-4 * r && (g - b).abs() < 1e-4 * r && (r / grey[1] - 2.0).abs() < 1e-2, "{r} {grey:?}");
     }
 

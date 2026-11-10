@@ -259,7 +259,7 @@ export const ParamSlider = memo(
           )}
         </HStack>
         <Slider.Control minH="3.5">
-          <Slider.Track h="2px" bg="bg.emphasized">
+          <Slider.Track h="1px" bg="bg.emphasized">
             {track ? (
               <div
                 style={{ ...segment, left: percent(min), right: `calc(100% - ${percent(max)})`, background: track }}

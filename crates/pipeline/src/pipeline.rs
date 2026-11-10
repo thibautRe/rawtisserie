@@ -94,7 +94,8 @@ impl RenderSize {
 /// but it means the most-used sliders never invalidate the spatial stages. The
 /// contrast equalizer works on log luminance, so exposure doesn't affect it either.
 pub struct Developer {
-    photo: RawPhoto,
+    /// Shared with [`sibling`](Self::sibling)s.
+    photo: Rc<RawPhoto>,
     base: Option<(usize, Image)>,
     /// The spots applied to the base.
     base_retouch: Retouched,
@@ -421,6 +422,10 @@ impl Developer {
     }
 
     pub fn new(photo: RawPhoto) -> Self {
+        Self::with_photo(Rc::new(photo))
+    }
+
+    fn with_photo(photo: Rc<RawPhoto>) -> Self {
         Self {
             photo,
             base: None,
@@ -431,6 +436,13 @@ impl Developer {
             point_ops: PointOpsCache::default(),
             sensor_clip: None,
         }
+    }
+
+    /// Another developer of the same photo, without copying it, with caches of its own:
+    /// renders at very different sizes (e.g. thumbnails) there don't evict these. LUTs
+    /// aren't shared: load them in each.
+    pub fn sibling(&self) -> Developer {
+        Self::with_photo(Rc::clone(&self.photo))
     }
 
     pub fn photo(&self) -> &RawPhoto {
