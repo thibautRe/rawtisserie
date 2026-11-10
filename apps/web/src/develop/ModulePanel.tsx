@@ -14,6 +14,7 @@ import {
   Tabs,
   Text,
 } from '@chakra-ui/react';
+import { CompactTab, CompactTabs } from '../components/CompactTabs.tsx';
 import {
   ADAPTATIONS,
   type Adaptation,
@@ -338,6 +339,7 @@ export function Module({
         <Heading
           size="xs"
           fontSize="2xs"
+          fontFamily="label"
           textTransform="uppercase"
           letterSpacing="wider"
           color={modified ? 'orange.fg' : 'fg.muted'}
@@ -1421,15 +1423,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
               Edit as
             </Text>
-            <Tabs.Root size="sm" variant="subtle" value={view} onValueChange={(d) => setView(d.value as MixerView)}>
-              <Tabs.List aria-label="Mixer view" gap="0.5" minH="0" p="0" alignItems="center">
-                {MIXER_VIEWS.map((m) => (
-                  <Tabs.Trigger key={m} value={m} title={MIXER_VIEW_TITLES[m]} h="5" px="1.5" textStyle="2xs">
-                    {MIXER_VIEW_LABELS[m]}
-                  </Tabs.Trigger>
-                ))}
-              </Tabs.List>
-            </Tabs.Root>
+            <CompactTabs label="Mixer view" value={view} onChange={setView}>
+              {MIXER_VIEWS.map((m) => (
+                <CompactTab key={m} value={m} title={MIXER_VIEW_TITLES[m]}>
+                  {MIXER_VIEW_LABELS[m]}
+                </CompactTab>
+              ))}
+            </CompactTabs>
           </HStack>
         }
         {view === 'primaries' && !primariesFromMatrix(white, matrix) && (
@@ -1995,31 +1995,24 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
                     Range
                   </Text>
-                  <Tabs.Root
-                    size="sm"
-                    variant="subtle"
-                    value={range}
-                    onValueChange={(d) => e.setView({ balanceRange: d.value as ToneRange })}
-                  >
-                    <Tabs.List aria-label="Range" gap="0.5" minH="0" p="0" alignItems="center">
-                      {TONE_RANGES.map((r) => (
-                        <Tabs.Trigger key={r} value={r} h="5" px="1.5" textStyle="2xs" position="relative">
-                          {RANGE_LABELS[r]}
-                          {differs(v[r], e.defaults[r]) && (
-                            <Box
-                              position="absolute"
-                              top="0.5"
-                              right="0"
-                              boxSize="1"
-                              borderRadius="full"
-                              bg="orange.solid"
-                              aria-label="modified"
-                            />
-                          )}
-                        </Tabs.Trigger>
-                      ))}
-                    </Tabs.List>
-                  </Tabs.Root>
+                  <CompactTabs label="Range" value={range} onChange={(r) => e.setView({ balanceRange: r })}>
+                    {TONE_RANGES.map((r) => (
+                      <CompactTab key={r} value={r} position="relative">
+                        {RANGE_LABELS[r]}
+                        {differs(v[r], e.defaults[r]) && (
+                          <Box
+                            position="absolute"
+                            top="0.5"
+                            right="0"
+                            boxSize="1"
+                            borderRadius="full"
+                            bg="orange.solid"
+                            aria-label="modified"
+                          />
+                        )}
+                      </CompactTab>
+                    ))}
+                  </CompactTabs>
                 </HStack>
                 <ParamSlider
                   key={`${range}-temperature`}
@@ -2344,24 +2337,21 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 <Switch.Label textStyle="xs">Preserve detail</Switch.Label>
               </Switch.Root>
               {independent && (
-                <Tabs.Root
-                  size="sm"
-                  variant="subtle"
+                <CompactTabs
+                  label="Channel"
                   value={e.view.toneChannel}
-                  onValueChange={(d) => {
-                    e.setView({ toneChannel: d.value as ToneChannel });
-                    updateView({ channel: TONE_CHANNELS.indexOf(d.value as ToneChannel), node: null });
+                  onChange={(c) => {
+                    e.setView({ toneChannel: c });
+                    updateView({ channel: TONE_CHANNELS.indexOf(c), node: null });
                   }}
                 >
-                  <Tabs.List aria-label="Channel" gap="0.5" minH="0" p="0" alignItems="center">
-                    {TONE_CHANNELS.map((c) => (
-                      <Tabs.Trigger key={c} value={c} h="5" px="1.5" textStyle="2xs" textTransform="capitalize">
-                        <Box boxSize="2" borderRadius="full" bg={TONE_CHANNEL_COLORS[c]} />
-                        {c}
-                      </Tabs.Trigger>
-                    ))}
-                  </Tabs.List>
-                </Tabs.Root>
+                  {TONE_CHANNELS.map((c) => (
+                    <CompactTab key={c} value={c} textTransform="capitalize">
+                      <Box boxSize="2" borderRadius="full" bg={TONE_CHANNEL_COLORS[c]} />
+                      {c}
+                    </CompactTab>
+                  ))}
+                </CompactTabs>
               )}
               <CurveEditor
                 key={key}

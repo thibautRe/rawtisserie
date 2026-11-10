@@ -32,7 +32,7 @@ export function Section({
   return (
     <Stack gap="2">
       <HStack justify="space-between" minH="6">
-        <Heading size="xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
+        <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
           {title}
         </Heading>
         {onClear && (
@@ -262,7 +262,7 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
         <Collapsible.Trigger asChild>
           <Button variant="ghost" size="xs" w="full" justifyContent="space-between" px="0">
             <HStack>
-              <Heading size="xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
+              <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
                 Technical
               </Heading>
               {technicalFilters > 0 && <Badge size="xs">{technicalFilters}</Badge>}

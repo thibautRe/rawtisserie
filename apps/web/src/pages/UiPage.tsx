@@ -4,6 +4,7 @@
  * is for what. See the design system in docs/ROADMAP.md (M9).
  */
 import '@fontsource-variable/big-shoulders/opsz.css';
+import '@fontsource-variable/chivo';
 import '@fontsource-variable/chivo-mono';
 import {
   Box,
@@ -25,7 +26,6 @@ import {
   Separator,
   Stack,
   Switch,
-  Tabs,
   TagsInput,
   Text,
   Textarea,
@@ -33,6 +33,7 @@ import {
 import { Circle, Download, Hexagon, MoreHorizontal, Pencil, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { CompactTab, CompactTabs } from '../components/CompactTabs.tsx';
 import { Module, PageTabs } from '../develop/ModulePanel.tsx';
 import { ParamSlider, fmt } from '../develop/ParamSlider.tsx';
 import { tracks } from '../develop/slider.ts';
@@ -40,11 +41,17 @@ import { Section as FilterSection } from '../library/FilterSidebar.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
-/** Font pairings to compare: [heading, body]. */
+const INTER = "'Inter Variable', Inter, system-ui, sans-serif";
+/** Font pairings to compare: headings, body, and small uppercase labels (module titles, section labels). */
 const FONTS = {
-  current: ["'Inter Variable', Inter, system-ui, sans-serif", "'Inter Variable', Inter, system-ui, sans-serif"],
-  new: ["'Big Shoulders Variable', 'Inter Variable', sans-serif", "'Chivo Mono Variable', ui-monospace, monospace"],
+  current: { heading: INTER, body: INTER, label: INTER },
+  new: {
+    heading: "'Big Shoulders Variable', 'Inter Variable', sans-serif",
+    body: "'Chivo Mono Variable', ui-monospace, monospace",
+    label: "'Chivo Variable', 'Inter Variable', sans-serif",
+  },
 } as const;
+const FONT_ROLES = ['heading', 'body', 'label'] as const;
 type Fonts = keyof typeof FONTS;
 
 /**
@@ -54,15 +61,12 @@ type Fonts = keyof typeof FONTS;
 function useDocumentLook(fonts: Fonts, mode: 'dark' | 'light') {
   useEffect(() => {
     const html = document.documentElement;
-    const [heading, body] = FONTS[fonts];
-    html.style.setProperty('--chakra-fonts-heading', heading);
-    html.style.setProperty('--chakra-fonts-body', body);
+    for (const role of FONT_ROLES) html.style.setProperty(`--chakra-fonts-${role}`, FONTS[fonts][role]);
     html.classList.toggle('dark', mode === 'dark');
     html.classList.toggle('light', mode === 'light');
     html.style.colorScheme = mode;
     return () => {
-      html.style.removeProperty('--chakra-fonts-heading');
-      html.style.removeProperty('--chakra-fonts-body');
+      for (const role of FONT_ROLES) html.style.removeProperty(`--chakra-fonts-${role}`);
       html.classList.add('dark');
       html.classList.remove('light');
       html.style.colorScheme = 'dark';
@@ -145,6 +149,7 @@ export function UiPage() {
   const [preset, setPreset] = useState(2);
   const [page, setPage] = useState<'scene' | 'look' | 'options'>('scene');
   const [enabled, setEnabled] = useState(true);
+  const [range, setRange] = useState<'global' | 'shadows' | 'midtones' | 'highlights'>('shadows');
   const [culling, setCulling] = useState<{ rating: number; flag: Flag | null; colorLabel: ColorLabel | null }>({
     rating: 3,
     flag: 'picked',
@@ -168,7 +173,7 @@ export function UiPage() {
                 <SegmentGroup.Items
                   items={[
                     { value: 'current', label: 'Inter' },
-                    { value: 'new', label: 'Big Shoulders + Chivo Mono' },
+                    { value: 'new', label: 'Big Shoulders + Chivo Mono + Chivo' },
                   ]}
                 />
               </SegmentGroup.Root>
@@ -219,7 +224,7 @@ export function UiPage() {
           <Separator />
           <Grid templateColumns="repeat(auto-fill, minmax(16rem, 1fr))" gap="6">
             <Example label="Section label (uppercase)">
-              <Heading size="xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
+              <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
                 Colour label
               </Heading>
             </Example>
@@ -339,13 +344,18 @@ export function UiPage() {
             </Example>
             <Example label="Tabs subtle — mixer views, ranges, tone channels">
               <Panel>
-                <Tabs.Root size="sm" variant="subtle" defaultValue="shadows">
-                  <Tabs.List>
-                    <Tabs.Trigger value="shadows">Shadows</Tabs.Trigger>
-                    <Tabs.Trigger value="midtones">Midtones</Tabs.Trigger>
-                    <Tabs.Trigger value="highlights">Highlights</Tabs.Trigger>
-                  </Tabs.List>
-                </Tabs.Root>
+                <HStack gap="2" alignItems="baseline">
+                  <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
+                    Range
+                  </Text>
+                  <CompactTabs label="Range" value={range} onChange={setRange}>
+                    {(['global', 'shadows', 'midtones', 'highlights'] as const).map((r) => (
+                      <CompactTab key={r} value={r} textTransform="capitalize">
+                        {r}
+                      </CompactTab>
+                    ))}
+                  </CompactTabs>
+                </HStack>
               </Panel>
             </Example>
             <Example label="Segmented control — a choice of value (filters, style modes)">

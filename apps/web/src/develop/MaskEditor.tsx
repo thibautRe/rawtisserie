@@ -413,6 +413,7 @@ export function MaskEditor({
             textStyle="2xs"
             fontWeight="medium"
             color="fg.muted"
+            fontFamily="label"
             textTransform="uppercase"
             letterSpacing="wider"
           >

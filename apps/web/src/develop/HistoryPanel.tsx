@@ -114,7 +114,14 @@ export const HistoryPanel = memo(function HistoryPanel({ original, entries, end,
   return (
     <Stack gap="0" h="full">
       <HStack justify="space-between" px="3" h="10" flexShrink={0} borderBottomWidth="1px">
-        <Heading size="xs" fontSize="2xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
+        <Heading
+          size="xs"
+          fontSize="2xs"
+          fontFamily="label"
+          textTransform="uppercase"
+          letterSpacing="wider"
+          color="fg.muted"
+        >
           History
         </Heading>
         <IconButton

@@ -144,7 +144,14 @@ export const ScopePanel = memo(function ScopePanel({ settings, onChange, width, 
         >
           <button type="button" onClick={() => onChange({ open: !open })}>
             {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            <Heading size="xs" fontSize="2xs" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
+            <Heading
+              size="xs"
+              fontSize="2xs"
+              fontFamily="label"
+              textTransform="uppercase"
+              letterSpacing="wider"
+              color="fg.muted"
+            >
               Scopes
             </Heading>
           </button>

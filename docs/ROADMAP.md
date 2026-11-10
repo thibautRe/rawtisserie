@@ -1516,6 +1516,9 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   and set as Chakra tokens. A monospaced body gives sliders' numbers fixed widths for
   free, but is wider than Inter: check the dense panels (module labels, the info panel's
   two-column fields, the filters) for truncation, and try it on the `/ui` page first.
+  Big Shoulders doesn't read at the panels' small sizes: small uppercase labels (module
+  titles, section labels) use **Chivo** instead, through a `label` font token (Inter
+  until the switch).
 - **Spinner:** a branded loading indicator instead of the default one. Reuse it for
   long loads (RAW decode, first render) with a progress hint.
 - **`/develop` page:** the public developer is the front door. Give it a proper landing

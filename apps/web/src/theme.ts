@@ -11,6 +11,8 @@ const config = defineConfig({
       fonts: {
         heading: { value: `'Inter Variable', Inter, system-ui, sans-serif` },
         body: { value: `'Inter Variable', Inter, system-ui, sans-serif` },
+        /** Small uppercase labels: module titles, filter and panel section labels. */
+        label: { value: `'Inter Variable', Inter, system-ui, sans-serif` },
       },
     },
     semanticTokens: {
