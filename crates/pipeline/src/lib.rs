@@ -34,7 +34,7 @@ pub use decode::RawPhoto;
 pub use image::{Image, Region, Rgba8};
 pub use metadata::PhotoMetadata;
 pub use params::EditParams;
-pub use pipeline::{Developer, Quality, RenderSize};
+pub use pipeline::{Developer, DiffuseJob, Quality, RenderSize};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

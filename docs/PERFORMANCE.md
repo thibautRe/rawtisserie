@@ -64,6 +64,14 @@ Unless stated otherwise, numbers come from 2026-11-03, on an Intel i9-10885H lap
   around a ~1300×900 view) is most of the cost: in wasm, a first zoom takes ~1.2 s and a
   pan ~1 s (2.25 s and 2 s before SIMD and the ¾ margin). Next step would be the
   equalizer itself (~140 ns/px native, 8 bands of 5-tap edge-aware passes).
+- **Diffuse steps split by channel across the pool** (2026-11-11). Diffuse's channels
+  never mix, so before a render the pipeline worker takes each uncached diffuse step as
+  a job (`Developer::next_diffuse_job`: its three planes, prepared), diffuses two
+  channels on pool workers and one itself, and hands them back (`provide_diffuse`); the
+  render uses them. Same pixels (`tests/diffuse_jobs.rs`). Browser, 1024×683 fitted
+  render, 16-thread laptop: AA filter 241 → 209 ms, denoise fine 1091 → 437 ms, lens
+  deblur medium 1693 → 665 ms, add local contrast 4286 → 1516 ms. Needs a pool (6+
+  hardware threads); without one, the developer diffuses them itself as before.
 - **Full-resolution demosaic reads each photosite once** (it used to normalise every
   neighbour again, ~20 times per pixel): patches and full-size exports are 2–3× faster,
   bit-identical.

@@ -153,6 +153,20 @@ export type PointRequest =
     }
   /** Render the strip; `params` is the recipe as JSON. */
   | { type: 'render'; id: number; params: string }
+  /**
+   * Diffuse one channel of a diffuse step (`DiffuseJob`: its parameters as JSON, scale
+   * and size; `plane` f32, `mask` u8, 1 inside), answered with the plane diffused.
+   */
+  | {
+      type: 'diffuse';
+      id: number;
+      params: string;
+      scale: number;
+      width: number;
+      height: number;
+      plane: ArrayBuffer;
+      mask: ArrayBuffer | null;
+    }
   /** Load a LUT's packed table, or unload it. */
   | { type: 'lut'; lutId: string; bytes: ArrayBuffer }
   | { type: 'unloadLut'; lutId: string };

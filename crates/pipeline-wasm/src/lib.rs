@@ -34,6 +34,71 @@ fn render_size(max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Res
     }
 }
 
+/// A diffuse step to compute elsewhere (`Developer.nextDiffuseJob`): its three channels,
+/// prepared, each to diffuse with `diffusePlane`.
+#[wasm_bindgen]
+pub struct DiffuseJob {
+    inner: pipeline::DiffuseJob,
+}
+
+#[wasm_bindgen]
+impl DiffuseJob {
+    /// For `Developer.provideDiffuse` (a u64, as a decimal string).
+    #[wasm_bindgen(getter)]
+    pub fn key(&self) -> String {
+        self.inner.key.to_string()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn width(&self) -> u32 {
+        self.inner.width as u32
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn height(&self) -> u32 {
+        self.inner.height as u32
+    }
+
+    /// The step's parameters (`Diffuse`, JSON), for `diffusePlane`.
+    #[wasm_bindgen(getter)]
+    pub fn params(&self) -> String {
+        serde_json::to_string(&self.inner.params).expect("params serialise")
+    }
+
+    /// Output pixels per full-resolution pixel, for `diffusePlane`.
+    #[wasm_bindgen(getter)]
+    pub fn scale(&self) -> f32 {
+        self.inner.scale
+    }
+
+    /// Channel `c` (0 … 2), taken out of the job.
+    #[wasm_bindgen(js_name = takePlane)]
+    pub fn take_plane(&mut self, c: usize) -> Result<Vec<f32>, JsError> {
+        let plane = self.inner.planes.planes.get_mut(c).ok_or_else(|| JsError::new("a channel is 0, 1 or 2"))?;
+        Ok(std::mem::take(plane))
+    }
+
+    /// The inpainting mask (1 inside), if the step has one.
+    #[wasm_bindgen(getter)]
+    pub fn mask(&self) -> Option<Vec<u8>> {
+        self.inner.planes.mask.as_ref().map(|m| m.iter().map(|&b| b as u8).collect())
+    }
+}
+
+/// Diffuse one channel of a `DiffuseJob` (its `params`, `scale`, size and `mask`): the
+/// same as the developer would.
+#[wasm_bindgen(js_name = diffusePlane)]
+pub fn diffuse_plane(params_json: &str, scale: f32, width: u32, height: u32, mut plane: Vec<f32>, mask: Option<Vec<u8>>) -> Result<Vec<f32>, JsError> {
+    let params: pipeline::params::Diffuse = serde_json::from_str(params_json).map_err(js_err)?;
+    let (width, height) = (width as usize, height as usize);
+    if plane.len() != width * height || mask.as_ref().is_some_and(|m| m.len() != plane.len()) {
+        return Err(JsError::new("the plane (and mask) have width × height values"));
+    }
+    let mask: Option<Vec<bool>> = mask.map(|m| m.into_iter().map(|v| v != 0).collect());
+    pipeline::ops::diffuse::DiffuseOp::new(&params, scale).diffuse_plane(&mut plane, mask.as_deref(), width, height);
+    Ok(plane)
+}
+
 /// Read metadata (EXIF, dimensions…) without decoding the sensor data. Returns JSON.
 #[wasm_bindgen(js_name = readMetadata)]
 pub fn read_metadata(bytes: &[u8]) -> Result<String, JsError> {
@@ -232,6 +297,27 @@ impl Developer {
     pub fn is_spatial_cached(&self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<bool, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
         Ok(self.inner.is_spatial_cached(&params, render_size(max_width, max_height, region)?))
+    }
+
+    /// The next diffuse step a render of these parameters (and region, as for `render`)
+    /// would compute, to diffuse its channels on other workers (`diffusePlane`) and hand
+    /// back with `provideDiffuse`; undefined when there's none left to compute.
+    #[wasm_bindgen(js_name = nextDiffuseJob)]
+    pub fn next_diffuse_job(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<Option<DiffuseJob>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        Ok(self.inner.next_diffuse_job(&params, render_size(max_width, max_height, region)?).map(|inner| DiffuseJob { inner }))
+    }
+
+    /// A `DiffuseJob`'s three planes, diffused, for the next render to use.
+    #[wasm_bindgen(js_name = provideDiffuse)]
+    pub fn provide_diffuse(&mut self, key: &str, width: u32, height: u32, red: Vec<f32>, green: Vec<f32>, blue: Vec<f32>) -> Result<(), JsError> {
+        let key: u64 = key.parse().map_err(js_err)?;
+        let n = width as usize * height as usize;
+        if [&red, &green, &blue].iter().any(|p| p.len() != n) {
+            return Err(JsError::new("a plane has width × height values"));
+        }
+        self.inner.provide_diffuse(key, width as usize, height as usize, &[red, green, blue]);
+        Ok(())
     }
 
     /// Build (or reuse) the spatial stages' output (of the region, as for `render`):

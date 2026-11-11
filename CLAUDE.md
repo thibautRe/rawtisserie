@@ -88,7 +88,12 @@ See README.md for the architecture overview and commands.
   strip of the spatial image, re-sent when its id (`spatial_image_id`) changes. So the
   spatial cache keys must be complete (see above), or the pool renders a stale image.
   `PointRenderer` must give exactly what `Developer::render` does (`tests/point_strips.rs`).
-  Point-op caches live in `PointOpsCache`, shared by both. Pool size is capped at 4: more
+  Point-op caches live in `PointOpsCache`, shared by both. Diffuse steps are split by
+  channel across the pool too: before a render the pipeline worker takes
+  `Developer::next_diffuse_job`s and hands back their planes (`provide_diffuse`), which
+  the render then uses. They're matched by `diffuse_key` (geometry key, frame, padded
+  region, steps up to it): it must cover everything a diffuse step's input depends on,
+  or a render picks up a stale one. `tests/diffuse_jobs.rs` checks it's the same render. Pool size is capped at 4: more
   workers starve the main thread on hyperthreaded laptops. Findings and dead ends are in
   `docs/PERFORMANCE.md`; read it before another performance pass.
 - The developer's main thread must stay idle during a drag: Chakra's style resolution is

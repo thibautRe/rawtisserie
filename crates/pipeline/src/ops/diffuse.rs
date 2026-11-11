@@ -156,28 +156,50 @@ impl DiffuseOp {
         self.iterations.saturating_mul(per_iteration)
     }
 
-    /// Apply the module to `img`, whose top-left pixel is at `origin` in the whole frame.
+    /// Apply the module to `img`, whose top-left pixel is at `origin` in the whole frame:
+    /// [`prepare`](Self::prepare), [`diffuse_plane`](Self::diffuse_plane) on each channel,
+    /// [`finish`](Self::finish). The channels never mix, so the browser diffuses them
+    /// on separate workers (`Developer::next_diffuse_job`), with the same result.
     pub fn apply(&self, img: &mut Image, origin: (usize, usize)) {
         if !self.active || img.pixels.is_empty() {
             return;
         }
-        let (width, height) = (img.width, img.height);
-        let mut planes: [Vec<f32>; 3] =
-            std::array::from_fn(|c| img.pixels.iter().map(|px| px[c] * EXPOSURE_REF).collect());
+        let Planes { mut planes, mask } = self.prepare(img, origin);
+        let mut work = Work::new(img.width, img.height, self.bands.len());
+        for plane in &mut planes {
+            self.diffuse_plane_with(plane, mask.as_deref(), img.width, img.height, &mut work);
+        }
+        Self::finish(img, &planes);
+    }
 
+    /// `img`'s channels as planes at the reference level, with the inpainting mask
+    /// filled with noise (when there is one).
+    pub fn prepare(&self, img: &Image, origin: (usize, usize)) -> Planes {
+        let (width, height) = (img.width, img.height);
+        let mut planes: [Vec<f32>; 3] = std::array::from_fn(|c| img.pixels.iter().map(|px| px[c] * EXPOSURE_REF).collect());
         let mask = (self.threshold > 0.0).then(|| {
-            let mask: Vec<bool> =
-                (0..width * height).map(|i| planes.iter().any(|p| p[i] > self.threshold)).collect();
+            let mask: Vec<bool> = (0..width * height).map(|i| planes.iter().any(|p| p[i] > self.threshold)).collect();
             inpaint(&mut planes, &mask, width, origin);
             mask
         });
+        Planes { planes, mask }
+    }
 
-        let mut work = Work::new(width, height, self.bands.len());
-        for plane in &mut planes {
-            for _ in 0..self.iterations {
-                self.wavelets(plane, &mut work, mask.as_deref(), width, height);
-            }
+    /// Every iteration on one of [`prepare`](Self::prepare)'s planes, in place.
+    pub fn diffuse_plane(&self, plane: &mut Vec<f32>, mask: Option<&[bool]>, width: usize, height: usize) {
+        if self.active && !plane.is_empty() {
+            self.diffuse_plane_with(plane, mask, width, height, &mut Work::new(width, height, self.bands.len()));
         }
+    }
+
+    fn diffuse_plane_with(&self, plane: &mut Vec<f32>, mask: Option<&[bool]>, width: usize, height: usize, work: &mut Work) {
+        for _ in 0..self.iterations {
+            self.wavelets(plane, work, mask, width, height);
+        }
+    }
+
+    /// The diffused planes back into `img`, at its own level.
+    pub fn finish(img: &mut Image, planes: &[Vec<f32>; 3]) {
         for (i, px) in img.pixels.iter_mut().enumerate() {
             *px = std::array::from_fn(|c| planes[c][i] / EXPOSURE_REF);
         }
@@ -506,6 +528,13 @@ fn add_anisotropic<const GRADIENT: bool>(update: &mut [f32], s: &SumsChunk, o: &
     }
 }
 
+/// An image's channels as [`DiffuseOp`] works on them, and its inpainting mask.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Planes {
+    pub planes: [Vec<f32>; 3],
+    pub mask: Option<Vec<bool>>,
+}
+
 /// Scratch buffers for one channel, reused across iterations.
 struct Work {
     hf: Vec<Vec<f32>>,
@@ -749,6 +778,23 @@ mod tests {
         assert!(full > quarter, "{full} vs {quarter}");
         let wide = Diffuse { radius: 512.0, radius_center: 512.0, ..p };
         assert_eq!(DiffuseOp::new(&wide, 1.0).bands.len(), MAX_SCALES);
+    }
+
+    #[test]
+    fn channels_diffused_apart_give_the_same_image() {
+        let p = Diffuse { luminance_threshold: 0.3, iterations: 3.0, ..deblur() };
+        let op = DiffuseOp::new(&p, 0.5);
+        let original = edge(50, 40);
+        let mut whole = original.clone();
+        op.apply(&mut whole, (7, 3));
+        let Planes { mut planes, mask } = op.prepare(&original, (7, 3));
+        assert!(mask.as_ref().is_some_and(|m| m.iter().any(|&x| x)));
+        for plane in planes.iter_mut().rev() {
+            op.diffuse_plane(plane, mask.as_deref(), 50, 40);
+        }
+        let mut apart = original.clone();
+        DiffuseOp::finish(&mut apart, &planes);
+        assert_eq!(apart.pixels, whole.pixels);
     }
 
     #[test]

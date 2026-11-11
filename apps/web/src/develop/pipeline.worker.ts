@@ -34,6 +34,35 @@ const toBitmap = (data: Uint8Array, width: number, height: number) =>
     new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer, data.byteOffset, data.length), width, height),
   );
 
+/**
+ * Before a render, have the pool diffuse the channels of its uncached diffuse steps in
+ * parallel (the developer would do them one after the other): the render then uses them.
+ */
+async function offloadDiffuse(
+  dev: Developer,
+  params: string,
+  maxWidth: number,
+  maxHeight: number,
+  region?: Uint32Array,
+) {
+  if (!pool) return;
+  // Each job is one diffuse step; a recipe rarely has more than a couple.
+  for (let i = 0; i < 16; i++) {
+    const job = dev.nextDiffuseJob(params, maxWidth, maxHeight, region);
+    if (!job) return;
+    try {
+      const [red, green, blue] = await pool.diffuse(job);
+      dev.provideDiffuse(job.key, job.width, job.height, red, green, blue);
+    } catch (err) {
+      // The render computes what's missing itself.
+      console.warn('Diffusing on the pool failed', err);
+      return;
+    } finally {
+      job.free();
+    }
+  }
+}
+
 /** A region as the wasm module takes it. */
 const regionArg = (r: Region | null) => (r ? new Uint32Array([r.x, r.y, r.width, r.height]) : undefined);
 
@@ -198,6 +227,7 @@ async function handle(msg: WorkerRequest) {
       // operations need to run, the pool renders full size about as fast: do that.
       const upgrade = isDraft && !!pool && developer.isSpatialCached(params, full.width, full.height, full.region);
       if (pool && (!isDraft || upgrade)) {
+        await offloadDiffuse(developer, params, full.width, full.height, full.region);
         const { width, height, data } = await pool.render(developer, params, full.width, full.height, full.region);
         let overlays: Overlays = msg.overlays;
         if (upgrade && overlays.stripes) {
@@ -219,6 +249,7 @@ async function handle(msg: WorkerRequest) {
       // With a scope, the overlays are painted after it is drawn (as `render` would).
       const split = painted && !!msg.scope;
       const overlays = split ? '{}' : JSON.stringify(msg.overlays);
+      await offloadDiffuse(developer, params, msg.maxWidth, msg.maxHeight, region);
       const img = developer.render(params, msg.maxWidth, msg.maxHeight, overlays, region);
       const { width, height } = img;
       const data = img.takeData();

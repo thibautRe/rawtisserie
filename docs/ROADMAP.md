@@ -497,6 +497,8 @@ embedded data, plus the manual lens override. See the source list in 3.1.
 > lens deblur 7.9 s and local contrast 12.8 s. Left: the
 > spatial stage is single-threaded (no "expensive" hint in the UI for now, decided
 > 2026-11-11); copying padded rows and the ratio plane are ~20 % of a band and could go.
+> The browser diffuses the three channels in parallel on the point pool (same day,
+> ~2.5–2.8× faster: local contrast 4.3 → 1.5 s, see `docs/PERFORMANCE.md`).
 
 A port of `diffuse.c` (Ansel's, or darktable's if it has diverged usefully). It uses
 multiscale anisotropic diffusion: sharpening, local contrast, deblurring, bloom and

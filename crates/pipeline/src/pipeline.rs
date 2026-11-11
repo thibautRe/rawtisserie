@@ -19,7 +19,7 @@ use crate::ops::color_balance;
 use crate::ops::tone_curve::{self, InputHistogram, Local};
 use crate::ops::lines::{self, GuideLine, Segment};
 use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
-use crate::ops::diffuse::DiffuseOp;
+use crate::ops::diffuse::{DiffuseOp, Planes};
 use crate::ops::glow::GlowOp;
 use crate::ops::{equalizer, filmic, filters, geometry};
 use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Glow, Lens, Module, ModuleInstance, ModuleKind};
@@ -111,6 +111,28 @@ pub struct Developer {
     point_ops: PointOpsCache,
     /// Saturated photosites at the base's resolution, built on demand.
     sensor_clip: Option<(usize, Mask)>,
+    /// Outputs of diffuse steps computed elsewhere (see [`next_diffuse_job`](Self::next_diffuse_job)),
+    /// by [`diffuse_key`], until a render uses them; most recent last.
+    diffused: Vec<(u64, Image)>,
+}
+
+/// Most diffuse outputs kept for the next render.
+const MAX_DIFFUSED: usize = 4;
+
+/// A diffuse step for the caller to compute, one channel at a time if it likes (see
+/// [`Developer::next_diffuse_job`]).
+#[derive(Clone, Debug)]
+pub struct DiffuseJob {
+    /// Identifies the step and its input, for [`Developer::provide_diffuse`].
+    pub key: u64,
+    pub params: params::Diffuse,
+    /// Output pixels per full-resolution pixel: with `params`, [`DiffuseOp::new`]'s arguments.
+    pub scale: f32,
+    pub width: usize,
+    pub height: usize,
+    /// The step's input, prepared ([`DiffuseOp::prepare`]): diffuse each plane with
+    /// [`DiffuseOp::diffuse_plane`].
+    pub planes: Planes,
 }
 
 /// Point-operation stages compiled for recent parameters, so that dragging one slider
@@ -438,6 +460,7 @@ impl Developer {
             last_id: 0,
             point_ops: PointOpsCache::default(),
             sensor_clip: None,
+            diffused: Vec::new(),
         }
     }
 
@@ -706,6 +729,57 @@ impl Developer {
     /// enabled instances' masks over its pixels (by instance id): what the point
     /// operations read. The id changes whenever either does.
     pub fn spatial(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image, &[MaskPlane]) {
+        let (plan, gkey, inner, mut changed) = self.prepare_slot(params, size);
+        let pkey = point_masks_key(params, &plan, gkey);
+        let diffused = &mut self.diffused;
+        let slot = &mut self.slots[0];
+        if !plan.has_detail() {
+            changed |= slot.detail.take().is_some();
+        } else {
+            let dkey = DetailKey { geometry: gkey, steps: plan.steps.clone() };
+            if slot.detail.as_ref().map(|d| &d.key) != Some(&dkey) {
+                let img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
+                let planes = &slot.masks.as_ref().expect("masks were just built").1;
+                let origin = (plan.padded.x, plan.padded.y);
+                // Diffuse steps computed elsewhere are used (and dropped), the rest computed here.
+                let diffuse = |i: usize, p: &params::Diffuse, scale: f32, input: &Image| {
+                    let key = diffuse_key(&gkey, &plan, i);
+                    Some(match diffused.iter().position(|(k, _)| *k == key) {
+                        Some(at) => diffused.remove(at).1,
+                        None => {
+                            let mut out = input.clone();
+                            DiffuseOp::new(p, scale).apply(&mut out, origin);
+                            out
+                        }
+                    })
+                };
+                let (img, step_masks) = detail_pass(img, &dkey.steps, &plan, planes, inner, diffuse).expect("every step is computed");
+                let (padded, image) = if plan.padded != plan.region { (Some(img.clone()), img.crop(inner)) } else { (None, img) };
+                slot.detail = Some(Detail { key: dkey, padded, image, step_masks });
+                changed = true;
+            }
+        }
+
+        if slot.point_masks.as_ref().map(|(k, _)| k) != pkey.as_ref() {
+            slot.point_masks = None;
+            if let Some(key) = pkey {
+                let planes = self.point_masks(&key, &plan, inner, params);
+                self.slots[0].point_masks = Some((key, planes));
+            }
+            changed = true;
+        }
+        if changed {
+            self.last_id += 1;
+            self.slots[0].id = self.last_id;
+        }
+        let (img, masks) = self.output();
+        (self.slots[0].id, img, masks)
+    }
+
+    /// Make the most recent slot the one for `params` at `size`, with its geometry stage
+    /// and drawn mask planes built: the plan, the geometry key, the region within the
+    /// padded render, and whether anything was rebuilt (the slot's id then changes).
+    fn prepare_slot(&mut self, params: &EditParams, size: RenderSize) -> (Plan, GeometryKey, Region, bool) {
         let plan = self.plan(params, size);
         let base_factor = if plan.patch { Self::binning(plan.scale) } else { self.ensure_base(Self::binning(plan.scale)) };
         let (width, height) = plan.frame;
@@ -760,65 +834,58 @@ impl Developer {
             self.slots[0].masks = Some((mkey, planes, cropped));
             changed = true;
         }
-
-        let pkey = point_masks_key(params, &plan, gkey);
-        let slot = &mut self.slots[0];
-        if !plan.has_detail() {
-            changed |= slot.detail.take().is_some();
-        } else {
-            let dkey = DetailKey { geometry: gkey, steps: plan.steps.clone() };
-            if slot.detail.as_ref().map(|d| &d.key) != Some(&dkey) {
-                let mut img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
-                let planes = &slot.masks.as_ref().expect("masks were just built").1;
-                let mut step_masks = Vec::new();
-                for step in &dkey.steps {
-                    let before = step.mask.as_ref().map(|_| img.clone());
-                    match step.op {
-                        DetailOp::Blur { sigma } => filters::blur(&mut img, sigma),
-                        DetailOp::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
-                        DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
-                        DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
-                        DetailOp::Diffuse { params, scale } => DiffuseOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
-                    }
-                    if let (Some(m), Some(before)) = (&step.mask, before) {
-                        // The mask is measured on the step's input.
-                        let plane = planes.iter().find(|q| q.id == m.id).map(|q| q.alpha.as_slice());
-                        let values = if m.mask.feathers_whole() {
-                            let stage = MaskStage::parametric(&m.mask);
-                            let mut v: Vec<f32> = before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q[k]))).collect();
-                            mask::feather(&mut v, &before, m.mask.feather, m.mask.edge_aware, plan.scale);
-                            v.into_iter().map(|a| stage.finish(a)).collect()
-                        } else {
-                            let stage = MaskStage::new(&m.mask, m.drawn.is_some());
-                            let drawn = |k: usize| if stage.drawn { plane.map_or(0.0, |q| q[k]) } else { 1.0 };
-                            before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn(k))).collect::<Vec<f32>>()
-                        };
-                        let mut out = before.pixels;
-                        Blend::scene(&m.mask).mix_all(&mut out, &img.pixels, &values);
-                        img.pixels = out;
-                        step_masks.push(MaskPlane { id: m.id.clone(), alpha: values }.crop(p.width, inner));
-                    }
-                }
-                let (padded, image) = if plan.padded != plan.region { (Some(img.clone()), img.crop(inner)) } else { (None, img) };
-                slot.detail = Some(Detail { key: dkey, padded, image, step_masks });
-                changed = true;
-            }
-        }
-
-        if slot.point_masks.as_ref().map(|(k, _)| k) != pkey.as_ref() {
-            slot.point_masks = None;
-            if let Some(key) = pkey {
-                let planes = self.point_masks(&key, &plan, inner, params);
-                self.slots[0].point_masks = Some((key, planes));
-            }
-            changed = true;
-        }
         if changed {
             self.last_id += 1;
             self.slots[0].id = self.last_id;
         }
-        let (img, masks) = self.output();
-        (self.slots[0].id, img, masks)
+        (plan, gkey, inner, changed)
+    }
+
+    /// The next diffuse step a render of `params` at `size` would compute, for the caller
+    /// to compute instead (and hand back with [`provide_diffuse`](Self::provide_diffuse)):
+    /// the browser diffuses its three channels on separate workers. `None` when the
+    /// spatial stages are cached or every diffuse step has been provided. Steps are given
+    /// in order: each one's input is the output of those before it.
+    pub fn next_diffuse_job(&mut self, params: &EditParams, size: RenderSize) -> Option<DiffuseJob> {
+        let plan = self.plan(params, size);
+        let last = plan.steps.iter().rposition(|s| matches!(s.op, DetailOp::Diffuse { .. }))?;
+        if self.is_spatial_cached(params, size) {
+            return None;
+        }
+        let (plan, gkey, inner, _) = self.prepare_slot(params, size);
+        let missing = (0..=last).find(|&i| {
+            matches!(plan.steps[i].op, DetailOp::Diffuse { .. }) && !self.diffused.iter().any(|(k, _)| *k == diffuse_key(&gkey, &plan, i))
+        })?;
+        let slot = &self.slots[0];
+        let img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
+        let planes = &slot.masks.as_ref().expect("masks were just built").1;
+        let origin = (plan.padded.x, plan.padded.y);
+        let mut job = None;
+        // Run the steps before it (diffuse steps, all provided: diffuse comes first) to get
+        // its input.
+        let diffused = &self.diffused;
+        detail_pass(img, &plan.steps[..=missing], &plan, planes, inner, |i, p, scale, input| {
+            let key = diffuse_key(&gkey, &plan, i);
+            if let Some((_, out)) = diffused.iter().find(|(k, _)| *k == key) {
+                return Some(out.clone());
+            }
+            let planes = DiffuseOp::new(p, scale).prepare(input, origin);
+            job = Some(DiffuseJob { key, params: *p, scale, width: input.width, height: input.height, planes });
+            None
+        });
+        job
+    }
+
+    /// The diffused planes of [`next_diffuse_job`](Self::next_diffuse_job)'s `key`, for
+    /// the next render to use.
+    pub fn provide_diffuse(&mut self, key: u64, width: usize, height: usize, planes: &[Vec<f32>; 3]) {
+        let mut img = Image::new(width, height);
+        DiffuseOp::finish(&mut img, planes);
+        self.diffused.retain(|(k, _)| *k != key);
+        self.diffused.push((key, img));
+        if self.diffused.len() > MAX_DIFFUSED {
+            self.diffused.remove(0);
+        }
     }
 
     /// The most recent slot's spatial image and the planes the point operations read.
@@ -1179,6 +1246,60 @@ impl DetailStep {
             DetailOp::Diffuse { params, scale } => DiffuseOp::new(&params, scale).reach(),
         }
     }
+}
+
+/// The detail `steps` of `plan` on `img` (the geometry stage's output, over the padded
+/// region), each blended through its mask, and the masks' values over the region
+/// (`inner` within the padded render). A diffuse step's output comes from `diffuse`
+/// (its index in `steps`, parameters, scale and input), which may stop the pass (`None`).
+fn detail_pass(
+    mut img: Image,
+    steps: &[DetailStep],
+    plan: &Plan,
+    planes: &[MaskPlane],
+    inner: Region,
+    mut diffuse: impl FnMut(usize, &params::Diffuse, f32, &Image) -> Option<Image>,
+) -> Option<(Image, Vec<MaskPlane>)> {
+    let mut step_masks = Vec::new();
+    for (i, step) in steps.iter().enumerate() {
+        let before = step.mask.as_ref().map(|_| img.clone());
+        match step.op {
+            DetailOp::Blur { sigma } => filters::blur(&mut img, sigma),
+            DetailOp::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
+            DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
+            DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
+            DetailOp::Diffuse { params, scale } => img = diffuse(i, &params, scale, &img)?,
+        }
+        if let (Some(m), Some(before)) = (&step.mask, before) {
+            // The mask is measured on the step's input.
+            let plane = planes.iter().find(|q| q.id == m.id).map(|q| q.alpha.as_slice());
+            let values = if m.mask.feathers_whole() {
+                let stage = MaskStage::parametric(&m.mask);
+                let mut v: Vec<f32> = before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q[k]))).collect();
+                mask::feather(&mut v, &before, m.mask.feather, m.mask.edge_aware, plan.scale);
+                v.into_iter().map(|a| stage.finish(a)).collect()
+            } else {
+                let stage = MaskStage::new(&m.mask, m.drawn.is_some());
+                let drawn = |k: usize| if stage.drawn { plane.map_or(0.0, |q| q[k]) } else { 1.0 };
+                before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn(k))).collect::<Vec<f32>>()
+            };
+            let mut out = before.pixels;
+            Blend::scene(&m.mask).mix_all(&mut out, &img.pixels, &values);
+            img.pixels = out;
+            step_masks.push(MaskPlane { id: m.id.clone(), alpha: values }.crop(plan.padded.width, inner));
+        }
+    }
+    Some((img, step_masks))
+}
+
+/// Identifies the output of `plan`'s detail step `i` (a diffuse step): the geometry
+/// stage's output it starts from, the render's frame and padded region, and the steps
+/// up to it (with their masks).
+fn diffuse_key(gkey: &GeometryKey, plan: &Plan, i: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    format!("{gkey:?} {:?} {:?} {:?}", plan.frame, plan.padded, &plan.steps[..=i]).hash(&mut h);
+    h.finish()
 }
 
 /// The active blur, sharpen, equalizer and glow instances, with their parameters at `scale`

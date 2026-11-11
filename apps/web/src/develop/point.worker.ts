@@ -2,9 +2,10 @@
 /**
  * One worker of the pipeline worker's pool (`pointPool.ts`): holds a horizontal strip
  * of the cached spatial image and runs the point operations (exposure … tone mapping)
- * on it, so that a full-size render of a colour edit is split across cores.
+ * on it, so that a full-size render of a colour edit is split across cores. Also
+ * diffuses one channel of a diffuse step at a time (see `PointPool.diffuse`).
  */
-import init, { PointRenderer } from '@rawtisserie/pipeline/wasm';
+import init, { PointRenderer, diffusePlane } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import type { PointRequest, PointResponse } from './protocol.ts';
 
@@ -49,13 +50,19 @@ self.onmessage = async (event: MessageEvent<PointRequest>) => {
       renderer?.unloadLut(msg.lutId);
       return;
     }
+    if (msg.type === 'diffuse') {
+      const mask = msg.mask ? new Uint8Array(msg.mask) : undefined;
+      const plane = diffusePlane(msg.params, msg.scale, msg.width, msg.height, new Float32Array(msg.plane), mask);
+      post({ type: 'rendered', id: msg.id, data: plane.buffer as ArrayBuffer }, [plane.buffer as ArrayBuffer]);
+      return;
+    }
     if (!renderer) throw new Error('No strip loaded');
     const img = renderer.render(msg.params);
     const data = img.takeData();
     img.free();
     post({ type: 'rendered', id: msg.id, data: data.buffer as ArrayBuffer }, [data.buffer as ArrayBuffer]);
   } catch (err) {
-    if (msg.type === 'render')
+    if (msg.type === 'render' || msg.type === 'diffuse')
       post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
     else console.error(err);
   }

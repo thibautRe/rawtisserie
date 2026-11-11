@@ -8,7 +8,7 @@
  * No shared memory: every worker runs its own instance of the wasm module, which needs
  * neither cross-origin isolation nor a threaded build.
  */
-import type { Developer } from '@rawtisserie/pipeline/wasm';
+import { type DiffuseJob, type Developer, diffusePlane } from '@rawtisserie/pipeline/wasm';
 import type { PointRequest, PointResponse } from './protocol.ts';
 
 /**
@@ -19,6 +19,7 @@ import type { PointRequest, PointResponse } from './protocol.ts';
 const MAX_WORKERS = 4;
 
 type Pending = { resolve: (data: ArrayBuffer) => void; reject: (e: Error) => void };
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 export class PointPool {
   private workers: Worker[];
@@ -73,6 +74,26 @@ export class PointPool {
     return { width, height, data };
   }
 
+  /**
+   * Diffuse the three channels of `job` (`Developer.nextDiffuseJob`) at once: two on
+   * workers, one on this thread, which would only be waiting otherwise. The channels
+   * never mix, so the result is what the developer would have computed.
+   */
+  async diffuse(job: DiffuseJob): Promise<[Float32Array, Float32Array, Float32Array]> {
+    const { params, scale, width, height } = job;
+    const mask = job.mask ?? undefined;
+    const planes = [job.takePlane(0), job.takePlane(1), job.takePlane(2)] as const;
+    const remote = ([1, 2] as const).map((c, i) => {
+      const plane = planes[c].buffer as ArrayBuffer;
+      const maskCopy = mask ? (mask.slice().buffer as ArrayBuffer) : null;
+      const transfer = maskCopy ? [plane, maskCopy] : [plane];
+      return this.request(i, { type: 'diffuse', params, scale, width, height, plane, mask: maskCopy }, transfer);
+    });
+    const local = diffusePlane(params, scale, width, height, planes[0], mask);
+    const [green, blue] = await Promise.all(remote);
+    return [local, new Float32Array(green!), new Float32Array(blue!)];
+  }
+
   /** Load a LUT's packed table into every worker (each gets a copy). */
   loadLut(lutId: string, bytes: Uint8Array) {
     this.workers.forEach((_, i) => {
@@ -114,10 +135,19 @@ export class PointPool {
   }
 
   private call(worker: number, params: string) {
+    return this.request(worker, { type: 'render', params });
+  }
+
+  /** Send `msg` (with a fresh id) to a worker; resolves with its answer's data. */
+  private request(
+    worker: number,
+    msg: DistributiveOmit<Extract<PointRequest, { id: number }>, 'id'>,
+    transfer: Transferable[] = [],
+  ) {
     const id = this.nextId++;
     return new Promise<ArrayBuffer>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.post(worker, { type: 'render', id, params });
+      this.post(worker, { ...msg, id } as PointRequest, transfer);
     });
   }
 
