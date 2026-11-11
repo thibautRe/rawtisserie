@@ -398,26 +398,33 @@ export async function photoRoutes(
     const user = currentUser(request);
     const { ids } = Ids.parse(request.body);
     const rows = (await db.query(sql`
-      SELECT v.id, v.history_end, v.revision, h.recipe, p.exif,
-        p.exif IS NULL AND v.render_status = 'pending'
-          AND NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS not_ready
+      SELECT v.id, v.history_end, v.revision, v.render_status, h.recipe, p.exif,
+        NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
       FROM ${VERSIONS_FROM}
       LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
-      WHERE v.id = ANY(${ids}) AND p.owner_id = ${user.id}`)) as (Pick<Versions, 'id' | 'history_end' | 'revision'> &
+      WHERE v.id = ANY(${ids}) AND p.owner_id = ${user.id}`)) as (Pick<
+      Versions,
+      'id' | 'history_end' | 'revision' | 'render_status'
+    > &
       Pick<HistoryEntries, 'recipe'> &
-      Pick<Photos, 'exif'> & { not_ready: boolean })[];
+      Pick<Photos, 'exif'> & { no_history: boolean })[];
+    // Without history, a version starts from the recipe for its file, which needs its
+    // metadata: not known yet for a new upload. Undone to the original, it's the default.
+    const notReady = (r: (typeof rows)[number]) => r.no_history && !r.exif && r.render_status === 'pending';
     return {
       versions: rows
-        .filter((r) => !r.not_ready)
+        .filter((r) => !notReady(r))
         .map((r) => ({
           id: r.id,
           historyEnd: r.history_end,
           revision: r.revision,
           recipe: r.recipe
             ? normalizeEditParams(r.recipe)
-            : defaultRecipe({ lensCorrection: r.exif?.lensCorrection ?? null }),
+            : r.no_history
+              ? defaultRecipe({ lensCorrection: r.exif?.lensCorrection ?? null })
+              : defaultEditParams,
         })),
-      notReady: rows.filter((r) => r.not_ready).map((r) => r.id),
+      notReady: rows.filter(notReady).map((r) => r.id),
     };
   });
 
