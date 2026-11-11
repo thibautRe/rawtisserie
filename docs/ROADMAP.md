@@ -1610,6 +1610,10 @@ Ideas, roughly by value for effort:
   row-parallel code as M6 step 1. Costs: nightly Rust with `-Z build-std` (atomics), a
   browser-only threaded build next to the Node one, and COOP/COEP headers on every page
   that loads the developer.
+  Since 2026-11-11 both headers are sent in report-only mode (`apps/server/src/isolation.ts`,
+  and Vite's dev and preview servers), and violations are logged by `POST /api/reports`.
+  Checked then in Chromium: the developer would load as it is. The only report was our own
+  workers' "worker initialization", which report-only mode causes and the server skips.
 - **P.6 Faster primaries `finish()` (S).** After the incremental update, the remaining
   ~9 ms is real work on ~100k nodes (sin/cos, cube projection, HLG decodes). A fast
   sincos would cut it but changes output slightly: it needs a golden re-bless and a

@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import { authPlugin, authRoutes } from './auth/routes.ts';
 import { config } from './config.ts';
 import { exportRoutes } from './exports/routes.ts';
+import { isolationReports } from './isolation.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
 import { presetRoutes } from './presets/routes.ts';
@@ -42,6 +43,8 @@ export async function buildApp() {
     }
   });
 
+  // Not encapsulated: its headers must go on every response, static files included.
+  await isolationReports(app);
   await app.register(fastifyCookie);
   await app.register(fastifyMultipart, { limits: { fileSize: config.maxUploadBytes, files: 500 } });
   await app.register(authPlugin);
