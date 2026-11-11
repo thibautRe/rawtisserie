@@ -482,7 +482,7 @@ embedded data, plus the manual lens override. See the source list in 3.1.
 > UI). A port of Ansel's `diffuse.c` (not darktable's: Ansel measures edges on the
 > detail-to-low-pass ratio, so they don't depend on exposure, and retuned the denoise
 > presets), checked against its kernels and fast `exp` bit for bit. First of the spatial
-> stage (before blur), maskable. Deviations: it runs before exposure, so the image is
+> stage, maskable. Deviations: it runs before exposure, so the image is
 > scaled by the default +0.7 EV for it (anisotropy and the inpainting threshold depend on
 > the level); inpainting noise is seeded by frame position, so regions match. Its reach
 > is iterations × 3·(2^bands − 1); region renders cap the margin at 1024 px as before,
@@ -498,7 +498,13 @@ embedded data, plus the manual lens override. See the source list in 3.1.
 > spatial stage is single-threaded (no "expensive" hint in the UI for now, decided
 > 2026-11-11); copying padded rows and the ratio plane are ~20 % of a band and could go.
 > The browser diffuses the three channels in parallel on the point pool (same day,
-> ~2.5–2.8× faster: local contrast 4.3 → 1.5 s, see `docs/PERFORMANCE.md`).
+> ~2.5–2.8× faster: local contrast 4.3 → 1.5 s, see `docs/PERFORMANCE.md`). Region
+> renders (zoomed in) take a margin of one iteration's reach × max(1, ½·√iterations)
+> rather than the theoretical reach, and negligible coarse bands are skipped: lens
+> deblur at 100 % 21 → 3.7 s natively; local contrast's wide bands still need the 1024 px
+> cap. The blur and sharpen (unsharp mask) modules were removed the same day: diffuse
+> replaces both. Their instances are dropped on load, unmigrated, and their saved
+> presets deleted (migration 00011, which re-renders the previews that used them).
 
 A port of `diffuse.c` (Ansel's, or darktable's if it has diverged usefully). It uses
 multiscale anisotropic diffusion: sharpening, local contrast, deblurring, bloom and

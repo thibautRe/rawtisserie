@@ -63,7 +63,7 @@ See README.md for the architecture overview and commands.
   overwrote and restores it when the spots change, and `GeometryKey::retouch` is the
   spots' hash. A region's patch must cover what the spots touching it read
   (`retouch::needed`); `tests/regions.rs` checks it.
-- `Developer` caches intermediate images (base → geometry → blur/sharpen) keyed by the
+- `Developer` caches intermediate images (base → geometry → diffuse/equalizer/glow) keyed by the
   parameters that affect them. A new spatial/geometry parameter must go into the
   matching cache key in `pipeline.rs`, or edits won't invalidate the cache. Per-pixel
   operations belong in `ops/point.rs` (`PointOps`), which re-runs on every render. Keep

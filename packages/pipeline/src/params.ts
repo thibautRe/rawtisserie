@@ -72,16 +72,6 @@ export interface ModuleParams {
     /** Only diffuse where a channel is above this (at the default exposure's level): inpainting; 0 = everywhere. */
     luminanceThreshold: number;
   };
-  blur: {
-    /** Gaussian sigma in full-resolution pixels; 0 = off. */
-    radius: number;
-  };
-  sharpen: {
-    /** 0 = off. */
-    amount: number;
-    /** Gaussian sigma in full-resolution pixels. */
-    radius: number;
-  };
   /**
    * Contrast equalizer, after Ansel's: local contrast and denoising per detail size.
    * Each curve has `EQUALIZER_NODES` evenly spaced nodes, from coarse (first, about
@@ -426,8 +416,6 @@ export const MODULE_KINDS = [
   'lens',
   'geometry',
   'diffuse',
-  'blur',
-  'sharpen',
   'contrastEqualizer',
   'glow',
   'exposure',
@@ -454,8 +442,6 @@ export const AUTO_TUNE_KINDS: readonly ModuleKind[] = ['filmic', 'toneCurve'];
 
 export const MASKABLE_KINDS: readonly ModuleKind[] = [
   'diffuse',
-  'blur',
-  'sharpen',
   'contrastEqualizer',
   'glow',
   'exposure',
@@ -679,8 +665,6 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     edgeThreshold: 0,
     luminanceThreshold: 0,
   },
-  blur: { radius: 0 },
-  sharpen: { amount: 0, radius: 1 },
   contrastEqualizer: {
     luma: Array<number>(EQUALIZER_NODES).fill(0.5),
     chroma: Array<number>(EQUALIZER_NODES).fill(0.5),

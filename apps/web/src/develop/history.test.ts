@@ -13,7 +13,7 @@ import {
 import { type HistoryOp, HistoryStore, compressHistory } from './history.ts';
 
 const exposure = (p: EditParams, ev: number) => updateModule(p, 'exposure', { params: { ev } });
-const sharpen = (p: EditParams, amount: number) => updateModule(p, 'sharpen', { enabled: true, params: { amount } });
+const glow = (p: EditParams, strength: number) => updateModule(p, 'glow', { enabled: true, params: { strength } });
 
 function store() {
   const s = new HistoryStore(defaultEditParams, { entries: [], end: 0 });
@@ -35,15 +35,15 @@ test('changes to the same module within the window share an entry', () => {
   );
   // Too late, or another module: a new entry.
   s.commit(exposure(s.committed, 2), 40_000);
-  s.commit(sharpen(s.committed, 1), 41_000);
+  s.commit(glow(s.committed, 1), 41_000);
   assert.equal(s.getState().entries.length, 3);
 });
 
 test('committing from an earlier point drops the later entries, and restore brings them back', () => {
   const { s, ops } = store();
   s.commit(exposure(defaultEditParams, 1), 0);
-  s.commit(sharpen(s.committed, 1), 1);
-  s.commit(sharpen(s.committed, 2), 60_000);
+  s.commit(glow(s.committed, 1), 1);
+  s.commit(glow(s.committed, 2), 60_000);
   s.goto(1);
   // No coalescing with an entry we navigated to.
   const snapshot = s.snapshot();
@@ -73,7 +73,7 @@ test('undo and redo move the end', () => {
 test('compress keeps one entry per changed instance, in order of last change', () => {
   const at = (recipe: EditParams, label = 'x') => ({ label, recipe, createdAt: '2026-01-01T00:00:00Z' });
   const r1 = exposure(defaultEditParams, 1);
-  const r2 = sharpen(r1, 1);
+  const r2 = glow(r1, 1);
   const r3 = exposure(r2, 2);
   const r4 = updateModule(r3, 'colorBalance', { enabled: true, params: { vibrance: 0.2 } });
   const r5 = updateModule(r4, 'filmic', { params: { contrast: 1.5 } });
@@ -82,7 +82,7 @@ test('compress keeps one entry per changed instance, in order of last change', (
   // Filmic is back to its original state: no entry.
   assert.deepEqual(
     out.map((e) => e.label),
-    ['Sharpen: on, amount 1', 'Exposure: ev 2', 'Color balance: vibrance 0.2'],
+    ['Glow: on, strength 1', 'Exposure: ev 2', 'Color balance: vibrance 0.2'],
   );
   assert.deepEqual(out.at(-1)!.recipe, r6);
   assert.deepEqual(compressHistory(defaultEditParams, [at(r1), at(defaultEditParams)]), []);

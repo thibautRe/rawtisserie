@@ -159,8 +159,6 @@ modules! {
     Geometry,
     /// Spatial stage. Diffuse or sharpen first: deblurring wants the unblurred image.
     Diffuse,
-    Blur,
-    Sharpen,
     ContrastEqualizer,
     /// Light spreading from the highlights (bloom, halation), added to the image.
     Glow,
@@ -197,8 +195,6 @@ impl ModuleKind {
         matches!(
             self,
             ModuleKind::Diffuse
-                | ModuleKind::Blur
-                | ModuleKind::Sharpen
                 | ModuleKind::ContrastEqualizer
                 | ModuleKind::Glow
                 | ModuleKind::Exposure
@@ -395,7 +391,7 @@ impl TryFrom<Value> for EditParams {
         }
         let mut params = if version >= 3 || json.get("modules").is_some() {
             let raw = match json.get("modules") {
-                Some(modules) => Vec::<RawInstance>::deserialize(modules)?,
+                Some(modules) => Vec::<RawInstance>::deserialize(&retire_kinds(modules))?,
                 None => Vec::new(),
             };
             let modules = raw
@@ -424,6 +420,21 @@ impl TryFrom<Value> for EditParams {
         }
         params.normalize();
         Ok(params)
+    }
+}
+
+/// Kinds that were removed, and whose instances are dropped on load (without
+/// migrating them): the blur and the unsharp mask, which diffuse or sharpen replaces.
+/// (TS drops every unknown kind.)
+const RETIRED_KINDS: [&str; 2] = ["blur", "sharpen"];
+
+/// `modules` without the instances of retired kinds.
+fn retire_kinds(modules: &Value) -> Value {
+    match modules {
+        Value::Array(list) => Value::Array(
+            list.iter().filter(|m| !m.get("kind").and_then(Value::as_str).is_some_and(|k| RETIRED_KINDS.contains(&k))).cloned().collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -1467,22 +1478,6 @@ pub enum Bleach {
     Extra,
 }
 
-/// Unsharp mask on luminance.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Sharpen {
-    /// 0 disables sharpening; 0.5 is gentle, 2 is a lot.
-    pub amount: f32,
-    /// Gaussian sigma, in full-resolution pixels.
-    pub radius: f32,
-}
-
-impl Default for Sharpen {
-    fn default() -> Self {
-        Self { amount: 0.0, radius: 1.0 }
-    }
-}
-
 /// Diffuse or sharpen (see [`crate::ops::diffuse`]), after Ansel's `diffuse.c`: a
 /// multiscale anisotropic heat-transfer model, to deblur, add local contrast, denoise,
 /// inpaint highlights or soften. Speeds and anisotropies go by order: 1st and 3rd
@@ -1540,14 +1535,6 @@ impl Default for Diffuse {
             luminance_threshold: 0.0,
         }
     }
-}
-
-/// Gaussian blur.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Blur {
-    /// Gaussian sigma, in full-resolution pixels. 0 disables the blur.
-    pub radius: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1689,20 +1676,20 @@ mod tests {
     #[test]
     fn round_trips() {
         let mut p = EditParams::default();
-        p.get_mut::<Sharpen>().amount = 0.5;
+        p.get_mut::<Glow>().strength = 0.5;
         p.add(Exposure { ev: -1.0, black: 0.0 });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.starts_with(r#"{"version":8,"modules":[{"id":"sharpen","label":null,"enabled":true,"kind":"sharpen","params":"#), "{json}");
+        assert!(json.starts_with(r#"{"version":8,"modules":[{"id":"glow","label":null,"enabled":true,"kind":"glow","params":"#), "{json}");
         assert_eq!(EditParams::from_json(&json).unwrap(), p);
     }
 
     #[test]
     fn v3_partial_json_uses_defaults() {
         let p = EditParams::from_json(
-            r#"{"version":3,"modules":[{"kind":"filmic","params":{"bleach":"extra"}},{"kind":"exposure","params":{"black":0.01}},{"kind":"blur"}]}"#,
+            r#"{"version":3,"modules":[{"kind":"filmic","params":{"bleach":"extra"}},{"kind":"exposure","params":{"black":0.01}},{"kind":"glow"}]}"#,
         )
         .unwrap();
-        assert_eq!(kinds(&p), [ModuleKind::Blur, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
+        assert_eq!(kinds(&p), [ModuleKind::Glow, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
         assert_eq!(p.get::<Exposure>(), Some(&Exposure { ev: 0.7, black: 0.01 }));
         assert_eq!(p.get::<Filmic>().unwrap().bleach, Bleach::Extra);
         assert!(p.modules.iter().all(|m| m.enabled && m.label.is_none()));
@@ -1726,6 +1713,17 @@ mod tests {
     fn disabled_instances_are_skipped() {
         let p = EditParams::from_json(r#"{"modules":[{"kind":"exposure","enabled":false,"params":{"ev":2}},{"kind":"exposure","params":{"ev":1}}]}"#).unwrap();
         assert_eq!(p.all::<Exposure>().map(|e| e.ev).collect::<Vec<_>>(), [1.0]);
+    }
+
+    #[test]
+    fn retired_kinds_are_dropped() {
+        let p = EditParams::from_json(
+            r#"{"version":8,"modules":[{"kind":"blur","params":{"radius":3}},{"kind":"sharpen","params":{"amount":1}},{"kind":"exposure"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::Exposure]);
+        let p = EditParams::from_json(r#"{"version":2,"sharpen":{"amount":1},"blur":{"radius":2}}"#).unwrap();
+        assert_eq!(kinds(&p), [ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::Filmic]);
     }
 
     #[test]

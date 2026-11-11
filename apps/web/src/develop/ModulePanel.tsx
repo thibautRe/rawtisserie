@@ -2835,28 +2835,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         </>
       ))}
 
-      {sections('sharpen', [], (e) => (
-        <>
-          <ParamSlider
-            label="Amount"
-            min={0}
-            max={2}
-            hardMax={5}
-            step={0.01}
-            format={fmt.fixed2}
-            {...e.bind('amount')}
-          />
-          <ParamSlider
-            label="Radius"
-            min={0.3}
-            max={5}
-            step={0.05}
-            format={(v) => `${v.toFixed(2)} px`}
-            {...e.bind('radius')}
-          />
-        </>
-      ))}
-
       {sections('diffuse', [], (e) => {
         const px = (v: number) => `${v.toFixed(0)} px`;
         return (
@@ -2970,19 +2948,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           </>
         );
       })}
-
-      {sections('blur', [], (e) => (
-        <>
-          <ParamSlider
-            label="Radius"
-            min={0}
-            max={50}
-            step={0.1}
-            format={(v) => `${v.toFixed(1)} px`}
-            {...e.bind('radius')}
-          />
-        </>
-      ))}
 
       {sections('lens', [lensCorrection], (e) => (
         <>

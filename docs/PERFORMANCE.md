@@ -72,6 +72,20 @@ Unless stated otherwise, numbers come from 2026-11-03, on an Intel i9-10885H lap
   render, 16-thread laptop: AA filter 241 → 209 ms, denoise fine 1091 → 437 ms, lens
   deblur medium 1693 → 665 ms, add local contrast 4286 → 1516 ms. Needs a pool (6+
   hardware threads); without one, the developer diffuses them itself as before.
+- **Diffuse's region margin follows how diffusion spreads** (2026-11-11). Zoomed in, a
+  region was developed with diffuse's full theoretical reach (iterations × one
+  iteration's), capped at 1024 px: 100 % views of iterated presets diffused ~12× the
+  visible pixels, with twice the bands of a fitted render. Now the margin is one
+  iteration's reach × max(1, ½·√iterations) (`DiffuseOp::reach`), and bands whose weight
+  leaves them next to nothing (coefficients < 1e-4) are skipped, which halves the reach
+  of each. Probed at 100 % on a 1800×1600 crop for every kind of built-in preset:
+  identical in 8 bits at ½·√iterations; ⅓ was 1–2 levels off, and without the
+  one-iteration floor, "fast sharpness" (1 iteration, radius 128) was too. Native,
+  single thread, 1024×683 region at 100 %: denoise fine 25.6 → 1.6 s, lens deblur
+  medium 21.0 → 3.7 s, AA filter unchanged (~0.45 s). Add local contrast stays ~22 s:
+  its bands span hundreds of pixels at 100 %, so its margin is still the 1024 px cap.
+  Left for it: keep the diffused area around the view while panning, or show the view
+  without the widest steps first.
 - **Full-resolution demosaic reads each photosite once** (it used to normalise every
   neighbour again, ~20 times per pixel): patches and full-size exports are 2–3× faster,
   bit-identical.

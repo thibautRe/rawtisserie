@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, Diffuse, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, Shape, Sharpen, ToneCurve,
+    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, Diffuse, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, Shape, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     p.get_mut::<ColorBalance>().chroma[0] = 0.2;
     p.get_mut::<ColorBalance>().vibrance = 0.2;
     p.get_mut::<ColorBalance>().brilliance[1] = 0.3;
-    p.get_mut::<Sharpen>().amount = 0.5;
+    p.add(Diffuse::default());
 
     let time = |label: &str, dev: &mut Developer, p: &EditParams| {
         let t = Instant::now();
@@ -36,8 +36,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         p.get_mut::<Filmic>().contrast += 0.05 * i as f32;
         time("exposure/tone slider", &mut dev, &p);
     }
-    p.get_mut::<Sharpen>().amount += 0.1;
-    time("sharpen slider", &mut dev, &p);
+    p.get_mut::<Diffuse>().speed1 -= 0.05;
+    time("diffuse slider (AA filter)", &mut dev, &p);
     p.get_mut::<Geometry>().angle += 0.5;
     time("straighten slider", &mut dev, &p);
     p.get_mut::<Exposure>().ev += 0.1;

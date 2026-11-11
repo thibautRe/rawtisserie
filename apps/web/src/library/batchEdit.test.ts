@@ -32,11 +32,11 @@ test('a preset is appended after the current entry, dropping undone ones', () =>
 });
 
 test('a module preset adds its module when the recipe has none', () => {
-  const sharpen: ModulePreset = { ...preset, moduleKind: 'sharpen', payload: { version: 6, params: { amount: 1 } } };
-  const change = appendChange({ id: 'v', historyEnd: 0, revision: 0, recipe: defaultEditParams }, presetEdit(sharpen));
+  const glow: ModulePreset = { ...preset, moduleKind: 'glow', payload: { version: 6, params: { strength: 1 } } };
+  const change = appendChange({ id: 'v', historyEnd: 0, revision: 0, recipe: defaultEditParams }, presetEdit(glow));
   const op = change?.ops[0];
   assert.ok(op?.type === 'splice');
-  assert.equal(findModule(op.entries[0]!.recipe, 'sharpen')?.enabled, true);
+  assert.equal(findModule(op.entries[0]!.recipe, 'glow')?.enabled, true);
 });
 
 test('nothing is appended when the recipe already has it', () => {

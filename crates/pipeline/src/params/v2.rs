@@ -8,7 +8,7 @@
 
 use serde::Deserialize;
 
-use super::{Blur, ColorBalance, Exposure, Filmic, Geometry, Module, ModuleInstance, Sharpen};
+use super::{ColorBalance, Exposure, Filmic, Geometry, Module, ModuleInstance};
 
 /// v1–v6 colour section: saturation and vibrance. Becomes colour balance.
 #[derive(Clone, Copy, Default, PartialEq, Deserialize)]
@@ -33,8 +33,6 @@ pub(super) struct EditParams {
     color: Color,
     shadows_highlights: ShadowsHighlights,
     filmic: FilmicV2,
-    sharpen: Sharpen,
-    blur: Blur,
     geometry: Geometry,
 }
 
@@ -61,12 +59,6 @@ impl From<EditParams> for super::EditParams {
         let mut push = |enabled: bool, module: Module| modules.push(ModuleInstance { id: String::new(), label: None, enabled, module, mask: None, auto_tune: false });
         if v2.geometry != Geometry::default() {
             push(true, v2.geometry.into());
-        }
-        if v2.blur != Blur::default() {
-            push(true, v2.blur.into());
-        }
-        if v2.sharpen != Sharpen::default() {
-            push(true, v2.sharpen.into());
         }
         push(true, v2.exposure.into());
         // As in v3–v6 recipes (`migrate_color_balance`).

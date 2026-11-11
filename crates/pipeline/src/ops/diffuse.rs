@@ -56,6 +56,18 @@ struct Band {
     regularization: f32,
 }
 
+impl Band {
+    /// Whether the band does next to nothing: no speed or sharpness left after its
+    /// weight. It would only rebuild its input.
+    fn negligible(&self) -> bool {
+        self.abcd.iter().all(|v| v.abs() < NEGLIGIBLE) && (self.strength - 1.0).abs() < NEGLIGIBLE
+    }
+}
+
+/// A band whose coefficients are all below this changes the image by less than 1e-4 of
+/// its detail per iteration: nothing visible, even over hundreds of them.
+const NEGLIGIBLE: f32 = 1e-4;
+
 /// The module at a render scale.
 #[derive(Clone, Debug)]
 pub struct DiffuseOp {
@@ -126,7 +138,14 @@ impl DiffuseOp {
                     regularization: regularization / 9.0 * real_radius * real_radius,
                 }
             })
-            .collect();
+            .collect::<Vec<Band>>();
+        // The coarsest bands can weigh next to nothing (a band an octave or two past the
+        // span): they'd only rebuild their input, so stop before them. That saves their
+        // work and most of the reach, which doubles with each band.
+        let bands = match bands.iter().rposition(|b| !b.negligible()) {
+            Some(last) => bands[..=last].to_vec(),
+            None => bands[..1].to_vec(),
+        };
         let anisotropy = [p.anisotropy1, p.anisotropy2, p.anisotropy3, p.anisotropy4];
         Self {
             iterations,
@@ -145,15 +164,25 @@ impl DiffuseOp {
         self.active
     }
 
-    /// How far, in output pixels, the module reads around each pixel: per iteration, the
-    /// decomposition's taps (2 × 2^band on each side, cumulated) and the diffusion's
-    /// (2^band, on the way back up).
+    /// How far around each pixel, in output pixels, a region render must develop for its
+    /// pixels to match the whole image's (`Pipeline::plan`'s margin).
+    ///
+    /// One iteration reads 3·(2^bands − 1) pixels away (the decomposition's taps, 2 × 2^band
+    /// on each side, cumulated, then the diffusion's 2^band on the way back up), so
+    /// iterations could carry a pixel's influence that many times as far. But diffusion
+    /// spreads like a random walk, with the square root of the iterations, and fades with
+    /// distance: half that root, at least one iteration's reach, stays within a level of
+    /// the whole render. Measured at 100 % on every built-in preset's kind (lens deblur,
+    /// denoise, inpainting, surface blur, watercolor, line drawing, fast sharpness):
+    /// identical in 8 bits, where a third of the root was 1–2 levels off. The theoretical
+    /// reach would develop several times the visible region when zoomed in.
     pub fn reach(&self) -> usize {
         if !self.active {
             return 0;
         }
         let per_iteration = 3 * ((1usize << self.bands.len()) - 1);
-        self.iterations.saturating_mul(per_iteration)
+        let spread = (0.5 * (self.iterations as f32).sqrt()).max(1.0);
+        ((spread * per_iteration as f32).ceil() as usize).min(self.iterations * per_iteration)
     }
 
     /// Apply the module to `img`, whose top-left pixel is at `origin` in the whole frame:

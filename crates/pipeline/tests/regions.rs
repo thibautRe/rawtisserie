@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, MaskPart, MaskView, Overlays};
-use rawtisserie_pipeline::params::{AutoCrop, Blur, ContrastEqualizer, Diffuse, Geometry, Glow, Sharpen};
+use rawtisserie_pipeline::params::{AutoCrop, ContrastEqualizer, Diffuse, Geometry, Glow};
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
 fn developer() -> Developer {
@@ -71,8 +71,7 @@ fn regions_match_the_whole_render() {
     g.rotation = 1;
     g.flip_horizontal = true;
     g.crop = rawtisserie_pipeline::params::Crop { x: 0.1, y: 0.05, width: 0.7, height: 0.8 };
-    p.get_mut::<Sharpen>().amount = 1.5;
-    p.get_mut::<Blur>().radius = 30.0;
+    p.add(Diffuse::default());
     p.get_mut::<ContrastEqualizer>().luma = [0.7, 0.6, 0.55, 0.5, 0.65, 0.7];
     check("detail", &p, RenderSize::fit(1500, 1500));
 
@@ -133,16 +132,33 @@ fn full_resolution_regions_match() {
     let dev = developer();
     let mut p = EditParams::default_for(dev.metadata());
     p.get_mut::<Geometry>().crop = rawtisserie_pipeline::params::Crop { x: 0.4, y: 0.3, width: 0.15, height: 0.2 };
-    p.get_mut::<Sharpen>().amount = 1.0;
     check("100 %", &p, RenderSize::FULL);
+    // Diffuse's default (sharpen demosaicing) first, as the unsharp mask was: the
+    // equalizer alone at 100 % is 2 levels off here, its margin being less than its reach.
+    p.add(Diffuse::default());
     // The equalizer's margin is less than its reach (`equalizer::margin`): still within
     // a level with every band boosted to the maximum.
     p.get_mut::<ContrastEqualizer>().luma = [1.0; 6];
     check("100 %, equalizer", &p, RenderSize::FULL);
     p.add(Glow { threshold: 0.0, radius: 300.0, ..Glow::default() });
     check("100 %, glow", &p, RenderSize::FULL);
-    p.add(Diffuse::default());
     check("100 %, diffuse", &p, RenderSize::FULL);
+    // Many iterations at full size: the margin is much less than the reach
+    // (`DiffuseOp::reach`). Ansel's "lens deblur: medium".
+    p.add(Diffuse {
+        iterations: 16.0,
+        radius: 10.0,
+        speed1: -0.25,
+        speed2: 0.125,
+        speed3: -0.125,
+        speed4: 0.0625,
+        anisotropy1: 2.0,
+        anisotropy2: 0.0,
+        anisotropy3: 2.0,
+        anisotropy4: 0.0,
+        ..Diffuse::default()
+    });
+    check("100 %, lens deblur", &p, RenderSize::FULL);
     let mut rgb = [0.0; 9];
     rgb[2] = 1.0;
     p.add(rawtisserie_pipeline::params::ToneCurve { preserve_detail: true, rgb, ..Default::default() });

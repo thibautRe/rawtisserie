@@ -70,10 +70,10 @@ test('a preset can hold part of a module', () => {
 });
 
 test('applying a preset to a kind without an instance adds one, switched on', () => {
-  const p = applyModulePreset(defaultEditParams, 'sharpen', 'sharpen', { params: { amount: 0.8 } });
-  const sharpen = findModule(p, 'sharpen')!;
-  assert.equal(sharpen.enabled, true);
-  assert.deepEqual(sharpen.params, { ...defaultModuleParams.sharpen, amount: 0.8 });
+  const p = applyModulePreset(defaultEditParams, 'glow', 'glow', { params: { strength: 0.8 } });
+  const glow = findModule(p, 'glow')!;
+  assert.equal(glow.enabled, true);
+  assert.deepEqual(glow.params, { ...defaultModuleParams.glow, strength: 0.8 });
   assert.deepEqual(normalizeEditParams(p), p, 'in pipeline order');
 });
 
@@ -221,7 +221,7 @@ test('retouch presets carry their shapes', () => {
   // On a recipe without retouch, it adds an instance.
   assert.deepEqual(applyModulePreset(defaultEditParams, 'retouch', 'retouch', payload).shapes, payload.shapes);
   // Presets of other kinds have no shapes.
-  assert.equal('shapes' in modulePresetPayload('sharpen', defaultModuleParams.sharpen, dust.shapes), false);
+  assert.equal('shapes' in modulePresetPayload('glow', defaultModuleParams.glow, dust.shapes), false);
 });
 
 test('masks travel with styles, and with presets when asked', () => {

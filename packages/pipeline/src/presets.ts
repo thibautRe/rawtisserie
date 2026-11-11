@@ -658,8 +658,6 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   }),
   builtIn('filmic', 'high-contrast', 'High contrast', { contrast: 1.45 }),
   builtIn('filmic', 'low-contrast', 'Low contrast', { contrast: 1 }),
-  builtIn('sharpen', 'light', 'Light', { amount: 0.5, radius: 1 }),
-  builtIn('sharpen', 'strong', 'Strong', { amount: 1.2, radius: 1.5 }),
   // Diffuse or sharpen: Ansel's presets (`diffuse.c`), each setting every parameter.
   ...DIFFUSE_PRESETS,
   builtIn('contrastEqualizer', 'clarity', 'Clarity', { luma: [0.5, 0.56, 0.6, 0.6, 0.55, 0.5] }),

@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use rawtisserie_pipeline::params::{BlendMode, Blur, DrawnShape, Exposure, Mask, Shape};
+use rawtisserie_pipeline::params::{BlendMode, Diffuse, DrawnShape, Exposure, Mask, Shape};
 use rawtisserie_pipeline::pipeline::PointRenderer;
 use rawtisserie_pipeline::{Developer, EditParams, Image, Quality, RenderSize};
 use serde::Deserialize;
@@ -70,8 +70,8 @@ fn spatial_cache_and_ids_follow_the_spatial_parameters() {
     assert!(dev.is_spatial_cached(&p, SIZE), "exposure is a point operation");
     assert_eq!(dev.spatial_image_id(&p, SIZE).0, id);
 
-    p.get_mut::<Blur>().radius = 10.0;
-    assert!(!dev.is_spatial_cached(&p, SIZE), "blur is spatial");
+    p.get_mut::<Diffuse>().iterations = 2.0;
+    assert!(!dev.is_spatial_cached(&p, SIZE), "diffuse is spatial");
     let (blurred, _) = dev.spatial_image_id(&p, SIZE);
     assert_ne!(blurred, id);
     assert!(dev.is_spatial_cached(&p, SIZE));
@@ -154,10 +154,10 @@ fn masks_are_spatial_only_through_their_shapes() {
     assert!(masks.is_empty());
 
     // A spatial module blends with its stage.
-    let blur = p.add(Blur { radius: 3.0 });
-    p.modules[blur].mask = Some(Mask { opacity: 0.5, ..Mask::default() });
+    let diffuse = p.add(Diffuse::default());
+    p.modules[diffuse].mask = Some(Mask { opacity: 0.5, ..Mask::default() });
     dev.spatial_image_id(&p, SIZE);
-    p.modules[blur].mask.as_mut().unwrap().blend = BlendMode::Darken;
+    p.modules[diffuse].mask.as_mut().unwrap().blend = BlendMode::Darken;
     assert!(!dev.is_spatial_cached(&p, SIZE), "a spatial module's blend is spatial");
 }
 

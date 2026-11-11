@@ -5,7 +5,6 @@ import {
   AudioWaveform,
   Bandage,
   Crop,
-  Droplet,
   Film,
   FoldVertical,
   Image as ImageIcon,
@@ -18,7 +17,6 @@ import {
   Sun,
   SwatchBook,
   Thermometer,
-  Triangle,
   Waves,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef } from 'react';
@@ -30,8 +28,6 @@ const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   lens: Aperture,
   geometry: Crop,
   diffuse: Waves,
-  blur: Droplet,
-  sharpen: Triangle,
   contrastEqualizer: AudioWaveform,
   glow: Sparkles,
   exposure: Sun,

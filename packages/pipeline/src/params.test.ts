@@ -432,28 +432,28 @@ test('v2 recipes become one instance per section', () => {
 });
 
 test('updateModule adds missing instances in pipeline order', () => {
-  let p = updateModule(defaultEditParams, 'sharpen', { params: { amount: 0.5 } });
+  let p = updateModule(defaultEditParams, 'glow', { params: { strength: 0.5 } });
   p = updateModule(p, 'colorBalance', { params: { vibrance: 0.2 } });
   p = updateModule(p, 'exposure', { params: { ev: 1 } });
   assert.deepEqual(
     p.modules.map((m) => m.kind),
-    ['sharpen', 'exposure', 'colorCalibration', 'colorBalance', 'filmic'],
+    ['glow', 'exposure', 'colorCalibration', 'colorBalance', 'filmic'],
   );
-  assert.deepEqual(findModule(p, 'sharpen')!.params, { amount: 0.5, radius: 1 });
+  assert.deepEqual(findModule(p, 'glow')!.params, { ...defaultModuleParams.glow, strength: 0.5 });
   assert.equal(findModule(p, 'exposure')!.params.ev, 1);
   assert.equal(findModule(defaultEditParams, 'exposure')!.params.ev, 0.7, 'the input is not modified');
   assert.deepEqual(normalizeEditParams(p), p);
 });
 
 test('resetModule and isModuleModified compare with the default recipe', () => {
-  let p = updateModule(defaultEditParams, 'sharpen', { params: { amount: 0.5 } });
+  let p = updateModule(defaultEditParams, 'glow', { params: { strength: 0.5 } });
   p = updateModule(p, 'filmic', { enabled: false });
   p = updateModule(p, 'exposure', { params: { ev: 0.7 } });
   assert.deepEqual(
-    ['sharpen', 'exposure', 'filmic', 'blur'].map((k) => isModuleModified(p, k as 'blur')),
+    ['glow', 'exposure', 'filmic', 'diffuse'].map((k) => isModuleModified(p, k as 'glow')),
     [true, false, true, false],
   );
-  p = resetModule(resetModule(p, 'sharpen'), 'filmic');
+  p = resetModule(resetModule(p, 'glow'), 'filmic');
   assert.deepEqual(p, defaultEditParams);
   assert.ok(isDefaultEdit(p));
 });

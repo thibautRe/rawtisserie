@@ -4,8 +4,10 @@
     "version": 5,
     "modules": [
       { "kind": "geometry", "params": { "crop": { "x": 0.45, "y": 0.45, "width": 0.1, "height": 0.1 } } },
-      { "kind": "blur", "params": { "radius": 1.2 } },
-      { "kind": "sharpen", "params": { "amount": 1.0, "radius": 1.0 } },
+      { "kind": "diffuse", "params": { "iterations": 1, "radius": 8, "speed1": -0.25, "speed2": -0.25, "speed3": -0.25, "speed4": -0.25, "anisotropy1": 1, "anisotropy2": 1, "anisotropy3": 1, "anisotropy4": 1, "edgeSensitivity": 1 } },
+      { "id": "deblur", "kind": "diffuse",
+        "params": { "iterations": 8, "radius": 8, "speed1": -0.25, "speed2": 0.125, "speed3": -0.125, "speed4": 0.0625,
+                    "anisotropy1": 2, "anisotropy2": 0, "anisotropy3": 2, "anisotropy4": 0, "edgeSensitivity": 1 } },
       { "kind": "exposure" },
       { "kind": "filmic" }
     ]

@@ -186,7 +186,7 @@ const BAND: usize = 64;
 /// Interleaved RGB samples.
 pub fn encode_pixels<T: Sample>(ops: &PointOps, img: &Image, masks: &[MaskPlane], amount: f32) -> Vec<T> {
     let (w, h) = (img.width, img.height);
-    let sharpen = filters::sharpen_active(amount, SHARPEN_SIGMA);
+    let sharpen = amount > 0.0;
     let margin = if sharpen { filters::reach(SHARPEN_SIGMA) } else { 0 };
     let luma = ops.space().xyz_from_rgb()[1];
     let mut out = Vec::with_capacity(w * h * 3);

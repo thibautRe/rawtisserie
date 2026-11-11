@@ -20,7 +20,7 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   rgb with its AgX colour science), creative 3D LUTs (after filmic: a few built-in film
   looks, or your own `.cube` and Hald CLUT PNG files, previewed as you hover them),
   diffuse or sharpen (a port of Ansel's: lens deblur, local contrast, dehaze, denoise,
-  highlight inpainting), sharpening, blur, glow (bloom, halation and diffusion-filter looks),
+  highlight inpainting, softening), glow (bloom, halation and diffusion-filter looks),
   rotation/flip, straightening, perspective correction (fitted to detected or drawn
   guide lines) and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
@@ -64,7 +64,7 @@ RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera →
     ─▶ retouch spots (heal, clone, fill, blur), in place on the base        cached: with the base
     ─▶ geometry (lens, orientation, straighten, perspective, crop, resample) cached: per output size
        └ drawn parts of masks, through the same geometry, feathered          cached: per output size
-    ─▶ diffuse ─▶ blur ─▶ sharpen ─▶ contrast equalizer ─▶ glow             cached: per output size
+    ─▶ diffuse ─▶ contrast equalizer ─▶ glow                                cached: per output size
     ─▶ exposure ─▶ colour calibration ─▶ colour balance
     ─▶ colour primaries ─▶ filmic (AgX) ─▶ creative LUTs ─▶ sRGB            one fused pass, always re-run
 ```
@@ -79,21 +79,23 @@ built once the filmic settings stop changing. It stays within 1 level (8-bit) of
 exact computation for 99.9 % of pixels. Exports and thumbnails always use the exact path.
 Colour primaries uses a 64³ table too. Moving a colour rebuilds it from cached anchor
 weights, and only the nodes the changed anchors reach (~9 ms native); gamut coverage and
-smoothing rebuild the weights (~100 ms, 19 MB). Blur and sharpen come before the per-pixel stages:
-exposure, white balance and saturation are linear, so the order doesn't change the
-result. The contrast equalizer works on log luminance, so exposure doesn't affect it either. Two output sizes are cached: a ~0.5 MP draft and the full preview size.
+smoothing rebuild the weights (~100 ms, 19 MB). The detail stages come before the per-pixel ones, so
+exposure, white balance and saturation never re-run them; diffuse works at a fixed
+reference level (as Ansel's does after its default exposure). The contrast equalizer works on log luminance, so exposure doesn't affect it either. Two output sizes are cached: a ~0.5 MP draft and the full preview size.
 
 While a slider is being dragged, the UI asks for a draft. If the full-size spatial
 stages are already cached (any colour or tone slider), the pipeline worker renders full
 size instead and splits the per-pixel stages across a pool of workers
 (`develop/pointPool.ts`), each holding a strip of the cached image. Only spatial edits
-(geometry, diffuse, blur, sharpen, equalizer curves, glow) fall back to the draft. See
+(geometry, diffuse, equalizer curves, glow) fall back to the draft. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for measurements and what didn't work.
 
 Zoomed in, the developer renders only the visible region at the zoom level (at most
 100 %). Only the photosites under it are developed, in a cached "patch" of the base
 image, and the spatial stages get a margin around it so that its pixels match a render of
-the whole image. Meanwhile the fitted render is enlarged with a CSS transform, so the wheel
+the whole image. Diffuse or sharpen's margin is much less than how far it could reach
+in theory (a pixel's influence fades with distance; `DiffuseOp::reach`), or many
+iterations at 100 % would develop several times the visible region. Meanwhile the fitted render is enlarged with a CSS transform, so the wheel
 and panning respond at once; the region follows 150 ms after the view stops moving.
 
 The library's culling loupe zooms without the RAW: the server renders 512 px tiles of the
@@ -103,7 +105,7 @@ tile of a photo, ~65 ms each after that. Tiles the loupe moved away from are dro
 before they're rendered, and the browser caches the rest under the recipe's revision.
 
 Previews bin photosites ("superpixel") down to roughly the output size instead of
-demosaicing at full resolution. Spatial parameters (blur and sharpen radii) are
+demosaicing at full resolution. Spatial parameters (diffuse and glow radii) are
 expressed in full-resolution pixels, so previews match full-size exports.
 
 `cargo run --release --example bench -- photo.ARW 2400` prints timings for typical

@@ -3,9 +3,9 @@
   "recipe": {
     "version": 6,
     "modules": [
-      { "kind": "sharpen", "params": { "amount": 3, "radius": 2 },
+      { "kind": "diffuse", "params": { "iterations": 4, "radius": 16, "speed1": -0.5, "speed2": -0.5, "speed3": -0.5, "speed4": -0.5, "anisotropy1": 1, "anisotropy2": 1, "anisotropy3": 1, "anisotropy4": 1, "edgeSensitivity": 1 },
         "mask": { "blend": "lighten", "opacity": 0.8 } },
-      { "kind": "blur", "params": { "radius": 10 },
+      { "id": "soften", "kind": "diffuse", "params": { "iterations": 1, "radius": 32, "speed1": 0.5, "speed2": 0.5, "speed3": 0.5, "speed4": 0.5, "anisotropy1": 0, "anisotropy2": 0, "anisotropy3": 0, "anisotropy4": 0, "edgeSensitivity": 0 },
         "mask": { "drawn": [{ "shape": "spot" }], "feather": 20, "blend": "softLight" } },
       { "kind": "exposure", "params": { "ev": 0.7 } },
       { "id": "lights", "kind": "exposure", "params": { "ev": 1 },

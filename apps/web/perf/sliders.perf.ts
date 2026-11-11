@@ -41,7 +41,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'exposure (point pass)', slider: /^Exposure/, minImageFps: 15 },
   { name: 'filmic contrast (LUT rebuild)', slider: /^Contrast/, minImageFps: 10 },
   { name: 'primaries hue (3D table)', slider: /^Hue[^ ]/, minImageFps: 7 },
-  { name: 'sharpen amount (spatial)', slider: /^Amount/, minImageFps: 8 },
+  { name: 'glow softness (spatial)', slider: /^Threshold softness/, minImageFps: 8 },
   { name: 'equalizer mix (spatial)', slider: /^Mix/, minImageFps: 8 },
   { name: 'straighten (geometry)', slider: /^Straighten/, minImageFps: 4 },
 ];

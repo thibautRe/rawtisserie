@@ -1,6 +1,5 @@
-//! Spatial filters: gaussian blur and unsharp-mask sharpening.
+//! Spatial filters: gaussian and box blurs (retouch, masks, glow, export sharpening).
 
-use crate::color::luminance;
 use crate::image::{Image, Rgb};
 
 /// Gaussian blur of the whole image. Small radii use an exact separable kernel,
@@ -28,7 +27,7 @@ pub fn sharpen_active(amount: f32, sigma: f32) -> bool {
     amount > 0.0 && sigma >= 0.2
 }
 
-/// How far, in pixels, a blur of `sigma` (also sharpening's) reads around each pixel.
+/// How far, in pixels, a blur of `sigma` reads around each pixel.
 pub fn reach(sigma: f32) -> usize {
     if sigma <= 4.0 { (sigma * 3.0).ceil() as usize } else { box_radii(sigma).iter().sum() }
 }
@@ -36,20 +35,6 @@ pub fn reach(sigma: f32) -> usize {
 pub fn blur(img: &mut Image, sigma: f32) {
     if blur_active(sigma) {
         *img = gaussian_blur(img, sigma);
-    }
-}
-
-/// Unsharp mask on luminance: adds `amount × (Y − blur(Y))` to every channel.
-pub fn sharpen(img: &mut Image, amount: f32, sigma: f32) {
-    if !sharpen_active(amount, sigma) {
-        return;
-    }
-    let mut lum: Vec<f32> = img.pixels.iter().map(|p| luminance(*p)).collect();
-    let original = lum.clone();
-    blur_plane(&mut lum, img.width, img.height, sigma);
-    for ((p, y), blurred) in img.pixels.iter_mut().zip(original).zip(lum) {
-        let detail = amount * (y - blurred);
-        *p = p.map(|c| (c + detail).max(0.0));
     }
 }
 

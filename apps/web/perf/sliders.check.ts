@@ -119,15 +119,15 @@ test('a Ctrl drag on the track starts without a jump, and commits', async () => 
 });
 
 test('a Shift drag on the track stops at its end, and commits', async () => {
-  const amount = /^Amount/;
+  const black = /^Black level/;
   await page.keyboard.down('Shift');
   await (
-    await press(amount, 0.1, 0.9)
+    await press(black, 0.1, 0.9)
   )();
   await page.keyboard.up('Shift');
-  assert.equal(await value(amount), 2, 'the end of the track, under the hard limit of 5');
-  assert.equal(await trackMax(amount), 2);
-  await assertCommitted(amount);
+  assert.equal(await value(black), 0.1, 'the end of the track, under the hard limit of 1');
+  assert.equal(await trackMax(black), 0.1);
+  await assertCommitted(black);
 });
 
 test('a plain drag commits', async () => {
@@ -220,35 +220,35 @@ test('sliders stay bound to their instance through adding, moving and deleting',
   const read = async (title: string) => Number.parseFloat((await radius(title).textContent())!);
 
   // A kind without an instance has no menu yet; editing adds the instance.
-  assert.ok(await menu('Blur').isDisabled());
-  await set('Blur', '1');
-  await pick('Blur', /New instance/);
-  assert.equal(await read('Blur 1'), 1);
-  assert.equal(await read('Blur 2'), 0);
+  assert.ok(await menu('Glow').isDisabled());
+  await set('Glow', '1');
+  await pick('Glow', /New instance/);
+  assert.equal(await read('Glow 1'), 1);
+  assert.equal(await read('Glow 2'), 60);
 
-  await set('Blur 2', '2');
-  assert.equal(await read('Blur 1'), 1);
-  assert.equal(await read('Blur 2'), 2);
+  await set('Glow 2', '2');
+  assert.equal(await read('Glow 1'), 1);
+  assert.equal(await read('Glow 2'), 2);
 
   // Each slider follows its instance when the order changes.
-  await pick('Blur 2', /Move up/);
-  assert.equal(await read('Blur 1'), 2);
-  assert.equal(await read('Blur 2'), 1);
-  await set('Blur 2', '3');
-  assert.equal(await read('Blur 1'), 2);
-  assert.equal(await read('Blur 2'), 3);
+  await pick('Glow 2', /Move up/);
+  assert.equal(await read('Glow 1'), 2);
+  assert.equal(await read('Glow 2'), 1);
+  await set('Glow 2', '3');
+  assert.equal(await read('Glow 1'), 2);
+  assert.equal(await read('Glow 2'), 3);
 
-  await pick('Blur 1', /Rename/);
+  await pick('Glow 1', /Rename/);
   await page.keyboard.type('soft\n');
   await settle();
-  assert.equal(await read('Blur (soft)'), 2);
+  assert.equal(await read('Glow (soft)'), 2);
 
-  await pick('Blur (soft)', /Delete/);
-  assert.equal(await read('Blur'), 3);
-  assert.equal(await page.getByRole('heading', { name: 'Blur (soft)' }).count(), 0);
+  await pick('Glow (soft)', /Delete/);
+  assert.equal(await read('Glow'), 3);
+  assert.equal(await page.getByRole('heading', { name: 'Glow (soft)' }).count(), 0);
   await page.keyboard.press('Control+z');
   await settle();
-  assert.equal(await read('Blur (soft)'), 2);
+  assert.equal(await read('Glow (soft)'), 2);
 });
 
 test('instances of a module do not affect each other', async () => {
@@ -269,14 +269,7 @@ test('instances of a module do not affect each other', async () => {
   const sliders = (title: string) => section(title).locator('[data-scope="slider"][data-part="root"]');
 
   // Every slider of the second instance moves it and leaves the first alone.
-  for (const kind of [
-    'Exposure',
-    'Color calibration',
-    'Color balance',
-    'Sharpen',
-    'Contrast equalizer',
-    'Color primaries',
-  ]) {
+  for (const kind of ['Exposure', 'Color calibration', 'Color balance', 'Contrast equalizer', 'Color primaries']) {
     await addSecond(kind);
     const count = await sliders(`${kind} 2`).count();
     assert.ok(count > 0, kind);
