@@ -1826,25 +1826,6 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             </Tabs.Root>
             {page === 'illuminant' && (
               <>
-                <SelectRow label="Adaptation">
-                  {(id) => (
-                    <NativeSelect.Root size="xs" flex="1" disabled={v.illuminant === 'asShot'}>
-                      <NativeSelect.Field
-                        id={id}
-                        value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation}
-                        onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })}
-                        title="Chromatic adaptation transform (as shot always uses CAT16)"
-                      >
-                        {ADAPTATIONS.map((a) => (
-                          <option key={a} value={a}>
-                            {ADAPTATION_LABELS[a]}
-                          </option>
-                        ))}
-                      </NativeSelect.Field>
-                      <NativeSelect.Indicator />
-                    </NativeSelect.Root>
-                  )}
-                </SelectRow>
                 {adapts && (
                   <>
                     <HStack gap="1.5">
@@ -1977,10 +1958,29 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   px="0"
                   onClick={() => e.setView({ calibrationAdvanced: !e.view.calibrationAdvanced })}
                 >
-                  {e.view.calibrationAdvanced ? <ChevronDown /> : <ChevronRight />} Gamut handling
+                  {e.view.calibrationAdvanced ? <ChevronDown /> : <ChevronRight />} Adaptation and gamut
                 </Button>
                 {e.view.calibrationAdvanced && (
                   <>
+                    <SelectRow label="Adaptation">
+                      {(id) => (
+                        <NativeSelect.Root size="xs" flex="1" disabled={v.illuminant === 'asShot'}>
+                          <NativeSelect.Field
+                            id={id}
+                            value={v.illuminant === 'asShot' ? 'cat16' : v.adaptation}
+                            onChange={(ev) => e.set({ adaptation: ev.target.value as Adaptation })}
+                            title="Chromatic adaptation transform (as shot always uses CAT16)"
+                          >
+                            {ADAPTATIONS.map((a) => (
+                              <option key={a} value={a}>
+                                {ADAPTATION_LABELS[a]}
+                              </option>
+                            ))}
+                          </NativeSelect.Field>
+                          <NativeSelect.Indicator />
+                        </NativeSelect.Root>
+                      )}
+                    </SelectRow>
                     <ParamSlider
                       label="Gamut compression"
                       min={0}
