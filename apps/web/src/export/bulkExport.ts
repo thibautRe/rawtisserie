@@ -23,10 +23,11 @@ import { photoExportInfo, photoFilenameFields } from '../develop/exportInfo.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import { lutTable } from '../develop/luts.ts';
 import { saveBlob } from '../lib/download.ts';
-import { ZipWriter } from '../lib/zip.ts';
+import { ZipWriter, memorySink } from '../lib/zip.ts';
 import { fetchRecipe } from '../library/batchEdit.ts';
 import { exportLanes, originalGroups } from './lanes.ts';
 import { archiveName, uniqueName } from './names.ts';
+import { archiveSink } from './spool.ts';
 
 export interface ExportRun {
   total: number;
@@ -174,7 +175,8 @@ async function exportAll(
       taken.add(name);
       return name;
     });
-  const zip = new ZipWriter();
+  // Written to disk as files are added (`spool.ts`), unless one photo is exported alone.
+  const zip = new ZipWriter(single ? memorySink() : await archiveSink());
   let file = null as { blob: Blob; name: string } | null;
   const failed: ExportRun['failed'] = [];
   const current = new Set<number>();
@@ -233,6 +235,8 @@ async function exportAll(
         current.add(i);
         report();
         try {
+          // Once the archive can't be written (the disk is full), the rest would be lost.
+          if (zip.error) throw zip.error;
           if (!got.ok) throw got.error;
           if (!metadata) {
             // Fetched again if a version before it failed (its worker was replaced).
@@ -265,16 +269,21 @@ async function exportAll(
     }
     dispose(backend);
   };
-  await Promise.all(Array.from({ length: Math.min(exportLanes(), groups.length) }, lane));
+  const pixels = photos.map((p) => (p.width && p.height ? p.width * p.height : null));
+  const largest = pixels.includes(null) ? null : Math.max(...(pixels as number[]));
+  const lanes = Math.min(exportLanes(navigator.hardwareConcurrency || 4, largest), groups.length);
+  await Promise.all(Array.from({ length: lanes }, lane));
   signal.removeEventListener('abort', stop);
 
   if (signal.aborted) {
+    await zip.discard();
     update(null);
     toaster.create({ type: 'info', title: 'Export cancelled', duration: 3000 });
     return;
   }
   if (file) saveBlob(file.blob, file.name);
-  else if (zip.count) saveBlob(zip.finish(), archiveName(new Date(), given ? 'retry' : undefined));
+  else if (zip.count) saveBlob(await zip.finish(), archiveName(new Date(), given ? 'retry' : undefined));
+  else await zip.discard();
   update({ ...run!, current: [], state: 'finished' });
   // Without failures there's nothing to report beyond a toast.
   if (!failed.length) {

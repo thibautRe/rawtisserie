@@ -1,12 +1,26 @@
 /** How a library export is spread over workers. */
 
 /**
- * How many photos are exported at once, each on its own worker. An export is
- * single-threaded, so more lanes use more cores, but each holds a decoded photo and its
- * full-size render (about 1 GB at 24 MP, 2.5 GB at 61 MP): a few at most.
+ * Memory an export lane needs per pixel of the photo: the decoded photo and its
+ * full-size render (measured natively: 0.9 GB for a 24 MP JPEG export, ~37 bytes per
+ * pixel; heavy recipes need more). A worker's memory doesn't shrink once grown.
  */
-export function exportLanes(threads = navigator.hardwareConcurrency || 4): number {
-  return Math.max(1, Math.min(3, Math.floor(threads / 4)));
+const BYTES_PER_PIXEL = 40;
+/** What the lanes may use together. */
+const MEMORY_BUDGET = 4 * 2 ** 30;
+/** A photo whose size isn't known is counted as this many pixels. */
+const UNKNOWN_PIXELS = 50e6;
+
+/**
+ * How many photos are exported at once, each on its own worker. An export is
+ * single-threaded, so more lanes use more cores: one per four hardware threads, up to
+ * three, and fewer for large photos (`pixels`, the largest), so that together they stay
+ * within the memory budget: three at 24 MP, two at 45 MP, one at 61 MP.
+ */
+export function exportLanes(threads: number, pixels: number | null): number {
+  const byCores = Math.min(3, Math.floor(threads / 4));
+  const byMemory = Math.floor(MEMORY_BUDGET / ((pixels ?? UNKNOWN_PIXELS) * BYTES_PER_PIXEL));
+  return Math.max(1, Math.min(byCores, byMemory));
 }
 
 /** Runs of consecutive photos sharing an original (versions of one file), as indices. */

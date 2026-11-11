@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ZipWriter, crc32 } from './zip.ts';
+import { ZipWriter, crc32, memorySink } from './zip.ts';
 
 const text = (s: string) => new TextEncoder().encode(s);
 
@@ -60,7 +60,7 @@ test('an archive lists its files with their data', async () => {
   await zip.add('empty.tif', new Blob([]));
   assert.ok(zip.has('a.jpg'));
   await assert.rejects(zip.add('a.jpg', new Blob(['again'])));
-  const files = await read(zip.finish());
+  const files = await read(await zip.finish());
   assert.deepEqual(
     files.map((f) => [f.name, f.data]),
     [
@@ -73,11 +73,11 @@ test('an archive lists its files with their data', async () => {
 
 test('sizes and offsets past the limit get ZIP64 records', async () => {
   // A limit of 8 bytes: the second file starts past it, the third is larger.
-  const zip = new ZipWriter(8);
+  const zip = new ZipWriter(memorySink(), 8);
   await zip.add('one', new Blob(['1']));
   await zip.add('two', new Blob(['2']));
   await zip.add('three', new Blob(['three is long']));
-  const files = await read(zip.finish());
+  const files = await read(await zip.finish());
   assert.deepEqual(
     files.map((f) => [f.name, f.data]),
     [
@@ -89,7 +89,47 @@ test('sizes and offsets past the limit get ZIP64 records', async () => {
 });
 
 test('an empty archive is just its end record', async () => {
-  const zip = new ZipWriter().finish();
+  const zip = await new ZipWriter().finish();
   assert.equal(zip.size, 22);
   assert.deepEqual(await read(zip), []);
+});
+
+test('files added at once are written in turn, each whole', async () => {
+  const zip = new ZipWriter();
+  // The larger one's CRC takes longer: the smaller one is written first.
+  await Promise.all([zip.add('big', new Blob(['x'.repeat(1 << 20)])), zip.add('small', new Blob(['y']))]);
+  const files = await read(await zip.finish());
+  assert.deepEqual(files.map((f) => [f.name, f.data.length]).sort(), [
+    ['big', 1 << 20],
+    ['small', 1],
+  ]);
+});
+
+test('after a failed write, the archive lists what was written before and takes nothing more', async () => {
+  const parts: ArrayBuffer[] = [];
+  let fail = false;
+  const zip = new ZipWriter({
+    // Like a full disk: the header goes in, then the data fails.
+    write: async (part) => {
+      const bytes = part instanceof Blob ? await part.arrayBuffer() : part;
+      if (fail && part instanceof Blob) throw new Error('disk full');
+      parts.push(bytes);
+    },
+    truncate: async (to) => {
+      let total = parts.reduce((n, p) => n + p.byteLength, 0);
+      while (total > to) total -= parts.pop()!.byteLength;
+    },
+    close: async () => new Blob(parts),
+    discard: async () => {},
+  });
+  await zip.add('one', new Blob(['1']));
+  fail = true;
+  await assert.rejects(zip.add('two', new Blob(['2'])), /could not be written \(disk full\)/);
+  fail = false;
+  await assert.rejects(zip.add('three', new Blob(['3'])), /could not be written/);
+  assert.ok(!zip.has('two'));
+  assert.deepEqual(
+    (await read(await zip.finish())).map((f) => f.name),
+    ['one'],
+  );
 });

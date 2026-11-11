@@ -1392,7 +1392,8 @@ with M5's compare (two-up culling of a burst).
 > no size estimate (it depends on each photo's crop), the first two file names, and a
 > warning when names repeat (they get -2, -3…; it suggests `{version}`). The runner is
 > a module-level store, so it keeps going across pages. An export is single-threaded,
-> so it runs lanes (`export/lanes.ts`: a lane per four hardware threads, at most three),
+> so it runs lanes (`export/lanes.ts`: a lane per four hardware threads, at most three,
+> fewer for large photos so they stay within 4 GB together: one at 61 MP),
 > each a pipeline worker without a pool (replaced after a failure, in case it's left
 > without memory) that downloads its next original while one exports. Consecutive
 > versions of a file go to one lane, which decodes the original once for them. Each
@@ -1401,8 +1402,13 @@ with M5's compare (two-up culling of a burst).
 > `/api/versions/recipes` (the recipe for the file when the server hasn't read it yet),
 > with pending auto-tunes resolved. File names are given in the photos' order; ZIP
 > entries are in the order they finish. One photo downloads as its file; several as a
-> stored ZIP (ZIP64 when needed) built from the files' blobs, saved at the end: every
-> exported file is held until then (24 MP: JPEG 12 MB, 16-bit TIFF 129 MB, PNG 142 MB).
+> stored ZIP (ZIP64 when needed), written to a file in the origin private file system
+> as each photo finishes (`export/spool.ts`; in memory where OPFS can't be written) and
+> downloaded from there, so exported files (24 MP: JPEG 12 MB, 16-bit TIFF 129 MB, PNG
+> 142 MB) don't pile up in memory. Archives are removed an hour later, when the next
+> export starts. If a write fails (disk full), the archive keeps what was written and
+> the remaining photos fail, to be retried. `test:library` passes in Firefox too
+> (`BROWSER=firefox`).
 > The progress panel (bottom left, every page) shows n of N and the photos being
 > exported, with Cancel; failures are listed when it ends, with Retry: the same
 > settings and names, into a ZIP of its own (`…-retry.zip`). A download that fails with

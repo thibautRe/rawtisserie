@@ -6,11 +6,12 @@
  * keys are shared between Chakra's TagsInput and our suggestions.
  *
  *   npm run test:library -w @rawtisserie/web
+ *   BROWSER=firefox npm run test:library -w @rawtisserie/web   (after `npx playwright install firefox`)
  */
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { type Browser, type Page, chromium } from 'playwright';
+import { type Browser, type Page, chromium, firefox } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
 import { existsSync } from 'node:fs';
 import { defaultEditParams } from '@rawtisserie/pipeline';
@@ -94,7 +95,7 @@ let page: Page;
 before(async () => {
   await build({ root, logLevel: 'error' });
   server = await preview({ root, logLevel: 'warn', preview: { port: PORT, strictPort: true } });
-  browser = await chromium.launch({ channel: 'chromium' });
+  browser = await (process.env.BROWSER === 'firefox' ? firefox.launch() : chromium.launch({ channel: 'chromium' }));
 });
 
 after(async () => {
@@ -286,9 +287,20 @@ test(
     await page.getByText(/Exporting: [0-3] of 3 done/).waitFor();
     const file = await download;
     assert.match(file.suggestedFilename(), /^rawtisserie-\d{4}-\d\d-\d\d-\d{6}\.zip$/);
-    const { readFile } = await import('node:fs/promises');
+    const { readFile, stat } = await import('node:fs/promises');
     // In the order they finished: lanes export several at once.
     assert.deepEqual(zipNames(await readFile(await file.path())), ['beach-1.jpg']);
+    // It was written to disk (OPFS) as it was made, not kept in memory.
+    const spooled = await page.evaluate(async () => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('exports');
+      const sizes = [];
+      for await (const [, h] of (
+        dir as unknown as { entries(): AsyncIterable<[string, FileSystemFileHandle]> }
+      ).entries())
+        sizes.push((await h.getFile()).size);
+      return sizes;
+    });
+    assert.deepEqual(spooled, [(await stat(await file.path())).size]);
     await page.getByText('Exported 1 of 3 photos').waitFor();
     await page.getByText('beach-3.ARW: Could not download the original (Not Found)').waitFor();
     await page.getByText('beach-5.ARW: Could not download the original (Not Found)').waitFor();

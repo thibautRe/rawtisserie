@@ -1,8 +1,7 @@
 /**
  * A ZIP archive written as files arrive, without compression (exported JPEG, PNG and
- * TIFF files don't get smaller). The archive is a `Blob` of parts: each file's data
- * stays the `Blob` it came as, so the browser can keep large archives out of memory.
- * ZIP64 records are added for whatever passes 4 GB (or 65,535 files).
+ * TIFF files don't get smaller), to a `ZipSink`: a file on disk (`export/spool.ts`), or
+ * memory. ZIP64 records are added for whatever passes 4 GB (or 65,535 files).
  */
 
 const LOCAL = 0x04034b50;
@@ -53,17 +52,52 @@ interface Entry {
   date: number;
 }
 
+/** Where an archive is written, in order. */
+export interface ZipSink {
+  write(part: Blob | ArrayBuffer): Promise<void>;
+  /** Cut what's been written back to `size` bytes (after a failed write). */
+  truncate(size: number): Promise<void>;
+  /** The archive, once everything is written. */
+  close(): Promise<Blob>;
+  /** Drop what's been written. */
+  discard(): Promise<void>;
+}
+
+/** An archive in memory: a `Blob` of the parts (the browser may keep large ones on disk, or not). */
+export function memorySink(): ZipSink {
+  let parts: (Blob | ArrayBuffer)[] = [];
+  const size = (p: Blob | ArrayBuffer) => (p instanceof Blob ? p.size : p.byteLength);
+  return {
+    write: async (part) => void parts.push(part),
+    truncate: async (to) => {
+      let total = parts.reduce((n, p) => n + size(p), 0);
+      while (total > to && parts.length) total -= size(parts.pop()!);
+    },
+    close: async () => new Blob(parts, { type: 'application/zip' }),
+    discard: async () => void (parts = []),
+  };
+}
+
 export class ZipWriter {
-  private parts: BlobPart[] = [];
   private entries: Entry[] = [];
   private offset = 0;
   private names = new Set<string>();
-
+  /** Files are written one after the other, whatever order their CRCs are ready in. */
+  private queue: Promise<void> = Promise.resolve();
+  /** Set when a write failed: the archive keeps what was written before, and takes nothing more. */
+  private broken: Error | null = null;
+  private readonly sink: ZipSink;
   /** Entries past this size or offset get ZIP64 fields (lowered by tests). */
   private readonly limit32: number;
 
-  constructor(limit32 = MAX32) {
+  constructor(sink: ZipSink = memorySink(), limit32 = MAX32) {
+    this.sink = sink;
     this.limit32 = limit32;
+  }
+
+  /** Why the archive takes no more files, once a write failed. */
+  get error(): Error | null {
+    return this.broken;
   }
 
   get count(): number {
@@ -75,10 +109,26 @@ export class ZipWriter {
     return this.names.has(name);
   }
 
-  /** Add a file. Its data is read once, for its CRC. */
+  /**
+   * Add a file. Its data is read once for its CRC, then written. Several may be added
+   * at once: they're written in turn. A file that fails to be written isn't listed.
+   */
   async add(name: string, data: Blob, modified = new Date()): Promise<void> {
     if (this.names.has(name)) throw new Error(`Duplicate file name in the archive: ${name}`);
-    const crc = await blobCrc(data);
+    this.names.add(name);
+    try {
+      const crc = await blobCrc(data);
+      const write = this.queue.then(() => this.write(name, data, crc, modified));
+      // The next file waits for this one, written or not.
+      this.queue = write.catch(() => {});
+      await write;
+    } catch (err) {
+      this.names.delete(name);
+      throw err;
+    }
+  }
+
+  private async write(name: string, data: Blob, crc: number, modified: Date) {
     const encoded = new TextEncoder().encode(name);
     const { time, date } = dosDateTime(modified);
     const entry: Entry = { name: encoded, crc, size: data.size, offset: this.offset, time, date };
@@ -103,14 +153,29 @@ export class ZipWriter {
       header.setBigUint64(at + 4, BigInt(entry.size), true);
       header.setBigUint64(at + 12, BigInt(entry.size), true);
     }
-    this.parts.push(header.buffer, data);
+    if (this.broken) throw this.broken;
+    try {
+      await this.sink.write(header.buffer);
+      await this.sink.write(data);
+    } catch (err) {
+      // Whatever part of it was written goes; the directory can still list the others.
+      await this.sink.truncate(this.offset).catch(() => {});
+      this.broken = new Error(`The archive could not be written (${err instanceof Error ? err.message : err})`);
+      throw this.broken;
+    }
     this.offset += header.byteLength + data.size;
     this.entries.push(entry);
-    this.names.add(name);
+  }
+
+  /** Drop the archive. */
+  async discard(): Promise<void> {
+    await this.queue;
+    await this.sink.discard();
   }
 
   /** The archive: the files added, then the central directory. */
-  finish(): Blob {
+  async finish(): Promise<Blob> {
+    await this.queue;
     const directory: ArrayBuffer[] = [];
     let size = 0;
     for (const e of this.entries) {
@@ -177,7 +242,8 @@ export class ZipWriter {
     end.setUint32(12, zip64 ? MAX32 : size, true);
     end.setUint32(16, zip64 ? MAX32 : start, true);
     tail.push(end.buffer);
-    return new Blob([...this.parts, ...directory, ...tail], { type: 'application/zip' });
+    for (const part of [...directory, ...tail]) await this.sink.write(part);
+    return this.sink.close();
   }
 }
 
