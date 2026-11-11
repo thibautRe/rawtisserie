@@ -500,7 +500,7 @@ const PerspectiveTools = memo(
         </Button>
       </HStack>
       <HStack gap="2">
-        <Text textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+        <Text textStyle="xs" color="fg.muted" w="20" flexShrink={0}>
           Fit
         </Text>
         <ButtonGroup size="xs" variant="outline" attached flex="1">
@@ -552,7 +552,7 @@ function SelectRow({ label, children }: { label: string; children: (id: string) 
   const id = useId();
   return (
     <HStack gap="2" flex="1" minW="0">
-      <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+      <Text asChild textStyle="xs" color="fg.muted" w="20" flexShrink={0}>
         <label htmlFor={id}>{label}</label>
       </Text>
       {children(id)}
@@ -885,6 +885,10 @@ export function PageTabs<P extends string>({
             flex="auto"
             justifyContent="center"
             textStyle="2xs"
+            fontFamily="label"
+            fontWeight="semibold"
+            textTransform="uppercase"
+            letterSpacing="wider"
             position="relative"
           >
             {labels[p]}
@@ -2065,9 +2069,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     <Text
                       textStyle="xs"
                       fontFamily="label"
-                      fontWeight="semibold"
+                      fontWeight="medium"
                       textTransform="uppercase"
                       letterSpacing="wider"
+                      color="fg.subtle"
                       pt="2"
                       title={g.hint}
                     >

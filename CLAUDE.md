@@ -107,8 +107,7 @@ See README.md for the architecture overview and commands.
   `npm run test:library -w @rawtisserie/web` goes between the library and the developer (API
   mocked): run it after changing what they share (`library/libraryView.ts`, the film roll).
 - `/ui` (`pages/UiPage.tsx`) shows the UI's building blocks on one page, with static data
-  and a toggle between the app's fonts and Inter: add new shared components and patterns
-  there. Fonts are tokens (`theme.ts`): `heading`, `body`, `label` (small uppercase
+  and a dark/light toggle: add new shared components and patterns there. Fonts are tokens (`theme.ts`): `heading`, `body`, `label` (small uppercase
   labels) and `numeric` (values that change as you edit, with `tabular-nums`). `npm run test:ui -w @rawtisserie/web` renders it in every mode
   (`UI_SHOTS=dir` saves screenshots).
 - Golden-image tests (`crates/pipeline/tests/golden.rs`) need `./scripts/fetch-golden-raws.sh`

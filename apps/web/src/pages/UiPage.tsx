@@ -1,7 +1,6 @@
 /**
  * The UI's building blocks on one page (`/ui`), with static data and no API: to see the
- * type, colours and components together, try the fonts, and write down which pattern
- * is for what. See the design system in docs/ROADMAP.md (M9).
+ * type, colours and components together, and write down which pattern is for what. See the design system in docs/ROADMAP.md (M9).
  */
 import {
   Box,
@@ -39,37 +38,22 @@ import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
-const INTER = "'Inter Variable', Inter, system-ui, sans-serif";
 /**
- * Fonts to compare with the app's (`theme.ts`, under "new"): headings, body, small
- * uppercase labels (module titles, section labels) and values.
+ * Sets the colour mode on the whole document (menus and popovers are portalled out of
+ * the page), and puts back the app's on leaving.
  */
-const FONTS = {
-  current: { heading: INTER, body: INTER, label: INTER, numeric: INTER },
-  new: null,
-} as const;
-const FONT_ROLES = ['heading', 'body', 'label', 'numeric'] as const;
-type Fonts = keyof typeof FONTS;
-
-/**
- * Sets the fonts and colour mode on the whole document (menus and popovers are portalled
- * out of the page), and puts back the app's on leaving.
- */
-function useDocumentLook(fonts: Fonts, mode: 'dark' | 'light') {
+function useDocumentLook(mode: 'dark' | 'light') {
   useEffect(() => {
     const html = document.documentElement;
-    const override = FONTS[fonts];
-    if (override) for (const role of FONT_ROLES) html.style.setProperty(`--chakra-fonts-${role}`, override[role]);
     html.classList.toggle('dark', mode === 'dark');
     html.classList.toggle('light', mode === 'light');
     html.style.colorScheme = mode;
     return () => {
-      for (const role of FONT_ROLES) html.style.removeProperty(`--chakra-fonts-${role}`);
       html.classList.add('dark');
       html.classList.remove('light');
       html.style.colorScheme = 'dark';
     };
-  }, [fonts, mode]);
+  }, [mode]);
 }
 
 function Block({ title, guide, children }: { title: string; guide?: React.ReactNode; children: React.ReactNode }) {
@@ -145,7 +129,6 @@ const COLOURS = [
 
 export function UiPage() {
   const [params, setParams] = useSearchParams();
-  const fonts: Fonts = params.get('fonts') === 'inter' ? 'current' : 'new';
   const mode = params.get('mode') === 'light' ? 'light' : 'dark';
   const setParam = (key: string, value: string | null) =>
     setParams(
@@ -156,7 +139,7 @@ export function UiPage() {
       },
       { replace: true },
     );
-  useDocumentLook(fonts, mode);
+  useDocumentLook(mode);
 
   const [exposure, setExposure] = useState(0.7);
   const [hue, setHue] = useState(-12);
@@ -180,34 +163,19 @@ export function UiPage() {
         <Container maxW="6xl" py="3">
           <HStack justify="space-between" wrap="wrap" gap="3">
             <Heading size="md">🍗 UI</Heading>
-            <HStack gap="4" wrap="wrap">
-              <SegmentGroup.Root
-                size="xs"
-                value={fonts}
-                onValueChange={(e) => setParam('fonts', e.value === 'current' ? 'inter' : null)}
-              >
-                <SegmentGroup.Indicator />
-                <SegmentGroup.Items
-                  items={[
-                    { value: 'current', label: 'Inter' },
-                    { value: 'new', label: 'Barlow Semi Condensed + Lilex' },
-                  ]}
-                />
-              </SegmentGroup.Root>
-              <SegmentGroup.Root
-                size="xs"
-                value={mode}
-                onValueChange={(e) => setParam('mode', e.value === 'light' ? 'light' : null)}
-              >
-                <SegmentGroup.Indicator />
-                <SegmentGroup.Items
-                  items={[
-                    { value: 'dark', label: 'Dark' },
-                    { value: 'light', label: 'Light' },
-                  ]}
-                />
-              </SegmentGroup.Root>
-            </HStack>
+            <SegmentGroup.Root
+              size="xs"
+              value={mode}
+              onValueChange={(e) => setParam('mode', e.value === 'light' ? 'light' : null)}
+            >
+              <SegmentGroup.Indicator />
+              <SegmentGroup.Items
+                items={[
+                  { value: 'dark', label: 'Dark' },
+                  { value: 'light', label: 'Light' },
+                ]}
+              />
+            </SegmentGroup.Root>
           </HStack>
         </Container>
       </Box>

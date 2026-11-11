@@ -34,6 +34,9 @@ side panels.
 2026-11-11: a manager dialog to rename and delete the user's own LUTs, module presets and
 styles ("Manage…" in their menus, replacing the delete submenus).
 Later that day: 3.7 (diffuse or sharpen), a port of Ansel's with all its presets.
+Feedback: Barlow Semi Condensed was too narrow for rows of similar sliders (colour
+balance): Geologica instead (Asta Sans tried first: its ellipsis is centred, Korean
+style), and Inter out of `/ui`. Uppercase tabs, dimmer colour balance group headers.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1547,15 +1550,17 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
   image.
-- **Typography:** in the app since 2026-11-10, still being tried: **Barlow Semi
-  Condensed** for headings, body and small uppercase labels (the `label` font token),
+- **Typography:** in the app since 2026-11-10, still being tried: **Geologica** (since
+  2026-11-11) for headings, body and small uppercase labels (the `label` font token),
   **Lilex** for values that change as you edit (the `numeric` token: slider readouts,
   history numbers, mask ranges, the developer's camera/exposure line). Both Google
-  Fonts (OFL), self-hosted with Fontsource; Inter stays as the fallback and on
-  `/ui?fonts=inter` to compare. Tried before: Big Shoulders + Chivo Mono (Big Shoulders
-  doesn't read at the panels' small sizes), Anybody + Lilex (Lilex for all text is wide:
-  labels wrapped, the flag filter overflowed). Barlow is condensed: if panel text reads
-  too small, step the text styles up.
+  Fonts (OFL), self-hosted with Fontsource. Inter is gone (no longer a fallback or on
+  `/ui`). Tried before: Big Shoulders + Chivo Mono (Big Shoulders doesn't read at the
+  panels' small sizes), Anybody + Lilex (Lilex for all text is wide: labels wrapped, the
+  flag filter overflowed), Barlow Semi Condensed + Lilex (too narrow: rows of similar
+  sliders, as in colour balance, were hard to tell apart), Asta Sans (Korean-first: its
+  ellipsis is centred, even CSS truncation's). Geologica was picked from a sheet of a dozen
+  (Golos Text, Schibsted Grotesk and Atkinson Hyperlegible Next were the runners-up).
 - **Spinner:** a branded loading indicator instead of the default one. Reuse it for
   long loads (RAW decode, first render) with a progress hint.
 - **`/develop` page:** the public developer is the front door. Give it a proper landing
@@ -1567,8 +1572,7 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   - A component gallery: a `/ui` route in the app, everything on one page (decided
     2026-11-10: no Storybook for now). Started 2026-11-10 (`pages/UiPage.tsx`): type
     scale, colours, buttons, the four view switchers, `ParamSlider`, the three section
-    headers, fields, culling controls, with a dark/light toggle and one between the
-    app's fonts and Inter (`?fonts=inter`). Still to add: mixer views, curve editors, the film
+    headers, fields, culling controls, with a dark/light toggle. Still to add: mixer views, curve editors, the film
     roll, the tag input with completion. `npm run test:ui` renders it in every mode and
     can save screenshots (`UI_SHOTS=dir`): a base for visual regression later.
   - Typography: the faces as tokens (see above), and a small set of text styles (today it's `2xs`,
