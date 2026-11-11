@@ -347,7 +347,8 @@ export function Module({
           fontFamily="label"
           textTransform="uppercase"
           letterSpacing="wider"
-          color={modified ? 'orange.fg' : 'fg.muted'}
+          // Only an active module's edits change the image.
+          color={modified && enabled ? 'orange.fg' : 'fg.muted'}
         >
           {title}
         </Heading>
