@@ -1,6 +1,7 @@
 import { Box, Button, CloseButton, HStack, Progress, Stack, Text } from '@chakra-ui/react';
 import { useEffect } from 'react';
-import { cancelExport, dismissExport, useExportRun } from './bulkExport.ts';
+import { RotateCcw } from 'lucide-react';
+import { cancelExport, dismissExport, retryFailed, useExportRun } from './bulkExport.ts';
 
 /**
  * The library export's progress (roadmap 8.4), on every page: n of N, the photo being
@@ -61,13 +62,19 @@ export function ExportProgress() {
                 ? `Exported ${run.exported} of ${run.total} photos`
                 : `Could not export ${run.total === 1 ? 'the photo' : 'the photos'}`}
             </Text>
-            <CloseButton size="2xs" onClick={dismissExport} aria-label="Dismiss" />
+            <HStack gap="1">
+              {/* The failed ones again, same settings and names, in an archive of their own. */}
+              <Button size="2xs" variant="outline" onClick={retryFailed}>
+                <RotateCcw /> Retry {run.failed.length}
+              </Button>
+              <CloseButton size="2xs" onClick={dismissExport} aria-label="Dismiss" />
+            </HStack>
           </HStack>
           <Stack gap="1" maxH="40" overflowY="auto">
             {run.failed.map((f, i) => (
               <Text key={i} textStyle="xs" color="fg.muted">
                 <Text as="span" color="fg">
-                  {f.filename}
+                  {f.photo.filename}
                 </Text>
                 : {f.error}
               </Text>

@@ -1404,7 +1404,9 @@ with M5's compare (two-up culling of a burst).
 > stored ZIP (ZIP64 when needed) built from the files' blobs, saved at the end: every
 > exported file is held until then (24 MP: JPEG 12 MB, 16-bit TIFF 129 MB, PNG 142 MB).
 > The progress panel (bottom left, every page) shows n of N and the photos being
-> exported, with Cancel; failures are listed when it ends. Leaving the app while it
+> exported, with Cancel; failures are listed when it ends, with Retry: the same
+> settings and names, into a ZIP of its own (`…-retry.zip`). A download that fails with
+> a network or server error is tried twice more first. Leaving the app while it
 > runs asks first. `test:library` exports with a golden RAW. Fixed on the way:
 > `/api/versions/recipes` gave a version undone to the original the auto-applied recipe
 > rather than the plain default. Not measured yet: a large selection of 60 MP files

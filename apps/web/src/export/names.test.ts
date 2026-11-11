@@ -16,4 +16,5 @@ test('names that are taken get -2, -3… before their extension', () => {
 
 test('the archive is named after when it was made', () => {
   assert.equal(archiveName(new Date(2026, 10, 1, 9, 5, 7)), 'rawtisserie-2026-11-01-090507.zip');
+  assert.equal(archiveName(new Date(2026, 10, 1, 9, 5, 7), 'retry'), 'rawtisserie-2026-11-01-090507-retry.zip');
 });

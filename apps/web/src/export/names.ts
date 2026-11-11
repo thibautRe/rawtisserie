@@ -11,8 +11,10 @@ export function uniqueName(name: string, taken: (name: string) => boolean): stri
   }
 }
 
-/** The archive's name: the app and when it was exported (local time). */
-export function archiveName(at: Date): string {
+/** The archive's name: the app and when it was exported (local time), and what it is (`retry`). */
+export function archiveName(at: Date, what?: string): string {
   const p = (n: number) => String(n).padStart(2, '0');
-  return `rawtisserie-${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}.zip`;
+  const date = `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}`;
+  const time = `${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`;
+  return `rawtisserie-${date}-${time}${what ? `-${what}` : ''}.zip`;
 }

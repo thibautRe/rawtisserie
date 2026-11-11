@@ -15,7 +15,7 @@ import {
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
 import { useSyncExternalStore } from 'react';
-import { fetchBytes } from '../api/client.ts';
+import { ApiError, fetchBytes } from '../api/client.ts';
 import type { Photo } from '../api/types.ts';
 import { toaster } from '../components/toaster.tsx';
 import { backendMeasures } from '../develop/autoTune.ts';
@@ -35,9 +35,13 @@ export interface ExportRun {
   exported: number;
   /** The file names of the photos being exported. */
   current: string[];
-  /** Photos that couldn't be exported, and why. */
-  failed: { filename: string; error: string }[];
+  /** Photos that couldn't be exported, why, and the name each was given (kept on a retry). */
+  failed: { photo: Photo; name: string; error: string }[];
   state: 'running' | 'finished';
+  /** What the export was asked for, for a retry. */
+  settings: ExportSettings;
+  /** A retry of a previous export's failures. */
+  retry: boolean;
 }
 
 let run: ExportRun | null = null;
@@ -86,11 +90,25 @@ const settle = <T>(p: Promise<T>): Promise<Settled<T>> =>
     (error: unknown) => ({ ok: false as const, error }),
   );
 
-/** A photo's original, failing with what went wrong. */
-const download = (url: string, signal: AbortSignal) =>
-  fetchBytes(url, undefined, signal).catch((err: unknown) => {
-    throw new Error(`Could not download the original (${message(err)})`);
-  });
+/** Waits between tries of a download. */
+const DOWNLOAD_RETRIES = [1000, 4000];
+
+/**
+ * A photo's original, failing with what went wrong. A network error or a server error
+ * is tried again a couple of times: lanes download several large files at once.
+ */
+async function download(url: string, signal: AbortSignal): Promise<ArrayBuffer> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchBytes(url, undefined, signal);
+    } catch (err) {
+      const final = err instanceof ApiError && err.status < 500;
+      if (signal.aborted || final || attempt >= DOWNLOAD_RETRIES.length)
+        throw new Error(`Could not download the original (${message(err)})`);
+      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRIES[attempt]));
+    }
+  }
+}
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -98,30 +116,64 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * Export `photos` (versions, in this order) with `settings`. Returns false without
  * starting when an export is already running.
  */
-export function startExport(photos: readonly Photo[], settings: ExportSettings): boolean {
+export function startExport(
+  photos: readonly Photo[],
+  settings: ExportSettings,
+  retry?: { names: readonly string[] },
+): boolean {
   if (exportRunning() || !photos.length) return false;
   const abort = new AbortController();
   controller = abort;
-  update({ total: photos.length, done: 0, exported: 0, current: [], failed: [], state: 'running' });
-  void exportAll(photos, settings, abort.signal).finally(() => {
+  update({
+    total: photos.length,
+    done: 0,
+    exported: 0,
+    current: [],
+    failed: [],
+    state: 'running',
+    settings,
+    retry: !!retry,
+  });
+  void exportAll(photos, settings, abort.signal, retry?.names).finally(() => {
     if (controller === abort) controller = null;
   });
   return true;
 }
 
-async function exportAll(photos: readonly Photo[], settings: ExportSettings, signal: AbortSignal) {
+/**
+ * Export the photos that failed in the export just finished, with its settings and
+ * the names they were given, into an archive of their own.
+ */
+export function retryFailed(): boolean {
+  if (run?.state !== 'finished' || !run.failed.length) return false;
+  const { failed, settings } = run;
+  return startExport(
+    failed.map((f) => f.photo),
+    settings,
+    { names: failed.map((f) => f.name) },
+  );
+}
+
+async function exportAll(
+  photos: readonly Photo[],
+  settings: ExportSettings,
+  signal: AbortSignal,
+  given?: readonly string[],
+) {
   const format = EXPORT_FORMATS.find((f) => f.value === settings.format)!;
   const options = exportOptions(settings);
   const single = photos.length === 1;
   // Names are given in the photos' order, whatever order they finish in.
   const taken = new Set<string>();
-  const names = photos.map((p) => {
-    const name = uniqueName(exportFilename(settings.filename, photoFilenameFields(p), format.extension), (n) =>
-      taken.has(n),
-    );
-    taken.add(name);
-    return name;
-  });
+  const names =
+    given ??
+    photos.map((p) => {
+      const name = uniqueName(exportFilename(settings.filename, photoFilenameFields(p), format.extension), (n) =>
+        taken.has(n),
+      );
+      taken.add(name);
+      return name;
+    });
   const zip = new ZipWriter();
   let file = null as { blob: Blob; name: string } | null;
   const failed: ExportRun['failed'] = [];
@@ -134,7 +186,8 @@ async function exportAll(photos: readonly Photo[], settings: ExportSettings, sig
       done,
       exported,
       current: [...current].sort((a, b) => a - b).map((i) => photos[i]!.filename),
-      failed: [...failed],
+      // In the photos' order, as a retry exports them.
+      failed: failed.toSorted((a, b) => photos.indexOf(a.photo) - photos.indexOf(b.photo)),
     });
 
   // Cancelling stops every worker at once, whatever it's doing.
@@ -196,7 +249,7 @@ async function exportAll(photos: readonly Photo[], settings: ExportSettings, sig
           exported++;
         } catch (err) {
           if (signal.aborted) break;
-          failed.push({ filename: photo.filename, error: message(err) });
+          failed.push({ photo, name: names[i]!, error: message(err) });
           // A fresh worker for the next one, in case this one is left in a bad state (memory).
           dispose(backend);
           backend = newBackend();
@@ -221,7 +274,7 @@ async function exportAll(photos: readonly Photo[], settings: ExportSettings, sig
     return;
   }
   if (file) saveBlob(file.blob, file.name);
-  else if (zip.count) saveBlob(zip.finish(), archiveName(new Date()));
+  else if (zip.count) saveBlob(zip.finish(), archiveName(new Date(), given ? 'retry' : undefined));
   update({ ...run!, current: [], state: 'finished' });
   // Without failures there's nothing to report beyond a toast.
   if (!failed.length) {

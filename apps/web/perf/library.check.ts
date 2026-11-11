@@ -84,6 +84,8 @@ let patched = new Map<string, Partial<PhotoDetail>>();
 let originals: Record<string, string> = {};
 /** Versions whose current recipe is known (`/api/versions/recipes`); the others aren't read yet. */
 let recipes: Record<string, unknown> = {};
+/** Originals whose next download fails with a server error. */
+let flaky = new Set<string>();
 
 let server: PreviewServer;
 let browser: Browser;
@@ -109,6 +111,7 @@ async function open(path: string) {
   patched = new Map();
   originals = {};
   recipes = {};
+  flaky = new Set();
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -143,6 +146,7 @@ async function open(path: string) {
       });
     }
     const original = /^\/api\/photos\/(p\d+)\/original$/.exec(path)?.[1];
+    if (original && flaky.delete(original)) return route.fulfill({ status: 503, json: { error: 'busy' } });
     if (original && originals[original]) return route.fulfill({ path: originals[original] });
     // Originals and the rest: the developer shows an error, the film roll stays.
     return route.fulfill({ status: 404, json: { error: 'not found' } });
@@ -265,13 +269,14 @@ function zipNames(zip: Buffer): string[] {
 }
 
 test(
-  'Ctrl+E exports the selection as one ZIP, listing the photos that failed',
+  'Ctrl+E exports the selection as one ZIP, and the photos that failed again into another',
   { skip: !existsSync(RAW) },
   async () => {
     await open('/?q=beach');
     await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 3);
-    // v1 has an edited recipe; v5 is a new upload (the recipe for its file); v3's original is missing.
-    originals = { p1: RAW, p5: RAW };
+    // v1 has an edited recipe; v3 and v5 are new uploads (the recipe for their file), whose
+    // originals are missing at first.
+    originals = { p1: RAW };
     recipes = { v1: defaultEditParams };
     await page.keyboard.press('Control+a');
     await page.keyboard.press('Control+e');
@@ -283,27 +288,41 @@ test(
     assert.match(file.suggestedFilename(), /^rawtisserie-\d{4}-\d\d-\d\d-\d{6}\.zip$/);
     const { readFile } = await import('node:fs/promises');
     // In the order they finished: lanes export several at once.
-    assert.deepEqual(zipNames(await readFile(await file.path())).sort(), ['beach-1.jpg', 'beach-5.jpg']);
-    await page.getByText('Exported 2 of 3 photos').waitFor();
+    assert.deepEqual(zipNames(await readFile(await file.path())), ['beach-1.jpg']);
+    await page.getByText('Exported 1 of 3 photos').waitFor();
     await page.getByText('beach-3.ARW: Could not download the original (Not Found)').waitFor();
-    await page.getByRole('button', { name: 'Dismiss' }).click();
-    await page.getByText('Exported 2 of 3 photos').waitFor({ state: 'detached' });
+    await page.getByText('beach-5.ARW: Could not download the original (Not Found)').waitFor();
+    // Once their originals can be had, Retry exports them into an archive of their own.
+    originals = { p1: RAW, p3: RAW, p5: RAW };
+    const retried = page.waitForEvent('download', { timeout: 120_000 });
+    await page.getByRole('button', { name: 'Retry 2' }).click();
+    const again = await retried;
+    assert.match(again.suggestedFilename(), /^rawtisserie-\d{4}-\d\d-\d\d-\d{6}-retry\.zip$/);
+    assert.deepEqual(zipNames(await readFile(await again.path())).sort(), ['beach-3.jpg', 'beach-5.jpg']);
+    await page.getByText('Exported 2 photos').waitFor();
+    await page.getByText('Exported 1 of 3 photos').waitFor({ state: 'detached' });
   },
 );
 
-test('one photo is exported as its file, from the info panel', { skip: !existsSync(RAW) }, async () => {
-  await open('/?q=beach');
-  await cards().first().waitFor();
-  originals = { p1: RAW };
-  recipes = { v1: defaultEditParams };
-  await cards().first().click();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
-  await page.getByRole('heading', { name: 'Export', exact: true }).waitFor();
-  const download = page.waitForEvent('download', { timeout: 120_000 });
-  await page.getByRole('button', { name: 'Export JPEG' }).click();
-  const file = await download;
-  assert.equal(file.suggestedFilename(), 'beach-1.jpg');
-  const { readFile } = await import('node:fs/promises');
-  assert.equal((await readFile(await file.path())).readUInt16BE(0), 0xffd8);
-  await page.getByText('Exported beach-1.jpg').waitFor();
-});
+test(
+  'one photo is exported as its file, from the info panel, through a server error',
+  { skip: !existsSync(RAW) },
+  async () => {
+    await open('/?q=beach');
+    await cards().first().waitFor();
+    originals = { p1: RAW };
+    recipes = { v1: defaultEditParams };
+    // A server error is tried again.
+    flaky = new Set(['p1']);
+    await cards().first().click();
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('heading', { name: 'Export', exact: true }).waitFor();
+    const download = page.waitForEvent('download', { timeout: 120_000 });
+    await page.getByRole('button', { name: 'Export JPEG' }).click();
+    const file = await download;
+    assert.equal(file.suggestedFilename(), 'beach-1.jpg');
+    const { readFile } = await import('node:fs/promises');
+    assert.equal((await readFile(await file.path())).readUInt16BE(0), 0xffd8);
+    await page.getByText('Exported beach-1.jpg').waitFor();
+  },
+);
