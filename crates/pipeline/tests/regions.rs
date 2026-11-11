@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, MaskPart, MaskView, Overlays};
-use rawtisserie_pipeline::params::{AutoCrop, Blur, ContrastEqualizer, Geometry, Glow, Sharpen};
+use rawtisserie_pipeline::params::{AutoCrop, Blur, ContrastEqualizer, Diffuse, Geometry, Glow, Sharpen};
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
 fn developer() -> Developer {
@@ -82,6 +82,40 @@ fn regions_match_the_whole_render() {
     glowing.add(Glow { threshold: 1.0, radius: 8.0, strength: 3.0, ..Glow::default() });
     check("glow", &glowing, RenderSize::fit(1500, 1500));
 
+    // Diffuse or sharpen: iterated, so its margin is its reach times the iterations.
+    // Ansel's "lens deblur: soft", and "inpaint highlights" (noise seeded by frame
+    // position) on a threshold low enough to cover much of the image.
+    let mut diffused = p.clone();
+    diffused.add(Diffuse {
+        iterations: 8.0,
+        radius: 8.0,
+        speed1: -0.25,
+        speed2: 0.125,
+        speed3: -0.125,
+        speed4: 0.0625,
+        anisotropy1: 2.0,
+        anisotropy2: 0.0,
+        anisotropy3: 2.0,
+        anisotropy4: 0.0,
+        ..Diffuse::default()
+    });
+    diffused.add(Diffuse {
+        iterations: 32.0,
+        radius: 4.0,
+        luminance_threshold: 0.2,
+        speed1: 0.0,
+        speed2: 0.0,
+        speed3: 0.0,
+        speed4: 0.5,
+        anisotropy1: 0.0,
+        anisotropy2: 0.0,
+        anisotropy3: 0.0,
+        anisotropy4: 2.0,
+        edge_sensitivity: 0.0,
+        ..Diffuse::default()
+    });
+    check("diffuse", &diffused, RenderSize::fit(1500, 1500));
+
     // Perspective: a homography, framed each way (black borders when not auto-cropped).
     let g = p.get_mut::<Geometry>();
     (g.vertical, g.horizontal, g.shear, g.aspect) = (14.0, -6.0, 0.04, 0.2);
@@ -107,6 +141,8 @@ fn full_resolution_regions_match() {
     check("100 %, equalizer", &p, RenderSize::FULL);
     p.add(Glow { threshold: 0.0, radius: 300.0, ..Glow::default() });
     check("100 %, glow", &p, RenderSize::FULL);
+    p.add(Diffuse::default());
+    check("100 %, diffuse", &p, RenderSize::FULL);
     let mut rgb = [0.0; 9];
     rgb[2] = 1.0;
     p.add(rawtisserie_pipeline::params::ToneCurve { preserve_detail: true, rgb, ..Default::default() });

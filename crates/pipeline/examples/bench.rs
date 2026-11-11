@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, Shape, Sharpen, ToneCurve,
+    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, Diffuse, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, Shape, Sharpen, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -143,6 +143,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     time("glow, low threshold (full)", &mut dev, &p);
     p.modules[glow].enabled = false;
+
+    // Diffuse or sharpen, with some of Ansel's presets: one iteration, then many.
+    let deblur = Diffuse {
+        iterations: 16.0,
+        radius: 10.0,
+        speed1: -0.25,
+        speed2: 0.125,
+        speed3: -0.125,
+        speed4: 0.0625,
+        anisotropy1: 2.0,
+        anisotropy2: 0.0,
+        anisotropy3: 2.0,
+        anisotropy4: 0.0,
+        ..Diffuse::default()
+    };
+    let local_contrast = Diffuse {
+        iterations: 10.0,
+        radius: 333.0,
+        radius_center: 512.0,
+        speed1: -0.5,
+        speed2: 0.0,
+        speed3: 0.0,
+        speed4: -0.5,
+        anisotropy1: -2.5,
+        anisotropy2: 0.0,
+        anisotropy3: 0.0,
+        anisotropy4: -2.5,
+        edge_sensitivity: 0.1,
+        ..Diffuse::default()
+    };
+    let diffuse = p.add(Diffuse::default());
+    for (label, d) in [
+        ("diffuse: AA filter (1 it.)", Diffuse::default()),
+        ("diffuse: lens deblur (16 it.)", deblur),
+        ("diffuse: local contrast (10 it.)", local_contrast),
+    ] {
+        if let Module::Diffuse(m) = &mut p.modules[diffuse].module {
+            *m = d;
+        }
+        time(label, &mut dev, &p);
+    }
+    p.modules[diffuse].enabled = false;
 
     // A creative LUT after filmic: on filmic's 3D table, then while filmic is dragged.
     let lut = match args.get(3) {

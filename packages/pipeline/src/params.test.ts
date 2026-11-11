@@ -194,6 +194,14 @@ const samples: unknown[] = [
       { kind: 'contrastEqualizer', label: 'fine', params: { edges: [1, 1, 1, 0.5, 0.5, 0.5] } },
     ],
   },
+  // Diffuse or sharpen, partly given (a preset's speeds), one masked.
+  {
+    version: 8,
+    modules: [
+      { kind: 'diffuse', params: { iterations: 16, radius: 10, speed2: 0.125, anisotropy2: 0 } },
+      { kind: 'diffuse', params: { luminanceThreshold: 1.41 }, mask: { luminance: [-2, 0, 8, 8] } },
+    ],
+  },
   // Glow, partly given, one masked with a blend mode.
   {
     version: 6,

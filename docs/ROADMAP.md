@@ -33,6 +33,7 @@ own with bolder titles and the switch on the right, no text selection in the dev
 side panels.
 2026-11-11: a manager dialog to rename and delete the user's own LUTs, module presets and
 styles ("Manage…" in their menus, replacing the delete submenus).
+Later that day: 3.7 (diffuse or sharpen), a port of Ansel's with all its presets.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -476,6 +477,26 @@ The remaining part of 3.1: the lensfun database, then DNG opcodes and other make
 embedded data, plus the manual lens override. See the source list in 3.1.
 
 ### 3.7 Diffuse and sharpen (L, before 1.0)
+
+> **Done** 2026-11-11 (`ops/diffuse.rs`, the `diffuse` kind, "Diffuse or sharpen" in the
+> UI). A port of Ansel's `diffuse.c` (not darktable's: Ansel measures edges on the
+> detail-to-low-pass ratio, so they don't depend on exposure, and retuned the denoise
+> presets), checked against its kernels and fast `exp` bit for bit. First of the spatial
+> stage (before blur), maskable. Deviations: it runs before exposure, so the image is
+> scaled by the default +0.7 EV for it (anisotropy and the inpainting threshold depend on
+> the level); inpainting noise is seeded by frame position, so regions match. Its reach
+> is iterations × 3·(2^bands − 1); region renders cap the margin at 1024 px as before,
+> which wide presets (local contrast, dehaze) exceed when zoomed in. All 17 of Ansel's
+> presets ship ("bloom" as "Soft diffusion"); the default is "sharpen demosaicing (AA
+> filter)". Iterations: soft max 8 on the slider (Ansel's 500 can be typed or come from
+> a preset). The 3×3 kernels are expanded into neighbour sums and run per channel in
+> vectorised 64-pixel chunks, one loop per operator, none at speed 0 (~7 ns per pixel,
+> channel and band natively). Measured in the browser (wasm, 1024×683 fitted render):
+> AA filter 0.24 s, denoise fine 1.1 s, lens deblur medium 1.7 s, add local contrast
+> 4.3 s; natively at 2400×1600 (`examples/bench.rs`, whole render, ~1 s without diffuse),
+> lens deblur 7.9 s and local contrast 12.8 s. Left: the
+> spatial stage is single-threaded (no "expensive" hint in the UI for now, decided
+> 2026-11-11); copying padded rows and the ratio plane are ~20 % of a band and could go.
 
 A port of `diffuse.c` (Ansel's, or darktable's if it has diverged usefully). It uses
 multiscale anisotropic diffusion: sharpening, local contrast, deblurring, bloom and
@@ -1664,7 +1685,7 @@ Required before 1.0, on top of what's done:
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, 4.8 3D LUT, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
-   3.7 diffuse and sharpen, 8.2 folder/SD import, 8.4 export from the library (in the
+   ~~3.7 diffuse and sharpen~~, 8.2 folder/SD import, 8.4 export from the library (in the
    browser; server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

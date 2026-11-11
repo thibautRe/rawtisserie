@@ -114,10 +114,15 @@ See README.md for the architecture overview and commands.
   it, compare against upstream rather than reasoning from scratch, and check the 3D
   LUT accuracy with `cargo run --release --example filmic_lut_error -- photo.ARW`.
 - `ops/primaries.rs`, `ops/equalizer.rs`, `ops/calibration.rs`, `ops/retouch.rs`,
-  `ops/tone_curve.rs` and `ops/color_balance.rs` follow Ansel's `colorprimaries.c`, `atrous.c`,
-  `channelmixerrgb.c`, `retouch.c`/`pixel/heal.c`, `rgbcurve.c` and
-  `colorbalancergb.c` + `splittoningrgb.c` (same license; deviations are listed in
-  the module docs). Colour balance's range weights are mirrored in TS (`toneRangeWeights`,
+  `ops/tone_curve.rs`, `ops/color_balance.rs` and `ops/diffuse.rs` follow Ansel's
+  `colorprimaries.c`, `atrous.c`, `channelmixerrgb.c`, `retouch.c`/`pixel/heal.c`,
+  `rgbcurve.c`, `colorbalancergb.c` + `splittoningrgb.c` and `diffuse.c` (same license;
+  deviations are listed in the module docs). Diffuse's band pass is per channel plane, in
+  short loops over 64-pixel chunks, one per operator (none at speed 0): keep it that way,
+  it's most of the module's cost, and a saturating `f32 as i32` there stops it vectorising
+  (hence `to_int_unchecked` in its `fast_exp`, which upstream's results don't depend on).
+  Its built-in presets are Ansel's (`DIFFUSE_PRESETS`); darktable's use another edge
+  energy, so their edge settings don't carry over. Colour balance's range weights are mirrored in TS (`toneRangeWeights`,
   for the settings graph), and its range mixers reuse calibration's mixer views
   (`MixerTarget` in `ModulePanel`). Its per-pixel grading is split into short branch-free
   loops over 64-pixel chunks so they vectorise: keep it that way. The tone curve and the contrast equalizer draw with `curveAt` (`develop/curve.ts`), which mirrors `equalizer::curve`. Upstream sources:

@@ -19,7 +19,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   contrast equalizer (ports of Ansel's), filmic tone mapping (a port of Ansel's filmic
   rgb with its AgX colour science), creative 3D LUTs (after filmic: a few built-in film
   looks, or your own `.cube` and Hald CLUT PNG files, previewed as you hover them),
-  sharpening, blur, glow (bloom, halation and diffusion-filter looks),
+  diffuse or sharpen (a port of Ansel's: lens deblur, local contrast, dehaze, denoise,
+  highlight inpainting), sharpening, blur, glow (bloom, halation and diffusion-filter looks),
   rotation/flip, straightening, perspective correction (fitted to detected or drawn
   guide lines) and cropping. The image sits on a
   neutral grey surround, with an ISO 12646 colour-assessment frame on Ctrl/⌘+B, and
@@ -63,7 +64,7 @@ RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera →
     ─▶ retouch spots (heal, clone, fill, blur), in place on the base        cached: with the base
     ─▶ geometry (lens, orientation, straighten, perspective, crop, resample) cached: per output size
        └ drawn parts of masks, through the same geometry, feathered          cached: per output size
-    ─▶ blur ─▶ sharpen ─▶ contrast equalizer ─▶ glow                        cached: per output size
+    ─▶ diffuse ─▶ blur ─▶ sharpen ─▶ contrast equalizer ─▶ glow             cached: per output size
     ─▶ exposure ─▶ colour calibration ─▶ colour balance
     ─▶ colour primaries ─▶ filmic (AgX) ─▶ creative LUTs ─▶ sRGB            one fused pass, always re-run
 ```
@@ -86,7 +87,7 @@ While a slider is being dragged, the UI asks for a draft. If the full-size spati
 stages are already cached (any colour or tone slider), the pipeline worker renders full
 size instead and splits the per-pixel stages across a pool of workers
 (`develop/pointPool.ts`), each holding a strip of the cached image. Only spatial edits
-(geometry, blur, sharpen, equalizer curves, glow) fall back to the draft. See
+(geometry, diffuse, blur, sharpen, equalizer curves, glow) fall back to the draft. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for measurements and what didn't work.
 
 Zoomed in, the developer renders only the visible region at the zoom level (at most

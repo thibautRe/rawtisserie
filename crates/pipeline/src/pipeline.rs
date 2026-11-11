@@ -19,6 +19,7 @@ use crate::ops::color_balance;
 use crate::ops::tone_curve::{self, InputHistogram, Local};
 use crate::ops::lines::{self, GuideLine, Segment};
 use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
+use crate::ops::diffuse::DiffuseOp;
 use crate::ops::glow::GlowOp;
 use crate::ops::{equalizer, filmic, filters, geometry};
 use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Glow, Lens, Module, ModuleInstance, ModuleKind};
@@ -66,7 +67,7 @@ impl RenderSize {
 ///              then retouch spots, in place                       keyed by the spots and their shapes
 ///   └ geometry  lens, orientation, straighten, crop, resample    keyed by the above + lens + geometry + output size (3 sizes kept)
 ///      ├ masks  drawn parts of the instances' masks, feathered    keyed by the above + the masks' shapes and feather
-///      └ detail blur, sharpen, equalizer, glow instances          keyed by the above + their parameters (and masks) at this scale
+///      └ detail diffuse, blur, sharpen, equalizer, glow instances keyed by the above + their parameters (and masks) at this scale
 ///         ├ masks of point modules feathered whole, and of tone   keyed by the above + the point modules before them
 ///         │ curves preserving detail
 ///         └ point ops (exposure … tone mapping → sRGB)            always re-run, one fused pass, reading the masks
@@ -312,6 +313,8 @@ struct DetailStep {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum DetailOp {
+    /// `scale`: output pixels per full-resolution pixel.
+    Diffuse { params: params::Diffuse, scale: f32 },
     Blur { sigma: f32 },
     Sharpen { amount: f32, sigma: f32 },
     /// `scale`: output pixels per full-resolution pixel.
@@ -775,6 +778,7 @@ impl Developer {
                         DetailOp::Sharpen { amount, sigma } => filters::sharpen(&mut img, amount, sigma),
                         DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
                         DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
+                        DetailOp::Diffuse { params, scale } => DiffuseOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
                     }
                     if let (Some(m), Some(before)) = (&step.mask, before) {
                         // The mask is measured on the step's input.
@@ -1172,6 +1176,7 @@ impl DetailStep {
             DetailOp::Blur { sigma } | DetailOp::Sharpen { sigma, .. } => filters::reach(sigma),
             DetailOp::Equalizer { params, scale } => equalizer::margin(&params, scale, frame),
             DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).reach(),
+            DetailOp::Diffuse { params, scale } => DiffuseOp::new(&params, scale).reach(),
         }
     }
 }
@@ -1189,6 +1194,7 @@ fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
                 Module::Sharpen(s) => DetailOp::Sharpen { amount: s.amount, sigma: s.radius * scale },
                 Module::ContrastEqualizer(e) => DetailOp::Equalizer { params: *e, scale },
                 Module::Glow(g) => DetailOp::Glow { params: *g, scale },
+                Module::Diffuse(d) => DetailOp::Diffuse { params: *d, scale },
                 _ => return None,
             };
             let active = match op {
@@ -1196,6 +1202,7 @@ fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
                 DetailOp::Sharpen { amount, sigma } => filters::sharpen_active(amount, sigma),
                 DetailOp::Equalizer { params, .. } => !params.is_identity(),
                 DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).active(),
+                DetailOp::Diffuse { params, scale } => DiffuseOp::new(&params, scale).active(),
             };
             let mask = mask::active(m).map(|mask| Box::new(StepMask { id: m.id.clone(), mask: mask.clone(), drawn: Drawn::of(params, mask) }));
             active.then_some(DetailStep { op, mask })

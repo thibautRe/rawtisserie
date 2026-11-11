@@ -492,6 +492,141 @@ const builtIn = <K extends ModuleKind>(
   payload: { version: EDIT_PARAMS_VERSION, params, ...(autoTune && { autoTune: true as const }) },
 });
 
+/** A diffuse or sharpen preset, as Ansel's: every parameter set, from zero. */
+interface DiffuseSettings {
+  iterations: number;
+  radius: number;
+  radiusCenter?: number;
+  /** Of the four orders. */
+  speeds: readonly [number, number, number, number];
+  anisotropies: readonly [number, number, number, number];
+  edgeSensitivity: number;
+  edgeThreshold?: number;
+  luminanceThreshold?: number;
+}
+
+const diffuse = (slug: string, name: string, p: DiffuseSettings): ModulePreset =>
+  builtIn('diffuse', slug, name, {
+    iterations: p.iterations,
+    radiusCenter: p.radiusCenter ?? 0,
+    radius: p.radius,
+    speed1: p.speeds[0],
+    speed2: p.speeds[1],
+    speed3: p.speeds[2],
+    speed4: p.speeds[3],
+    anisotropy1: p.anisotropies[0],
+    anisotropy2: p.anisotropies[1],
+    anisotropy3: p.anisotropies[2],
+    anisotropy4: p.anisotropies[3],
+    sharpness: 0,
+    edgeSensitivity: p.edgeSensitivity,
+    edgeThreshold: p.edgeThreshold ?? 0,
+    luminanceThreshold: p.luminanceThreshold ?? 0,
+  });
+
+const DEBLUR: Pick<DiffuseSettings, 'speeds' | 'anisotropies' | 'edgeSensitivity'> = {
+  speeds: [-0.25, 0.125, -0.125, 0.0625],
+  anisotropies: [2, 0, 2, 0],
+  edgeSensitivity: 1,
+};
+const DENOISE: Pick<DiffuseSettings, 'iterations' | 'anisotropies' | 'edgeSensitivity'> = {
+  iterations: 32,
+  anisotropies: [2, 0, 2, 0],
+  edgeSensitivity: 2.5,
+};
+const FAST: Omit<DiffuseSettings, 'radius'> = {
+  iterations: 1,
+  speeds: [0, 0, -0.5, 0],
+  anisotropies: [0, 0, 5, 0],
+  edgeSensitivity: 0,
+};
+
+/**
+ * Ansel's diffuse or sharpen presets (`init_presets` in `diffuse.c`), in its units. Its
+ * "bloom" is "Soft diffusion" here: glow is what makes light spread from highlights.
+ */
+const DIFFUSE_PRESETS: readonly ModulePreset[] = [
+  diffuse('demosaic-aa', 'Sharpen demosaicing (AA filter)', {
+    iterations: 1,
+    radius: 8,
+    speeds: [-0.25, -0.25, -0.25, -0.25],
+    anisotropies: [1, 1, 1, 1],
+    edgeSensitivity: 1,
+  }),
+  diffuse('demosaic-no-aa', 'Sharpen demosaicing (no AA filter)', {
+    iterations: 1,
+    radius: 4,
+    speeds: [-0.25, -0.25, -0.25, -0.25],
+    anisotropies: [1, 1, 1, 1],
+    edgeSensitivity: 1,
+  }),
+  diffuse('fast-sharpness', 'Fast sharpness', { ...FAST, radius: 128 }),
+  diffuse('deblur-soft', 'Lens deblur: soft', { ...DEBLUR, iterations: 8, radius: 8 }),
+  diffuse('deblur-medium', 'Lens deblur: medium', { ...DEBLUR, iterations: 16, radius: 10 }),
+  diffuse('deblur-hard', 'Lens deblur: hard', { ...DEBLUR, iterations: 24, radius: 12 }),
+  diffuse('local-contrast', 'Add local contrast', {
+    iterations: 10,
+    radius: 333,
+    radiusCenter: 512,
+    speeds: [-0.5, 0, 0, -0.5],
+    anisotropies: [-2.5, 0, 0, -2.5],
+    edgeSensitivity: 0.1,
+  }),
+  diffuse('fast-local-contrast', 'Fast local contrast', {
+    ...FAST,
+    radius: 512,
+    radiusCenter: 512,
+  }),
+  diffuse('dehaze', 'Dehaze', {
+    iterations: 10,
+    radius: 512,
+    speeds: [-0.2, 0.1, -0.2, 0.1],
+    anisotropies: [2, 0, 2, 0],
+    edgeSensitivity: 2.5,
+  }),
+  // Retuned in Ansel (issue #879) against synthetic sensor noise: fine for ISO 400–800,
+  // medium 800–1600, coarse 1600–3200.
+  diffuse('denoise-fine', 'Denoise: fine', { ...DENOISE, radius: 1, radiusCenter: 2, speeds: [0.1, 0, 0.1, 0] }),
+  diffuse('denoise-medium', 'Denoise: medium', { ...DENOISE, radius: 3, radiusCenter: 4, speeds: [0.1, 0, 0.1, 0] }),
+  diffuse('denoise-coarse', 'Denoise: coarse', { ...DENOISE, radius: 6, radiusCenter: 8, speeds: [0, 0, 0.25, 0] }),
+  diffuse('inpaint-highlights', 'Inpaint highlights', {
+    iterations: 32,
+    radius: 4,
+    speeds: [0, 0, 0, 0.5],
+    anisotropies: [0, 0, 0, 2],
+    edgeSensitivity: 0,
+    luminanceThreshold: 1.41,
+  }),
+  diffuse('surface-blur', 'Surface blur', {
+    iterations: 2,
+    radius: 32,
+    speeds: [1, 1, 1, 1],
+    anisotropies: [4, 4, 4, 4],
+    edgeSensitivity: 4,
+  }),
+  diffuse('soft-diffusion', 'Soft diffusion', {
+    iterations: 1,
+    radius: 32,
+    speeds: [0.5, 0.5, 0.5, 0.5],
+    anisotropies: [0, 0, 0, 0],
+    edgeSensitivity: 0,
+  }),
+  diffuse('watercolor', 'Simulate watercolor', {
+    iterations: 4,
+    radius: 64,
+    speeds: [0, 0, 0.5, 0.5],
+    anisotropies: [0, 0, 4, 4],
+    edgeSensitivity: 2,
+  }),
+  diffuse('line-drawing', 'Simulate line drawing', {
+    iterations: 50,
+    radius: 64,
+    speeds: [-1, -1, -1, -1],
+    anisotropies: [-5, -5, -5, -5],
+    edgeSensitivity: 4,
+  }),
+];
+
 /** Presets shipped with the app. Most only set some parameters, and keep the rest. */
 export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   builtIn('colorCalibration', 'mono-luminance', 'Monochrome: luminance', {
@@ -525,6 +660,8 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
   builtIn('filmic', 'low-contrast', 'Low contrast', { contrast: 1 }),
   builtIn('sharpen', 'light', 'Light', { amount: 0.5, radius: 1 }),
   builtIn('sharpen', 'strong', 'Strong', { amount: 1.2, radius: 1.5 }),
+  // Diffuse or sharpen: Ansel's presets (`diffuse.c`), each setting every parameter.
+  ...DIFFUSE_PRESETS,
   builtIn('contrastEqualizer', 'clarity', 'Clarity', { luma: [0.5, 0.56, 0.6, 0.6, 0.55, 0.5] }),
   // Glow: light around lamps and specular highlights.
   builtIn('glow', 'bloom', 'Bloom', {

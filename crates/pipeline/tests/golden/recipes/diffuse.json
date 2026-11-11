@@ -1,0 +1,21 @@
+{
+  "size": 600,
+  "recipe": {
+    "version": 8,
+    "modules": [
+      { "kind": "diffuse",
+        "params": { "iterations": 8, "radius": 8, "speed1": -0.25, "speed2": 0.125, "speed3": -0.125, "speed4": 0.0625,
+                    "anisotropy1": 2, "anisotropy2": 0, "anisotropy3": 2, "anisotropy4": 0, "edgeSensitivity": 1 } },
+      { "id": "soften", "kind": "diffuse",
+        "params": { "iterations": 2, "radius": 32, "speed1": 1, "speed2": 1, "speed3": 1, "speed4": 1,
+                    "anisotropy1": 4, "anisotropy2": 4, "anisotropy3": 4, "anisotropy4": 4, "edgeSensitivity": 4 },
+        "mask": { "drawn": [{ "shape": "half" }], "feather": 20 } },
+      { "kind": "exposure", "params": { "ev": 0.7 } },
+      { "kind": "colorCalibration" },
+      { "kind": "filmic" }
+    ],
+    "shapes": {
+      "half": { "type": "gradient", "anchor": [0.5, 0.5], "angle": 0, "feather": 0.1 }
+    }
+  }
+}

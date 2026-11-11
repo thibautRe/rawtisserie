@@ -10,6 +10,7 @@ export const MODULE_TITLES: Record<ModuleKind, string> = {
   retouch: 'Retouch',
   lens: 'Lens correction',
   geometry: 'Geometry',
+  diffuse: 'Diffuse or sharpen',
   blur: 'Blur',
   sharpen: 'Sharpen',
   contrastEqualizer: 'Contrast equalizer',

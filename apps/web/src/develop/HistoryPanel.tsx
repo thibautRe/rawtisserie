@@ -19,6 +19,7 @@ import {
   SwatchBook,
   Thermometer,
   Triangle,
+  Waves,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { describeChange } from './changes.ts';
@@ -28,6 +29,7 @@ const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   retouch: Bandage,
   lens: Aperture,
   geometry: Crop,
+  diffuse: Waves,
   blur: Droplet,
   sharpen: Triangle,
   contrastEqualizer: AudioWaveform,

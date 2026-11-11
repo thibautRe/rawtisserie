@@ -40,6 +40,38 @@ export interface ModuleParams {
     /** Normalised to the corrected (and auto-cropped) frame. */
     crop: CropRect;
   };
+  /**
+   * Diffuse or sharpen, after Ansel's `diffuse.c`: a multiscale anisotropic heat-transfer
+   * model (deblur, local contrast, denoise, inpaint highlights, soften). Orders: 1st and
+   * 3rd follow the low pass's gradient, 2nd and 4th the detail's; 1st and 2nd act on the
+   * low pass, 3rd and 4th on the detail. See `ops/diffuse.rs`.
+   */
+  diffuse: {
+    /** Diffusion steps, 1 … 500 (rounded): more is stronger and slower. */
+    iterations: number;
+    /** Band size the effect is centred on, in full-resolution pixels (0: the finest). */
+    radiusCenter: number;
+    /** Spread of the effect around `radiusCenter` over band sizes, in full-resolution pixels. */
+    radius: number;
+    /** Speed of each order, -1 (sharpen) … 1 (diffuse). */
+    speed1: number;
+    speed2: number;
+    speed3: number;
+    speed4: number;
+    /** Direction of each order, -10 … 10: 0 every direction, positive along edges, negative across them. */
+    anisotropy1: number;
+    anisotropy2: number;
+    anisotropy3: number;
+    anisotropy4: number;
+    /** Extra gain on the detail bands, -1 … 1. */
+    sharpness: number;
+    /** How much edges hold the diffusion back, 0 … 6 (log₁₀ scale). */
+    edgeSensitivity: number;
+    /** Where the edge penalty starts, -2 … 2 (log₁₀ scale). */
+    edgeThreshold: number;
+    /** Only diffuse where a channel is above this (at the default exposure's level): inpainting; 0 = everywhere. */
+    luminanceThreshold: number;
+  };
   blur: {
     /** Gaussian sigma in full-resolution pixels; 0 = off. */
     radius: number;
@@ -393,6 +425,7 @@ export const MODULE_KINDS = [
   'retouch',
   'lens',
   'geometry',
+  'diffuse',
   'blur',
   'sharpen',
   'contrastEqualizer',
@@ -420,6 +453,7 @@ export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry',
 export const AUTO_TUNE_KINDS: readonly ModuleKind[] = ['filmic', 'toneCurve'];
 
 export const MASKABLE_KINDS: readonly ModuleKind[] = [
+  'diffuse',
   'blur',
   'sharpen',
   'contrastEqualizer',
@@ -626,6 +660,24 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     aspect: 0,
     autoCrop: 'aspect',
     crop: { x: 0, y: 0, width: 1, height: 1 },
+  },
+  // Ansel's "sharpen demosaicing (AA filter)" preset.
+  diffuse: {
+    iterations: 1,
+    radiusCenter: 0,
+    radius: 8,
+    speed1: -0.25,
+    speed2: -0.25,
+    speed3: -0.25,
+    speed4: -0.25,
+    anisotropy1: 1,
+    anisotropy2: 1,
+    anisotropy3: 1,
+    anisotropy4: 1,
+    sharpness: 0,
+    edgeSensitivity: 1,
+    edgeThreshold: 0,
+    luminanceThreshold: 0,
   },
   blur: { radius: 0 },
   sharpen: { amount: 0, radius: 1 },

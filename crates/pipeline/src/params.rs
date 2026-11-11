@@ -157,7 +157,8 @@ modules! {
     Lens,
     /// Geometry stage: orientation, straighten, crop, resample. Single instance.
     Geometry,
-    /// Spatial stage.
+    /// Spatial stage. Diffuse or sharpen first: deblurring wants the unblurred image.
+    Diffuse,
     Blur,
     Sharpen,
     ContrastEqualizer,
@@ -195,7 +196,8 @@ impl ModuleKind {
     pub fn maskable(self) -> bool {
         matches!(
             self,
-            ModuleKind::Blur
+            ModuleKind::Diffuse
+                | ModuleKind::Blur
                 | ModuleKind::Sharpen
                 | ModuleKind::ContrastEqualizer
                 | ModuleKind::Glow
@@ -1478,6 +1480,65 @@ pub struct Sharpen {
 impl Default for Sharpen {
     fn default() -> Self {
         Self { amount: 0.0, radius: 1.0 }
+    }
+}
+
+/// Diffuse or sharpen (see [`crate::ops::diffuse`]), after Ansel's `diffuse.c`: a
+/// multiscale anisotropic heat-transfer model, to deblur, add local contrast, denoise,
+/// inpaint highlights or soften. Speeds and anisotropies go by order: 1st and 3rd
+/// follow the low pass's gradient, 2nd and 4th the detail's; 1st and 2nd act on the
+/// low pass, 3rd and 4th on the detail. The default is Ansel's "sharpen demosaicing
+/// (AA filter)" preset.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Diffuse {
+    /// Diffusion steps, 1 … 500 (rounded): more is stronger and slower.
+    pub iterations: f32,
+    /// Band size the effect is centred on, in full-resolution pixels (0: the finest).
+    pub radius_center: f32,
+    /// Spread of the effect around `radius_center` over band sizes, in full-resolution pixels.
+    pub radius: f32,
+    /// Speed of each order, -1 (sharpen) … 1 (diffuse).
+    pub speed1: f32,
+    pub speed2: f32,
+    pub speed3: f32,
+    pub speed4: f32,
+    /// Direction of each order, -10 … 10: 0 in every direction, positive along edges
+    /// (isophotes), negative across them (along the gradient).
+    pub anisotropy1: f32,
+    pub anisotropy2: f32,
+    pub anisotropy3: f32,
+    pub anisotropy4: f32,
+    /// Extra gain on the detail bands, -1 … 1.
+    pub sharpness: f32,
+    /// How much edges hold the diffusion back, 0 … 6 (log₁₀ scale).
+    pub edge_sensitivity: f32,
+    /// Where the edge penalty starts, -2 … 2 (log₁₀ scale).
+    pub edge_threshold: f32,
+    /// Only diffuse (and first fill with noise) where a channel is above this, at the
+    /// level of the default exposure (+0.7 EV): inpainting clipped highlights. 0: everywhere.
+    pub luminance_threshold: f32,
+}
+
+impl Default for Diffuse {
+    fn default() -> Self {
+        Self {
+            iterations: 1.0,
+            radius_center: 0.0,
+            radius: 8.0,
+            speed1: -0.25,
+            speed2: -0.25,
+            speed3: -0.25,
+            speed4: -0.25,
+            anisotropy1: 1.0,
+            anisotropy2: 1.0,
+            anisotropy3: 1.0,
+            anisotropy4: 1.0,
+            sharpness: 0.0,
+            edge_sensitivity: 1.0,
+            edge_threshold: 0.0,
+            luminance_threshold: 0.0,
+        }
     }
 }
 

@@ -635,6 +635,27 @@ const NORMALIZE_KEYS = {
 const HUE_CURVE = sinhCurve(90);
 /** Glow radius: fine at the small radii of halation, coarse up to large blooms. */
 const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
+/** Diffuse or sharpen's radii, 0 … 1024 px: Ansel's presets go from 1 to 512. */
+const DIFFUSE_RADIUS_CURVE = sinhCurve(1024, 4);
+/** Diffuse or sharpen's four orders: what each acts on and which gradient it follows. */
+const DIFFUSE_ORDERS = ['1st order', '2nd order', '3rd order', '4th order'] as const;
+
+/** A small uppercase title over a group of sliders in a module. */
+function GroupTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <Text
+      textStyle="xs"
+      fontFamily="label"
+      fontWeight="semibold"
+      textTransform="uppercase"
+      letterSpacing="wider"
+      pt="2"
+      title={hint}
+    >
+      {children}
+    </Text>
+  );
+}
 /**
  * Filmic's target black: 0 … 1 % (already plain to see) takes the first half of its
  * 0 … 5 % track. `v = p^k`, with 5 · 0.5^k = 1.
@@ -937,6 +958,8 @@ interface InstanceView {
   primary: PrimaryName;
   primariesAdvanced: boolean;
   calibrationAdvanced: boolean;
+  /** Diffuse or sharpen's direction, edge and inpainting settings are unfolded. */
+  diffuseAdvanced: boolean;
   curve: EqualizerCurve;
   /** The tone curve channel shown, with independent channels. */
   toneChannel: ToneChannel;
@@ -957,6 +980,7 @@ const DEFAULT_VIEW: InstanceView = {
   primary: 'red',
   primariesAdvanced: false,
   calibrationAdvanced: false,
+  diffuseAdvanced: false,
   curve: 'luma',
   toneChannel: 'red',
   calibration: 'illuminant',
@@ -2832,6 +2856,120 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           />
         </>
       ))}
+
+      {sections('diffuse', [], (e) => {
+        const px = (v: number) => `${v.toFixed(0)} px`;
+        return (
+          <>
+            <ParamSlider
+              label="Iterations"
+              min={1}
+              max={8}
+              hardMax={500}
+              step={1}
+              format={(v) => v.toFixed(0)}
+              {...e.bind('iterations')}
+            />
+            <ParamSlider
+              label="Central radius"
+              min={0}
+              max={1024}
+              hardMax={4096}
+              step={1}
+              curve={DIFFUSE_RADIUS_CURVE}
+              format={px}
+              {...e.bind('radiusCenter')}
+            />
+            <ParamSlider
+              label="Radius span"
+              min={0}
+              max={1024}
+              hardMax={4096}
+              step={1}
+              curve={DIFFUSE_RADIUS_CURVE}
+              format={px}
+              {...e.bind('radius')}
+            />
+            <GroupTitle hint="Negative sharpens, positive diffuses. 1st and 2nd act on the low frequencies, 3rd and 4th on the details; odd orders follow the low frequencies' edges, even ones the details'.">
+              Speed (sharpen ↔ diffuse)
+            </GroupTitle>
+            {DIFFUSE_ORDERS.map((label, i) => (
+              <ParamSlider
+                key={label}
+                label={label}
+                min={-1}
+                max={1}
+                step={0.005}
+                format={fmt.signed2}
+                {...e.bind(`speed${i + 1}` as 'speed1')}
+              />
+            ))}
+            <Button
+              size="2xs"
+              variant="ghost"
+              alignSelf="start"
+              px="0"
+              onClick={() => e.setView({ diffuseAdvanced: !e.view.diffuseAdvanced })}
+            >
+              {e.view.diffuseAdvanced ? <ChevronDown /> : <ChevronRight />} Direction, edges and inpainting
+            </Button>
+            {e.view.diffuseAdvanced && (
+              <>
+                <GroupTitle hint="0 diffuses in every direction; positive along edges, negative across them.">
+                  Direction
+                </GroupTitle>
+                {DIFFUSE_ORDERS.map((label, i) => (
+                  <ParamSlider
+                    key={label}
+                    label={label}
+                    min={-10}
+                    max={10}
+                    step={0.05}
+                    format={fmt.signed2}
+                    {...e.bind(`anisotropy${i + 1}` as 'anisotropy1')}
+                  />
+                ))}
+                <GroupTitle>Edge management</GroupTitle>
+                <ParamSlider
+                  label="Sharpness"
+                  min={-1}
+                  max={1}
+                  step={0.01}
+                  format={fmt.signed2}
+                  {...e.bind('sharpness')}
+                />
+                <ParamSlider
+                  label="Edge sensitivity"
+                  min={0}
+                  max={6}
+                  step={0.01}
+                  format={fmt.fixed2}
+                  {...e.bind('edgeSensitivity')}
+                />
+                <ParamSlider
+                  label="Edge threshold"
+                  min={-2}
+                  max={2}
+                  step={0.01}
+                  format={fmt.signed2}
+                  {...e.bind('edgeThreshold')}
+                />
+                <GroupTitle hint="Only diffuse where a channel is brighter than this, starting from noise: reconstructs clipped highlights.">
+                  Inpainting
+                </GroupTitle>
+                <ParamSlider
+                  label="Luminance threshold"
+                  min={0}
+                  max={8}
+                  step={0.01}
+                  format={(v) => (v > 0 ? v.toFixed(2) : 'off')}
+                  {...e.bind('luminanceThreshold')}
+                />
+              </>
+            )}
+          </>
+        );
+      })}
 
       {sections('blur', [], (e) => (
         <>
