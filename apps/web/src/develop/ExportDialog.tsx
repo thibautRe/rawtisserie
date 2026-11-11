@@ -130,15 +130,20 @@ const signedPercent = (v: number) => {
 /** The settings (and presets) the dialog starts from, and what it can do with them. */
 export interface ExportDialogProps {
   open: boolean;
-  source: React.RefObject<HTMLCanvasElement | null>;
-  /** The (cropped) photo's size: a `bitmaprenderer` canvas doesn't tell its bitmap's. */
+  /** What the preview shows: the developer's canvas, or a photo's preview in the library. */
+  source: React.RefObject<HTMLCanvasElement | HTMLImageElement | null>;
+  /**
+   * The (cropped) photo's size: a `bitmaprenderer` canvas doesn't tell its bitmap's.
+   * Not `exact` (the library's preview's size): only its shape is used, no size is estimated.
+   */
   imageSize: { width: number; height: number } | null;
+  exact?: boolean;
   /** The settings to start from when the dialog opens (the last export's). */
   initial: ExportSettings;
   /** The user's export presets, or null without an account. */
   presets: ExportPreset[] | null;
-  /** What file names can refer to. */
-  filenameFields: FilenameFields;
+  /** What file names can refer to: the photo's, or each photo's when exporting several. */
+  filenameFields: FilenameFields | readonly FilenameFields[];
   onClose: () => void;
   onExport: (settings: ExportSettings) => void;
   onSavePreset: (name: string, settings: ExportSettings) => void;
@@ -155,6 +160,7 @@ export const ExportDialog = memo(function ExportDialog({
   open,
   source,
   imageSize,
+  exact = true,
   initial,
   presets,
   filenameFields,
@@ -233,10 +239,15 @@ export const ExportDialog = memo(function ExportDialog({
     ([name, bad]) => bad && (name.startsWith(`size.${sizeMode}`) || name === 'filename'),
   );
   const canExport = !visibleInvalid;
-  const estimate = image && estimateExportSize(settings, image);
+  const estimate = exact && image ? estimateExportSize(settings, image) : null;
   const preset = presets?.find((p) => p.id === presetId) ?? null;
   const modified = preset && JSON.stringify(exportSettings(preset.settings)) !== JSON.stringify(settings);
-  const name = exportFilename(settings.filename, filenameFields, format.extension);
+  const fields: readonly FilenameFields[] = 'filename' in filenameFields ? [filenameFields] : filenameFields;
+  const count = fields.length;
+  const names = fields.map((f) => exportFilename(settings.filename, f, format.extension));
+  const name = names[0] ?? '';
+  // Names that repeat get -2, -3… (`uniqueName`): say so, and how to tell them apart.
+  const repeated = count - new Set(names).size;
   const wideJpeg =
     settings.format === 'jpeg' && estimate && Math.max(estimate.width, estimate.height) > MAX_EXPORT_SIZE;
 
@@ -255,7 +266,7 @@ export const ExportDialog = memo(function ExportDialog({
               }}
             >
               <Dialog.Header>
-                <Dialog.Title>Export</Dialog.Title>
+                <Dialog.Title>{count > 1 ? `Export ${count.toLocaleString('en')} photos` : 'Export'}</Dialog.Title>
               </Dialog.Header>
               <Dialog.Body>
                 <HStack align="start" gap="5">
@@ -642,7 +653,14 @@ export const ExportDialog = memo(function ExportDialog({
                       </HStack>
                       <Field.HelperText textStyle="xs" truncate maxW="full">
                         {name}
+                        {count > 1 ? `, ${names[1]}${count > 2 ? '…' : ''}` : ''}
                       </Field.HelperText>
+                      {repeated > 0 && (
+                        <Field.HelperText textStyle="xs" color="fg.warning">
+                          {repeated === 1 ? 'One name repeats' : `${repeated} names repeat`}: they get -2, -3…
+                          {settings.filename.includes('{version}') ? '' : ' Add {version} to tell versions apart.'}
+                        </Field.HelperText>
+                      )}
                       <Field.ErrorText>A file name pattern, e.g. {'{name}'}</Field.ErrorText>
                     </Field.Root>
                   </Stack>
@@ -776,7 +794,7 @@ function FramePreview({
   image,
   frame,
 }: {
-  source: React.RefObject<HTMLCanvasElement | null>;
+  source: React.RefObject<HTMLCanvasElement | HTMLImageElement | null>;
   image: { width: number; height: number };
   frame: Frame | null;
 }) {

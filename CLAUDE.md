@@ -105,7 +105,8 @@ See README.md for the architecture overview and commands.
   `npm run test:sliders -w @rawtisserie/web` checks `ParamSlider`'s pointer handling and
   commits against the slider library, in a browser too. Run it after changing either.
   `npm run test:library -w @rawtisserie/web` goes between the library and the developer (API
-  mocked): run it after changing what they share (`library/libraryView.ts`, the film roll).
+  mocked): run it after changing what they share (`library/libraryView.ts`, the film roll),
+  or the library export (`export/`; it exports a golden RAW, skipped without them).
 - `/ui` (`pages/UiPage.tsx`) shows the UI's building blocks on one page, with static data
   and a dark/light toggle: add new shared components and patterns there. Fonts are tokens (`theme.ts`): `heading`, `body`, `label` (small uppercase
   labels) and `numeric` (values that change as you edit, with `tabular-nums`). `npm run test:ui -w @rawtisserie/web` renders it in every mode

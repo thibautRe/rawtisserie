@@ -66,6 +66,7 @@ import type {
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
+import { saveBlob } from '../lib/download.ts';
 import { ExportDialog } from './ExportDialog.tsx';
 import type { ExportInfo } from './exportInfo.ts';
 import { useExportSetup } from './useExportSettings.ts';
@@ -249,7 +250,14 @@ const Toolbar = memo(function Toolbar({
       >
         <SplitSquareHorizontal /> Before
       </Button>
-      <Button size="sm" variant="outline" loading={exporting} loadingText="Exporting…" onClick={onExport}>
+      <Button
+        size="sm"
+        variant="outline"
+        loading={exporting}
+        loadingText="Exporting…"
+        onClick={onExport}
+        title="Export (Ctrl+E)"
+      >
         <Download /> Export
       </Button>
       {actions}
@@ -725,13 +733,7 @@ export function DeveloperView({
     try {
       const format = EXPORT_FORMATS.find((f) => f.value === settings.format)!;
       const blob = await backend.export(params, exportOptions(settings), exportInfo.metadata);
-      const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), {
-        href: url,
-        download: exportFilename(settings.filename, exportInfo.filename, format.extension),
-      });
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      saveBlob(blob, exportFilename(settings.filename, exportInfo.filename, format.extension));
     } catch (err) {
       toaster.create({
         type: 'error',
@@ -1032,6 +1034,7 @@ export function DeveloperView({
       if (mod && key === 'z' && !e.shiftKey) goto(history.end - 1);
       else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) goto(history.end + 1);
       else if (mod && key === 's') autosave.flush();
+      else if (mod && key === 'e' && !exporting) setExportOpen(true);
       // Copy settings, unless there's text selected to copy.
       else if (mod && key === 'c' && e.shiftKey) setCopying(true);
       else if (mod && key === 'c' && !window.getSelection()?.toString()) copyLast();

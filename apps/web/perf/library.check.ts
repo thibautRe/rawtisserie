@@ -12,6 +12,8 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { type Browser, type Page, chromium } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
+import { existsSync } from 'node:fs';
+import { defaultEditParams } from '@rawtisserie/pipeline';
 import type { Photo, PhotoDetail } from '../src/api/types.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -78,6 +80,10 @@ const TAGS = [
 let sent: { path: string; body: unknown }[] = [];
 /** Each version's edits so far. */
 let patched = new Map<string, Partial<PhotoDetail>>();
+/** Files served as originals, by photo id (the others aren't found). */
+let originals: Record<string, string> = {};
+/** Versions whose current recipe is known (`/api/versions/recipes`); the others aren't read yet. */
+let recipes: Record<string, unknown> = {};
 
 let server: PreviewServer;
 let browser: Browser;
@@ -101,6 +107,8 @@ async function open(path: string) {
   page.on('pageerror', (e) => assert.fail(`page error: ${e.message}`));
   sent = [];
   patched = new Map();
+  originals = {};
+  recipes = {};
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -123,6 +131,19 @@ async function open(path: string) {
     if (p) return json({ ...detail(p), ...patched.get(p.id) });
     if (path === '/api/presets') return json({ presets: [] });
     if (path === '/api/luts') return json({ luts: [] });
+    if (path === '/api/export-settings')
+      return json({ settings: { format: 'jpeg', size: { mode: 'longEdge', longEdge: 256 } }, presets: [] });
+    if (path === '/api/versions/recipes') {
+      const { ids } = route.request().postDataJSON() as { ids: string[] };
+      return json({
+        versions: ids
+          .filter((id) => id in recipes)
+          .map((id) => ({ id, historyEnd: 1, revision: 1, recipe: recipes[id] })),
+        notReady: ids.filter((id) => !(id in recipes)),
+      });
+    }
+    const original = /^\/api\/photos\/(p\d+)\/original$/.exec(path)?.[1];
+    if (original && originals[original]) return route.fulfill({ path: originals[original] });
     // Originals and the rest: the developer shows an error, the film roll stays.
     return route.fulfill({ status: 404, json: { error: 'not found' } });
   });
@@ -218,4 +239,70 @@ test('T focuses the tag input of several photos too', async () => {
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => (document.activeElement as HTMLInputElement).value === '');
   assert.deepEqual(sent.at(-1)?.body, { ids: PHOTOS.map((p) => p.id), patch: { addTags: ['dusk'] } });
+});
+
+/** A golden-test RAW (`scripts/fetch-golden-raws.sh`). */
+const RAW = fileURLToPath(new URL('../../../crates/pipeline/tests/golden/raws/sony-ilce-7m3.arw', import.meta.url));
+
+/** The names of the JPEG files in a ZIP, from its central directory. */
+function zipNames(zip: Buffer): string[] {
+  const end = zip.length - 22;
+  assert.equal(zip.readUInt32LE(end), 0x06054b50);
+  const names = [];
+  let at = zip.readUInt32LE(end + 16);
+  for (let i = 0; i < zip.readUInt16LE(end + 10); i++) {
+    const length = zip.readUInt16LE(at + 28);
+    const name = zip.toString('utf8', at + 46, at + 46 + length);
+    // Each file is stored as is: a JPEG starts with its SOI marker.
+    const local = zip.readUInt32LE(at + 42);
+    const data = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    assert.equal(zip.readUInt16BE(data), 0xffd8, `${name} is a JPEG`);
+    assert.ok(zip.readUInt32LE(at + 24) > 1000, `${name} has an image`);
+    names.push(name);
+    at += 46 + length + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+  }
+  return names;
+}
+
+test(
+  'Ctrl+E exports the selection as one ZIP, listing the photos that failed',
+  { skip: !existsSync(RAW) },
+  async () => {
+    await open('/?q=beach');
+    await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 3);
+    // v1 has an edited recipe; v5 is a new upload (the recipe for its file); v3's original is missing.
+    originals = { p1: RAW, p5: RAW };
+    recipes = { v1: defaultEditParams };
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+e');
+    await page.getByRole('heading', { name: 'Export 3 photos' }).waitFor();
+    const download = page.waitForEvent('download', { timeout: 120_000 });
+    await page.getByRole('button', { name: 'Export JPEG' }).click();
+    await page.getByText(/Exporting [123] of 3/).waitFor();
+    const file = await download;
+    assert.match(file.suggestedFilename(), /^rawtisserie-\d{4}-\d\d-\d\d-\d{6}\.zip$/);
+    const { readFile } = await import('node:fs/promises');
+    assert.deepEqual(zipNames(await readFile(await file.path())), ['beach-1.jpg', 'beach-5.jpg']);
+    await page.getByText('Exported 2 of 3 photos').waitFor();
+    await page.getByText('beach-3.ARW: Could not download the original (Not Found)').waitFor();
+    await page.getByRole('button', { name: 'Dismiss' }).click();
+    await page.getByText('Exported 2 of 3 photos').waitFor({ state: 'detached' });
+  },
+);
+
+test('one photo is exported as its file, from the info panel', { skip: !existsSync(RAW) }, async () => {
+  await open('/?q=beach');
+  await cards().first().waitFor();
+  originals = { p1: RAW };
+  recipes = { v1: defaultEditParams };
+  await cards().first().click();
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('heading', { name: 'Export', exact: true }).waitFor();
+  const download = page.waitForEvent('download', { timeout: 120_000 });
+  await page.getByRole('button', { name: 'Export JPEG' }).click();
+  const file = await download;
+  assert.equal(file.suggestedFilename(), 'beach-1.jpg');
+  const { readFile } = await import('node:fs/promises');
+  assert.equal((await readFile(await file.path())).readUInt16BE(0), 0xffd8);
+  await page.getByText('Exported beach-1.jpg').waitFor();
 });

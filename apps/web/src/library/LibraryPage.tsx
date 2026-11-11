@@ -39,6 +39,7 @@ import {
   sourceName,
 } from '../develop/editClipboard.ts';
 import { CopyEditsDialog } from '../develop/presets.tsx';
+import { LibraryExportDialog } from '../export/LibraryExportDialog.tsx';
 import { fetchRecipe } from './batchEdit.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
@@ -175,6 +176,11 @@ export function LibraryPage() {
     [photos, selection, duplicate],
   );
 
+  // ── Export (roadmap 8.4): the selection, in the grid's order ──
+  const [exporting, setExporting] = useState<Photo[] | null>(null);
+  /** The frame preview shows the focused photo if it's exported, or the first one. */
+  const exportPreview = exporting && (exporting.find((p) => p.id === focusedId) ?? exporting[0] ?? null);
+
   // ── Copy and paste settings (roadmap 8.6) ──
   const [copyDialog, setCopyDialog] = useState<{ recipe: EditParams; source: string } | null>(null);
   /** The photo to copy from: the focused one if it's selected, or the only one selected. */
@@ -258,6 +264,11 @@ export function LibraryPage() {
       if ((e.metaKey || e.ctrlKey) && key === 'v' && selection.size) {
         e.preventDefault();
         latestCopy.current.pasteToSelection(e.shiftKey);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && key === 'e') {
+        e.preventDefault();
+        if (selection.size) setExporting(selectedPhotos);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && key === 'd') {
@@ -496,7 +507,9 @@ export function LibraryPage() {
         onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
         onApplyEdit={(edit) => batchEdit([...selection], edit)}
         onCopy={() => void copyFrom(true)}
+        onExport={() => setExporting(selectedPhotos)}
       />
+      <LibraryExportDialog photos={exporting} preview={exportPreview} onClose={() => setExporting(null)} />
       {copyDialog && (
         <CopyEditsDialog
           recipe={copyDialog.recipe}

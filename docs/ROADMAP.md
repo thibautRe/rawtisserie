@@ -37,6 +37,8 @@ Later that day: 3.7 (diffuse or sharpen), a port of Ansel's with all its presets
 Feedback: Barlow Semi Condensed was too narrow for rows of similar sliders (colour
 balance): Geologica instead (Asta Sans tried first: its ellipsis is centred, Korean
 style), and Inter out of `/ui`. Uppercase tabs, dimmer colour balance group headers.
+Then: a modified module's title is orange only when it's enabled; colour calibration's
+adaptation moved into its fold. 8.4 (export from the library) done.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1383,6 +1385,25 @@ with M5's compare (two-up culling of a burst).
 
 ### 8.4 Export from the library: one photo or a selection (M–L)
 
+> **Done** 2026-11-11 (`export/bulkExport.ts`, `export/LibraryExportDialog.tsx`,
+> `export/ExportProgress.tsx`, `lib/zip.ts`). As built: "Export N photos" in the info
+> panel (an icon button for one photo) and Ctrl+E, in the library and the developer.
+> The dialog is the developer's, with the focused photo's preview in the frame preview,
+> no size estimate (it depends on each photo's crop), the first two file names, and a
+> warning when names repeat (they get -2, -3…; it suggests `{version}`). The runner is
+> a module-level store, so it keeps going across pages; it has its own pipeline worker
+> (replaced after a failure, in case it's left without memory), downloads the next
+> original while one exports, decodes an original once for consecutive versions of it,
+> takes each version's recipe from `/api/versions/recipes` (the recipe for the file when
+> the server hasn't read it yet) and resolves pending auto-tunes. One photo downloads as
+> its file; several as a stored ZIP (ZIP64 when needed) built from the files' blobs,
+> saved at the end. The progress panel (bottom left, every page) shows n of N and the
+> current photo, with Cancel; failures are listed when it ends. Leaving the app while it
+> runs asks first. `test:library` exports with a golden RAW. Fixed on the way:
+> `/api/versions/recipes` gave a version undone to the original the auto-applied recipe
+> rather than the plain default. Not measured yet: a large selection of 60 MP files
+> (memory). Not done: the grid has no context menu to add it to.
+
 Decided 2026-11-10: **in the browser, delivered as one ZIP**, with single-photo export
 from the library built as part of it (not before). Server-side jobs wait for M6 (cloud
 compute is planned as a paid option, and with 7.8's local originals the server doesn't
@@ -1517,7 +1538,7 @@ and paste becomes one action.
 - **Format:** `mode: 'replace' | 'append'` per style module, normalised (missing =
   today's behaviour of the menu entry used, i.e. replace); single-instance kinds always
   replace. Rust doesn't see styles, so TS only (`normalizeStyle`, `applyStyle`).
-- **Decided (2026-11-09):** "apply" replaces only the target's *first* instance of the
+- **Decided (2026-11-09):** "apply" replaces only the target's _first_ instance of the
   kind (today's "Apply" removes them all: `applyStyle`), the others stay; a style with
   two instances of a kind replaces the first two. A hidden power-user modifier
   (Shift+click, or Shift+Enter) appends everything.
@@ -1701,8 +1722,8 @@ Required before 1.0, on top of what's done:
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, 4.8 3D LUT, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
-   ~~3.7 diffuse and sharpen~~, 8.2 folder/SD import, 8.4 export from the library (in the
-   browser; server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
+   ~~3.7 diffuse and sharpen~~, 8.2 folder/SD import, ~~8.4 export from the library (in the
+   browser)~~ (server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
 7. M5 compare.

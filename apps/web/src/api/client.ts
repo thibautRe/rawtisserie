@@ -34,8 +34,12 @@ export const api = {
 };
 
 /** Download a binary resource, reporting progress (0…1) when the size is known. */
-export async function fetchBytes(url: string, onProgress?: (fraction: number) => void): Promise<ArrayBuffer> {
-  const res = await fetch(url, { credentials: 'same-origin' });
+export async function fetchBytes(
+  url: string,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  const res = await fetch(url, { credentials: 'same-origin', signal });
   if (!res.ok || !res.body) throw new ApiError(res.status, res.statusText);
   const total = Number(res.headers.get('content-length')) || 0;
   const reader = res.body.getReader();

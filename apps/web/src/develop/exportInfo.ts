@@ -61,17 +61,22 @@ export function photoExportInfo(photo: Photo, metadata: PhotoMetadata): ExportIn
       label: photo.colorLabel,
       tags: photo.tags,
     },
-    filename: {
-      filename: photo.filename,
-      versionName: photo.versionName,
-      versionIndex: photo.versionIndex,
-      versionCount: photo.versionCount,
-      title: photo.title,
-      capturedAt: photo.capturedAt,
-      camera: photo.cameraModel,
-      lens: photo.lens,
-      iso: photo.iso,
-      rating: photo.rating,
-    },
+    filename: photoFilenameFields(photo),
+  };
+}
+
+/** What a library version's file names can refer to (the library's values, corrections included). */
+export function photoFilenameFields(photo: Photo): FilenameFields {
+  return {
+    filename: photo.filename,
+    versionName: photo.versionName,
+    versionIndex: photo.versionIndex,
+    versionCount: photo.versionCount,
+    title: photo.title,
+    capturedAt: photo.capturedAt,
+    camera: photo.cameraModel,
+    lens: photo.lens,
+    iso: photo.iso,
+    rating: photo.rating,
   };
 }

@@ -20,7 +20,7 @@ import {
   Text,
   Textarea,
 } from '@chakra-ui/react';
-import { Aperture, Check, Copy, Download, Palette, Trash2, X } from 'lucide-react';
+import { Aperture, Check, Copy, Download, ImageDown, Palette, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useBulkUpdate, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
@@ -55,6 +55,8 @@ interface Actions {
   onApplyEdit: (edit: BatchEdit) => void;
   /** Pick settings of the selected version to copy. */
   onCopy: () => void;
+  /** Export the selected versions. */
+  onExport: () => void;
 }
 
 /** Duplicate / Duplicate from original. */
@@ -92,7 +94,7 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
           tag · <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings ·{' '}
-          <b>Del</b> delete · arrows to move
+          <b>Ctrl+E</b> export · <b>Del</b> delete · arrows to move
         </Text>
       </Stack>
     );
@@ -226,7 +228,14 @@ function parseExposure(s: string): number | null {
   return numOrNull(s.replace(/[″"s]$/, ''));
 }
 
-function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit, onCopy }: { photo: Photo } & Actions) {
+function SinglePanel({
+  photo: listPhoto,
+  onDelete,
+  onDuplicate,
+  onApplyEdit,
+  onCopy,
+  onExport,
+}: { photo: Photo } & Actions) {
   const { data: detail } = usePhoto(listPhoto.id);
   // The render state comes from the list: it's polled while previews are rendered, the detail isn't.
   const photo = detail
@@ -301,7 +310,10 @@ function SinglePanel({ photo: listPhoto, onDelete, onDuplicate, onApplyEdit, onC
         <Button size="sm" colorPalette="orange" flex="1" onClick={() => navigate(`/versions/${photo.id}/develop`)}>
           <Aperture /> Develop
         </Button>
-        <IconButton asChild size="sm" variant="outline" aria-label="Download original">
+        <IconButton size="sm" variant="outline" aria-label="Export" title="Export (Ctrl+E)" onClick={onExport}>
+          <ImageDown />
+        </IconButton>
+        <IconButton asChild size="sm" variant="outline" aria-label="Download original" title="Download original">
           <a href={photo.originalUrl} download>
             <Download />
           </a>
@@ -515,7 +527,7 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
 
 // ── Several photos ──────────────────────────────────────────────────────────
 
-function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit }: { photos: Photo[] } & Actions) {
+function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport }: { photos: Photo[] } & Actions) {
   const bulk = useBulkUpdate();
   const ids = photos.map((p) => p.id);
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
@@ -554,6 +566,9 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit }: { photos: Pho
           <Palette /> Apply a preset or style to {photos.length}
         </Button>
       </ApplyMenu>
+      <Button size="sm" variant="outline" onClick={onExport} title="Export (Ctrl+E)">
+        <ImageDown /> Export {photos.length} photos
+      </Button>
       <DuplicateMenu onDuplicate={onDuplicate}>
         <Button size="sm" variant="outline">
           <Copy /> Duplicate {photos.length}
