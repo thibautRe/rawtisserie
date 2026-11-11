@@ -1391,14 +1391,20 @@ with M5's compare (two-up culling of a burst).
 > The dialog is the developer's, with the focused photo's preview in the frame preview,
 > no size estimate (it depends on each photo's crop), the first two file names, and a
 > warning when names repeat (they get -2, -3…; it suggests `{version}`). The runner is
-> a module-level store, so it keeps going across pages; it has its own pipeline worker
-> (replaced after a failure, in case it's left without memory), downloads the next
-> original while one exports, decodes an original once for consecutive versions of it,
-> takes each version's recipe from `/api/versions/recipes` (the recipe for the file when
-> the server hasn't read it yet) and resolves pending auto-tunes. One photo downloads as
-> its file; several as a stored ZIP (ZIP64 when needed) built from the files' blobs,
-> saved at the end. The progress panel (bottom left, every page) shows n of N and the
-> current photo, with Cancel; failures are listed when it ends. Leaving the app while it
+> a module-level store, so it keeps going across pages. An export is single-threaded,
+> so it runs lanes (`export/lanes.ts`: a lane per four hardware threads, at most three),
+> each a pipeline worker without a pool (replaced after a failure, in case it's left
+> without memory) that downloads its next original while one exports. Consecutive
+> versions of a file go to one lane, which decodes the original once for them. Each
+> lane holds a decoded photo and its full-size render (natively, a 24 MP JPEG export
+> peaks at 0.9 GB, 7.3 s single-threaded). Each version's recipe comes from
+> `/api/versions/recipes` (the recipe for the file when the server hasn't read it yet),
+> with pending auto-tunes resolved. File names are given in the photos' order; ZIP
+> entries are in the order they finish. One photo downloads as its file; several as a
+> stored ZIP (ZIP64 when needed) built from the files' blobs, saved at the end: every
+> exported file is held until then (24 MP: JPEG 12 MB, 16-bit TIFF 129 MB, PNG 142 MB).
+> The progress panel (bottom left, every page) shows n of N and the photos being
+> exported, with Cancel; failures are listed when it ends. Leaving the app while it
 > runs asks first. `test:library` exports with a golden RAW. Fixed on the way:
 > `/api/versions/recipes` gave a version undone to the original the auto-applied recipe
 > rather than the plain default. Not measured yet: a large selection of 60 MP files

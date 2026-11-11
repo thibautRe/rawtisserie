@@ -26,14 +26,19 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 
 /** Renders in the browser: promise-based RPC to the pipeline worker. */
 export class LocalRenderBackend implements RenderBackend {
-  private worker = new Worker(new URL('./pipeline.worker.ts', import.meta.url), { type: 'module' });
+  private worker: Worker;
   private pending = new Map<number, Pending>();
   private nextId = 1;
   private lutSource: LutSource | null = null;
   /** The LUTs sent to the worker, or being fetched for it, by id. */
   private luts = new Map<string, Promise<void>>();
 
-  constructor() {
+  /** Without `pool`, renders run on the pipeline worker alone (exports, several at once). */
+  constructor({ pool = true }: { pool?: boolean } = {}) {
+    this.worker = new Worker(new URL('./pipeline.worker.ts', import.meta.url), {
+      type: 'module',
+      name: pool ? 'pipeline' : 'export',
+    });
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
       const p = this.pending.get(e.data.id);
       if (!p) return;

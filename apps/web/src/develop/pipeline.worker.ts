@@ -24,7 +24,9 @@ declare const self: DedicatedWorkerGlobalScope;
 
 const ready = init({ module_or_path: wasmUrl });
 let developer: Developer | null = null;
-const pool = PointPool.create();
+// Export workers (`LocalRenderBackend({ pool: false })`) render one photo each, several
+// at once: they don't need a pool of their own.
+const pool = self.name === 'export' ? null : PointPool.create();
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 

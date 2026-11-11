@@ -278,11 +278,12 @@ test(
     await page.getByRole('heading', { name: 'Export 3 photos' }).waitFor();
     const download = page.waitForEvent('download', { timeout: 120_000 });
     await page.getByRole('button', { name: 'Export JPEG' }).click();
-    await page.getByText(/Exporting [123] of 3/).waitFor();
+    await page.getByText(/Exporting: [0-3] of 3 done/).waitFor();
     const file = await download;
     assert.match(file.suggestedFilename(), /^rawtisserie-\d{4}-\d\d-\d\d-\d{6}\.zip$/);
     const { readFile } = await import('node:fs/promises');
-    assert.deepEqual(zipNames(await readFile(await file.path())), ['beach-1.jpg', 'beach-5.jpg']);
+    // In the order they finished: lanes export several at once.
+    assert.deepEqual(zipNames(await readFile(await file.path())).sort(), ['beach-1.jpg', 'beach-5.jpg']);
     await page.getByText('Exported 2 of 3 photos').waitFor();
     await page.getByText('beach-3.ARW: Could not download the original (Not Found)').waitFor();
     await page.getByRole('button', { name: 'Dismiss' }).click();

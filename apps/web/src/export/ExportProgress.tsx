@@ -37,7 +37,7 @@ export function ExportProgress() {
         <Stack gap="2">
           <HStack justify="space-between" gap="2">
             <Text textStyle="sm" fontWeight="medium" fontVariantNumeric="tabular-nums">
-              Exporting {Math.min(run.done + 1, run.total)} of {run.total}
+              Exporting: {run.done} of {run.total} done
             </Text>
             <Button size="2xs" variant="ghost" onClick={cancelExport}>
               Cancel
@@ -48,8 +48,8 @@ export function ExportProgress() {
               <Progress.Range />
             </Progress.Track>
           </Progress.Root>
-          <Text textStyle="xs" color="fg.muted" truncate title={run.current ?? undefined}>
-            {run.current}
+          <Text textStyle="xs" color="fg.muted" truncate title={run.current.join('\n')}>
+            {run.current.join(', ')}
             {run.failed.length ? ` · ${run.failed.length} failed` : ''}
           </Text>
         </Stack>

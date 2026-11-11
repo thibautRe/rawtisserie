@@ -19,12 +19,13 @@ import { fetchBytes } from '../api/client.ts';
 import type { Photo } from '../api/types.ts';
 import { toaster } from '../components/toaster.tsx';
 import { backendMeasures } from '../develop/autoTune.ts';
-import { photoExportInfo } from '../develop/exportInfo.ts';
+import { photoExportInfo, photoFilenameFields } from '../develop/exportInfo.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import { lutTable } from '../develop/luts.ts';
 import { saveBlob } from '../lib/download.ts';
 import { ZipWriter } from '../lib/zip.ts';
 import { fetchRecipe } from '../library/batchEdit.ts';
+import { exportLanes, originalGroups } from './lanes.ts';
 import { archiveName, uniqueName } from './names.ts';
 
 export interface ExportRun {
@@ -32,8 +33,8 @@ export interface ExportRun {
   /** Photos finished, exported or not. */
   done: number;
   exported: number;
-  /** The file name of the photo being exported. */
-  current: string | null;
+  /** The file names of the photos being exported. */
+  current: string[];
   /** Photos that couldn't be exported, and why. */
   failed: { filename: string; error: string }[];
   state: 'running' | 'finished';
@@ -70,11 +71,12 @@ export function dismissExport() {
   if (run?.state === 'finished') update(null);
 }
 
-/** What a photo needs before it's exported: its original (null: the previous photo's) and recipe. */
+/** What a group of photos needs before it's exported: their original, and each one's recipe. */
 interface Input {
+  /** Null once it's been handed to a worker (transferred). */
   bytes: ArrayBuffer | null;
   /** Null for a new upload not read by the server yet: it starts from the recipe for its file. */
-  recipe: EditParams | null;
+  recipes: (EditParams | null)[];
 }
 
 type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
@@ -100,7 +102,7 @@ export function startExport(photos: readonly Photo[], settings: ExportSettings):
   if (exportRunning() || !photos.length) return false;
   const abort = new AbortController();
   controller = abort;
-  update({ total: photos.length, done: 0, exported: 0, current: photos[0]!.filename, failed: [], state: 'running' });
+  update({ total: photos.length, done: 0, exported: 0, current: [], failed: [], state: 'running' });
   void exportAll(photos, settings, abort.signal).finally(() => {
     if (controller === abort) controller = null;
   });
@@ -108,74 +110,110 @@ export function startExport(photos: readonly Photo[], settings: ExportSettings):
 }
 
 async function exportAll(photos: readonly Photo[], settings: ExportSettings, signal: AbortSignal) {
-  const newBackend = () => {
-    const b = new LocalRenderBackend();
-    b.setLutSource(lutTable);
-    return b;
-  };
-  let backend = newBackend();
-  // Cancelling stops the worker at once, whatever it's doing.
-  const stop = () => backend.dispose();
-  signal.addEventListener('abort', stop);
-
   const format = EXPORT_FORMATS.find((f) => f.value === settings.format)!;
   const options = exportOptions(settings);
   const single = photos.length === 1;
-  const zip = new ZipWriter();
-  let file: { blob: Blob; name: string } | null = null;
-  const failed: ExportRun['failed'] = [];
-  let exported = 0;
-
-  // Versions of one file share its original: it's fetched and decoded once for them.
-  const prepare = (i: number): Promise<Settled<Input>> => {
-    const photo = photos[i]!;
-    const same = i > 0 && photos[i - 1]!.originalUrl === photo.originalUrl;
-    return settle(
-      Promise.all([same ? null : download(photo.originalUrl, signal), fetchRecipe(photo.id)]).then(
-        ([bytes, recipe]) => ({ bytes, recipe }),
-      ),
+  // Names are given in the photos' order, whatever order they finish in.
+  const taken = new Set<string>();
+  const names = photos.map((p) => {
+    const name = uniqueName(exportFilename(settings.filename, photoFilenameFields(p), format.extension), (n) =>
+      taken.has(n),
     );
-  };
+    taken.add(name);
+    return name;
+  });
+  const zip = new ZipWriter();
+  let file = null as { blob: Blob; name: string } | null;
+  const failed: ExportRun['failed'] = [];
+  const current = new Set<number>();
+  let done = 0;
+  let exported = 0;
+  const report = () =>
+    update({
+      ...run!,
+      done,
+      exported,
+      current: [...current].sort((a, b) => a - b).map((i) => photos[i]!.filename),
+      failed: [...failed],
+    });
 
-  let loaded = null as { url: string; metadata: PhotoMetadata } | null;
-  // The next photo's original downloads while one exports.
-  let next = prepare(0);
-  for (let i = 0; i < photos.length && !signal.aborted; i++) {
-    const photo = photos[i]!;
-    update({ ...run!, current: photo.filename });
-    const input = await next;
-    if (i + 1 < photos.length) next = prepare(i + 1);
-    try {
-      if (!input.ok) throw input.error;
-      const { recipe } = input.value;
-      let metadata = loaded?.url === photo.originalUrl ? loaded.metadata : null;
-      if (!metadata) {
-        // Fetched again if the version before, with the same original, failed.
-        const bytes: ArrayBuffer = input.value.bytes ?? (await download(photo.originalUrl, signal));
-        loaded = null;
-        metadata = await backend.load(bytes);
-        loaded = { url: photo.originalUrl, metadata };
+  // Cancelling stops every worker at once, whatever it's doing.
+  const backends = new Set<LocalRenderBackend>();
+  const newBackend = () => {
+    const b = new LocalRenderBackend({ pool: false });
+    b.setLutSource(lutTable);
+    backends.add(b);
+    return b;
+  };
+  const dispose = (b: LocalRenderBackend) => {
+    b.dispose();
+    backends.delete(b);
+  };
+  const stop = () => [...backends].forEach(dispose);
+  signal.addEventListener('abort', stop);
+
+  // Versions of one file share its original: it's fetched and decoded once for them, on one lane.
+  const groups = originalGroups(photos.map((p) => p.originalUrl));
+  let claimed = 0;
+  const claim = () => (claimed < groups.length ? groups[claimed++]! : null);
+  const prepare = (group: number[]): Promise<Settled<Input>> =>
+    settle(
+      Promise.all([
+        download(photos[group[0]!]!.originalUrl, signal),
+        Promise.all(group.map((i) => fetchRecipe(photos[i]!.id))),
+      ]).then(([bytes, recipes]) => ({ bytes, recipes })),
+    );
+
+  const lane = async () => {
+    let backend = newBackend();
+    let group = claim();
+    let input = group && prepare(group);
+    while (group && input && !signal.aborted) {
+      // The lane's next original downloads while this one exports.
+      const following = claim();
+      const next = following && prepare(following);
+      const got = await input;
+      let metadata: PhotoMetadata | null = null;
+      for (const [k, i] of group.entries()) {
+        if (signal.aborted) break;
+        const photo = photos[i]!;
+        current.add(i);
+        report();
+        try {
+          if (!got.ok) throw got.error;
+          if (!metadata) {
+            // Fetched again if a version before it failed (its worker was replaced).
+            const bytes = got.value.bytes ?? (await download(photo.originalUrl, signal));
+            got.value.bytes = null;
+            metadata = await backend.load(bytes);
+          }
+          // Pending auto-tunes are measured as the server's previews measure them.
+          const recipe = got.value.recipes[k] ?? defaultRecipe(metadata);
+          const params = await resolveAutoTunes(recipe, backendMeasures(backend));
+          const blob = await backend.export(params, options, photoExportInfo(photo, metadata).metadata);
+          if (single) file = { blob, name: names[i]! };
+          else await zip.add(names[i]!, blob);
+          exported++;
+        } catch (err) {
+          if (signal.aborted) break;
+          failed.push({ filename: photo.filename, error: message(err) });
+          // A fresh worker for the next one, in case this one is left in a bad state (memory).
+          dispose(backend);
+          backend = newBackend();
+          metadata = null;
+        } finally {
+          current.delete(i);
+        }
+        done++;
+        report();
       }
-      // Pending auto-tunes are measured as the server's previews measure them.
-      const params = await resolveAutoTunes(recipe ?? defaultRecipe(metadata), backendMeasures(backend));
-      const info = photoExportInfo(photo, metadata);
-      const blob = await backend.export(params, options, info.metadata);
-      const name = uniqueName(exportFilename(settings.filename, info.filename, format.extension), (n) => zip.has(n));
-      if (single) file = { blob, name };
-      else await zip.add(name, blob);
-      exported++;
-    } catch (err) {
-      if (signal.aborted) break;
-      failed.push({ filename: photo.filename, error: message(err) });
-      // A fresh worker for the next one, in case this one is left in a bad state (memory).
-      backend.dispose();
-      backend = newBackend();
-      loaded = null;
+      group = following;
+      input = next;
     }
-    update({ ...run!, done: i + 1, exported, failed: [...failed] });
-  }
+    dispose(backend);
+  };
+  await Promise.all(Array.from({ length: Math.min(exportLanes(), groups.length) }, lane));
   signal.removeEventListener('abort', stop);
-  backend.dispose();
 
   if (signal.aborted) {
     update(null);
@@ -184,13 +222,13 @@ async function exportAll(photos: readonly Photo[], settings: ExportSettings, sig
   }
   if (file) saveBlob(file.blob, file.name);
   else if (zip.count) saveBlob(zip.finish(), archiveName(new Date()));
-  update({ ...run!, current: null, state: 'finished' });
+  update({ ...run!, current: [], state: 'finished' });
   // Without failures there's nothing to report beyond a toast.
   if (!failed.length) {
     update(null);
     toaster.create({
       type: 'success',
-      title: single ? `Exported ${file?.name ?? photos[0]!.filename}` : `Exported ${exported} photos`,
+      title: single ? `Exported ${names[0]}` : `Exported ${exported} photos`,
       duration: 4000,
     });
   }
