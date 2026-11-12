@@ -9,3 +9,4 @@ target/
 /crates/pipeline/tests/golden/raws/
 
 NOTES.md
+/deploy/backups/

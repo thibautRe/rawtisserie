@@ -75,3 +75,21 @@ jobs:
           tags: rawtisserie:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy-config:
+    name: Deploy configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compose file
+        run: docker compose -f deploy/compose.yaml config --quiet
+        env:
+          DOMAIN: rawtisserie.example.com
+          POSTGRES_PASSWORD: ci
+      - name: Caddyfile
+        run: >-
+          docker run --rm -e DOMAIN=rawtisserie.example.com
+          -v ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro docker.io/library/caddy:2-alpine
+          caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Backup script
+        run: shellcheck deploy/backup.sh

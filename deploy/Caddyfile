@@ -1,0 +1,10 @@
+# HTTPS for the server, with certificates from Let's Encrypt (or ZeroSSL), renewed
+# automatically. DOMAIN comes from .env.
+#
+# No request body limit here: the server enforces its own (400 MB per upload). Caddy
+# sets X-Forwarded-For/-Proto/-Host, which the server reads.
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:4000
+}

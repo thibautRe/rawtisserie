@@ -7,9 +7,9 @@ checked updates the diagram and the sections below.
 ## Today
 
 One Node process serves the API and the built web app, behind a reverse proxy that
-terminates HTTPS. It ships as a container image (see [Container image](#container-image));
-`npm run build && npm run start -w @rawtisserie/server` on the machine works too. There
-is no deployment automation yet.
+terminates HTTPS. It ships as a [container image](#container-image), run on a VPS with
+[`deploy/`](#on-a-vps-deploy).
+`npm run build && npm run start -w @rawtisserie/server` on a machine works too.
 
 ```
                          browser
@@ -70,32 +70,73 @@ The image sets `HOST=0.0.0.0`, `PORT=4000` and `STORAGE_DIR=/data` (a volume: or
 renders, LUT tables). The rest of the configuration comes from the environment as
 above. Migrations run on start, and SIGTERM closes the server and the database pool. About 360 MB.
 
-## Target: a single VPS (planned)
+## On a VPS: `deploy/`
 
-Decided 2026-11-12: one VPS at OVH runs the server and Postgres; originals and renders
-move to OVH Object Storage once 7.1 (object storage backend) is done. Postgres moves to
-a managed instance later, when backups and failover are worth the cost.
+Decided 2026-11-12: one VPS at OVH runs everything below with Docker Compose
+(`deploy/compose.yaml`); originals and renders move to OVH Object Storage once 7.1
+(object storage backend) is done. Postgres moves to a managed instance later, when
+failover is worth the cost.
 
 ```
-   browser ──HTTPS──▶ VPS ┌─────────────────────────────────────┐
-                          │ reverse proxy (TLS)                 │
-                          │   └▶ RAWtisserie server (:4000)     │
-                          │ Postgres 18 (local, backed up)      │
-                          └───────────────┬─────────────────────┘
-                                          │ S3 API (same region)
-                          ┌───────────────▼─────────────────────┐
-                          │ OVH Object Storage                  │
-                          │ originals, renders, LUT tables      │
-                          └─────────────────────────────────────┘
+   browser ──HTTPS──▶ VPS ┌───────────────────────────────────────────────────┐
+                          │ caddy        :80 → :443, certificates, zstd/gzip  │
+                          │   └▶ app     the server image (:4000, internal)   │
+                          │        │       volume app-data → /data            │
+                          │        ▼                                          │
+                          │ db           Postgres 18, volume db-data          │
+                          │   ▲                                               │
+                          │ backup       nightly pg_dump → BACKUP_DIR,        │
+                          │              dumps older than 30 days deleted     │
+                          └───────────────────────┬───────────────────────────┘
+                                                  │ S3 API (same region), after 7.1
+                          ┌───────────────────────▼───────────────────────────┐
+                          │ OVH Object Storage: originals, renders, LUTs      │
+                          └───────────────────────────────────────────────────┘
 ```
 
-The server runs as the container image. To decide: the reverse proxy, how a release
-reaches the VPS, and Postgres backups.
+Everything is in the repo except `deploy/.env` (from `deploy/.env.example`): the
+domain, the Postgres password, the image tag, sign-up, render concurrency and the
+backup settings. Only Caddy's ports are published; the app and Postgres are reachable
+from the compose network only.
+
+**Setting up** (Docker with the compose plugin, the domain's DNS pointing at the
+machine, ports 80 and 443 open):
+
+```sh
+git clone https://github.com/thibautRe/rawtisserie.git && cd rawtisserie/deploy
+cp .env.example .env    # fill it in
+docker compose up -d
+```
+
+**Updating:** `docker compose pull app && docker compose up -d app` (set
+`RAWTISSERIE_IMAGE` to a tag to pin a build). Migrations run when the app starts. A
+change to `deploy/` itself needs a `git pull` first.
+
+**Proxy:** `deploy/Caddyfile`. Caddy sets `X-Forwarded-*`, which the server reads, and
+has no request body limit: the server enforces its own (400 MB per upload). A proxy
+with a default limit (nginx: 1 MB) would break uploads.
+
+**Backups** (`deploy/backup.sh`, the `backup` service): once a day from `BACKUP_HOUR`
+(UTC), `pg_dump --format=custom` to `BACKUP_DIR/rawtisserie-YYYY-MM-DD.dump`, then dumps
+older than `BACKUP_KEEP_DAYS` (30) are deleted. A day missed while the machine was down
+is caught up when it starts. They only cover the database, and they sit on the same
+machine: copy them elsewhere too (to do: off the VPS, with the originals once they're
+in object storage). To restore one:
+
+```sh
+docker compose stop app
+docker compose exec -T db pg_restore -U rawtisserie -d rawtisserie --clean --if-exists \
+  < backups/rawtisserie-YYYY-MM-DD.dump
+docker compose start app
+```
+
+Not done yet: publishing the image to a registry (`ghcr.io/thibautre/rawtisserie`, the
+default `RAWTISSERIE_IMAGE`) and deploying from CI.
 
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`), on every push to `main` and every pull
-request. Three jobs run in parallel:
+request. Four jobs run in parallel:
 
 - **Rust:** `cargo test --workspace`, golden-image tests included. The golden RAWs are
   cached by `raws.txt`'s hash; when the golden test fails, its renders and ΔE heatmaps
@@ -104,6 +145,8 @@ request. Three jobs run in parallel:
   `format:check`, `typecheck`, the workspaces' tests and the production web build.
 - **Container image:** builds the `Dockerfile` (not pushed anywhere yet), with Buildx's
   GitHub Actions cache.
+- **Deploy configuration:** `docker compose config` on `deploy/compose.yaml`,
+  `caddy validate` on the Caddyfile, `shellcheck` on the backup script.
 
 Not in CI yet: the browser checks (`test:sliders`, `test:library`, `test:ui`,
 `test:perf`), which need Playwright's Chromium; `cargo fmt` and clippy.
