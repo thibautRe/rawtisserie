@@ -9,6 +9,8 @@ export interface LibraryView {
   scrollTop: number;
   selection: string[];
   focusedId: string | null;
+  /** Where the focused photo is in the list, so the film roll asks for its page first. */
+  focusedIndex?: number;
 }
 
 const KEY = 'library.view';

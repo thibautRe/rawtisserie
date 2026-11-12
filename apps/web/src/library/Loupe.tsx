@@ -15,6 +15,7 @@ import type { ZoomLayout } from '../develop/zoom.ts';
 import { formatAperture, formatDateTime, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
+import { FilmRoll } from './FilmRoll.tsx';
 import { advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
 import { TileLoader } from './tileLoader.ts';
 
@@ -24,6 +25,9 @@ interface Props {
   startId: string;
   hasMore: boolean;
   onLoadMore: () => void;
+  /** Where the first of `photos` is in the library's list, and how many it lists. */
+  offset?: number;
+  total?: number;
   onChange: (id: string, patch: BulkPatch) => void;
   /** Closed on this photo. */
   onClose: (id: string) => void;
@@ -40,8 +44,19 @@ const stored = (key: string, fallback: boolean) => {
   return v === null ? fallback : v === 'true';
 };
 
-export function Loupe({ photos, startId, hasMore, onLoadMore, onChange, onClose, onDevelop }: Props) {
+export function Loupe({
+  photos,
+  startId,
+  hasMore,
+  onLoadMore,
+  offset: offsetNow = 0,
+  total,
+  onChange,
+  onClose,
+  onDevelop,
+}: Props) {
   const [opened] = useState(() => photos.map((p) => p.id));
+  const [offset] = useState(offsetNow);
   const order = useMemo(() => loupeOrder(opened, photos), [opened, photos]);
   // Every photo seen, with the changes made here: a photo rated out of the library's
   // filters is gone from `photos`, but stays in the loupe until it closes.
@@ -63,6 +78,12 @@ export function Loupe({ photos, startId, hasMore, onLoadMore, onChange, onClose,
   useEffect(() => {
     if (hasMore && index >= order.length - LOAD_MORE_AHEAD) onLoadMore();
   }, [index, order.length, hasMore]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The loupe's photos in a film roll, with the changes made here.
+  const roll = order.map((id) => seen.current.get(id));
+  const onRollRange = (_start: number, end: number) => {
+    if (hasMore && end >= order.length - LOAD_MORE_AHEAD) onLoadMore();
+  };
 
   const [, forceRender] = useReducer((n: number) => n + 1, 0);
   const change = (patch: BulkPatch) => {
@@ -178,9 +199,14 @@ export function Loupe({ photos, startId, hasMore, onLoadMore, onChange, onClose,
               </Text>
             )}
           </Text>
-          <Text color="whiteAlpha.700" textStyle="sm" whiteSpace="nowrap">
-            {index + 1} / {order.length}
-            {hasMore ? '+' : ''}
+          <Text
+            color="whiteAlpha.700"
+            textStyle="sm"
+            whiteSpace="nowrap"
+            fontFamily="numeric"
+            fontVariantNumeric="tabular-nums"
+          >
+            {offset + index + 1} / {total ?? `${order.length}${hasMore ? '+' : ''}`}
           </Text>
           <Box flex="1" />
           {scale !== undefined && (
@@ -296,6 +322,9 @@ export function Loupe({ photos, startId, hasMore, onLoadMore, onChange, onClose,
         )}
       </Box>
 
+      {showInfo && (
+        <FilmRoll items={roll} current={index} onRange={onRollRange} onSelect={(p) => setId(p.id)} badges dark />
+      )}
       {showInfo && (
         <HStack px="3" py="2" gap="4" bg="blackAlpha.800" flexShrink="0" textStyle="sm">
           <HStack gap="0.5" title="Rating (0–5)">

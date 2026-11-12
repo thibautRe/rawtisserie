@@ -91,6 +91,7 @@ export function LibraryPage() {
       scrollTop: scrollTop.current,
       selection: [...selection],
       focusedId,
+      focusedIndex,
     });
   const latestSave = useRef(save);
   latestSave.current = save;
@@ -106,11 +107,11 @@ export function LibraryPage() {
   // in yet, which it asks for as it gets there).
   const loupeRun = useMemo(() => {
     const at = loupe ? items.findIndex((p) => p?.id === loupe) : -1;
-    if (at < 0) return { photos, end: total };
+    if (at < 0) return { photos, start: 0, end: total };
     let [start, end] = [at, at];
     while (start > 0 && items[start - 1]) start--;
     while (end < items.length && items[end]) end++;
-    return { photos: items.slice(start, end) as Photo[], end };
+    return { photos: items.slice(start, end) as Photo[], start, end };
   }, [loupe, items, photos, total]);
 
   const bulk = useBulkUpdate();
@@ -548,6 +549,8 @@ export function LibraryPage() {
           photos={loupeRun.photos}
           startId={loupe}
           hasMore={loupeRun.end < total}
+          offset={loupeRun.start}
+          total={total}
           onLoadMore={() => library.want(loupeRun.end, loupeRun.end)}
           onChange={(id, patch) => bulk.mutate({ ids: [id], patch })}
           onClose={(id) => {
