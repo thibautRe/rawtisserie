@@ -91,9 +91,10 @@ export function PhotoGrid({
     else if (top + cell > el.scrollTop + el.clientHeight) el.scrollTop = top + cell + PADDING - el.clientHeight;
   }, [focusedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Versions next to each other on a row share a box, highlighted together on hover: by
-  // a style rule for the hovered photo, at once (rendering the cards again is slower),
-  // and back with the box's own transition.
+  // Versions next to each other on a row share a box, highlighted together on hover. The
+  // hovered card's box is by its own CSS (`PhotoCard`); its other versions' by a style
+  // rule for the hovered photo (rendering the cards again is slower), also without a
+  // transition on the way in.
   const hoverStyle = useRef<HTMLStyleElement>(null);
   const onHover = useCallback((photoId: string | null) => {
     if (!hoverStyle.current) return;

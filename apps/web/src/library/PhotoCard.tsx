@@ -45,6 +45,9 @@ export const PhotoCard = memo(function PhotoCard({
       onClick={(e) => onClick(e, photo)}
       onDoubleClick={() => onOpen(photo)}
       data-group={photo.photoId}
+      // The hovered photo's box: highlighted at once (no transition on the way in), fading
+      // back with the box's own transition.
+      css={{ [`&:hover > .${GROUP_BOX_CLASS}`]: { bg: 'bg.emphasized', transition: 'none' } }}
       onPointerEnter={() => onHover(photo.photoId)}
       onPointerLeave={() => onHover(null)}
     >
