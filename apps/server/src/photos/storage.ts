@@ -1,25 +1,26 @@
 /**
- * File storage for originals and rendered previews. Local disk for now; the
- * interface is deliberately small so it can be swapped for object storage.
+ * Originals and rendered previews in the object store (`storage/`), and uploads on
+ * their way there.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { config } from '../config.ts';
+import { storage } from '../storage/index.ts';
 
 export type RenderSize = 'thumb' | 'preview';
 
 /** Long edge, in pixels, of each rendered size. */
 export const RENDER_SIZES: Record<RenderSize, number> = { thumb: 480, preview: 2048 };
 
-export const originalPath = (storageKey: string) => path.join(config.storageDir, 'originals', storageKey);
+export const originalKey = (storageKey: string) => `originals/${storageKey}`;
 
 /** Renders are per version (a version's first id may equal its photo's, see migration 00003). */
-export const renderPath = (versionId: string, size: RenderSize) =>
-  path.join(config.storageDir, 'renders', versionId.slice(0, 2), `${versionId}-${size}.jpg`);
+export const renderKey = (versionId: string, size: RenderSize) =>
+  `renders/${versionId.slice(0, 2)}/${versionId}-${size}.jpg`;
 
 export interface StoredUpload {
   tempPath: string;
@@ -27,7 +28,10 @@ export interface StoredUpload {
   sha256: string;
 }
 
-/** Stream an upload to a temporary file, hashing it on the way. */
+/**
+ * Stream an upload to a temporary file on local disk, hashing it on the way, so that
+ * duplicates are found before anything is stored.
+ */
 export async function receiveUpload(stream: Readable): Promise<StoredUpload> {
   const dir = path.join(config.storageDir, 'tmp');
   await mkdir(dir, { recursive: true });
@@ -48,9 +52,11 @@ export async function receiveUpload(stream: Readable): Promise<StoredUpload> {
 }
 
 export async function commitUpload(upload: StoredUpload, storageKey: string): Promise<void> {
-  const dest = originalPath(storageKey);
-  await mkdir(path.dirname(dest), { recursive: true });
-  await rename(upload.tempPath, dest);
+  try {
+    await storage.putFile(originalKey(storageKey), upload.tempPath);
+  } finally {
+    await rm(upload.tempPath, { force: true });
+  }
 }
 
 export async function discardUpload(upload: StoredUpload): Promise<void> {
@@ -58,20 +64,11 @@ export async function discardUpload(upload: StoredUpload): Promise<void> {
 }
 
 export async function deleteOriginal(storageKey: string): Promise<void> {
-  await rm(originalPath(storageKey), { force: true });
+  await storage.delete(originalKey(storageKey));
 }
 
 export async function deleteRenders(versionId: string): Promise<void> {
-  await Promise.all(
-    (Object.keys(RENDER_SIZES) as RenderSize[]).map((s) => rm(renderPath(versionId, s), { force: true })),
-  );
-}
-
-export async function fileExists(p: string): Promise<boolean> {
-  return stat(p).then(
-    () => true,
-    () => false,
-  );
+  await Promise.all((Object.keys(RENDER_SIZES) as RenderSize[]).map((s) => storage.delete(renderKey(versionId, s))));
 }
 
 /** File extensions of RAW formats we accept (decoding support comes from rawler). */

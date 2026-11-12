@@ -3,10 +3,11 @@
  * 100 % (or a power of two below). Keeps the last file decoded, since a zoomed-in view
  * asks for many tiles of the same photo.
  */
-import { readFile } from 'node:fs/promises';
 import { parentPort } from 'node:worker_threads';
 import { defaultRecipe, developerMeasures, hasPendingAutoTune, resolveAutoTunes } from '@rawtisserie/pipeline';
 import { Developer, initPipeline } from '@rawtisserie/pipeline/node';
+import { readLut } from '../luts/files.ts';
+import { storage } from '../storage/index.ts';
 import { ZOOM_TILE, type ZoomLevels, type ZoomRequest, type ZoomResponse, type ZoomSource } from './zoomTypes.ts';
 
 initPipeline();
@@ -14,26 +15,32 @@ initPipeline();
 /** Only levels finer than the stored preview (2048 px) are worth tiles. */
 const PREVIEW_EDGE = 2048;
 
-let current: { path: string; dev: Developer } | null = null;
+let current: { key: string; dev: Developer } | null = null;
 /**
  * Recipes with pending auto-tunes (roadmap 8.7), resolved: the loupe can ask for tiles
  * before the preview's render has written them into the history.
  */
 const resolved = new Map<string, string>();
 
-async function developer(path: string): Promise<Developer> {
-  if (current?.path === path) return current.dev;
+async function developer(key: string): Promise<Developer> {
+  if (current?.key === key) return current.dev;
   current?.dev.free();
   current = null;
   resolved.clear();
-  const dev = new Developer(await readFile(path));
-  current = { path, dev };
+  const bytes = await storage.read(key);
+  if (!bytes) throw new Error(`Original not found: ${key}`);
+  const dev = new Developer(bytes);
+  current = { key, dev };
   return dev;
 }
 
 async function prepare(source: ZoomSource) {
-  const dev = await developer(source.sourcePath);
-  for (const [id, file] of source.luts) if (!dev.hasLut(id)) dev.loadLut(await readFile(file));
+  const dev = await developer(source.sourceKey);
+  for (const id of source.luts) {
+    if (dev.hasLut(id)) continue;
+    const lut = await readLut(id);
+    if (lut) dev.loadLut(lut);
+  }
   const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata())) : (source.params ?? {});
   const params = JSON.stringify(recipe);
   if (!source.autoDefaults && hasPendingAutoTune(source.params)) {

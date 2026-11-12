@@ -2,8 +2,6 @@
  * Worker thread: develops RAW files with the WebAssembly pipeline and writes JPEG
  * previews. Runs off the main thread because decoding a 60MP file takes a while.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { parentPort } from 'node:worker_threads';
 import {
   defaultEditParams,
@@ -14,6 +12,8 @@ import {
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
 import { Developer, initPipeline, readMetadata } from '@rawtisserie/pipeline/node';
+import { readLut } from '../luts/files.ts';
+import { storage } from '../storage/index.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
 initPipeline();
@@ -21,7 +21,8 @@ initPipeline();
 parentPort!.on('message', async (job: RenderJob) => {
   let result: RenderResult;
   try {
-    const bytes = await readFile(job.sourcePath);
+    const bytes = await storage.read(job.sourceKey);
+    if (!bytes) throw new Error(`Original not found: ${job.sourceKey}`);
     const metadata = job.extractMetadata || job.autoDefaults ? JSON.parse(readMetadata(bytes)) : null;
     let defaultRecipe: EditParams | null = null;
     if (job.autoDefaults) {
@@ -31,7 +32,10 @@ parentPort!.on('message', async (job: RenderJob) => {
     const dev = new Developer(bytes);
     let resolvedRecipe: EditParams | null = null;
     try {
-      for (const file of job.luts) dev.loadLut(await readFile(file));
+      for (const id of job.luts) {
+        const lut = await readLut(id);
+        if (lut) dev.loadLut(lut);
+      }
       // Auto-tunes a preset or style asked for (roadmap 8.7): measured first, at the
       // preview's size, so the renders below reuse the cached base.
       if (!defaultRecipe && hasPendingAutoTune(job.params)) {
@@ -41,8 +45,7 @@ parentPort!.on('message', async (job: RenderJob) => {
       // Largest first, so the smaller renders can reuse the cached base image.
       for (const output of [...job.outputs].sort((a, b) => b.maxSize - a.maxSize)) {
         const jpeg = dev.renderJpeg(params, output.maxSize, output.maxSize, output.quality);
-        await mkdir(path.dirname(output.path), { recursive: true });
-        await writeFile(output.path, jpeg);
+        await storage.put(output.key, jpeg);
       }
     } finally {
       dev.free();

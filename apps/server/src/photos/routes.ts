@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -15,6 +14,7 @@ import type { RenderQueue } from '../render/queue.ts';
 import { renderSource } from '../render/source.ts';
 import { ZoomError, type ZoomRenderer } from '../render/zoom.ts';
 import { ZOOM_TILE } from '../render/zoomTypes.ts';
+import { storage } from '../storage/index.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
 import {
@@ -24,10 +24,9 @@ import {
   deleteOriginal,
   deleteRenders,
   discardUpload,
-  fileExists,
-  originalPath,
+  originalKey,
   receiveUpload,
-  renderPath,
+  renderKey,
   type RenderSize,
 } from './storage.ts';
 
@@ -463,13 +462,13 @@ export async function photoRoutes(
   app.get('/api/versions/:id/render/:size', async (request, reply) => {
     const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(request.params);
     const version = await findVersion(currentUser(request).id, id);
-    const file = renderPath(version.id, size);
-    if (!(await fileExists(file))) throw notFound('Not rendered yet');
+    const file = await storage.get(renderKey(version.id, size));
+    if (!file) throw notFound('Not rendered yet');
     const versioned = (request.query as Record<string, string>).v === String(version.render_version);
     return reply
       .header('content-type', 'image/jpeg')
       .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
-      .send(createReadStream(file));
+      .send(file);
   });
 
   // ── Zoomed-in views (culling loupe) ──────────────────────────────────────
@@ -579,12 +578,14 @@ export async function photoRoutes(
     const { id } = Id.parse(request.params);
     const photo = await photos(db).findOne({ id, owner_id: currentUser(request).id });
     if (!photo) throw notFound('Photo not found');
+    const file = await storage.get(originalKey(photo.storage_key));
+    if (!file) throw notFound('Original file not found');
     return reply
       .header('content-type', 'application/octet-stream')
       .header('content-length', photo.file_size)
       .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(photo.original_filename)}`)
       .header('cache-control', 'private, max-age=31536000, immutable')
-      .send(createReadStream(originalPath(photo.storage_key)));
+      .send(file);
   });
 }
 

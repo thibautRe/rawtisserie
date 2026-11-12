@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { LUT_ID, LUT_MAX_BYTES, LUT_NAME_MAX, type UserLut, isBuiltinLut } from '@rawtisserie/pipeline';
@@ -6,8 +5,7 @@ import { initPipeline, parseLut } from '@rawtisserie/pipeline/node';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import { badRequest, conflict, notFound } from '../errors.ts';
-import { fileExists } from '../photos/storage.ts';
-import { lutPath, storeLut } from './storage.ts';
+import { storeLut, streamLut } from './files.ts';
 
 const Id = z.object({ id: z.uuid() });
 const LutId = z.object({ lutId: z.string().regex(LUT_ID) });
@@ -140,11 +138,11 @@ export async function lutRoutes(app: FastifyInstance) {
         SELECT 1 FROM user_luts WHERE owner_id = ${request.user.id} AND lut_id = ${lutId} LIMIT 1`);
       if (!owned.length) throw notFound('LUT not found');
     }
-    const file = lutPath(lutId);
-    if (!(await fileExists(file))) throw notFound('LUT not found');
+    const file = await streamLut(lutId);
+    if (!file) throw notFound('LUT not found');
     return reply
       .header('content-type', 'application/octet-stream')
       .header('cache-control', `${builtin ? 'public' : 'private'}, max-age=31536000, immutable`)
-      .send(createReadStream(file));
+      .send(file);
   });
 }

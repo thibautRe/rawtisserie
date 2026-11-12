@@ -5,11 +5,12 @@ export const ZOOM_TILE = 512;
 
 /** What a zoom render reads: see `RenderSource`. */
 export interface ZoomSource {
-  sourcePath: string;
+  /** The original's key in the object store. */
+  sourceKey: string;
   params: EditParams | null;
   autoDefaults: boolean;
-  /** `[id, file]` of the LUTs the recipe may use. */
-  luts: [string, string][];
+  /** Ids of the LUTs the recipe may use. */
+  luts: string[];
 }
 
 /** Size of each zoom level: level `n` is the image fitted in its full size / 2ⁿ. */

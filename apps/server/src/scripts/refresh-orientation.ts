@@ -17,12 +17,12 @@
  *
  * Needs a fresh `npm run build:wasm`.
  */
-import { readFile } from 'node:fs/promises';
 import { initPipeline, readMetadata } from '@rawtisserie/pipeline/node';
 import { normalizeEditParams, type EditParams, type PhotoMetadata } from '@rawtisserie/pipeline';
 import type { Queryable } from '@databases/pg';
 import { db, sql } from '../db.ts';
-import { originalPath } from '../photos/storage.ts';
+import { originalKey } from '../photos/storage.ts';
+import { storage } from '../storage/index.ts';
 
 const dryRun = process.argv.includes('--dry-run');
 initPipeline();
@@ -89,7 +89,9 @@ let fixed = 0;
 for (const row of rows) {
   let read: PhotoMetadata;
   try {
-    read = JSON.parse(readMetadata(await readFile(originalPath(row.storage_key))));
+    const bytes = await storage.read(originalKey(row.storage_key));
+    if (!bytes) throw new Error(`original not found: ${row.storage_key}`);
+    read = JSON.parse(readMetadata(bytes));
   } catch (err) {
     console.warn(`${row.id} ${row.original_filename}: ${err instanceof Error ? err.message : err}`);
     continue;

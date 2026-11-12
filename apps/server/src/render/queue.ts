@@ -9,7 +9,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { AUTO_RECIPE_LABEL, type EditParams, type PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
-import { RENDER_SIZES, renderPath, type RenderSize } from '../photos/storage.ts';
+import { RENDER_SIZES, renderKey, type RenderSize } from '../photos/storage.ts';
 import { renderSource } from './source.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
@@ -103,13 +103,13 @@ export class RenderQueue {
     if (!job) return;
     const started = Date.now();
     const result = await this.run(entry, {
-      sourcePath: job.sourcePath,
+      sourceKey: job.sourceKey,
       params: job.params,
       autoDefaults: job.autoDefaults,
       extractMetadata: job.needsMetadata,
-      luts: [...job.luts.values()],
+      luts: job.luts,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
-        path: renderPath(versionId, size),
+        key: renderKey(versionId, size),
         maxSize,
         quality: size === 'thumb' ? 82 : 88,
       })),

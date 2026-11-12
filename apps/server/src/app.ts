@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -10,7 +11,6 @@ import { isolationReports } from './isolation.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
 import { presetRoutes } from './presets/routes.ts';
-import { fileExists } from './photos/storage.ts';
 import { RenderQueue } from './render/queue.ts';
 import { ZoomRenderer } from './render/zoom.ts';
 
@@ -57,7 +57,7 @@ export async function buildApp() {
   app.get('/api/health', async () => ({ ok: true }));
 
   // In production, serve the built web app (with client-side routing fallback).
-  if (await fileExists(config.webDistDir)) {
+  if (existsSync(config.webDistDir)) {
     await app.register(fastifyStatic, { root: config.webDistDir, wildcard: false });
     app.setNotFoundHandler((request, reply) => {
       if (request.method === 'GET' && !request.url.startsWith('/api/')) {

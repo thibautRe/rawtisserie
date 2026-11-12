@@ -2,12 +2,13 @@
 import { type EditParams, lutIds, normalizeEditParams } from '@rawtisserie/pipeline';
 import { db, sql } from '../db.ts';
 import { usableLuts } from '../luts/storage.ts';
-import { originalPath } from '../photos/storage.ts';
+import { originalKey } from '../photos/storage.ts';
 
 export interface RenderSource {
   photoId: string;
   ownerId: string;
-  sourcePath: string;
+  /** The original's key in the object store. */
+  sourceKey: string;
   /** The applied history entry's recipe; null for the original. */
   params: EditParams | null;
   /** The version has no history yet: render the recipe a new image starts with. */
@@ -16,8 +17,8 @@ export interface RenderSource {
   needsMetadata: boolean;
   /** Bumped on every history change. */
   revision: number;
-  /** Files of the LUTs the recipe uses that its owner may use, by id. */
-  luts: Map<string, string>;
+  /** The LUTs the recipe uses that its owner may use. */
+  luts: string[];
 }
 
 export async function renderSource(versionId: string): Promise<RenderSource | null> {
@@ -40,11 +41,11 @@ export async function renderSource(versionId: string): Promise<RenderSource | nu
   return {
     photoId: row.photo_id,
     ownerId: row.owner_id,
-    sourcePath: originalPath(row.storage_key),
+    sourceKey: originalKey(row.storage_key),
     params: row.recipe,
     autoDefaults: row.no_history,
     needsMetadata: row.needs_metadata,
     revision: row.revision,
-    luts: row.recipe ? await usableLuts(db, row.owner_id, lutIds(normalizeEditParams(row.recipe))) : new Map(),
+    luts: row.recipe ? await usableLuts(db, row.owner_id, lutIds(normalizeEditParams(row.recipe))) : [],
   };
 }

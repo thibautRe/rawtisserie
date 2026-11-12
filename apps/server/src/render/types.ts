@@ -2,14 +2,16 @@ import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
 
 export interface RenderJob {
   jobId: number;
-  sourcePath: string;
+  /** The original's key in the object store. */
+  sourceKey: string;
   params: EditParams | null;
   /** The version has no history: render the recipe a new image starts with (`defaultRecipe`). */
   autoDefaults: boolean;
   extractMetadata: boolean;
-  /** Files of the LUTs the recipe may use (built-in, or the owner's), packed. */
+  /** Ids of the LUTs the recipe may use (built-in, or the owner's). */
   luts: string[];
-  outputs: { path: string; maxSize: number; quality: number }[];
+  /** Renders to store, by object key. */
+  outputs: { key: string; maxSize: number; quality: number }[];
 }
 
 export type RenderResult =

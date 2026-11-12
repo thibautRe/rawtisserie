@@ -63,10 +63,10 @@ export class ZoomRenderer {
 
   private async run(body: ZoomJob, src: RenderSource, signal?: AbortSignal) {
     const source: ZoomSource = {
-      sourcePath: src.sourcePath,
+      sourceKey: src.sourceKey,
       params: src.params,
       autoDefaults: src.autoDefaults,
-      luts: [...src.luts],
+      luts: src.luts,
     };
     const res = await new Promise<ZoomResponse>((resolve) => {
       this.queue.push({ body, source, signal, resolve });
