@@ -171,6 +171,7 @@ written to `target/tmp/golden/`.
 built web app from port 4000. Set `COOKIE_SECURE=true` behind HTTPS, and
 `ALLOW_SIGNUP=false` once your accounts exist. Originals and renders are stored
 under `STORAGE_DIR`.
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has the deployment diagram and what CI checks.
 
 ### Filmic
 

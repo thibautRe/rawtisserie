@@ -43,6 +43,9 @@ See README.md for the architecture overview and commands.
   (`PointMask::Tones` in `PointMasksKey`) from samples of its input, and travel as two
   planes (`tone_curve::plane_ids`) that the point pass blends with the pixel.
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
+- `docs/DEPLOYMENT.md` has the deployment diagram and what CI (`.github/workflows/ci.yml`)
+  runs. Update it with any change to what runs in production, where it stores things, or
+  how it's built and checked.
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter
   properties (`erasableSyntaxOnly`).
