@@ -46,7 +46,7 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
           <Checkbox.Label flex="1" truncate title={value} textStyle="xs">
             {value}
           </Checkbox.Label>
-          <Text textStyle="xs" color="fg.muted">
+          <Text textStyle="xs" color="fg.muted" {...NUMERIC}>
             {count}
           </Text>
         </Checkbox.Root>
@@ -71,6 +71,7 @@ function RangeInputs({
       <Input
         size="xs"
         type="number"
+        {...NUMERIC}
         placeholder={placeholder[0] != null ? String(placeholder[0]) : 'min'}
         value={search.params.get(min) ?? ''}
         onChange={(e) => search.set(min, e.target.value)}
@@ -79,6 +80,7 @@ function RangeInputs({
       <Input
         size="xs"
         type="number"
+        {...NUMERIC}
         placeholder={placeholder[1] != null ? String(placeholder[1]) : 'max'}
         value={search.params.get(max) ?? ''}
         onChange={(e) => search.set(max, e.target.value)}
@@ -86,6 +88,9 @@ function RangeInputs({
     </HStack>
   );
 }
+
+/** Counts, dates and measurements: the numeric font. */
+const NUMERIC = { fontFamily: 'numeric', fontVariantNumeric: 'tabular-nums' } as const;
 
 export const LABEL_COLORS: Record<string, string> = {
   red: 'red.500',
@@ -173,7 +178,13 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
     <Stack as="aside" {...BLOCKS_PROPS} w="64" flexShrink={0} borderRightWidth="1px">
       <PanelBlock
         title="Filters"
-        badge={search.activeFilterCount > 0 && <Badge size="xs">{search.activeFilterCount}</Badge>}
+        badge={
+          search.activeFilterCount > 0 && (
+            <Badge size="xs" {...NUMERIC}>
+              {search.activeFilterCount}
+            </Badge>
+          )
+        }
         actions={
           search.activeFilterCount > 0 && (
             <Button size="2xs" variant="ghost" onClick={search.clear}>
@@ -245,6 +256,7 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
           <Input
             size="xs"
             type="date"
+            {...NUMERIC}
             value={p.get('from') ?? ''}
             onChange={(e) => search.set('from', e.target.value)}
           />
@@ -253,6 +265,7 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
           <Input
             size="xs"
             type="date"
+            {...NUMERIC}
             value={p.get('to')?.slice(0, 10) ?? ''}
             onChange={(e) => search.set('to', e.target.value && `${e.target.value}T23:59:59`)}
           />
@@ -265,7 +278,13 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
 
       <PanelBlock
         title="Technical"
-        badge={technicalFilters > 0 && <Badge size="xs">{technicalFilters}</Badge>}
+        badge={
+          technicalFilters > 0 && (
+            <Badge size="xs" {...NUMERIC}>
+              {technicalFilters}
+            </Badge>
+          )
+        }
         open={technicalOpen}
         onOpenChange={setTechnicalOpen}
       >
