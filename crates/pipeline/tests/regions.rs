@@ -142,6 +142,11 @@ fn full_resolution_regions_match() {
     check("100 %, equalizer", &p, RenderSize::FULL);
     p.add(Glow { threshold: 0.0, radius: 300.0, ..Glow::default() });
     check("100 %, glow", &p, RenderSize::FULL);
+    // Reaching further than the margin's cap: its regions are developed whole.
+    let mut wide = EditParams::default_for(dev.metadata());
+    wide.get_mut::<Geometry>().crop = rawtisserie_pipeline::params::Crop { x: 0.2, y: 0.2, width: 0.6, height: 0.5 };
+    wide.add(Glow { threshold: 0.0, radius: 1000.0, ..Glow::default() });
+    check("100 %, wide glow", &wide, RenderSize::FULL);
     check("100 %, diffuse", &p, RenderSize::FULL);
     // Many iterations at full size: the margin is much less than the reach
     // (`DiffuseOp::reach`). Ansel's "lens deblur: medium".

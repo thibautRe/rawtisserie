@@ -189,7 +189,8 @@ impl PointRenderer {
 
 const MAX_SLOTS: usize = 3;
 /// Most a region render develops around the region for the detail stages to read (in
-/// output pixels): wider blurs and equalizer bands are approximated at its edges.
+/// output pixels): wider blurs and equalizer bands are approximated at its edges. Not
+/// a glow's, which would show the regions' seams.
 const MAX_PADDING: usize = 1024;
 
 /// A patch extends this fraction of its size past what a region render needs.
@@ -599,7 +600,11 @@ impl Developer {
             let tones = params.modules.iter().filter(|m| m.enabled).filter_map(|m| Local::of(<params::ToneCurve as params::ModuleParams>::get(&m.module)?));
             let tones = tones.map(|l| l.reach((width, height)));
             let feather = drawn.iter().map(|(_, d)| d.margin(scale)).chain(whole).chain(tones).max().unwrap_or(0);
-            (detail + feather).next_multiple_of(32).min(MAX_PADDING)
+            let padding = (detail + feather).next_multiple_of(32);
+            // Light from past the margin would be missing from a glow, unevenly from one
+            // region to the next: a wide one gets all it reaches, up to the whole frame.
+            let wide_glow = steps.iter().any(|s| matches!(s.op, DetailOp::Glow { .. }) && s.margin((width, height)) > MAX_PADDING);
+            if wide_glow { padding } else { padding.min(MAX_PADDING) }
         } else {
             0
         };
