@@ -4,6 +4,9 @@ import { memo } from 'react';
 import type { Photo } from '../api/types.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
+/** The box behind a photo, highlighted with its other versions on hover. */
+export const GROUP_BOX_CLASS = 'photo-group-box';
+
 /** The grid's gap, in px. */
 export const GRID_GAP = 8;
 
@@ -14,10 +17,9 @@ interface Props {
   /** The photo's other versions are next to it on the same row: its box joins theirs. */
   joinLeft: boolean;
   joinRight: boolean;
-  /** One of the photo's versions is hovered: its versions' boxes are highlighted. */
-  hovered: boolean;
   onClick: (e: React.MouseEvent, photo: Photo) => void;
   onOpen: (photo: Photo) => void;
+  /** The pointer entered (a photo id) or left (null) one of the photo's versions. */
   onHover: (photoId: string | null) => void;
 }
 
@@ -27,7 +29,6 @@ export const PhotoCard = memo(function PhotoCard({
   focused,
   joinLeft,
   joinRight,
-  hovered,
   onClick,
   onOpen,
   onHover,
@@ -43,17 +44,19 @@ export const PhotoCard = memo(function PhotoCard({
       userSelect="none"
       onClick={(e) => onClick(e, photo)}
       onDoubleClick={() => onOpen(photo)}
+      data-group={photo.photoId}
       onPointerEnter={() => onHover(photo.photoId)}
       onPointerLeave={() => onHover(null)}
     >
-      {/* The box shared by the photo's versions, across the gap to the next one. */}
+      {/* The box shared by the photo's versions, across the gap to the next one. The grid
+          highlights a hovered photo's boxes with a style rule (`PhotoGrid`). */}
       <Box
+        className={GROUP_BOX_CLASS}
         position="absolute"
         inset="0"
         right={joinRight ? `-${GRID_GAP}px` : '0'}
-        bg={hovered ? 'bg.emphasized' : 'bg.muted'}
-        // Highlighted at once, back slowly.
-        transition={`background-color ${hovered ? '0s' : '0.2s'}`}
+        bg="bg.panel"
+        transition="background-color 0.2s"
         borderLeftRadius={joinLeft ? '0' : 'md'}
         borderRightRadius={joinRight ? '0' : 'md'}
       />

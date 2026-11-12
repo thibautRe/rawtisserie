@@ -1,7 +1,7 @@
 import { Box, Grid } from '@chakra-ui/react';
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Photo } from '../api/types.ts';
-import { GRID_GAP, PhotoCard } from './PhotoCard.tsx';
+import { GRID_GAP, GROUP_BOX_CLASS, PhotoCard } from './PhotoCard.tsx';
 
 /** The scroller's padding, in px. */
 const PADDING = 12;
@@ -91,8 +91,16 @@ export function PhotoGrid({
     else if (top + cell > el.scrollTop + el.clientHeight) el.scrollTop = top + cell + PADDING - el.clientHeight;
   }, [focusedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Versions next to each other on a row share a box, highlighted together.
-  const [hoveredPhoto, setHoveredPhoto] = useState<string | null>(null);
+  // Versions next to each other on a row share a box, highlighted together on hover: by
+  // a style rule for the hovered photo, at once (rendering the cards again is slower),
+  // and back with the box's own transition.
+  const hoverStyle = useRef<HTMLStyleElement>(null);
+  const onHover = useCallback((photoId: string | null) => {
+    if (!hoverStyle.current) return;
+    hoverStyle.current.textContent = photoId
+      ? `[data-group="${CSS.escape(photoId)}"] > .${GROUP_BOX_CLASS} { background-color: var(--chakra-colors-bg-emphasized); transition: none; }`
+      : '';
+  }, []);
   const shown: number[] = [];
   for (let i = first * columns; i < Math.min(items.length, (last + 1) * columns); i++) shown.push(i);
 
@@ -108,6 +116,7 @@ export function PhotoGrid({
         onScroll?.(top);
       }}
     >
+      <style ref={hoverStyle} />
       <Box position="relative" h={`${height}px`}>
         <Grid
           position="absolute"
@@ -127,10 +136,9 @@ export function PhotoGrid({
                 focused={photo.id === focusedId}
                 joinLeft={i % columns > 0 && items[i - 1]?.photoId === photo.photoId}
                 joinRight={(i + 1) % columns > 0 && items[i + 1]?.photoId === photo.photoId}
-                hovered={hoveredPhoto === photo.photoId}
                 onClick={onClick}
                 onOpen={onOpen}
-                onHover={setHoveredPhoto}
+                onHover={onHover}
               />
             );
           })}
@@ -142,5 +150,5 @@ export function PhotoGrid({
 
 /** A photo whose page isn't in yet. */
 const Placeholder = memo(function Placeholder() {
-  return <Box aspectRatio="1" bg="bg.muted" borderRadius="md" />;
+  return <Box aspectRatio="1" bg="bg.panel" borderRadius="md" />;
 });
