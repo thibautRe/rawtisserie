@@ -1,5 +1,5 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react';
-import { menuAnatomy, nativeSelectAnatomy } from '@chakra-ui/react/anatomy';
+import { collapsibleAnatomy, menuAnatomy, nativeSelectAnatomy } from '@chakra-ui/react/anatomy';
 
 const config = defineConfig({
   globalCss: {
@@ -34,7 +34,15 @@ const config = defineConfig({
         canvas: { value: { _light: '#777777', _dark: '#777777' } },
       },
     },
+    recipes: {
+      // Hover states show at once and fade out: transitions on the way in feel sluggish.
+      button: { base: { _hover: { transitionDuration: '0s' } } },
+    },
     slotRecipes: {
+      collapsible: {
+        slots: collapsibleAnatomy.keys(),
+        base: { content: { _open: { animationDuration: 'fast' } } },
+      },
       // A muted fill: the outline variant's border barely shows on the panels.
       nativeSelect: {
         slots: nativeSelectAnatomy.keys(),

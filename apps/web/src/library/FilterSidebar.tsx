@@ -260,7 +260,14 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
 
       <Collapsible.Root open={technicalOpen} onOpenChange={(e) => setTechnicalOpen(e.open)}>
         <Collapsible.Trigger asChild>
-          <Button variant="ghost" size="xs" w="full" justifyContent="space-between" px="0">
+          <Button
+            variant="ghost"
+            size="xs"
+            w="calc(100% + var(--chakra-spacing-4))"
+            mx="-2"
+            px="2"
+            justifyContent="space-between"
+          >
             <HStack>
               <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
                 Technical
