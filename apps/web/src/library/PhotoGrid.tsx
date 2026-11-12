@@ -1,122 +1,146 @@
-import { Box, Center, Grid, Spinner } from '@chakra-ui/react';
-import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Box, Grid } from '@chakra-ui/react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Photo } from '../api/types.ts';
 import { GRID_GAP, PhotoCard } from './PhotoCard.tsx';
 
-/** How many columns the grid's `auto-fill` gives, as laid out. */
-export function gridColumns(grid: HTMLElement | null): number {
-  if (!grid) return 1;
-  return Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length);
-}
+/** The scroller's padding, in px. */
+const PADDING = 12;
+/** Rows rendered above and below the visible ones. */
+const OVERSCAN_ROWS = 3;
+/** Pages asked for this many screens ahead of the scroll, either way. */
+const PREFETCH_SCREENS = 1.5;
 
 interface Props {
-  photos: Photo[];
+  /** One slot per photo in the library's list, undefined until its page is in. */
+  items: (Photo | undefined)[];
   selection: Set<string>;
   focusedId: string | null;
-  cellSize: number;
-  hasMore: boolean;
-  loadingMore: boolean;
-  onLoadMore: () => void;
-  /** Where to scroll to once there are enough photos (coming back to the library). */
+  /** The focused photo's position, kept in view. */
+  focusedIndex: number;
+  columns: number;
+  /** Positions on (or near) the screen: their pages are wanted. */
+  onRange: (start: number, end: number) => void;
+  /** Where to scroll to once the list's size is known (coming back to the library). */
   initialScrollTop?: number;
   onScroll?: (top: number) => void;
   onClick: (e: React.MouseEvent, photo: Photo) => void;
   onOpen: (photo: Photo) => void;
 }
 
-export const PhotoGrid = forwardRef<HTMLDivElement, Props>(function PhotoGrid(
-  {
-    photos,
-    selection,
-    focusedId,
-    cellSize,
-    hasMore,
-    loadingMore,
-    onLoadMore,
-    initialScrollTop = 0,
-    onScroll,
-    onClick,
-    onOpen,
-  },
-  ref,
-) {
-  const sentinel = useRef<HTMLDivElement>(null);
+/**
+ * The library's grid, `columns` square cells wide. Room is kept for every photo, and
+ * only the rows on screen are rendered (a grey box where a page isn't in yet), so
+ * scrolling anywhere is immediate.
+ */
+export function PhotoGrid({
+  items,
+  selection,
+  focusedId,
+  focusedIndex,
+  columns,
+  onRange,
+  initialScrollTop = 0,
+  onScroll,
+  onClick,
+  onOpen,
+}: Props) {
   const scroller = useRef<HTMLDivElement>(null);
-  const grid = useRef<HTMLDivElement>(null);
-  const setGrid = useCallback(
-    (el: HTMLDivElement | null) => {
-      grid.current = el;
-      if (typeof ref === 'function') ref(el);
-      else if (ref) ref.current = el;
-    },
-    [ref],
-  );
+  const [view, setView] = useState({ width: 0, height: 0, top: initialScrollTop });
 
-  // Versions next to each other on a row share a box: that needs the rows.
-  const [columns, setColumns] = useState(1);
   useLayoutEffect(() => {
-    const el = grid.current;
+    const el = scroller.current;
     if (!el) return;
-    const measure = () => setColumns(gridColumns(el));
+    const measure = () => setView((v) => ({ ...v, width: el.clientWidth, height: el.clientHeight }));
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [cellSize]);
-  const [hoveredPhoto, setHoveredPhoto] = useState<string | null>(null);
+  }, []);
 
-  // Restore the scroll position, as more pages load if it's further down than the
-  // first ones (scrolled to the end, the sentinel asks for the next page).
+  const cell = Math.max(1, (view.width - 2 * PADDING - (columns - 1) * GRID_GAP) / columns);
+  const rowHeight = cell + GRID_GAP;
+  const rows = Math.ceil(items.length / columns);
+  const height = rows ? rows * rowHeight - GRID_GAP : 0;
+
+  // Restore the scroll position once there's room for it.
   const pendingScroll = useRef(initialScrollTop > 0 ? initialScrollTop : null);
   useLayoutEffect(() => {
     const el = scroller.current;
     const target = pendingScroll.current;
-    if (!el || target === null || !photos.length) return;
+    if (!el || target === null || !view.width || height + 2 * PADDING < target + el.clientHeight) return;
     el.scrollTop = target;
-    if (el.scrollTop >= target - 1 || !hasMore) pendingScroll.current = null;
-  }, [photos, hasMore]);
+    pendingScroll.current = null;
+  }, [height, view.width]);
 
-  // Infinite scroll.
+  const first = Math.max(0, Math.floor((view.top - PADDING) / rowHeight) - OVERSCAN_ROWS);
+  const last = Math.min(rows - 1, Math.ceil((view.top + view.height) / rowHeight) + OVERSCAN_ROWS);
+
+  // Ask for the pages around what's visible.
   useEffect(() => {
-    const el = sentinel.current;
-    if (!el || !hasMore) return;
-    const io = new IntersectionObserver((entries) => entries[0]?.isIntersecting && onLoadMore(), {
-      rootMargin: '800px',
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [hasMore, onLoadMore]);
+    if (!view.width || !rows) return;
+    const ahead = Math.ceil((PREFETCH_SCREENS * view.height) / rowHeight);
+    onRange(Math.max(0, first - ahead) * columns, Math.min(rows, last + 1 + ahead) * columns - 1);
+  }, [first, last, rows, columns, rowHeight, view.width, view.height, onRange]);
 
   // Keep the keyboard focus visible.
   useEffect(() => {
-    if (!focusedId) return;
-    document.querySelector(`[data-photo-id="${focusedId}"]`)?.scrollIntoView({ block: 'nearest' });
-  }, [focusedId]);
+    const el = scroller.current;
+    if (!el || focusedIndex < 0 || !view.width) return;
+    const top = PADDING + Math.floor(focusedIndex / columns) * rowHeight;
+    if (top < el.scrollTop) el.scrollTop = top - PADDING;
+    else if (top + cell > el.scrollTop + el.clientHeight) el.scrollTop = top + cell + PADDING - el.clientHeight;
+  }, [focusedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Versions next to each other on a row share a box, highlighted together.
+  const [hoveredPhoto, setHoveredPhoto] = useState<string | null>(null);
+  const shown: number[] = [];
+  for (let i = first * columns; i < Math.min(items.length, (last + 1) * columns); i++) shown.push(i);
 
   return (
-    <Box ref={scroller} flex="1" overflowY="auto" p="3" onScroll={(e) => onScroll?.(e.currentTarget.scrollTop)}>
-      <Grid ref={setGrid} templateColumns={`repeat(auto-fill, minmax(${cellSize}px, 1fr))`} gap={`${GRID_GAP}px`}>
-        {photos.map((photo, i) => (
-          <PhotoCard
-            key={photo.id}
-            photo={photo}
-            selected={selection.has(photo.id)}
-            focused={photo.id === focusedId}
-            joinLeft={i % columns > 0 && photos[i - 1]?.photoId === photo.photoId}
-            joinRight={(i + 1) % columns > 0 && photos[i + 1]?.photoId === photo.photoId}
-            hovered={hoveredPhoto === photo.photoId}
-            onClick={onClick}
-            onOpen={onOpen}
-            onHover={setHoveredPhoto}
-          />
-        ))}
-      </Grid>
-      <div ref={sentinel} />
-      {loadingMore && (
-        <Center py="4">
-          <Spinner color="orange.solid" />
-        </Center>
-      )}
+    <Box
+      ref={scroller}
+      flex="1"
+      overflowY="auto"
+      p={`${PADDING}px`}
+      onScroll={(e) => {
+        const top = e.currentTarget.scrollTop;
+        setView((v) => (v.top === top ? v : { ...v, top }));
+        onScroll?.(top);
+      }}
+    >
+      <Box position="relative" h={`${height}px`}>
+        <Grid
+          position="absolute"
+          insetX="0"
+          top={`${first * rowHeight}px`}
+          templateColumns={`repeat(${columns}, minmax(0, 1fr))`}
+          gap={`${GRID_GAP}px`}
+        >
+          {shown.map((i) => {
+            const photo = items[i];
+            if (!photo) return <Placeholder key={`at-${i}`} />;
+            return (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                selected={selection.has(photo.id)}
+                focused={photo.id === focusedId}
+                joinLeft={i % columns > 0 && items[i - 1]?.photoId === photo.photoId}
+                joinRight={(i + 1) % columns > 0 && items[i + 1]?.photoId === photo.photoId}
+                hovered={hoveredPhoto === photo.photoId}
+                onClick={onClick}
+                onOpen={onOpen}
+                onHover={setHoveredPhoto}
+              />
+            );
+          })}
+        </Grid>
+      </Box>
     </Box>
   );
+}
+
+/** A photo whose page isn't in yet. */
+const Placeholder = memo(function Placeholder() {
+  return <Box aspectRatio="1" bg="bg.muted" borderRadius="md" />;
 });

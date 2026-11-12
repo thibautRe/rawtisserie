@@ -8,7 +8,6 @@ import {
   Input,
   InputGroup,
   NativeSelect,
-  Slider,
   Spinner,
   Stack,
   Text,
@@ -22,7 +21,7 @@ import {
   useBulkUpdate,
   useDeletePhotos,
   useDuplicateVersion,
-  usePhotos,
+  useLibraryPhotos,
   useUpload,
 } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
@@ -45,7 +44,8 @@ import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
-import { PhotoGrid, gridColumns } from './PhotoGrid.tsx';
+import { PhotoGrid } from './PhotoGrid.tsx';
+import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
@@ -64,9 +64,10 @@ const isTyping = (target: EventTarget | null) =>
 export function LibraryPage() {
   const search = useLibrarySearch();
   const navigate = useNavigate();
-  const query = usePhotos(search.search);
-  const photos = useMemo(() => query.data?.pages.flatMap((p) => p.versions) ?? [], [query.data]);
-  const total = query.data?.pages[0]?.total ?? 0;
+  const library = useLibraryPhotos(search.search);
+  const { items, total } = library;
+  /** The photos whose pages are in, in order. */
+  const photos = useMemo(() => items.filter((p) => p !== undefined), [items]);
 
   const location = useLocation();
   // Coming back with the filters it was left with (from the developer): restore the
@@ -96,12 +97,21 @@ export function LibraryPage() {
   useEffect(() => latestSave.current(), [search.search, selection, focusedId]);
   // The scroll position only matters when coming back: saved on the way out.
   useEffect(() => () => latestSave.current(), []);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const [cellSize, setCellSize] = useState(() => Number(localStorage.getItem('library.cellSize')) || 200);
+  const [columns, setColumns] = useColumns();
   const [pendingDelete, setPendingDelete] = useState<Photo[] | null>(null);
   /** The photo the culling loupe opened on, while it's open. */
   const [loupe, setLoupe] = useState<string | null>(null);
   const loupeStart = focusedId ?? [...selection][0] ?? null;
+  // The loupe goes through the photos in, around the one it opened on (up to a page not
+  // in yet, which it asks for as it gets there).
+  const loupeRun = useMemo(() => {
+    const at = loupe ? items.findIndex((p) => p?.id === loupe) : -1;
+    if (at < 0) return { photos, end: total };
+    let [start, end] = [at, at];
+    while (start > 0 && items[start - 1]) start--;
+    while (end < items.length && items[end]) end++;
+    return { photos: items.slice(start, end) as Photo[], end };
+  }, [loupe, items, photos, total]);
 
   const bulk = useBulkUpdate();
   const del = useDeletePhotos();
@@ -109,18 +119,20 @@ export function LibraryPage() {
   const upload = useUpload();
   const batchEdit = useBatchEdit();
 
-  useEffect(() => localStorage.setItem('library.cellSize', String(cellSize)), [cellSize]);
-
-  // Drop selected photos that are no longer listed (deleted / filtered out).
+  // Drop selected photos that are no longer listed (deleted / filtered out): those gone
+  // from the pages that are in. (One whose page isn't in yet may still be listed.)
+  const listedBefore = useRef(new Set<string>());
   useEffect(() => {
-    // Not before the first page: a restored selection would be dropped while it loads.
-    if (!query.data) return;
     const listed = new Set(photos.map((p) => p.id));
+    const gone = [...listedBefore.current].filter((id) => !listed.has(id));
+    listedBefore.current = listed;
+    if (!gone.length) return;
     setSelection((sel) => {
-      const kept = [...sel].filter((id) => listed.has(id));
+      const kept = [...sel].filter((id) => !gone.includes(id));
       return kept.length === sel.size ? sel : new Set(kept);
     });
-  }, [photos, query.data]);
+  }, [photos]);
+  const focusedIndex = useMemo(() => items.findIndex((p) => p?.id === focusedId), [items, focusedId]);
 
   const selectedPhotos = useMemo(() => photos.filter((p) => selection.has(p.id)), [photos, selection]);
 
@@ -239,11 +251,12 @@ export function LibraryPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (loupe || isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
-      const idx = photos.findIndex((p) => p.id === focusedId);
-      const columns = gridColumns(gridRef.current);
+      const idx = focusedIndex;
       const move = (delta: number) => {
-        const next = photos[Math.min(photos.length - 1, Math.max(0, idx < 0 ? 0 : idx + delta))];
-        if (!next) return;
+        const at = Math.min(items.length - 1, Math.max(0, idx < 0 ? 0 : idx + delta));
+        const next = items[at];
+        // Not in yet: the grid scrolls there, and the page is asked for.
+        if (!next) return library.want(at, at);
         if (e.shiftKey) {
           setSelection((sel) => new Set(sel).add(next.id));
           setFocusedId(next.id);
@@ -319,8 +332,11 @@ export function LibraryPage() {
     loupe,
     loupeStart,
     photos,
+    items,
+    focusedIndex,
+    library,
     focusedId,
-    cellSize,
+    columns,
     selection,
     selectedPhotos,
     applyToSelection,
@@ -414,28 +430,7 @@ export function LibraryPage() {
             </NativeSelect.Field>
             <NativeSelect.Indicator />
           </NativeSelect.Root>
-          <Text textStyle="sm" color="fg.muted" whiteSpace="nowrap">
-            {selection.size ? `${selection.size} of ` : ''}
-            {total} photo{total === 1 ? '' : 's'}
-          </Text>
           <Box flex="1" />
-          <Slider.Root
-            w="28"
-            size="sm"
-            min={100}
-            max={400}
-            step={20}
-            value={[cellSize]}
-            onValueChange={(e) => setCellSize(e.value[0]!)}
-            aria-label={['Thumbnail size']}
-          >
-            <Slider.Control>
-              <Slider.Track h="1px">
-                <Slider.Range />
-              </Slider.Track>
-              <Slider.Thumbs />
-            </Slider.Control>
-          </Slider.Root>
           <Button
             size="sm"
             variant="outline"
@@ -461,11 +456,11 @@ export function LibraryPage() {
           />
         </HStack>
 
-        {query.isPending ? (
+        {library.isPending ? (
           <Center flex="1">
             <Spinner color="orange.solid" />
           </Center>
-        ) : photos.length === 0 ? (
+        ) : total === 0 ? (
           <Center flex="1">
             <Stack align="center" gap="3" textAlign="center" maxW="md">
               <Heading size="lg">
@@ -485,20 +480,26 @@ export function LibraryPage() {
           </Center>
         ) : (
           <PhotoGrid
-            ref={gridRef}
-            photos={photos}
+            items={items}
             selection={selection}
             focusedId={focusedId}
-            cellSize={cellSize}
-            hasMore={!!query.hasNextPage}
-            loadingMore={query.isFetchingNextPage}
+            focusedIndex={focusedIndex}
+            columns={columns}
+            onRange={library.want}
             initialScrollTop={restored.scrollTop}
             onScroll={(top) => (scrollTop.current = top)}
-            onLoadMore={() => void query.fetchNextPage()}
             onClick={handleClick}
             onOpen={openDevelop}
           />
         )}
+        <LibraryStatusBar
+          selected={selection.size}
+          total={total}
+          developing={photos.filter((p) => p.renderStatus === 'pending').length}
+          loading={library.isFetching && !library.isPending}
+          columns={columns}
+          onColumnsChange={setColumns}
+        />
       </Flex>
 
       <InfoPanel
@@ -544,10 +545,10 @@ export function LibraryPage() {
 
       {loupe && (
         <Loupe
-          photos={photos}
+          photos={loupeRun.photos}
           startId={loupe}
-          hasMore={!!query.hasNextPage}
-          onLoadMore={() => !query.isFetchingNextPage && void query.fetchNextPage()}
+          hasMore={loupeRun.end < total}
+          onLoadMore={() => library.want(loupeRun.end, loupeRun.end)}
           onChange={(id, patch) => bulk.mutate({ ids: [id], patch })}
           onClose={(id) => {
             setLoupe(null);

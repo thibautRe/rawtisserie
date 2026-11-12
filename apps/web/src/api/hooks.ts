@@ -3,6 +3,7 @@ import {
   type QueryClient,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
@@ -14,7 +15,7 @@ import type {
   Preset,
   StylePayload,
 } from '@rawtisserie/pipeline';
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
 import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdit.ts';
 import type { ZoomInfo } from '../library/loupe.ts';
@@ -77,11 +78,83 @@ export function useLogout() {
 
 // ── Library ─────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 200;
+export const PAGE_SIZE = 200;
 
 interface PhotoPage {
   versions: Photo[];
   total: number;
+}
+
+/** Cached library lists: `usePhotos`' pages in a row, or one of `useLibraryPhotos`' pages. */
+type CachedPhotos = InfiniteData<PhotoPage> | PhotoPage;
+const mapPages = (data: CachedPhotos | undefined, f: (page: PhotoPage) => PhotoPage) =>
+  !data ? data : 'pages' in data ? { ...data, pages: data.pages.map(f) } : f(data);
+
+const fetchPage = (search: string, offset: number) => {
+  const params = new URLSearchParams(search);
+  params.set('limit', String(PAGE_SIZE));
+  params.set('offset', String(offset));
+  return api.get<PhotoPage>(`/api/versions?${params}`);
+};
+
+/**
+ * The library's photos at any position, for a grid that reserves room for all of them:
+ * `items` has one slot per photo, undefined until its page is in. `want` asks for the
+ * pages holding a range of positions (those on screen); the first one always is.
+ */
+export function useLibraryPhotos(search: string) {
+  const [wanted, setWanted] = useState({ search, pages: new Set([0]) });
+  const pages = wanted.search === search ? [...wanted.pages].sort((a, b) => a - b) : [0];
+  const results = useQueries({
+    queries: pages.map((page) => ({
+      queryKey: ['photos', search, 'page', page],
+      queryFn: () => fetchPage(search, page * PAGE_SIZE),
+      // Kept while developing, so going back to the library finds the pages it showed.
+      gcTime: 60 * 60_000,
+      // Keep polling while previews are being rendered.
+      refetchInterval: (query: { state: { data?: PhotoPage } }) =>
+        query.state.data?.versions.some((v) => v.renderStatus === 'pending') ? 2000 : false,
+    })),
+  });
+  const datas = results.map((r) => r.data);
+  const updated = results.map((r) => r.dataUpdatedAt);
+  const { items, total } = useMemo(() => {
+    // The latest page knows the latest total.
+    let latest = -1;
+    datas.forEach((d, i) => d && (latest < 0 || updated[i]! > updated[latest]!) && (latest = i));
+    const total = latest < 0 ? 0 : datas[latest]!.total;
+    const items: (Photo | undefined)[] = new Array(total).fill(undefined);
+    datas.forEach((d, i) =>
+      d?.versions.forEach((p, k) => {
+        const at = pages[i]! * PAGE_SIZE + k;
+        if (at < total) items[at] = p;
+      }),
+    );
+    return { items, total };
+    // Any change of a page's data changes its update time.
+  }, [pages.join(), updated.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const want = useCallback(
+    (start: number, end: number) =>
+      setWanted((w) => {
+        const base = w.search === search ? w.pages : new Set([0]);
+        const missing: number[] = [];
+        for (let p = Math.floor(Math.max(0, start) / PAGE_SIZE); p <= Math.floor(Math.max(0, end) / PAGE_SIZE); p++) {
+          if (!base.has(p)) missing.push(p);
+        }
+        if (!missing.length && w.search === search) return w;
+        return { search, pages: new Set([...base, ...missing]) };
+      }),
+    [search],
+  );
+  return {
+    items,
+    total,
+    want,
+    /** Before the first page is in. */
+    isPending: results[0]?.isPending ?? true,
+    isFetching: results.some((r) => r.isFetching),
+  };
 }
 
 /** `search` is the library's URL query string (same parameter names as the API). */
@@ -89,12 +162,7 @@ export function usePhotos(search: string) {
   return useInfiniteQuery({
     queryKey: ['photos', search],
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams(search);
-      params.set('limit', String(PAGE_SIZE));
-      params.set('offset', String(pageParam));
-      return api.get<PhotoPage>(`/api/versions?${params}`);
-    },
+    queryFn: ({ pageParam }) => fetchPage(search, pageParam),
     getNextPageParam: (last, pages) => {
       const loaded = pages.reduce((n, p) => n + p.versions.length, 0);
       return loaded < last.total ? loaded : undefined;
@@ -152,16 +220,8 @@ export function useZoomInfo(photo: Pick<Photo, 'id' | 'previewUrl'>, enabled: bo
 /** Apply a change to every cached copy of the given photos (optimistic UI for culling). */
 function updateCachedPhotos(qc: QueryClient, ids: string[], update: (p: Photo) => Photo) {
   const set = new Set(ids);
-  qc.setQueriesData<InfiniteData<PhotoPage>>({ queryKey: ['photos'] }, (data) =>
-    data
-      ? {
-          ...data,
-          pages: data.pages.map((page) => ({
-            ...page,
-            versions: page.versions.map((p) => (set.has(p.id) ? update(p) : p)),
-          })),
-        }
-      : data,
+  qc.setQueriesData<CachedPhotos>({ queryKey: ['photos'] }, (data) =>
+    mapPages(data, (page) => ({ ...page, versions: page.versions.map((p) => (set.has(p.id) ? update(p) : p)) })),
   );
   for (const id of ids) {
     qc.setQueryData<PhotoDetail>(['photo', id], (p) => (p ? { ...p, ...update(p) } : p));
@@ -218,16 +278,11 @@ export function useDeletePhotos() {
     mutationFn: (ids: string[]) => api.post<{ deleted: string[] }>('/api/versions/delete', { ids }),
     onSuccess: ({ deleted }) => {
       const gone = new Set(deleted);
-      qc.setQueriesData<InfiniteData<PhotoPage>>({ queryKey: ['photos'] }, (data) =>
-        data
-          ? {
-              ...data,
-              pages: data.pages.map((page) => ({
-                total: page.total - deleted.length,
-                versions: page.versions.filter((p) => !gone.has(p.id)),
-              })),
-            }
-          : data,
+      qc.setQueriesData<CachedPhotos>({ queryKey: ['photos'] }, (data) =>
+        mapPages(data, (page) => ({
+          total: page.total - deleted.length,
+          versions: page.versions.filter((p) => !gone.has(p.id)),
+        })),
       );
     },
     onSettled: () => refreshVersions(qc),
