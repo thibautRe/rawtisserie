@@ -6,14 +6,11 @@ import {
   Field,
   Grid,
   HStack,
-  Heading,
   IconButton,
   Image,
   Input,
   Menu,
   Portal,
-  RatingGroup,
-  Separator,
   Spinner,
   Stack,
   TagsInput,
@@ -31,6 +28,7 @@ import {
   Lock,
   LockOpen,
   Palette,
+  Star,
   Trash2,
   X,
 } from 'lucide-react';
@@ -54,20 +52,12 @@ import type { BatchEdit } from './batchEdit.ts';
 import { useEditPreview } from './useEditPreview.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { TAG_INPUT_ID, useTagCompletion } from './TagCompletion.tsx';
+import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 
-const PANEL_PROPS = {
-  as: 'aside',
-  w: '80',
-  flexShrink: 0,
-  borderLeftWidth: '1px',
-  bg: 'bg.panel',
-  overflowY: 'auto',
-  p: '4',
-  gap: '4',
-} as const;
+const PANEL_PROPS = { as: 'aside', w: '80', flexShrink: 0, borderLeftWidth: '1px' } as const;
 
-/** The single-photo preview's box, square so photos of either orientation look the same size: the panel's width inside its padding (CSS px). */
-const PREVIEW_SIZE = 288;
+/** The single-photo preview's box, square so photos of either orientation look the same size: the panel's width inside its block (CSS px). */
+const PREVIEW_SIZE = 295;
 
 interface Actions {
   onDelete: (versions: Photo[]) => void;
@@ -111,7 +101,7 @@ export function DuplicateMenu({
 export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Actions) {
   if (selected.length === 0) {
     return (
-      <Stack {...PANEL_PROPS} justify="center" align="center" color="fg.muted" textAlign="center">
+      <Stack {...PANEL_PROPS} bg="bg.panel" p="4" justify="center" align="center" color="fg.muted" textAlign="center">
         <Text>Select a photo to see and edit its metadata.</Text>
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
@@ -139,63 +129,66 @@ export function Culling({
   onChange: (patch: { rating?: number; flag?: Flag | null; colorLabel?: ColorLabel | null }) => void;
 }) {
   return (
-    <Stack gap="3">
-      <HStack justify="space-between">
-        <RatingGroup.Root
-          count={5}
-          value={rating ?? 0}
-          onValueChange={(e) => onChange({ rating: e.value })}
-          colorPalette="orange"
-          size="sm"
+    <HStack justify="space-between" gap="1">
+      <HStack gap="0" role="radiogroup" aria-label="Rating">
+        {[1, 2, 3, 4, 5].map((n) => {
+          const on = n <= (rating ?? 0);
+          return (
+            <IconButton
+              key={n}
+              size="2xs"
+              variant="ghost"
+              role="radio"
+              aria-checked={n === rating}
+              aria-label={`${n} star${n > 1 ? 's' : ''} (${n})`}
+              title={n === rating ? 'Clear the rating (0)' : `${n} star${n > 1 ? 's' : ''} (${n})`}
+              color={on ? 'orange.fg' : 'fg.subtle'}
+              onClick={() => onChange({ rating: n === rating ? 0 : n })}
+            >
+              <Star fill={on ? 'currentColor' : 'none'} />
+            </IconButton>
+          );
+        })}
+      </HStack>
+      <HStack gap="0.5">
+        <IconButton
+          size="2xs"
+          variant={flag === 'picked' ? 'solid' : 'ghost'}
+          colorPalette={flag === 'picked' ? 'green' : 'gray'}
+          aria-label="Pick (P)"
+          title="Pick (P)"
+          onClick={() => onChange({ flag: flag === 'picked' ? null : 'picked' })}
         >
-          <RatingGroup.HiddenInput />
-          <RatingGroup.Control />
-        </RatingGroup.Root>
-        <Button size="2xs" variant="ghost" disabled={rating === 0} onClick={() => onChange({ rating: 0 })}>
-          Clear
-        </Button>
+          <Check />
+        </IconButton>
+        <IconButton
+          size="2xs"
+          variant={flag === 'rejected' ? 'solid' : 'ghost'}
+          colorPalette={flag === 'rejected' ? 'red' : 'gray'}
+          aria-label="Reject (X)"
+          title="Reject (X)"
+          onClick={() => onChange({ flag: flag === 'rejected' ? null : 'rejected' })}
+        >
+          <X />
+        </IconButton>
       </HStack>
-      <HStack justify="space-between">
-        <HStack gap="1">
-          <IconButton
-            size="xs"
-            variant={flag === 'picked' ? 'solid' : 'ghost'}
-            colorPalette={flag === 'picked' ? 'green' : 'gray'}
-            aria-label="Pick (P)"
-            title="Pick (P)"
-            onClick={() => onChange({ flag: flag === 'picked' ? null : 'picked' })}
-          >
-            <Check />
-          </IconButton>
-          <IconButton
-            size="xs"
-            variant={flag === 'rejected' ? 'solid' : 'ghost'}
-            colorPalette={flag === 'rejected' ? 'red' : 'gray'}
-            aria-label="Reject (X)"
-            title="Reject (X)"
-            onClick={() => onChange({ flag: flag === 'rejected' ? null : 'rejected' })}
-          >
-            <X />
-          </IconButton>
-        </HStack>
-        <HStack gap="1.5">
-          {COLOR_LABELS.map((c) => (
-            <Circle
-              key={c}
-              as="button"
-              size="4"
-              bg={LABEL_COLORS[c]}
-              opacity={colorLabel === c ? 1 : 0.35}
-              outline={colorLabel === c ? '2px solid' : 'none'}
-              outlineColor="fg"
-              outlineOffset="1px"
-              aria-label={`${c} label`}
-              onClick={() => onChange({ colorLabel: colorLabel === c ? null : c })}
-            />
-          ))}
-        </HStack>
+      <HStack gap="1.5">
+        {COLOR_LABELS.map((c) => (
+          <Circle
+            key={c}
+            as="button"
+            size="3.5"
+            bg={LABEL_COLORS[c]}
+            opacity={colorLabel === c ? 1 : 0.35}
+            outline={colorLabel === c ? '2px solid' : 'none'}
+            outlineColor="fg"
+            outlineOffset="1px"
+            aria-label={`${c} label`}
+            onClick={() => onChange({ colorLabel: colorLabel === c ? null : c })}
+          />
+        ))}
       </HStack>
-    </Stack>
+    </HStack>
   );
 }
 
@@ -219,11 +212,10 @@ function MetaField({
   useEffect(() => setDraft(value), [value]);
   const commit = () => draft !== value && onCommit(draft);
   return (
-    <Field.Root>
-      <Field.Label textStyle="xs" color="fg.muted">
-        {label}
-      </Field.Label>
+    <Field.Root orientation="horizontal" gap="2">
+      <FieldLabel>{label}</FieldLabel>
       <Input
+        flex="1"
         size="xs"
         variant="subtle"
         type={type}
@@ -238,6 +230,15 @@ function MetaField({
         }}
       />
     </Field.Root>
+  );
+}
+
+/** A field's label, left of it. */
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Field.Label textStyle="xs" color="fg.muted" w="20" flexShrink={0} fontWeight="normal">
+      {children}
+    </Field.Label>
   );
 }
 
@@ -278,171 +279,162 @@ function SinglePanel({
   const [captureUnlocked, setCaptureUnlocked] = useState(false);
   useEffect(() => setCaptureUnlocked(false), [photo.id]);
   const locked = !captureUnlocked;
+  // Folded when there's nothing in it, per photo.
+  const described = !!(photo.title || photo.description || photo.versionName);
+  const [descriptionOpen, setDescriptionOpen] = useState(described);
+  useEffect(() => setDescriptionOpen(described), [photo.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <Stack {...PANEL_PROPS}>
-      <Box position="relative" w="full" aspectRatio="1" flexShrink={0} bg="bg.muted" borderRadius="sm">
-        {photo.previewUrl && (
-          <Image
-            src={photo.previewUrl}
-            alt=""
+    <Stack {...PANEL_PROPS} {...BLOCKS_PROPS}>
+      <PanelBlock>
+        <Box position="relative" w="full" aspectRatio="1" flexShrink={0} bg="bg.muted" borderRadius="sm">
+          {photo.previewUrl && (
+            <Image
+              src={photo.previewUrl}
+              alt=""
+              position="absolute"
+              inset="0"
+              w="full"
+              h="full"
+              objectFit="contain"
+              opacity={photo.renderStatus === 'pending' || preview.status === 'loading' ? 0.6 : 1}
+              transition="opacity 0.15s"
+            />
+          )}
+          {/* Previews of the highlighted preset or style, while the apply menu is open. */}
+          <Box
+            asChild
             position="absolute"
             inset="0"
             w="full"
             h="full"
             objectFit="contain"
-            opacity={photo.renderStatus === 'pending' || preview.status === 'loading' ? 0.6 : 1}
-            transition="opacity 0.15s"
-          />
-        )}
-        {/* Previews of the highlighted preset or style, while the apply menu is open. */}
-        <Box
-          asChild
-          position="absolute"
-          inset="0"
-          w="full"
-          h="full"
-          objectFit="contain"
-          bg="bg.muted"
-          borderRadius="sm"
-          visibility={preview.active ? 'visible' : 'hidden'}
-        >
-          <canvas ref={preview.canvasRef} />
+            bg="bg.muted"
+            borderRadius="sm"
+            visibility={preview.active ? 'visible' : 'hidden'}
+          >
+            <canvas ref={preview.canvasRef} />
+          </Box>
+          {(photo.renderStatus === 'pending' || preview.status === 'loading') && (
+            <Center position="absolute" inset="0" pointerEvents="none">
+              <Spinner color="orange.solid" />
+            </Center>
+          )}
         </Box>
-        {(photo.renderStatus === 'pending' || preview.status === 'loading') && (
-          <Center position="absolute" inset="0" pointerEvents="none">
-            <Spinner color="orange.solid" />
-          </Center>
-        )}
-      </Box>
-      <HStack align="start" gap="2">
-        <Box flex="1" minW="0">
-          <Text fontWeight="semibold" truncate title={photo.filename}>
-            {photo.filename}
-            {photo.versionCount > 1 && (
-              <Text as="span" fontWeight="normal" color="fg.muted">
-                {' · '}
-                {versionLabel({ name: photo.versionName, index: photo.versionIndex })}
-              </Text>
-            )}
-          </Text>
-          <Text textStyle="xs" color="fg.muted">
-            {[photo.width && photo.height && `${photo.width} × ${photo.height}`, formatBytes(photo.fileSize)]
-              .filter(Boolean)
-              .join(' · ')}
-          </Text>
-        </Box>
-        <Menu.Root
-          onSelect={({ value }) => {
-            if (value === 'develop') navigate(`/versions/${photo.id}/develop`);
-            else if (value === 'export') onExport();
-            else if (value === 'duplicate' || value === 'original') onDuplicate(value === 'original');
-            else if (value === 'delete') onDelete([photo]);
-          }}
-        >
-          <Menu.Trigger asChild>
-            <IconButton size="sm" variant="ghost" aria-label="Actions" title="Actions">
-              <Ellipsis />
-            </IconButton>
-          </Menu.Trigger>
-          <Portal>
-            <Menu.Positioner>
-              <Menu.Content minW="56">
-                <Menu.Item value="develop">
-                  <Aperture /> Develop <Menu.ItemCommand>D</Menu.ItemCommand>
-                </Menu.Item>
-                <Menu.Item value="export">
-                  <ImageDown /> Export… <Menu.ItemCommand>Ctrl+E</Menu.ItemCommand>
-                </Menu.Item>
-                <Menu.Item value="download" asChild>
-                  <a href={photo.originalUrl} download>
-                    <Download /> Download original
-                  </a>
-                </Menu.Item>
-                <Menu.Separator />
-                <ApplyMenu
-                  submenu
-                  onApply={onApplyEdit}
-                  onCopy={onCopy}
-                  onPreview={preview.onPreview}
-                  onOpenChange={preview.onOpenChange}
-                >
-                  <Palette /> Apply a preset or style
-                </ApplyMenu>
-                <Menu.Item value="duplicate">
-                  <Copy /> Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
-                </Menu.Item>
-                <Menu.Item value="original">
-                  <CopyPlus /> Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
-                </Menu.Item>
-                <Menu.Separator />
-                <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
-                  <Trash2 /> Delete <Menu.ItemCommand>Del</Menu.ItemCommand>
-                </Menu.Item>
-              </Menu.Content>
-            </Menu.Positioner>
-          </Portal>
-        </Menu.Root>
-      </HStack>
+        <HStack align="start" gap="2">
+          <Box flex="1" minW="0">
+            <Text textStyle="sm" fontWeight="semibold" truncate title={photo.filename}>
+              {photo.filename}
+              {photo.versionCount > 1 && (
+                <Text as="span" fontWeight="normal" color="fg.muted">
+                  {' · '}
+                  {versionLabel({ name: photo.versionName, index: photo.versionIndex })}
+                </Text>
+              )}
+            </Text>
+            <Text textStyle="xs" color="fg.muted">
+              {[photo.width && photo.height && `${photo.width} × ${photo.height}`, formatBytes(photo.fileSize)]
+                .filter(Boolean)
+                .join(' · ')}
+            </Text>
+          </Box>
+          <Menu.Root
+            onSelect={({ value }) => {
+              if (value === 'develop') navigate(`/versions/${photo.id}/develop`);
+              else if (value === 'export') onExport();
+              else if (value === 'duplicate' || value === 'original') onDuplicate(value === 'original');
+              else if (value === 'delete') onDelete([photo]);
+            }}
+          >
+            <Menu.Trigger asChild>
+              <IconButton size="xs" variant="ghost" aria-label="Actions" title="Actions">
+                <Ellipsis />
+              </IconButton>
+            </Menu.Trigger>
+            <Portal>
+              <Menu.Positioner>
+                <Menu.Content minW="56">
+                  <Menu.Item value="develop">
+                    <Aperture /> Develop <Menu.ItemCommand>D</Menu.ItemCommand>
+                  </Menu.Item>
+                  <Menu.Item value="export">
+                    <ImageDown /> Export… <Menu.ItemCommand>Ctrl+E</Menu.ItemCommand>
+                  </Menu.Item>
+                  <Menu.Item value="download" asChild>
+                    <a href={photo.originalUrl} download>
+                      <Download /> Download original
+                    </a>
+                  </Menu.Item>
+                  <Menu.Separator />
+                  <ApplyMenu
+                    submenu
+                    onApply={onApplyEdit}
+                    onCopy={onCopy}
+                    onPreview={preview.onPreview}
+                    onOpenChange={preview.onOpenChange}
+                  >
+                    <Palette /> Apply a preset or style
+                  </ApplyMenu>
+                  <Menu.Item value="duplicate">
+                    <Copy /> Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
+                  </Menu.Item>
+                  <Menu.Item value="original">
+                    <CopyPlus /> Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
+                  </Menu.Item>
+                  <Menu.Separator />
+                  <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
+                    <Trash2 /> Delete <Menu.ItemCommand>Del</Menu.ItemCommand>
+                  </Menu.Item>
+                </Menu.Content>
+              </Menu.Positioner>
+            </Portal>
+          </Menu.Root>
+        </HStack>
 
-      <Culling rating={photo.rating} flag={photo.flag} colorLabel={photo.colorLabel} onChange={save} />
+        <Culling rating={photo.rating} flag={photo.flag} colorLabel={photo.colorLabel} onChange={save} />
+      </PanelBlock>
 
-      <Separator />
-      <Heading size="xs">Description</Heading>
-      <MetaField label="Title" value={photo.title ?? ''} onCommit={(v) => save({ title: textOrNull(v) })} />
-      <Field.Root>
-        <Field.Label textStyle="xs" color="fg.muted">
-          Caption
-        </Field.Label>
-        <DescriptionInput value={photo.description ?? ''} onCommit={(v) => save({ description: textOrNull(v) })} />
-      </Field.Root>
-      <PhotoTags key={photo.id} tags={photo.tags} onChange={(tags) => save({ tags })} />
-      <MetaField
-        label="Version name"
-        value={photo.versionName ?? ''}
-        placeholder={`Version ${photo.versionIndex}`}
-        onCommit={(v) => save({ versionName: textOrNull(v) })}
-      />
+      <PanelBlock title="Tags">
+        <PhotoTags key={photo.id} tags={photo.tags} onChange={(tags) => save({ tags })} />
+      </PanelBlock>
 
-      <Separator />
-      <HStack justify="space-between">
-        <Heading size="xs">Capture</Heading>
-        <Button
-          size="2xs"
-          variant="ghost"
-          color="fg.muted"
-          onClick={() => setCaptureUnlocked((u) => !u)}
-          title={locked ? 'Edit to correct the details read from the file' : 'Lock'}
-        >
-          {locked ? <Lock /> : <LockOpen />} {locked ? 'Unlock' : 'Lock'}
-        </Button>
-      </HStack>
-      {locked ? (
-        <CaptureDetails photo={photo} />
-      ) : (
-        <>
-          <MetaField
-            label="Date taken"
-            type="datetime-local"
-            value={toDateTimeLocal(photo.capturedAt)}
-            onCommit={(v) => save({ capturedAt: v ? new Date(v).toISOString() : null })}
-          />
-          <Grid templateColumns="1fr 1fr" gap="2">
+      <PanelBlock
+        title="Capture"
+        actions={
+          <Button
+            size="2xs"
+            variant="ghost"
+            color="fg.muted"
+            onClick={() => setCaptureUnlocked((u) => !u)}
+            title={locked ? 'Edit to correct the details read from the file' : 'Lock'}
+          >
+            {locked ? <Lock /> : <LockOpen />} {locked ? 'Unlock' : 'Lock'}
+          </Button>
+        }
+      >
+        {locked ? (
+          <CaptureDetails photo={photo} />
+        ) : (
+          <>
             <MetaField
-              label="Camera make"
+              label="Date taken"
+              type="datetime-local"
+              value={toDateTimeLocal(photo.capturedAt)}
+              onCommit={(v) => save({ capturedAt: v ? new Date(v).toISOString() : null })}
+            />
+            <MetaField
+              label="Make"
               value={photo.cameraMake ?? ''}
               onCommit={(v) => save({ cameraMake: textOrNull(v) })}
             />
             <MetaField
-              label="Camera model"
+              label="Model"
               value={photo.cameraModel ?? ''}
               onCommit={(v) => save({ cameraModel: textOrNull(v) })}
             />
-          </Grid>
-          <MetaField label="Lens" value={photo.lens ?? ''} onCommit={(v) => save({ lens: textOrNull(v) })} />
-          <Grid templateColumns="1fr 1fr" gap="2">
+            <MetaField label="Lens" value={photo.lens ?? ''} onCommit={(v) => save({ lens: textOrNull(v) })} />
             <MetaField
-              label="Exposure time"
+              label="Exposure"
               value={formatExposureTime(photo.exposureTime) ?? ''}
               placeholder="1/250"
               onCommit={(v) => save({ exposureTime: parseExposure(v) })}
@@ -460,19 +452,17 @@ function SinglePanel({
               onCommit={(v) => save({ iso: numOrNull(v) })}
             />
             <MetaField
-              label="Focal length (mm)"
+              label="Focal (mm)"
               type="number"
               value={photo.focalLength?.toString() ?? ''}
               onCommit={(v) => save({ focalLength: numOrNull(v) })}
             />
             <MetaField
-              label="Exposure bias (EV)"
+              label="Bias (EV)"
               type="number"
               value={photo.exposureBias?.toString() ?? ''}
               onCommit={(v) => save({ exposureBias: numOrNull(v) })}
             />
-          </Grid>
-          <Grid templateColumns="1fr 1fr" gap="2">
             <MetaField
               label="Latitude"
               type="number"
@@ -485,17 +475,35 @@ function SinglePanel({
               value={photo.gpsLongitude?.toString() ?? ''}
               onCommit={(v) => save({ gpsLongitude: numOrNull(v) })}
             />
-          </Grid>
-        </>
-      )}
+          </>
+        )}
+      </PanelBlock>
 
-      <Separator />
-      <Heading size="xs">Rights</Heading>
-      <MetaField label="Artist" value={photo.artist ?? ''} onCommit={(v) => save({ artist: textOrNull(v) })} />
-      <MetaField label="Copyright" value={photo.copyright ?? ''} onCommit={(v) => save({ copyright: textOrNull(v) })} />
-      <Text textStyle="xs" color="fg.subtle">
-        Metadata edits are stored in your library; the original RAW file is never modified.
-      </Text>
+      <PanelBlock title="Description" open={descriptionOpen} onOpenChange={setDescriptionOpen}>
+        <MetaField label="Title" value={photo.title ?? ''} onCommit={(v) => save({ title: textOrNull(v) })} />
+        <Field.Root orientation="horizontal" gap="2" alignItems="start">
+          <FieldLabel>Caption</FieldLabel>
+          <DescriptionInput value={photo.description ?? ''} onCommit={(v) => save({ description: textOrNull(v) })} />
+        </Field.Root>
+        <MetaField
+          label="Version name"
+          value={photo.versionName ?? ''}
+          placeholder={`Version ${photo.versionIndex}`}
+          onCommit={(v) => save({ versionName: textOrNull(v) })}
+        />
+      </PanelBlock>
+
+      <PanelBlock title="Rights">
+        <MetaField label="Artist" value={photo.artist ?? ''} onCommit={(v) => save({ artist: textOrNull(v) })} />
+        <MetaField
+          label="Copyright"
+          value={photo.copyright ?? ''}
+          onCommit={(v) => save({ copyright: textOrNull(v) })}
+        />
+        <Text textStyle="2xs" color="fg.subtle">
+          Metadata edits are stored in your library; the original RAW file is never modified.
+        </Text>
+      </PanelBlock>
     </Stack>
   );
 }
@@ -526,7 +534,7 @@ function CaptureDetails({ photo }: { photo: Photo }) {
       </Text>
     );
   return (
-    <Grid templateColumns="auto 1fr" columnGap="3" rowGap="1" textStyle="xs">
+    <Grid templateColumns="var(--chakra-sizes-20) 1fr" columnGap="2" rowGap="1" textStyle="xs">
       {shown.map(([label, value]) => (
         <Fragment key={label}>
           <Text color="fg.muted">{label}</Text>
@@ -562,9 +570,7 @@ function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string
       addOnPaste
       delimiter=","
     >
-      <TagsInput.Label textStyle="xs" color="fg.muted">
-        Tags
-      </TagsInput.Label>
+      <TagsInput.Label srOnly>Tags</TagsInput.Label>
       <Box position="relative">
         <TagsInput.Control>
           <TagsInput.Items />
@@ -617,6 +623,7 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
     <Textarea
       size="xs"
       variant="subtle"
+      flex="1"
       rows={3}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
@@ -637,46 +644,53 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport }: { p
   const commonTags = photos[0]!.tags.filter((t) => photos.every((p) => p.tags.includes(t)));
 
   return (
-    <Stack {...PANEL_PROPS}>
-      <Heading size="sm">{photos.length} photos selected</Heading>
-      <Culling
-        rating={same((p) => p.rating) ?? null}
-        flag={same((p) => p.flag)}
-        colorLabel={same((p) => p.colorLabel)}
-        onChange={(patch) => bulk.mutate({ ids, patch })}
-      />
-      <Separator />
-      <Heading size="xs">Tags in common</Heading>
-      <HStack wrap="wrap" gap="1">
-        {commonTags.length === 0 && (
-          <Text textStyle="xs" color="fg.muted">
-            None
-          </Text>
-        )}
-        {commonTags.map((t) => (
-          <Button key={t} size="2xs" variant="subtle" onClick={() => bulk.mutate({ ids, patch: { removeTags: [t] } })}>
-            {t} <X />
+    <Stack {...PANEL_PROPS} {...BLOCKS_PROPS}>
+      <PanelBlock title={`${photos.length} photos selected`}>
+        <Culling
+          rating={same((p) => p.rating) ?? null}
+          flag={same((p) => p.flag)}
+          colorLabel={same((p) => p.colorLabel)}
+          onChange={(patch) => bulk.mutate({ ids, patch })}
+        />
+      </PanelBlock>
+      <PanelBlock title="Tags in common">
+        <HStack wrap="wrap" gap="1">
+          {commonTags.length === 0 && (
+            <Text textStyle="xs" color="fg.muted">
+              None
+            </Text>
+          )}
+          {commonTags.map((t) => (
+            <Button
+              key={t}
+              size="2xs"
+              variant="subtle"
+              onClick={() => bulk.mutate({ ids, patch: { removeTags: [t] } })}
+            >
+              {t} <X />
+            </Button>
+          ))}
+        </HStack>
+        <BulkTagInput exclude={commonTags} onAdd={(t) => bulk.mutate({ ids, patch: { addTags: [t] } })} />
+      </PanelBlock>
+      <PanelBlock title="Actions">
+        <ApplyMenu onApply={onApplyEdit}>
+          <Button size="xs" variant="outline">
+            <Palette /> Apply a preset or style to {photos.length}
           </Button>
-        ))}
-      </HStack>
-      <BulkTagInput exclude={commonTags} onAdd={(t) => bulk.mutate({ ids, patch: { addTags: [t] } })} />
-      <Separator />
-      <ApplyMenu onApply={onApplyEdit}>
-        <Button size="sm" variant="outline">
-          <Palette /> Apply a preset or style to {photos.length}
+        </ApplyMenu>
+        <Button size="xs" variant="outline" onClick={onExport} title="Export (Ctrl+E)">
+          <ImageDown /> Export {photos.length} photos
         </Button>
-      </ApplyMenu>
-      <Button size="sm" variant="outline" onClick={onExport} title="Export (Ctrl+E)">
-        <ImageDown /> Export {photos.length} photos
-      </Button>
-      <DuplicateMenu onDuplicate={onDuplicate}>
-        <Button size="sm" variant="outline">
-          <Copy /> Duplicate {photos.length}
+        <DuplicateMenu onDuplicate={onDuplicate}>
+          <Button size="xs" variant="outline">
+            <Copy /> Duplicate {photos.length}
+          </Button>
+        </DuplicateMenu>
+        <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(photos)}>
+          <Trash2 /> Delete {photos.length} photos
         </Button>
-      </DuplicateMenu>
-      <Button size="sm" variant="outline" colorPalette="red" onClick={() => onDelete(photos)}>
-        <Trash2 /> Delete {photos.length} photos
-      </Button>
+      </PanelBlock>
     </Stack>
   );
 }
