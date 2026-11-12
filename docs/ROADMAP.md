@@ -39,6 +39,9 @@ balance): Geologica instead (Asta Sans tried first: its ellipsis is centred, Kor
 style), and Inter out of `/ui`. Uppercase tabs, dimmer colour balance group headers.
 Then: a modified module's title is orange only when it's enabled; colour calibration's
 adaptation moved into its fold. 8.4 (export from the library) done.
+2026-11-12: library feedback (grid, info panel and filters in the developer's density,
+flags filtered in any combination, a status bar with photos per row, a virtualised
+grid). Added: 8.9 (focus areas).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1559,6 +1562,38 @@ and paste becomes one action.
   kind (today's "Apply" removes them all: `applyStyle`), the others stay; a style with
   two instances of a kind replaces the first two. A hidden power-user modifier
   (Shift+click, or Shift+Enter) appends everything.
+
+### 8.9 Focus areas (M–L)
+
+Show where a photo is in focus, to tell at a glance whether the focus landed where it
+should (the eye, not the ear), and reuse that knowledge where a view has to pick a part
+of the image.
+
+- **What it is:** a property of the capture, not of the recipe: computed once per photo
+  (on import, by the render worker that already has the RAW decoded) and stored with
+  the photo (`photos`), like the EXIF. Two sources:
+  - _Where the camera focused:_ the AF point or area from the maker notes, when there
+    is one (Sony's `FocusLocation`, Canon's AF info, Fujifilm's focus pixel…).
+  - _What is sharp:_ a sharpness map measured on the demosaiced base (local high-frequency
+    energy of the luminance, e.g. the contrast equalizer's finest bands, normalised by
+    local contrast so flat sharp areas don't read as blurry). Stored coarse (a grid of a
+    few dozen cells per side), plus the sharpest region's box.
+- **Culling (most important):** in the loupe, a toggle (key to pick) overlaying the
+  sharp areas (focus-peaking style: tinted edges or a heat map) and the AF point; zoom
+  to 100 % on the focus area rather than the centre or the pointer.
+- **Grid:** possibly a small indicator, and later filtering or sorting by sharpness
+  (find the missed shots of a burst; pairs with M5's two-up compare).
+- **Developer:** the same overlay among the status bar's view toggles.
+- **Reuse:**
+  - _Preset and style previews:_ spatial modules (diffuse or sharpen, contrast
+    equalizer, denoise, glow) barely change the fitted image. Their previews would show
+    a 100 % crop of the focus area instead, where the difference is visible and
+    matters.
+  - Default zoom target in the developer and the loupe.
+  - Later: a crop or framing hint, and a sharpness check before export.
+- **Open questions:** the sharpness measure (cheap, and robust to noise at high ISO and
+  to motion blur vs. defocus), whether the maker-notes AF point is worth it beyond Sony
+  first, and the overlay's look.
 
 ---
 
