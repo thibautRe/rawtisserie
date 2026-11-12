@@ -1,7 +1,13 @@
 import { Box, Center, Grid, Spinner } from '@chakra-ui/react';
-import { forwardRef, useEffect, useLayoutEffect, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Photo } from '../api/types.ts';
-import { PhotoCard } from './PhotoCard.tsx';
+import { GRID_GAP, PhotoCard } from './PhotoCard.tsx';
+
+/** How many columns the grid's `auto-fill` gives, as laid out. */
+export function gridColumns(grid: HTMLElement | null): number {
+  if (!grid) return 1;
+  return Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length);
+}
 
 interface Props {
   photos: Photo[];
@@ -36,6 +42,28 @@ export const PhotoGrid = forwardRef<HTMLDivElement, Props>(function PhotoGrid(
 ) {
   const sentinel = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const setGrid = useCallback(
+    (el: HTMLDivElement | null) => {
+      grid.current = el;
+      if (typeof ref === 'function') ref(el);
+      else if (ref) ref.current = el;
+    },
+    [ref],
+  );
+
+  // Versions next to each other on a row share a box: that needs the rows.
+  const [columns, setColumns] = useState(1);
+  useLayoutEffect(() => {
+    const el = grid.current;
+    if (!el) return;
+    const measure = () => setColumns(gridColumns(el));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [cellSize]);
+  const [hoveredPhoto, setHoveredPhoto] = useState<string | null>(null);
 
   // Restore the scroll position, as more pages load if it's further down than the
   // first ones (scrolled to the end, the sentinel asks for the next page).
@@ -67,15 +95,19 @@ export const PhotoGrid = forwardRef<HTMLDivElement, Props>(function PhotoGrid(
 
   return (
     <Box ref={scroller} flex="1" overflowY="auto" p="3" onScroll={(e) => onScroll?.(e.currentTarget.scrollTop)}>
-      <Grid ref={ref} templateColumns={`repeat(auto-fill, minmax(${cellSize}px, 1fr))`} gap="2">
-        {photos.map((photo) => (
+      <Grid ref={setGrid} templateColumns={`repeat(auto-fill, minmax(${cellSize}px, 1fr))`} gap={`${GRID_GAP}px`}>
+        {photos.map((photo, i) => (
           <PhotoCard
             key={photo.id}
             photo={photo}
             selected={selection.has(photo.id)}
             focused={photo.id === focusedId}
+            joinLeft={i % columns > 0 && photos[i - 1]?.photoId === photo.photoId}
+            joinRight={(i + 1) % columns > 0 && photos[i + 1]?.photoId === photo.photoId}
+            hovered={hoveredPhoto === photo.photoId}
             onClick={onClick}
             onOpen={onOpen}
+            onHover={setHoveredPhoto}
           />
         ))}
       </Grid>

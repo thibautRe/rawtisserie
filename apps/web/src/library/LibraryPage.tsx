@@ -45,7 +45,7 @@ import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
-import { PhotoGrid } from './PhotoGrid.tsx';
+import { PhotoGrid, gridColumns } from './PhotoGrid.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
@@ -240,7 +240,7 @@ export function LibraryPage() {
     const onKey = (e: KeyboardEvent) => {
       if (loupe || isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
       const idx = photos.findIndex((p) => p.id === focusedId);
-      const columns = Math.max(1, Math.floor((gridRef.current?.clientWidth ?? cellSize) / (cellSize + 8)));
+      const columns = gridColumns(gridRef.current);
       const move = (delta: number) => {
         const next = photos[Math.min(photos.length - 1, Math.max(0, idx < 0 ? 0 : idx + delta))];
         if (!next) return;
