@@ -85,12 +85,13 @@ failover is worth the cost.
                           │        ▼                                          │
                           │ db           Postgres 18, volume db-data          │
                           │   ▲                                               │
-                          │ backup       nightly pg_dump → BACKUP_DIR,        │
-                          │              dumps older than 30 days deleted     │
-                          └───────────────────────┬───────────────────────────┘
-                                                  │ S3 API (same region), after 7.1
-                          ┌───────────────────────▼───────────────────────────┐
-                          │ OVH Object Storage: originals, renders, LUTs      │
+                          │ backup       nightly pg_dump → BACKUP_DIR and the │
+                          │              bucket, 30 days kept in each ────────┼──┐
+                          └───────────────────────┬───────────────────────────┘  │
+                                                  │ S3, same region, after 7.1   │
+                          ┌───────────────────────▼───────────────────────────┐  │
+                          │ OVH Object Storage: originals, renders, LUTs      │  │
+                          │ (a separate bucket) database dumps ◀──────────────┼──┘
                           └───────────────────────────────────────────────────┘
 ```
 
@@ -116,12 +117,20 @@ change to `deploy/` itself needs a `git pull` first.
 has no request body limit: the server enforces its own (400 MB per upload). A proxy
 with a default limit (nginx: 1 MB) would break uploads.
 
-**Backups** (`deploy/backup.sh`, the `backup` service): once a day from `BACKUP_HOUR`
-(UTC), `pg_dump --format=custom` to `BACKUP_DIR/rawtisserie-YYYY-MM-DD.dump`, then dumps
-older than `BACKUP_KEEP_DAYS` (30) are deleted. A day missed while the machine was down
-is caught up when it starts. They only cover the database, and they sit on the same
-machine: copy them elsewhere too (to do: off the VPS, with the originals once they're
-in object storage). To restore one:
+**Backups** (`deploy/backup/`, the `backup` service: Postgres's image with rclone): once
+a day from `BACKUP_HOUR` (UTC), `pg_dump --format=custom` to
+`BACKUP_DIR/rawtisserie-YYYY-MM-DD.dump`, then dumps older than `BACKUP_KEEP_DAYS` (30)
+are deleted. A day missed while the machine was down is caught up when it starts. With
+`BACKUP_S3_BUCKET` set, each dump is also copied to that bucket, where dumps older than
+`BACKUP_KEEP_DAYS` are deleted too (only `rawtisserie-*.dump`: anything else in the
+bucket is left alone). A failed upload is retried every 10 minutes, and the service
+uploads on start, so a configuration mistake shows in `docker compose logs backup` at
+once. Use a bucket of its own and an S3 user limited to it. Those credentials sit on
+the VPS and can delete dumps: if that's a concern, turn on versioning or object lock on
+the bucket. The dumps are not encrypted by us. They cover the database only; the
+originals are another matter (7.1, 7.3).
+
+To restore one:
 
 ```sh
 docker compose stop app
@@ -146,7 +155,8 @@ request. Four jobs run in parallel:
 - **Container image:** builds the `Dockerfile` (not pushed anywhere yet), with Buildx's
   GitHub Actions cache.
 - **Deploy configuration:** `docker compose config` on `deploy/compose.yaml`,
-  `caddy validate` on the Caddyfile, `shellcheck` on the backup script.
+  `caddy validate` on the Caddyfile, `shellcheck` on the backup script and a build of
+  its image.
 
 Not in CI yet: the browser checks (`test:sliders`, `test:library`, `test:ui`,
 `test:perf`), which need Playwright's Chromium; `cargo fmt` and clippy.

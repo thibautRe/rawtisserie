@@ -91,5 +91,5 @@ jobs:
           docker run --rm -e DOMAIN=rawtisserie.example.com
           -v ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro docker.io/library/caddy:2-alpine
           caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Backup script
-        run: shellcheck deploy/backup.sh
+      - name: Backup image
+        run: shellcheck deploy/backup/backup.sh && docker build deploy/backup

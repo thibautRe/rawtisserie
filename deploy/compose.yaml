@@ -51,9 +51,9 @@ services:
       retries: 10
 
   backup:
-    image: docker.io/library/postgres:18-alpine
+    build: ./backup
+    image: rawtisserie-backup
     restart: unless-stopped
-    entrypoint: ['/bin/sh', '/backup.sh']
     environment:
       PGHOST: db
       PGUSER: rawtisserie
@@ -61,8 +61,15 @@ services:
       PGDATABASE: rawtisserie
       BACKUP_HOUR: ${BACKUP_HOUR:-3}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      RCLONE_CONFIG_OFFSITE_TYPE: s3
+      RCLONE_CONFIG_OFFSITE_PROVIDER: ${BACKUP_S3_PROVIDER:-OVHcloud}
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      RCLONE_CONFIG_OFFSITE_REGION: ${BACKUP_S3_REGION:-}
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      RCLONE_CONFIG_OFFSITE_NO_CHECK_BUCKET: 'true'
     volumes:
-      - ./backup.sh:/backup.sh:ro,z
       - ${BACKUP_DIR:-./backups}:/backups:z
     depends_on:
       db:
