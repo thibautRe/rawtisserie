@@ -60,3 +60,18 @@ jobs:
       - run: npm run typecheck
       - run: npm test --workspaces --if-present
       - run: npm run build --workspaces --if-present
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: rawtisserie:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
