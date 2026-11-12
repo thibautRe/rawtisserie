@@ -7,16 +7,26 @@
 import { type ZipSink, memorySink } from '../lib/zip.ts';
 
 const DIRECTORY = 'exports';
-/** Archives older than this are removed when the next export starts (their download is long done). */
-const KEEP_MS = 60 * 60 * 1000;
+/**
+ * Archives written longer ago than this are removed when the next export starts: their
+ * download has copied them by then (a part is at most `PART_SIZE`). Newer ones may still
+ * be copying (Retry right after an export ends).
+ */
+const KEEP_MS = 2 * 60 * 1000;
 
 async function directory(): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
   return root.getDirectoryHandle(DIRECTORY, { create: true });
 }
 
-/** Remove archives left by earlier exports. */
-async function cleanUp(dir: FileSystemDirectoryHandle) {
+/** Remove the archives earlier exports left (downloaded, or cancelled), when one starts. */
+export async function cleanUpArchives(): Promise<void> {
+  let dir: FileSystemDirectoryHandle;
+  try {
+    dir = await directory();
+  } catch {
+    return;
+  }
   const now = Date.now();
   // `entries()` isn't in every TypeScript DOM lib yet.
   const entries = (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries();
@@ -35,7 +45,6 @@ async function cleanUp(dir: FileSystemDirectoryHandle) {
 export async function archiveSink(): Promise<ZipSink> {
   try {
     const dir = await directory();
-    await cleanUp(dir).catch(() => {});
     const name = `${Date.now()}-${Math.random().toString(36).slice(2)}.zip`;
     const handle = await dir.getFileHandle(name, { create: true });
     if (typeof handle.createWritable !== 'function') throw new Error('No writable streams');

@@ -1,6 +1,7 @@
 /**
  * Export from the library (roadmap 8.4): one photo or a selection, rendered in the
- * browser one at a time, delivered as one ZIP (a single photo as its file). The run
+ * browser a few at a time (`lanes.ts`), delivered as a ZIP, in parts of up to 2 GiB for
+ * a large one (`archive.ts`; a single photo as its file). The run
  * lives outside any page, so going to the developer and back doesn't stop it; the
  * progress panel (`ExportProgress`) shows it.
  */
@@ -23,11 +24,12 @@ import { photoExportInfo, photoFilenameFields } from '../develop/exportInfo.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import { lutTable } from '../develop/luts.ts';
 import { saveBlob } from '../lib/download.ts';
-import { ZipWriter, memorySink } from '../lib/zip.ts';
+
 import { fetchRecipe } from '../library/batchEdit.ts';
 import { exportLanes, originalGroups } from './lanes.ts';
 import { archiveName, uniqueName } from './names.ts';
-import { archiveSink } from './spool.ts';
+import { PART_SIZE, PartedArchive } from './archive.ts';
+import { archiveSink, cleanUpArchives } from './spool.ts';
 
 export interface ExportRun {
   total: number;
@@ -43,6 +45,8 @@ export interface ExportRun {
   settings: ExportSettings;
   /** A retry of a previous export's failures. */
   retry: boolean;
+  /** ZIPs saved so far: a large export is saved in parts (`archive.ts`). */
+  parts: number;
 }
 
 let run: ExportRun | null = null;
@@ -111,6 +115,12 @@ async function download(url: string, signal: AbortSignal): Promise<ArrayBuffer> 
   }
 }
 
+/** A part's size: `PART_SIZE`, or smaller for tests (`localStorage['debug.exportPartSize']`, bytes). */
+function partSize(): number {
+  const debug = Number(localStorage.getItem('debug.exportPartSize'));
+  return debug > 0 ? debug : PART_SIZE;
+}
+
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
@@ -134,6 +144,7 @@ export function startExport(
     state: 'running',
     settings,
     retry: !!retry,
+    parts: 0,
   });
   void exportAll(photos, settings, abort.signal, retry?.names).finally(() => {
     if (controller === abort) controller = null;
@@ -175,8 +186,21 @@ async function exportAll(
       taken.add(name);
       return name;
     });
-  // Written to disk as files are added (`spool.ts`), unless one photo is exported alone.
-  const zip = new ZipWriter(single ? memorySink() : await archiveSink());
+  // Archives earlier exports left behind take room this one needs.
+  await cleanUpArchives();
+  // Written to disk as files are added (`spool.ts`), in parts, unless one photo is exported alone.
+  const started = new Date();
+  const what = given ? 'retry' : undefined;
+  let parts = 0;
+  const zip = new PartedArchive(
+    archiveSink,
+    (blob, part) => {
+      saveBlob(blob, archiveName(started, what, part || undefined));
+      parts++;
+      update({ ...run!, parts });
+    },
+    partSize(),
+  );
   let file = null as { blob: Blob; name: string } | null;
   const failed: ExportRun['failed'] = [];
   const current = new Set<number>();
@@ -282,15 +306,16 @@ async function exportAll(
     return;
   }
   if (file) saveBlob(file.blob, file.name);
-  else if (zip.count) saveBlob(await zip.finish(), archiveName(new Date(), given ? 'retry' : undefined));
-  else await zip.discard();
+  else await zip.finish();
   update({ ...run!, current: [], state: 'finished' });
   // Without failures there's nothing to report beyond a toast.
   if (!failed.length) {
     update(null);
     toaster.create({
       type: 'success',
-      title: single ? `Exported ${names[0]}` : `Exported ${exported} photos`,
+      title: single
+        ? `Exported ${names[0]}`
+        : `Exported ${exported} photos${parts > 1 ? ` in ${parts} ZIP files` : ''}`,
       duration: 4000,
     });
   }

@@ -338,3 +338,38 @@ test(
     await page.getByText('Exported beach-1.jpg').waitFor();
   },
 );
+
+test(
+  'a large export is saved in parts, each deleting the one before from storage',
+  { skip: !existsSync(RAW) },
+  async () => {
+    await open('/?q=beach');
+    await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 3);
+    originals = { p1: RAW, p3: RAW, p5: RAW };
+    // Parts of a byte: each photo starts a new one.
+    await page.evaluate(() => localStorage.setItem('debug.exportPartSize', '1'));
+    const downloads: import('playwright').Download[] = [];
+    page.on('download', (d) => downloads.push(d));
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Control+e');
+    await page.getByRole('button', { name: 'Export JPEG' }).click();
+    await page.getByText('Exported 3 photos in 3 ZIP files').waitFor({ timeout: 120_000 });
+    const { readFile } = await import('node:fs/promises');
+    const parts = await Promise.all(
+      downloads.map(async (d) => [
+        d.suggestedFilename().replace(/^.*-(part\d)\.zip$/, '$1'),
+        zipNames(await readFile(await d.path())),
+      ]),
+    );
+    assert.deepEqual(parts.map((p) => p[0]).sort(), ['part1', 'part2', 'part3']);
+    assert.deepEqual(parts.flatMap((p) => p[1]).sort(), ['beach-1.jpg', 'beach-3.jpg', 'beach-5.jpg']);
+    // Each part deleted the one before: only the last is left.
+    const left = await page.evaluate(async () => {
+      const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('exports');
+      let n = 0;
+      for await (const _ of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) n++;
+      return n;
+    });
+    assert.equal(left, 1);
+  },
+);

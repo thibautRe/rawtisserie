@@ -100,6 +100,11 @@ export class ZipWriter {
     return this.broken;
   }
 
+  /** Bytes written so far, before the directory. */
+  get size(): number {
+    return this.offset;
+  }
+
   get count(): number {
     return this.entries.length;
   }

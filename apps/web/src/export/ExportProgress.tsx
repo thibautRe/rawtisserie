@@ -51,6 +51,7 @@ export function ExportProgress() {
           </Progress.Root>
           <Text textStyle="xs" color="fg.muted" truncate title={run.current.join('\n')}>
             {run.current.join(', ')}
+            {run.parts ? ` · ${run.parts} ZIP ${run.parts === 1 ? 'file' : 'files'} saved` : ''}
             {run.failed.length ? ` · ${run.failed.length} failed` : ''}
           </Text>
         </Stack>
@@ -59,7 +60,7 @@ export function ExportProgress() {
           <HStack justify="space-between" align="start" gap="2">
             <Text textStyle="sm" fontWeight="medium">
               {run.exported
-                ? `Exported ${run.exported} of ${run.total} photos`
+                ? `Exported ${run.exported} of ${run.total} photos${run.parts > 1 ? ` in ${run.parts} ZIP files` : ''}`
                 : `Could not export ${run.total === 1 ? 'the photo' : 'the photos'}`}
             </Text>
             <HStack gap="1">

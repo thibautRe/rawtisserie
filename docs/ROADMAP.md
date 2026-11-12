@@ -1405,8 +1405,11 @@ with M5's compare (two-up culling of a burst).
 > stored ZIP (ZIP64 when needed), written to a file in the origin private file system
 > as each photo finishes (`export/spool.ts`; in memory where OPFS can't be written) and
 > downloaded from there, so exported files (24 MP: JPEG 12 MB, 16-bit TIFF 129 MB, PNG
-> 142 MB) don't pile up in memory. Archives are removed an hour later, when the next
-> export starts. If a write fails (disk full), the archive keeps what was written and
+> 142 MB) don't pile up in memory. Firefox gives a site ~10 GiB of storage, so a large
+> export is saved in parts of up to 2 GiB (`export/archive.ts`, `…-part1.zip`…), each
+> downloaded when full; saving a part deletes the one before, so at most two are
+> stored. Each export starts by removing what earlier ones left, except archives from
+> the last 2 minutes (a download may still be copying them). If a write fails (disk full), the archive keeps what was written and
 > the remaining photos fail, to be retried. `test:library` passes in Firefox too
 > (`BROWSER=firefox`).
 > The progress panel (bottom left, every page) shows n of N and the photos being
