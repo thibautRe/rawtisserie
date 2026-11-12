@@ -15,7 +15,7 @@ const config = defineConfig({
         body: { value: `'Geologica Variable', system-ui, sans-serif` },
         /** Small uppercase labels: module titles, filter and panel section labels. */
         label: { value: `'Geologica Variable', system-ui, sans-serif` },
-        /** Values that change as you edit: sliders' readouts, zoom, counts. Fixed-width figures. */
+        /** Numbers and measurements: sliders' readouts, zoom, counts, dimensions, exposure settings. Fixed-width figures. */
         numeric: { value: `'Lilex Variable', ui-monospace, monospace` },
       },
     },

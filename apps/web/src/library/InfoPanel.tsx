@@ -332,7 +332,7 @@ function SinglePanel({
                 </Text>
               )}
             </Text>
-            <Text textStyle="xs" color="fg.muted">
+            <Text textStyle="xs" color="fg.muted" fontFamily="numeric" fontVariantNumeric="tabular-nums">
               {[photo.width && photo.height && `${photo.width} × ${photo.height}`, formatBytes(photo.fileSize)]
                 .filter(Boolean)
                 .join(' · ')}
@@ -512,21 +512,27 @@ function SinglePanel({
 function CaptureDetails({ photo }: { photo: Photo }) {
   const camera = [photo.cameraMake, photo.cameraModel].filter(Boolean).join(' ');
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(' · ') || null;
-  const rows: [string, string | null][] = [
-    ['Taken', formatDateTime(photo.capturedAt)],
+  // Label, value, and whether it's a number (in the numeric font).
+  const rows: [string, string | null, boolean?][] = [
+    ['Taken', formatDateTime(photo.capturedAt), true],
     ['Camera', camera || null],
     ['Lens', photo.lens],
-    ['Exposure', join(formatExposureTime(photo.exposureTime), formatAperture(photo.fNumber), formatIso(photo.iso))],
-    ['Focal length', formatFocal(photo.focalLength)],
-    ['Bias', photo.exposureBias ? formatBias(photo.exposureBias) : null],
+    [
+      'Exposure',
+      join(formatExposureTime(photo.exposureTime), formatAperture(photo.fNumber), formatIso(photo.iso)),
+      true,
+    ],
+    ['Focal length', formatFocal(photo.focalLength), true],
+    ['Bias', photo.exposureBias ? formatBias(photo.exposureBias) : null, true],
     [
       'Location',
       photo.gpsLatitude != null && photo.gpsLongitude != null
         ? `${photo.gpsLatitude.toFixed(5)}, ${photo.gpsLongitude.toFixed(5)}`
         : null,
+      true,
     ],
   ];
-  const shown = rows.filter((row): row is [string, string] => !!row[1]);
+  const shown = rows.filter((row): row is [string, string, boolean?] => !!row[1]);
   if (!shown.length)
     return (
       <Text textStyle="xs" color="fg.muted">
@@ -535,10 +541,15 @@ function CaptureDetails({ photo }: { photo: Photo }) {
     );
   return (
     <Grid templateColumns="var(--chakra-sizes-20) 1fr" columnGap="2" rowGap="1" textStyle="xs">
-      {shown.map(([label, value]) => (
+      {shown.map(([label, value, numeric]) => (
         <Fragment key={label}>
           <Text color="fg.muted">{label}</Text>
-          <Text truncate title={value}>
+          <Text
+            truncate
+            title={value}
+            fontFamily={numeric ? 'numeric' : undefined}
+            fontVariantNumeric={numeric ? 'tabular-nums' : undefined}
+          >
             {value}
           </Text>
         </Fragment>

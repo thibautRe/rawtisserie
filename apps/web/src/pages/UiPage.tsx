@@ -27,7 +27,7 @@ import {
   Textarea,
 } from '@chakra-ui/react';
 import { Circle, Download, Hexagon, MoreHorizontal, Pencil, RotateCcw, Square, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { CompactTab, CompactTabs } from '../components/CompactTabs.tsx';
 import { Module, PageTabs } from '../develop/ModulePanel.tsx';
@@ -55,6 +55,59 @@ function useDocumentLook(mode: 'dark' | 'light') {
     };
   }, [mode]);
 }
+
+/** The font tokens (`theme.ts`): which family, what for, and how to apply. */
+const FONT_ROLES = [
+  {
+    token: 'heading',
+    family: 'Geologica',
+    sample: { text: 'Develop your photos', props: { fontFamily: 'heading', fontWeight: 'semibold', textStyle: 'md' } },
+    use: 'Page and dialog titles; the file name in the info panel.',
+    how: '<Heading> (default)',
+  },
+  {
+    token: 'body',
+    family: 'Geologica',
+    sample: { text: 'Beach at dusk', props: { fontFamily: 'body', textStyle: 'sm' } },
+    use: 'Everything else in words: field labels and values, menus, buttons, names (camera, lens, tags).',
+    how: 'default',
+  },
+  {
+    token: 'label',
+    family: 'Geologica, uppercase',
+    sample: {
+      text: 'Capture',
+      props: {
+        fontFamily: 'label',
+        textStyle: 'xs',
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        letterSpacing: 'wider',
+      },
+    },
+    use: 'Small uppercase titles: module and panel block titles, tabs within a module.',
+    how: 'fontFamily="label" textTransform="uppercase" letterSpacing="wider"',
+  },
+  {
+    token: 'numeric',
+    family: 'Lilex, tabular figures',
+    sample: {
+      text: '1/250 · ƒ/2.8 · 35 mm',
+      props: { fontFamily: 'numeric', textStyle: 'xs', fontVariantNumeric: 'tabular-nums' },
+    },
+    use: 'Numbers and measurements: slider readouts, zoom, counts, dimensions and file sizes, exposure settings, dates, coordinates.',
+    how: 'fontFamily="numeric" fontVariantNumeric="tabular-nums"',
+  },
+] as const;
+
+/** Where each text style fits. */
+const TEXT_STYLES = [
+  { style: 'lg', use: 'Empty states, dialog leads.' },
+  { style: 'md', use: 'Dialog body text.' },
+  { style: 'sm', use: 'Toolbars, buttons, the file name in a panel.' },
+  { style: 'xs', use: 'Panel content: field labels and values, lists, slider labels.' },
+  { style: '2xs', use: 'Hints, notes, sub-titles within a block.' },
+] as const;
 
 function Block({ title, guide, children }: { title: string; guide?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -184,8 +237,34 @@ export function UiPage() {
       <Container maxW="6xl" pb="16">
         <Block
           title="Typography"
-          guide='Four font roles: heading, body, label (small uppercase labels, module titles) and numeric (values that change as you edit: fontFamily="numeric" with tabular figures). Panels mostly use the 2xs–sm text styles.'
+          guide="Two families in four roles (tokens in theme.ts): Geologica for text, Lilex for numbers. Panels mostly use the 2xs–sm text styles."
         >
+          <Grid templateColumns="auto auto 1fr" columnGap="6" rowGap="3" alignItems="baseline">
+            {FONT_ROLES.map((f) => (
+              <Fragment key={f.token}>
+                <Stack gap="0">
+                  <Text textStyle="xs" fontFamily="mono">
+                    {f.token}
+                  </Text>
+                  <Text textStyle="2xs" color="fg.subtle">
+                    {f.family}
+                  </Text>
+                </Stack>
+                <Text {...f.sample.props} whiteSpace="nowrap">
+                  {f.sample.text}
+                </Text>
+                <Stack gap="0">
+                  <Text textStyle="xs" color="fg.muted">
+                    {f.use}
+                  </Text>
+                  <Text textStyle="2xs" color="fg.subtle" fontFamily="mono">
+                    {f.how}
+                  </Text>
+                </Stack>
+              </Fragment>
+            ))}
+          </Grid>
+          <Separator />
           <Stack gap="3">
             {(['4xl', '3xl', '2xl', 'xl', 'lg', 'md', 'sm', 'xs'] as const).map((size) => (
               <HStack key={size} gap="4" align="baseline">
@@ -198,24 +277,26 @@ export function UiPage() {
           </Stack>
           <Separator />
           <Stack gap="3">
-            {(['lg', 'md', 'sm', 'xs', '2xs'] as const).map((style) => (
+            {TEXT_STYLES.map(({ style, use }) => (
               <HStack key={style} gap="4" align="baseline">
                 <Text w="10" textStyle="2xs" color="fg.subtle" fontFamily="mono" flexShrink={0}>
                   {style}
                 </Text>
-                <Text textStyle={style}>{SAMPLE}</Text>
+                <Text textStyle={style} flex="1">
+                  {SAMPLE}
+                </Text>
+                <Text textStyle="2xs" color="fg.subtle" w="64" flexShrink={0}>
+                  {use}
+                </Text>
               </HStack>
             ))}
           </Stack>
           <Separator />
           <Grid templateColumns="repeat(auto-fill, minmax(16rem, 1fr))" gap="6">
-            <Example label="Section label (uppercase)">
+            <Example label="Block title (label, uppercase)">
               <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
                 Colour label
               </Heading>
-            </Example>
-            <Example label="Panel heading (sentence case)">
-              <Heading size="xs">Description</Heading>
             </Example>
             <Example label="Muted / subtle text">
               <Text textStyle="xs" color="fg.muted">
@@ -225,9 +306,12 @@ export function UiPage() {
                 Nothing yet
               </Text>
             </Example>
-            <Example label="Values (numeric: slider readouts, zoom, counts)">
+            <Example label="Values (numeric: readouts, counts, measurements)">
               <Text textStyle="xs" fontFamily="numeric" fontVariantNumeric="tabular-nums">
                 +0.70 EV · −12.0° · 4538 K · 100 % · 0.015 %
+              </Text>
+              <Text textStyle="xs" fontFamily="numeric" fontVariantNumeric="tabular-nums" color="fg.muted">
+                6000 × 4000 · 23.8 MB · 1/250 · ƒ/2.8 · ISO 400
               </Text>
             </Example>
             <Example label="Code">
