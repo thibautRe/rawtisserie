@@ -43,6 +43,9 @@ See README.md for the architecture overview and commands.
   (`PointMask::Tones` in `PointMasksKey`) from samples of its input, and travel as two
   planes (`tone_curve::plane_ids`) that the point pass blends with the pixel.
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
+- Files (originals, renders, uploaded LUTs) go through the object store
+  (`apps/server/src/storage/`: local disk or S3, by key), never `fs` directly, so both
+  work; worker threads use it too. Uploads in progress stay on local disk.
 - `docs/DEPLOYMENT.md` has the deployment diagram and what CI (`.github/workflows/ci.yml`)
   runs. Update it with any change to what runs in production, where it stores things, or
   how it's built and checked.

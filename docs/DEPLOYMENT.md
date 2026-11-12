@@ -32,18 +32,44 @@ terminates HTTPS. It ships as a [container image](#container-image), run on a VP
    │                  (wasm)                            │  auto-tune write-back
    │  zoom worker ─▶ 1 thread, last RAW kept decoded    │  loupe tiles at 100 %
    └─────────────┬──────────────────────┬───────────────┘
-                 │ DATABASE_URL         │ STORAGE_DIR
+                 │ DATABASE_URL         │ S3_BUCKET, or STORAGE_DIR
    ┌─────────────▼─────────┐  ┌─────────▼───────────────────────────┐
-   │ Postgres 18           │  │ local disk                          │
-   │ users, photos,        │  │ originals (by storage_key),         │
-   │ versions, history,    │  │ renders (by version id),            │
-   │ presets, LUT rows     │  │ LUT tables (.clut)                  │
+   │ Postgres 18           │  │ object store (apps/server/storage)  │
+   │ users, photos,        │  │ originals/<storage_key>             │
+   │ versions, history,    │  │ renders/<xx>/<version>-<size>.jpg   │
+   │ presets, LUT rows     │  │ luts/<xx>/<id>.clut                 │
    └───────────────────────┘  └─────────────────────────────────────┘
 ```
 
 Configuration is environment variables (`.env.example`): `DATABASE_URL`, `STORAGE_DIR`,
 `PORT`, `ALLOW_SIGNUP`, `COOKIE_SECURE` (true behind HTTPS), `RENDER_CONCURRENCY`,
-`MIGRATE_ON_START`.
+`MIGRATE_ON_START`, and the `S3_*` settings.
+
+## Storage
+
+Originals, renders and uploaded LUTs are objects by key (`apps/server/src/storage/`):
+files under `STORAGE_DIR` by default, or an S3-compatible bucket when `S3_BUCKET` is set
+(`S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and
+`S3_PATH_STYLE=true` for servers that need it). `STORAGE_DIR` then only holds uploads in
+progress: they're written there while being hashed, so a duplicate never reaches the
+bucket.
+
+- **Served through the server**, not by redirecting to presigned URLs: everything stays
+  on one origin, which cross-origin isolation (roadmap P.5) needs, and browsers cache
+  originals, renders and tiles anyway. Traffic between the server and OVH's object
+  storage in the same region is free.
+- **Workers read through it too:** the render and zoom workers fetch the original and
+  the uploaded LUTs from the store, and write renders to it.
+- **Moving a library** from disk to a bucket: the keys are the paths under
+  `STORAGE_DIR`, so copy them across with the server stopped, then start it with the
+  `S3_*` settings:
+
+  ```sh
+  rclone copy data/ remote:bucket --exclude 'tmp/**'
+  ```
+
+- **Tests:** `src/storage/storage.test.ts` runs both stores; the S3 one against a real
+  server when `TEST_S3_ENDPOINT` is set (CI uses `rclone serve s3`).
 
 ## Container image
 
@@ -73,22 +99,22 @@ above. Migrations run on start, and SIGTERM closes the server and the database p
 ## On a VPS: `deploy/`
 
 Decided 2026-11-12: one VPS at OVH runs everything below with Docker Compose
-(`deploy/compose.yaml`); originals and renders move to OVH Object Storage once 7.1
-(object storage backend) is done. Postgres moves to a managed instance later, when
-failover is worth the cost.
+(`deploy/compose.yaml`), with originals, renders and LUTs in OVH Object Storage (set
+`S3_BUCKET` in `deploy/.env`; without it they stay in the `app-data` volume). Postgres
+moves to a managed instance later, when failover is worth the cost.
 
 ```
    browser ──HTTPS──▶ VPS ┌───────────────────────────────────────────────────┐
                           │ caddy        :80 → :443, certificates, zstd/gzip  │
                           │   └▶ app     the server image (:4000, internal)   │
-                          │        │       volume app-data → /data            │
+                          │        │     volume app-data: uploads in progress │
                           │        ▼                                          │
                           │ db           Postgres 18, volume db-data          │
                           │   ▲                                               │
                           │ backup       nightly pg_dump → BACKUP_DIR and the │
                           │              bucket, 30 days kept in each ────────┼──┐
                           └───────────────────────┬───────────────────────────┘  │
-                                                  │ S3, same region, after 7.1   │
+                                                  │ S3, same region              │
                           ┌───────────────────────▼───────────────────────────┐  │
                           │ OVH Object Storage: originals, renders, LUTs      │  │
                           │ (a separate bucket) database dumps ◀──────────────┼──┘
@@ -96,8 +122,8 @@ failover is worth the cost.
 ```
 
 Everything is in the repo except `deploy/.env` (from `deploy/.env.example`): the
-domain, the Postgres password, the image tag, sign-up, render concurrency and the
-backup settings. Only Caddy's ports are published; the app and Postgres are reachable
+domain, the Postgres password, the image tag, sign-up, render concurrency, the
+storage bucket and the backup settings. Only Caddy's ports are published; the app and Postgres are reachable
 from the compose network only.
 
 **Setting up** (Docker with the compose plugin, the domain's DNS pointing at the

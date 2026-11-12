@@ -41,7 +41,9 @@ Then: a modified module's title is orange only when it's enabled; colour calibra
 adaptation moved into its fold. 8.4 (export from the library) done.
 2026-11-12: library feedback (grid, info panel and filters in the developer's density,
 flags filtered in any combination, a status bar with photos per row, a virtualised
-grid). Added: 8.9 (focus areas).
+grid). Added: 8.9 (focus areas). Deployment: CI, a container image, `deploy/` for a
+single VPS with nightly database backups to a bucket (part of 7.3), then 7.1 (object
+storage).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1184,6 +1186,17 @@ Target hosting is OVH (object storage and managed Postgres), but everything goes
 the S3 API so the provider stays a configuration choice.
 
 ### 7.1 Object storage backend (M)
+
+> **Done** 2026-11-12 (`apps/server/src/storage/`, see `docs/DEPLOYMENT.md`). As built:
+> an `ObjectStore` with a local-disk and an S3 implementation (`@aws-sdk/client-s3`,
+> checksums only where required, for S3-compatible servers), chosen by `S3_BUCKET`.
+> Keys are the old paths, so moving is `rclone copy`. Uploads still go to a local temp
+> file first (hashing, duplicates never stored). Render and zoom workers read and write
+> through the store; LUT files moved to `luts/files.ts` (no database import, for the
+> workers). **Deviation:** no redirects to presigned URLs: bytes go through the server,
+> so everything stays same-origin for cross-origin isolation (P.5). Tested by a
+> contract test on both stores (CI runs S3 against `rclone serve s3`) and by hand
+> end to end; not yet against OVH itself.
 
 `photos/storage.ts` writes to local disk (`STORAGE_DIR`). Put it behind an interface
 with two implementations: local disk (development and self-hosting) and S3-compatible

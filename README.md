@@ -169,8 +169,8 @@ written to `target/tmp/golden/`.
 
 `npm run build && npm run start -w @rawtisserie/server` serves both the API and the
 built web app from port 4000. Set `COOKIE_SECURE=true` behind HTTPS, and
-`ALLOW_SIGNUP=false` once your accounts exist. Originals and renders are stored
-under `STORAGE_DIR`.
+`ALLOW_SIGNUP=false` once your accounts exist. Originals, renders and LUTs are stored
+under `STORAGE_DIR`, or in an S3-compatible bucket when `S3_BUCKET` is set.
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) has the deployment diagram and what CI checks.
 
 ### Filmic
