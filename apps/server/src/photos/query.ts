@@ -8,6 +8,15 @@ const list = z.preprocess(
   z.array(z.string()).optional(),
 );
 const num = z.coerce.number().optional();
+const FLAGS = ['picked', 'rejected', 'unflagged'] as const;
+/** The flags to show (any combination; none: all). `notRejected`, from older links: picked or unflagged. */
+const flags = z.preprocess(
+  (v) =>
+    v === undefined || v === ''
+      ? undefined
+      : [v].flat().flatMap((f) => (f === 'notRejected' ? ['picked', 'unflagged'] : [f])),
+  z.array(z.enum(FLAGS)).optional(),
+);
 
 export const PhotoFilters = z.object({
   q: z.string().trim().optional(),
@@ -15,7 +24,7 @@ export const PhotoFilters = z.object({
   lens: list,
   tag: list,
   ratingMin: z.coerce.number().int().min(0).max(5).optional(),
-  flag: z.enum(['picked', 'rejected', 'unflagged', 'notRejected']).optional(),
+  flag: flags,
   colorLabel: list,
   isoMin: num,
   isoMax: num,
@@ -59,9 +68,10 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.tag?.length) c.push(sql`v.tags @> ${f.tag}`);
   if (f.colorLabel?.length) c.push(sql`v.color_label = ANY(${f.colorLabel})`);
   if (f.ratingMin) c.push(sql`v.rating >= ${f.ratingMin}`);
-  if (f.flag === 'picked' || f.flag === 'rejected') c.push(sql`v.flag = ${f.flag}`);
-  if (f.flag === 'unflagged') c.push(sql`v.flag IS NULL`);
-  if (f.flag === 'notRejected') c.push(sql`v.flag IS DISTINCT FROM 'rejected'`);
+  if (f.flag?.length && !FLAGS.every((flag) => f.flag!.includes(flag))) {
+    const set = f.flag.filter((flag) => flag !== 'unflagged');
+    c.push(f.flag.includes('unflagged') ? sql`(v.flag IS NULL OR v.flag = ANY(${set}))` : sql`v.flag = ANY(${set})`);
+  }
   if (f.isoMin !== undefined) c.push(sql`p.iso >= ${f.isoMin}`);
   if (f.isoMax !== undefined) c.push(sql`p.iso <= ${f.isoMax}`);
   if (f.focalMin !== undefined) c.push(sql`p.focal_length >= ${f.focalMin}`);

@@ -33,7 +33,7 @@ import { CompactTab, CompactTabs } from '../components/CompactTabs.tsx';
 import { Module, PageTabs } from '../develop/ModulePanel.tsx';
 import { ParamSlider, fmt } from '../develop/ParamSlider.tsx';
 import { tracks } from '../develop/slider.ts';
-import { Section as FilterSection } from '../library/FilterSidebar.tsx';
+import { PanelBlock } from '../library/PanelBlock.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
@@ -148,6 +148,7 @@ export function UiPage() {
   const [page, setPage] = useState<'scene' | 'look' | 'options'>('scene');
   const [enabled, setEnabled] = useState(true);
   const [range, setRange] = useState<'global' | 'shadows' | 'midtones' | 'highlights'>('shadows');
+  const [blockOpen, setBlockOpen] = useState(false);
   const [culling, setCulling] = useState<{ rating: number; flag: Flag | null; colorLabel: ColorLabel | null }>({
     rating: 3,
     flag: 'picked',
@@ -453,16 +454,28 @@ export function UiPage() {
 
         <Block
           title="Section headers"
-          guide="Three header styles today: the filters' uppercase labels (with a clear button), the modules' smaller uppercase titles (orange when modified, with switch and reset), and the info panel's sentence-case headings. To settle on one or two."
+          guide="One style: small uppercase titles on blocks a shade lighter than the panel. The developer's modules (orange when modified, with switch and reset) and the library's panel blocks (with actions, optionally foldable)."
         >
           <Grid templateColumns="repeat(auto-fill, minmax(18rem, 1fr))" gap="8">
-            <Example label="Filter section">
-              <Panel w="64">
-                <FilterSection title="Rating" onClear={() => {}}>
+            <Example label="Library panel blocks">
+              <Panel w="64" modules>
+                <PanelBlock
+                  title="Capture"
+                  actions={
+                    <Button size="2xs" variant="ghost" color="fg.muted">
+                      Unlock
+                    </Button>
+                  }
+                >
                   <Text textStyle="xs" color="fg.muted">
                     Content
                   </Text>
-                </FilterSection>
+                </PanelBlock>
+                <PanelBlock title="Description" open={blockOpen} onOpenChange={setBlockOpen}>
+                  <Text textStyle="xs" color="fg.muted">
+                    Folded content
+                  </Text>
+                </PanelBlock>
               </Panel>
             </Example>
             <Example label="Module">

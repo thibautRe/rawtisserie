@@ -2,49 +2,22 @@ import {
   Badge,
   Box,
   Button,
+  ButtonGroup,
   Checkbox,
   Circle,
-  Collapsible,
-  Flex,
   HStack,
-  Heading,
   IconButton,
   Input,
   SegmentGroup,
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { ChevronDown, Star, X } from 'lucide-react';
+import { Check, Star, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue } from '../api/types.ts';
+import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import type { LibrarySearch } from './useLibrarySearch.ts';
-
-export function Section({
-  title,
-  children,
-  onClear,
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClear?: () => void;
-}) {
-  return (
-    <Stack gap="2">
-      <HStack justify="space-between" minH="6">
-        <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
-          {title}
-        </Heading>
-        {onClear && (
-          <IconButton aria-label={`Clear ${title}`} size="2xs" variant="ghost" onClick={onClear}>
-            <X />
-          </IconButton>
-        )}
-      </HStack>
-      {children}
-    </Stack>
-  );
-}
 
 function FacetList({ name, values, search }: { name: string; values: FacetValue[]; search: LibrarySearch }) {
   const selected = search.params.getAll(name);
@@ -60,17 +33,17 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
       </Text>
     );
   return (
-    <Stack gap="1" maxH="48" overflowY="auto">
+    <Stack gap="1" maxH="40" overflowY="auto">
       {all.map(({ value, count }) => (
         <Checkbox.Root
           key={value}
-          size="sm"
+          size="xs"
           checked={selected.includes(value)}
           onCheckedChange={() => search.toggle(name, value)}
         >
           <Checkbox.HiddenInput />
           <Checkbox.Control />
-          <Checkbox.Label flex="1" truncate title={value}>
+          <Checkbox.Label flex="1" truncate title={value} textStyle="xs">
             {value}
           </Checkbox.Label>
           <Text textStyle="xs" color="fg.muted">
@@ -94,7 +67,7 @@ function RangeInputs({
   placeholder: [unknown, unknown];
 }) {
   return (
-    <HStack>
+    <HStack gap="1.5" flex="1">
       <Input
         size="xs"
         type="number"
@@ -126,6 +99,64 @@ export const LABEL_COLORS: Record<string, string> = {
 const TECHNICAL_FILTERS = ['camera', 'lens', 'isoMin', 'isoMax', 'focalMin', 'focalMax', 'apertureMin', 'apertureMax'];
 const TECHNICAL_OPEN_KEY = 'library.filters.technicalOpen';
 
+/** The flags shown: any combination, none set meaning all of them. */
+const FLAG_FILTERS = [
+  { value: 'picked', label: 'Picks', icon: <Check /> },
+  { value: 'unflagged', label: 'Unflagged', icon: null },
+  { value: 'rejected', label: 'Rejects', icon: <X /> },
+] as const;
+
+function FlagFilter({ search }: { search: LibrarySearch }) {
+  // Older links' "no rejects".
+  const shown = search.params.getAll('flag').flatMap((f) => (f === 'notRejected' ? ['picked', 'unflagged'] : [f]));
+  const toggle = (value: string) => {
+    const next = shown.includes(value) ? shown.filter((f) => f !== value) : [...shown, value];
+    search.setAll('flag', next.length === FLAG_FILTERS.length ? [] : next);
+  };
+  return (
+    <ButtonGroup size="xs" variant="outline" attached w="full">
+      {FLAG_FILTERS.map((f) => {
+        const on = shown.includes(f.value);
+        return (
+          <Button
+            key={f.value}
+            flex="1"
+            px="1"
+            variant={on ? 'subtle' : 'outline'}
+            colorPalette={on ? 'orange' : 'gray'}
+            aria-pressed={on}
+            title={on ? `Hide ${f.label.toLowerCase()}` : `Show ${f.label.toLowerCase()}`}
+            onClick={() => toggle(f.value)}
+          >
+            {f.icon} {f.label}
+          </Button>
+        );
+      })}
+    </ButtonGroup>
+  );
+}
+
+/** A label left of its control, as the developer's rows. */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <HStack gap="2">
+      <Text textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+        {label}
+      </Text>
+      {children}
+    </HStack>
+  );
+}
+
+/** A small title over a list within a block. */
+function SubTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <Text textStyle="2xs" fontWeight="medium" color="fg.muted" pt="1">
+      {children}
+    </Text>
+  );
+}
+
 export function FilterSidebar({ search }: { search: LibrarySearch }) {
   const { data: facets } = useFacets(search.search);
   const p = search.params;
@@ -139,172 +170,125 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
   const r = facets?.ranges;
 
   return (
-    <Stack as="aside" gap="5" p="4" w="64" flexShrink={0} borderRightWidth="1px" bg="bg.panel" overflowY="auto">
-      <HStack justify="space-between">
-        <Heading size="sm">Filters</Heading>
-        {search.activeFilterCount > 0 && (
-          <Button size="2xs" variant="ghost" onClick={search.clear}>
-            Clear all <Badge size="xs">{search.activeFilterCount}</Badge>
-          </Button>
-        )}
-      </HStack>
-
-      <Section title="Flag">
-        <SegmentGroup.Root
-          size="xs"
-          value={p.get('flag') ?? 'all'}
-          onValueChange={(e) => search.set('flag', e.value === 'all' ? null : e.value)}
-        >
-          <SegmentGroup.Indicator />
-          <SegmentGroup.Items
-            items={[
-              { value: 'all', label: 'All' },
-              { value: 'picked', label: 'Picks' },
-              { value: 'notRejected', label: 'No rejects' },
-              { value: 'rejected', label: 'Rejects' },
-            ]}
-          />
-        </SegmentGroup.Root>
-      </Section>
-
-      <Section title="Rating" onClear={ratingMin ? () => search.set('ratingMin', null) : undefined}>
-        <HStack gap="0.5">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <IconButton
-              key={n}
-              aria-label={`At least ${n} stars`}
-              size="xs"
-              variant="ghost"
-              color={n <= ratingMin ? 'orange.fg' : 'fg.subtle'}
-              onClick={() => search.set('ratingMin', n === ratingMin ? null : String(n))}
-            >
-              <Star fill={n <= ratingMin ? 'currentColor' : 'none'} />
-            </IconButton>
-          ))}
-          <Text textStyle="xs" color="fg.muted" ms="1">
-            {ratingMin ? 'and up' : 'any'}
-          </Text>
+    <Stack as="aside" {...BLOCKS_PROPS} w="64" flexShrink={0} borderRightWidth="1px">
+      <PanelBlock
+        title="Filters"
+        badge={search.activeFilterCount > 0 && <Badge size="xs">{search.activeFilterCount}</Badge>}
+        actions={
+          search.activeFilterCount > 0 && (
+            <Button size="2xs" variant="ghost" onClick={search.clear}>
+              Clear all
+            </Button>
+          )
+        }
+      >
+        <HStack justify="space-between">
+          <HStack gap="0">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <IconButton
+                key={n}
+                aria-label={`At least ${n} stars`}
+                title={n === ratingMin ? 'Any rating' : `${n} stars and up`}
+                size="2xs"
+                variant="ghost"
+                color={n <= ratingMin ? 'orange.fg' : 'fg.subtle'}
+                onClick={() => search.set('ratingMin', n === ratingMin ? null : String(n))}
+              >
+                <Star fill={n <= ratingMin ? 'currentColor' : 'none'} />
+              </IconButton>
+            ))}
+          </HStack>
+          <HStack gap="1.5">
+            {COLOR_LABELS.map((c) => {
+              const active = p.getAll('colorLabel').includes(c);
+              return (
+                <Circle
+                  key={c}
+                  as="button"
+                  size="4"
+                  bg={LABEL_COLORS[c]}
+                  opacity={active ? 1 : 0.35}
+                  outline={active ? '2px solid' : 'none'}
+                  outlineColor="fg"
+                  outlineOffset="1px"
+                  aria-label={`${c} label`}
+                  aria-pressed={active}
+                  onClick={() => search.toggle('colorLabel', c)}
+                />
+              );
+            })}
+          </HStack>
         </HStack>
-      </Section>
-
-      <Section title="Colour label">
-        <HStack>
-          {COLOR_LABELS.map((c) => {
-            const active = p.getAll('colorLabel').includes(c);
-            return (
-              <Circle
-                key={c}
-                as="button"
-                size="5"
-                bg={LABEL_COLORS[c]}
-                opacity={active ? 1 : 0.35}
-                outline={active ? '2px solid' : 'none'}
-                outlineColor="fg"
-                outlineOffset="1px"
-                aria-label={`${c} label`}
-                aria-pressed={active}
-                onClick={() => search.toggle('colorLabel', c)}
-              />
-            );
-          })}
-        </HStack>
-      </Section>
-
-      <Section title="Tags">
-        <FacetList name="tag" values={facets?.tags ?? []} search={search} />
-      </Section>
-
-      <Section title="Edited">
-        <SegmentGroup.Root
-          size="xs"
-          value={p.get('edited') ?? 'any'}
-          onValueChange={(e) => search.set('edited', e.value === 'any' ? null : e.value)}
-        >
-          <SegmentGroup.Indicator />
-          <SegmentGroup.Items
-            items={[
-              { value: 'any', label: 'Any' },
-              { value: 'true', label: 'Edited' },
-              { value: 'false', label: 'Unedited' },
-            ]}
-          />
-        </SegmentGroup.Root>
-      </Section>
-
-      <Section title="Date taken">
-        <Stack gap="1.5">
-          <Flex align="center" gap="2">
-            <Text textStyle="xs" w="8" color="fg.muted">
-              From
-            </Text>
-            <Input
-              size="xs"
-              type="date"
-              value={p.get('from') ?? ''}
-              onChange={(e) => search.set('from', e.target.value)}
-            />
-          </Flex>
-          <Flex align="center" gap="2">
-            <Text textStyle="xs" w="8" color="fg.muted">
-              To
-            </Text>
-            <Input
-              size="xs"
-              type="date"
-              value={p.get('to')?.slice(0, 10) ?? ''}
-              onChange={(e) => search.set('to', e.target.value && `${e.target.value}T23:59:59`)}
-            />
-          </Flex>
-        </Stack>
-      </Section>
-
-      <Collapsible.Root open={technicalOpen} onOpenChange={(e) => setTechnicalOpen(e.open)}>
-        <Collapsible.Trigger asChild>
-          <Button
-            variant="ghost"
+        <FlagFilter search={search} />
+        <Row label="Edited">
+          <SegmentGroup.Root
             size="xs"
-            w="calc(100% + var(--chakra-spacing-4))"
-            mx="-2"
-            px="2"
-            justifyContent="space-between"
+            flex="1"
+            value={p.get('edited') ?? 'any'}
+            onValueChange={(e) => search.set('edited', e.value === 'any' ? null : e.value)}
           >
-            <HStack>
-              <Heading size="xs" fontFamily="label" textTransform="uppercase" letterSpacing="wider" color="fg.muted">
-                Technical
-              </Heading>
-              {technicalFilters > 0 && <Badge size="xs">{technicalFilters}</Badge>}
-            </HStack>
-            <ChevronDown
-              style={{ transform: technicalOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s' }}
+            <SegmentGroup.Indicator />
+            <SegmentGroup.Items
+              flex="1"
+              items={[
+                { value: 'any', label: 'Any' },
+                { value: 'true', label: 'Yes' },
+                { value: 'false', label: 'No' },
+              ]}
             />
-          </Button>
-        </Collapsible.Trigger>
-        <Collapsible.Content>
-          <Stack gap="5" pt="3">
-            <Section title="Camera">
-              <FacetList name="camera" values={facets?.cameras ?? []} search={search} />
-            </Section>
-            <Section title="Lens">
-              <FacetList name="lens" values={facets?.lenses ?? []} search={search} />
-            </Section>
-            <Section title="ISO">
-              <RangeInputs search={search} min="isoMin" max="isoMax" placeholder={[r?.isoMin, r?.isoMax]} />
-            </Section>
-            <Section title="Focal length (mm)">
-              <RangeInputs search={search} min="focalMin" max="focalMax" placeholder={[r?.focalMin, r?.focalMax]} />
-            </Section>
-            <Section title="Aperture (ƒ)">
-              <RangeInputs
-                search={search}
-                min="apertureMin"
-                max="apertureMax"
-                placeholder={[r?.apertureMin, r?.apertureMax]}
-              />
-            </Section>
-          </Stack>
-        </Collapsible.Content>
-      </Collapsible.Root>
-      <Box h="4" />
+          </SegmentGroup.Root>
+        </Row>
+      </PanelBlock>
+
+      <PanelBlock title="Date taken">
+        <Row label="From">
+          <Input
+            size="xs"
+            type="date"
+            value={p.get('from') ?? ''}
+            onChange={(e) => search.set('from', e.target.value)}
+          />
+        </Row>
+        <Row label="To">
+          <Input
+            size="xs"
+            type="date"
+            value={p.get('to')?.slice(0, 10) ?? ''}
+            onChange={(e) => search.set('to', e.target.value && `${e.target.value}T23:59:59`)}
+          />
+        </Row>
+      </PanelBlock>
+
+      <PanelBlock title="Tags">
+        <FacetList name="tag" values={facets?.tags ?? []} search={search} />
+      </PanelBlock>
+
+      <PanelBlock
+        title="Technical"
+        badge={technicalFilters > 0 && <Badge size="xs">{technicalFilters}</Badge>}
+        open={technicalOpen}
+        onOpenChange={setTechnicalOpen}
+      >
+        <SubTitle>Camera</SubTitle>
+        <FacetList name="camera" values={facets?.cameras ?? []} search={search} />
+        <SubTitle>Lens</SubTitle>
+        <FacetList name="lens" values={facets?.lenses ?? []} search={search} />
+        <Box h="1" />
+        <Row label="ISO">
+          <RangeInputs search={search} min="isoMin" max="isoMax" placeholder={[r?.isoMin, r?.isoMax]} />
+        </Row>
+        <Row label="Focal (mm)">
+          <RangeInputs search={search} min="focalMin" max="focalMax" placeholder={[r?.focalMin, r?.focalMax]} />
+        </Row>
+        <Row label="Aperture">
+          <RangeInputs
+            search={search}
+            min="apertureMin"
+            max="apertureMax"
+            placeholder={[r?.apertureMin, r?.apertureMax]}
+          />
+        </Row>
+      </PanelBlock>
     </Stack>
   );
 }

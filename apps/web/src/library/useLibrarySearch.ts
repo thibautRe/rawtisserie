@@ -39,6 +39,21 @@ export function useLibrarySearch() {
     [setParams],
   );
 
+  /** Replaces all of `key`'s values (none: removed). */
+  const setAll = useCallback(
+    (key: string, values: string[]) =>
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete(key);
+          for (const v of values) next.append(key, v);
+          return next;
+        },
+        { replace: true },
+      ),
+    [setParams],
+  );
+
   const clear = useCallback(
     () =>
       setParams(
@@ -51,9 +66,12 @@ export function useLibrarySearch() {
     [setParams],
   );
 
-  const activeFilterCount = [...params.keys()].filter((k) => k !== 'sort').length;
+  // The flags shown count as one filter.
+  const activeFilterCount = [...params.keys()].filter(
+    (k, i, keys) => k !== 'sort' && (k !== 'flag' || keys.indexOf(k) === i),
+  ).length;
 
-  return { params, search: params.toString(), set, toggle, clear, activeFilterCount };
+  return { params, search: params.toString(), set, setAll, toggle, clear, activeFilterCount };
 }
 
 export type LibrarySearch = ReturnType<typeof useLibrarySearch>;
