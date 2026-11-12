@@ -327,7 +327,8 @@ test(
     // A server error is tried again.
     flaky = new Set(['p1']);
     await cards().first().click();
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('button', { name: 'Actions' }).click();
+    await page.getByRole('menuitem', { name: /^Export/ }).click();
     await page.getByRole('heading', { name: 'Export', exact: true }).waitFor();
     const download = page.waitForEvent('download', { timeout: 120_000 });
     await page.getByRole('button', { name: 'Export JPEG' }).click();

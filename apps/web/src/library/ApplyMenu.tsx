@@ -1,24 +1,25 @@
-import { Menu, Portal, Text } from '@chakra-ui/react';
+import { Box, Menu, Portal, Text } from '@chakra-ui/react';
 import { type ModuleKind, MODULE_KINDS, type ModulePreset, type Style } from '@rawtisserie/pipeline';
 import { useEffect, useState } from 'react';
 import { usePresetLibrary } from '../develop/presets.tsx';
 import { MODULE_TITLES } from '../develop/changes.ts';
 import { useShiftKey } from '../lib/useShiftKey.ts';
 import { pasteEdit, readClipboard, useClipboard } from '../develop/editClipboard.ts';
-import { ClipboardPaste, Copy } from 'lucide-react';
+import { ChevronRight, ClipboardPaste, Copy } from 'lucide-react';
 import { type BatchEdit, presetEdit, styleEdit } from './batchEdit.ts';
 
 /**
  * Apply a style or a module preset to the selected versions (roadmap 8.1). A style
  * applies each module as it was saved (replace or append), or with Shift appends them
  * all. With `onPreview`, the highlighted edit is previewed (null: none) while the menu is
- * open (`onOpenChange`).
+ * open (`onOpenChange`). With `submenu`, it opens from `children`, an item of another menu.
  */
 export function ApplyMenu({
   onApply,
   onPreview,
   onOpenChange,
   onCopy,
+  submenu = false,
   children,
 }: {
   onApply: (edit: BatchEdit) => void;
@@ -26,6 +27,7 @@ export function ApplyMenu({
   onCopy?: () => void;
   onPreview?: (edit: BatchEdit | null) => void;
   onOpenChange?: (open: boolean) => void;
+  submenu?: boolean;
   children: React.ReactNode;
 }) {
   const { styles, modulePresets } = usePresetLibrary();
@@ -84,6 +86,7 @@ export function ApplyMenu({
           }}
         >
           {MODULE_TITLES[kind]}
+          <SubmenuChevron />
         </Menu.TriggerItem>
         <Portal>
           <Menu.Positioner>
@@ -111,6 +114,7 @@ export function ApplyMenu({
     <Menu.Root
       lazyMount
       unmountOnExit
+      positioning={submenu ? { placement: 'left-start', gutter: 2 } : undefined}
       onOpenChange={({ open }) => {
         setOpen(open);
         if (!open) setHighlighted(null);
@@ -128,7 +132,14 @@ export function ApplyMenu({
         if (edit) onApply(edit);
       }}
     >
-      <Menu.Trigger asChild>{children}</Menu.Trigger>
+      {submenu ? (
+        <Menu.TriggerItem>
+          {children}
+          <SubmenuChevron />
+        </Menu.TriggerItem>
+      ) : (
+        <Menu.Trigger asChild>{children}</Menu.Trigger>
+      )}
       <Portal>
         <Menu.Positioner>
           <Menu.Content minW="52">
@@ -176,5 +187,14 @@ export function ApplyMenu({
         </Menu.Positioner>
       </Portal>
     </Menu.Root>
+  );
+}
+
+/** Marks an item opening a submenu (the usual right chevron, whichever side it opens on). */
+function SubmenuChevron() {
+  return (
+    <Box asChild ms="auto" color="fg.subtle">
+      <ChevronRight />
+    </Box>
   );
 }

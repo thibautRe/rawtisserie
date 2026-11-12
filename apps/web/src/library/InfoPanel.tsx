@@ -20,12 +20,35 @@ import {
   Text,
   Textarea,
 } from '@chakra-ui/react';
-import { Aperture, Check, Copy, Download, ImageDown, Palette, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  Aperture,
+  Check,
+  Copy,
+  CopyPlus,
+  Download,
+  Ellipsis,
+  ImageDown,
+  Lock,
+  LockOpen,
+  Palette,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useBulkUpdate, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
 import { COLOR_LABELS, type ColorLabel, type Flag, type Photo, type PhotoPatch } from '../api/types.ts';
-import { formatBytes, formatExposureTime, toDateTimeLocal, versionLabel } from '../lib/format.ts';
+import {
+  formatAperture,
+  formatBias,
+  formatBytes,
+  formatDateTime,
+  formatExposureTime,
+  formatFocal,
+  formatIso,
+  toDateTimeLocal,
+  versionLabel,
+} from '../lib/format.ts';
 import { ApplyMenu } from './ApplyMenu.tsx';
 import type { BatchEdit } from './batchEdit.ts';
 import { useEditPreview } from './useEditPreview.ts';
@@ -43,9 +66,8 @@ const PANEL_PROPS = {
   gap: '4',
 } as const;
 
-/** The single-photo preview's box: the panel's width inside its padding, and its maximum height (CSS px). */
-const PREVIEW_WIDTH = 288;
-const PREVIEW_HEIGHT = 224;
+/** The single-photo preview's box, square so photos of either orientation look the same size: the panel's width inside its padding (CSS px). */
+const PREVIEW_SIZE = 288;
 
 interface Actions {
   onDelete: (versions: Photo[]) => void;
@@ -203,6 +225,7 @@ function MetaField({
       </Field.Label>
       <Input
         size="xs"
+        variant="subtle"
         type={type}
         step={type === 'number' ? 'any' : type === 'datetime-local' ? 1 : undefined}
         value={draft}
@@ -247,113 +270,125 @@ function SinglePanel({
         previewUrl: listPhoto.previewUrl,
       }
     : listPhoto;
-  const preview = useEditPreview(detail, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+  const preview = useEditPreview(detail, PREVIEW_SIZE, PREVIEW_SIZE);
   const update = useUpdatePhoto();
   const navigate = useNavigate();
   const save = (patch: PhotoPatch) => update.mutate({ id: photo.id, patch });
+  // Capture details come from the file: locked against accidental edits, per photo.
+  const [captureUnlocked, setCaptureUnlocked] = useState(false);
+  useEffect(() => setCaptureUnlocked(false), [photo.id]);
+  const locked = !captureUnlocked;
 
   return (
     <Stack {...PANEL_PROPS}>
-      {(photo.previewUrl || photo.renderStatus === 'pending' || preview.active) && (
-        <Box position="relative" minH={photo.previewUrl ? undefined : '40'} bg="bg.muted" borderRadius="sm">
-          {photo.previewUrl && (
-            <Image
-              src={photo.previewUrl}
-              alt=""
-              borderRadius="sm"
-              maxH={`${PREVIEW_HEIGHT}px`}
-              w="full"
-              objectFit="contain"
-              opacity={photo.renderStatus === 'pending' || preview.status === 'loading' ? 0.6 : 1}
-              transition="opacity 0.15s"
-            />
-          )}
-          {/* Previews of the highlighted preset or style, while the apply menu is open. */}
-          <Box
-            asChild
+      <Box position="relative" w="full" aspectRatio="1" flexShrink={0} bg="bg.muted" borderRadius="sm">
+        {photo.previewUrl && (
+          <Image
+            src={photo.previewUrl}
+            alt=""
             position="absolute"
             inset="0"
             w="full"
             h="full"
             objectFit="contain"
-            bg="bg.muted"
-            borderRadius="sm"
-            visibility={preview.active ? 'visible' : 'hidden'}
-          >
-            <canvas ref={preview.canvasRef} />
-          </Box>
-          {(photo.renderStatus === 'pending' || preview.status === 'loading') && (
-            <Center position="absolute" inset="0" pointerEvents="none">
-              <Spinner color="orange.solid" />
-            </Center>
-          )}
+            opacity={photo.renderStatus === 'pending' || preview.status === 'loading' ? 0.6 : 1}
+            transition="opacity 0.15s"
+          />
+        )}
+        {/* Previews of the highlighted preset or style, while the apply menu is open. */}
+        <Box
+          asChild
+          position="absolute"
+          inset="0"
+          w="full"
+          h="full"
+          objectFit="contain"
+          bg="bg.muted"
+          borderRadius="sm"
+          visibility={preview.active ? 'visible' : 'hidden'}
+        >
+          <canvas ref={preview.canvasRef} />
         </Box>
-      )}
-      <Box>
-        <Text fontWeight="semibold" truncate title={photo.filename}>
-          {photo.filename}
-          {photo.versionCount > 1 && (
-            <Text as="span" fontWeight="normal" color="fg.muted">
-              {' · '}
-              {versionLabel({ name: photo.versionName, index: photo.versionIndex })}
-            </Text>
-          )}
-        </Text>
-        <Text textStyle="xs" color="fg.muted">
-          {[photo.width && photo.height && `${photo.width} × ${photo.height}`, formatBytes(photo.fileSize)]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
+        {(photo.renderStatus === 'pending' || preview.status === 'loading') && (
+          <Center position="absolute" inset="0" pointerEvents="none">
+            <Spinner color="orange.solid" />
+          </Center>
+        )}
       </Box>
-
-      <HStack>
-        <Button size="sm" colorPalette="orange" flex="1" onClick={() => navigate(`/versions/${photo.id}/develop`)}>
-          <Aperture /> Develop
-        </Button>
-        <IconButton size="sm" variant="outline" aria-label="Export" title="Export (Ctrl+E)" onClick={onExport}>
-          <ImageDown />
-        </IconButton>
-        <IconButton asChild size="sm" variant="outline" aria-label="Download original" title="Download original">
-          <a href={photo.originalUrl} download>
-            <Download />
-          </a>
-        </IconButton>
-        <ApplyMenu
-          onApply={onApplyEdit}
-          onCopy={onCopy}
-          onPreview={preview.onPreview}
-          onOpenChange={preview.onOpenChange}
+      <HStack align="start" gap="2">
+        <Box flex="1" minW="0">
+          <Text fontWeight="semibold" truncate title={photo.filename}>
+            {photo.filename}
+            {photo.versionCount > 1 && (
+              <Text as="span" fontWeight="normal" color="fg.muted">
+                {' · '}
+                {versionLabel({ name: photo.versionName, index: photo.versionIndex })}
+              </Text>
+            )}
+          </Text>
+          <Text textStyle="xs" color="fg.muted">
+            {[photo.width && photo.height && `${photo.width} × ${photo.height}`, formatBytes(photo.fileSize)]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </Box>
+        <Menu.Root
+          onSelect={({ value }) => {
+            if (value === 'develop') navigate(`/versions/${photo.id}/develop`);
+            else if (value === 'export') onExport();
+            else if (value === 'duplicate' || value === 'original') onDuplicate(value === 'original');
+            else if (value === 'delete') onDelete([photo]);
+          }}
         >
-          <IconButton size="sm" variant="outline" aria-label="Apply a preset or style" title="Apply a preset or style">
-            <Palette />
-          </IconButton>
-        </ApplyMenu>
-        <DuplicateMenu onDuplicate={onDuplicate}>
-          <IconButton size="sm" variant="outline" aria-label="Duplicate">
-            <Copy />
-          </IconButton>
-        </DuplicateMenu>
-        <IconButton
-          size="sm"
-          variant="outline"
-          colorPalette="red"
-          aria-label="Delete"
-          onClick={() => onDelete([photo])}
-        >
-          <Trash2 />
-        </IconButton>
+          <Menu.Trigger asChild>
+            <IconButton size="sm" variant="ghost" aria-label="Actions" title="Actions">
+              <Ellipsis />
+            </IconButton>
+          </Menu.Trigger>
+          <Portal>
+            <Menu.Positioner>
+              <Menu.Content minW="56">
+                <Menu.Item value="develop">
+                  <Aperture /> Develop <Menu.ItemCommand>D</Menu.ItemCommand>
+                </Menu.Item>
+                <Menu.Item value="export">
+                  <ImageDown /> Export… <Menu.ItemCommand>Ctrl+E</Menu.ItemCommand>
+                </Menu.Item>
+                <Menu.Item value="download" asChild>
+                  <a href={photo.originalUrl} download>
+                    <Download /> Download original
+                  </a>
+                </Menu.Item>
+                <Menu.Separator />
+                <ApplyMenu
+                  submenu
+                  onApply={onApplyEdit}
+                  onCopy={onCopy}
+                  onPreview={preview.onPreview}
+                  onOpenChange={preview.onOpenChange}
+                >
+                  <Palette /> Apply a preset or style
+                </ApplyMenu>
+                <Menu.Item value="duplicate">
+                  <Copy /> Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
+                </Menu.Item>
+                <Menu.Item value="original">
+                  <CopyPlus /> Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
+                </Menu.Item>
+                <Menu.Separator />
+                <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
+                  <Trash2 /> Delete <Menu.ItemCommand>Del</Menu.ItemCommand>
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Positioner>
+          </Portal>
+        </Menu.Root>
       </HStack>
 
       <Culling rating={photo.rating} flag={photo.flag} colorLabel={photo.colorLabel} onChange={save} />
 
       <Separator />
       <Heading size="xs">Description</Heading>
-      <MetaField
-        label="Version name"
-        value={photo.versionName ?? ''}
-        placeholder={`Version ${photo.versionIndex}`}
-        onCommit={(v) => save({ versionName: textOrNull(v) })}
-      />
       <MetaField label="Title" value={photo.title ?? ''} onCommit={(v) => save({ title: textOrNull(v) })} />
       <Field.Root>
         <Field.Label textStyle="xs" color="fg.muted">
@@ -362,74 +397,97 @@ function SinglePanel({
         <DescriptionInput value={photo.description ?? ''} onCommit={(v) => save({ description: textOrNull(v) })} />
       </Field.Root>
       <PhotoTags key={photo.id} tags={photo.tags} onChange={(tags) => save({ tags })} />
+      <MetaField
+        label="Version name"
+        value={photo.versionName ?? ''}
+        placeholder={`Version ${photo.versionIndex}`}
+        onCommit={(v) => save({ versionName: textOrNull(v) })}
+      />
 
       <Separator />
-      <Heading size="xs">Capture</Heading>
-      <MetaField
-        label="Date taken"
-        type="datetime-local"
-        value={toDateTimeLocal(photo.capturedAt)}
-        onCommit={(v) => save({ capturedAt: v ? new Date(v).toISOString() : null })}
-      />
-      <Grid templateColumns="1fr 1fr" gap="2">
-        <MetaField
-          label="Camera make"
-          value={photo.cameraMake ?? ''}
-          onCommit={(v) => save({ cameraMake: textOrNull(v) })}
-        />
-        <MetaField
-          label="Camera model"
-          value={photo.cameraModel ?? ''}
-          onCommit={(v) => save({ cameraModel: textOrNull(v) })}
-        />
-      </Grid>
-      <MetaField label="Lens" value={photo.lens ?? ''} onCommit={(v) => save({ lens: textOrNull(v) })} />
-      <Grid templateColumns="1fr 1fr" gap="2">
-        <MetaField
-          label="Exposure time"
-          value={formatExposureTime(photo.exposureTime) ?? ''}
-          placeholder="1/250"
-          onCommit={(v) => save({ exposureTime: parseExposure(v) })}
-        />
-        <MetaField
-          label="Aperture (ƒ)"
-          type="number"
-          value={photo.fNumber?.toString() ?? ''}
-          onCommit={(v) => save({ fNumber: numOrNull(v) })}
-        />
-        <MetaField
-          label="ISO"
-          type="number"
-          value={photo.iso?.toString() ?? ''}
-          onCommit={(v) => save({ iso: numOrNull(v) })}
-        />
-        <MetaField
-          label="Focal length (mm)"
-          type="number"
-          value={photo.focalLength?.toString() ?? ''}
-          onCommit={(v) => save({ focalLength: numOrNull(v) })}
-        />
-        <MetaField
-          label="Exposure bias (EV)"
-          type="number"
-          value={photo.exposureBias?.toString() ?? ''}
-          onCommit={(v) => save({ exposureBias: numOrNull(v) })}
-        />
-      </Grid>
-      <Grid templateColumns="1fr 1fr" gap="2">
-        <MetaField
-          label="Latitude"
-          type="number"
-          value={photo.gpsLatitude?.toString() ?? ''}
-          onCommit={(v) => save({ gpsLatitude: numOrNull(v) })}
-        />
-        <MetaField
-          label="Longitude"
-          type="number"
-          value={photo.gpsLongitude?.toString() ?? ''}
-          onCommit={(v) => save({ gpsLongitude: numOrNull(v) })}
-        />
-      </Grid>
+      <HStack justify="space-between">
+        <Heading size="xs">Capture</Heading>
+        <Button
+          size="2xs"
+          variant="ghost"
+          color="fg.muted"
+          onClick={() => setCaptureUnlocked((u) => !u)}
+          title={locked ? 'Edit to correct the details read from the file' : 'Lock'}
+        >
+          {locked ? <Lock /> : <LockOpen />} {locked ? 'Unlock' : 'Lock'}
+        </Button>
+      </HStack>
+      {locked ? (
+        <CaptureDetails photo={photo} />
+      ) : (
+        <>
+          <MetaField
+            label="Date taken"
+            type="datetime-local"
+            value={toDateTimeLocal(photo.capturedAt)}
+            onCommit={(v) => save({ capturedAt: v ? new Date(v).toISOString() : null })}
+          />
+          <Grid templateColumns="1fr 1fr" gap="2">
+            <MetaField
+              label="Camera make"
+              value={photo.cameraMake ?? ''}
+              onCommit={(v) => save({ cameraMake: textOrNull(v) })}
+            />
+            <MetaField
+              label="Camera model"
+              value={photo.cameraModel ?? ''}
+              onCommit={(v) => save({ cameraModel: textOrNull(v) })}
+            />
+          </Grid>
+          <MetaField label="Lens" value={photo.lens ?? ''} onCommit={(v) => save({ lens: textOrNull(v) })} />
+          <Grid templateColumns="1fr 1fr" gap="2">
+            <MetaField
+              label="Exposure time"
+              value={formatExposureTime(photo.exposureTime) ?? ''}
+              placeholder="1/250"
+              onCommit={(v) => save({ exposureTime: parseExposure(v) })}
+            />
+            <MetaField
+              label="Aperture (ƒ)"
+              type="number"
+              value={photo.fNumber?.toString() ?? ''}
+              onCommit={(v) => save({ fNumber: numOrNull(v) })}
+            />
+            <MetaField
+              label="ISO"
+              type="number"
+              value={photo.iso?.toString() ?? ''}
+              onCommit={(v) => save({ iso: numOrNull(v) })}
+            />
+            <MetaField
+              label="Focal length (mm)"
+              type="number"
+              value={photo.focalLength?.toString() ?? ''}
+              onCommit={(v) => save({ focalLength: numOrNull(v) })}
+            />
+            <MetaField
+              label="Exposure bias (EV)"
+              type="number"
+              value={photo.exposureBias?.toString() ?? ''}
+              onCommit={(v) => save({ exposureBias: numOrNull(v) })}
+            />
+          </Grid>
+          <Grid templateColumns="1fr 1fr" gap="2">
+            <MetaField
+              label="Latitude"
+              type="number"
+              value={photo.gpsLatitude?.toString() ?? ''}
+              onCommit={(v) => save({ gpsLatitude: numOrNull(v) })}
+            />
+            <MetaField
+              label="Longitude"
+              type="number"
+              value={photo.gpsLongitude?.toString() ?? ''}
+              onCommit={(v) => save({ gpsLongitude: numOrNull(v) })}
+            />
+          </Grid>
+        </>
+      )}
 
       <Separator />
       <Heading size="xs">Rights</Heading>
@@ -439,6 +497,45 @@ function SinglePanel({
         Metadata edits are stored in your library; the original RAW file is never modified.
       </Text>
     </Stack>
+  );
+}
+
+/** What the file says about the capture, as a list (the empty ones left out). */
+function CaptureDetails({ photo }: { photo: Photo }) {
+  const camera = [photo.cameraMake, photo.cameraModel].filter(Boolean).join(' ');
+  const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(' · ') || null;
+  const rows: [string, string | null][] = [
+    ['Taken', formatDateTime(photo.capturedAt)],
+    ['Camera', camera || null],
+    ['Lens', photo.lens],
+    ['Exposure', join(formatExposureTime(photo.exposureTime), formatAperture(photo.fNumber), formatIso(photo.iso))],
+    ['Focal length', formatFocal(photo.focalLength)],
+    ['Bias', photo.exposureBias ? formatBias(photo.exposureBias) : null],
+    [
+      'Location',
+      photo.gpsLatitude != null && photo.gpsLongitude != null
+        ? `${photo.gpsLatitude.toFixed(5)}, ${photo.gpsLongitude.toFixed(5)}`
+        : null,
+    ],
+  ];
+  const shown = rows.filter((row): row is [string, string] => !!row[1]);
+  if (!shown.length)
+    return (
+      <Text textStyle="xs" color="fg.muted">
+        Nothing read from the file.
+      </Text>
+    );
+  return (
+    <Grid templateColumns="auto 1fr" columnGap="3" rowGap="1" textStyle="xs">
+      {shown.map(([label, value]) => (
+        <Fragment key={label}>
+          <Text color="fg.muted">{label}</Text>
+          <Text truncate title={value}>
+            {value}
+          </Text>
+        </Fragment>
+      ))}
+    </Grid>
   );
 }
 
@@ -456,6 +553,7 @@ function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string
   return (
     <TagsInput.Root
       size="xs"
+      variant="subtle"
       value={tags}
       onValueChange={(e) => onChange(e.value)}
       inputValue={input}
@@ -497,6 +595,7 @@ function BulkTagInput({ exclude, onAdd }: { exclude: string[]; onAdd: (tag: stri
       <Box position="relative" flex="1">
         <Input
           size="xs"
+          variant="subtle"
           placeholder="Add a tag to all…"
           value={tag}
           onChange={(e) => setTag(e.target.value)}
@@ -517,6 +616,7 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
   return (
     <Textarea
       size="xs"
+      variant="subtle"
       rows={3}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
