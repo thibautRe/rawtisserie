@@ -48,7 +48,9 @@ storage).
 dnglab/dnglab#960). Added: 3.9 (better demosaicing at full resolution). 7.5 (quotas)
 done, with invitations and an admin page. The render queue records its figures per hour
 (`render_stats`: peak pending, longest wait, renders and their durations), shown on the
-admin overview for 24 hours and 7 days; a graph can read the same table later.
+admin overview for 24 hours and 7 days; a graph can read the same table later. 4.8 (3D
+LUT) closed: what was left (uploading browser-only LUTs on "Add to library") can't
+happen in the app as it is.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1001,7 +1003,7 @@ new UI control.
 
 ### 4.8 3D LUT (M, before 1.0)
 
-> **In progress.** Done: the pipeline side (`ops/clut.rs`, the `lut` kind in
+> **Done** 2026-11-13. The pipeline side (`ops/clut.rs`, the `lut` kind in
 > `params.rs` ↔ `params.ts`, the stage after filmic in `ops/point.rs`, baked into
 > filmic's interactive table, wasm `parseLut`/`loadLut`). Measured at 2400 px: the
 > table bakes in at no extra cost per render; the exact path (filmic drags, final
@@ -1016,9 +1018,11 @@ new UI control.
 > and the pipeline worker keeps the LUTs of recent recipes loaded (in its pool too).
 > Each LUT's thumbnail in the picker: done. Renaming: done 2026-11-11, in a manager
 > dialog ("Manage LUTs…" in the picker; `develop/ManagerDialog.tsx`, also used by the
-> preset and style menus). Left: local LUTs uploaded on "Add to library". Masks,
-> opacity and blend modes: done with 4.11. No storage quota exists yet; when it does,
-> count each user's LUTs at full size.
+> preset and style menus). Masks, opacity and blend modes: done with 4.11. LUTs added
+> without an account stay in that browser: the developer only offers "Add to library"
+> when signed in, and then picks from the account's LUTs, so a recipe never refers to a
+> browser-only LUT there (they aren't moved to the account on sign-in either). Storage
+> quotas (7.5) count original files only, not LUTs.
 
 Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
 choice of interpolation (tetrahedral, trilinear, pyramid).
@@ -1835,7 +1839,7 @@ Required before 1.0, on top of what's done:
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
-   8.3 culling~~. Then ~~4.7 colour balance RGB~~, 4.8 3D LUT, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
+   8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    ~~3.7 diffuse and sharpen~~, 8.2 folder/SD import, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
