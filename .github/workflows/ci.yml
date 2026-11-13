@@ -56,6 +56,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:wasm
+      # For the wasm build's decode test (packages/pipeline/src/goldenRaws.test.ts).
+      - name: Cache golden RAWs
+        uses: actions/cache@v6
+        with:
+          path: crates/pipeline/tests/golden/raws
+          key: golden-raws-${{ hashFiles('crates/pipeline/tests/golden/raws.txt') }}
+      - run: ./scripts/fetch-golden-raws.sh
       - run: npm run format:check
       - run: npm run typecheck
       # An S3 server for the object store's tests (apps/server/src/storage).

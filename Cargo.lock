@@ -953,8 +953,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "rawler"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51cb9d46a5b34946878eb236d1180adec0806eee260738ce299517b083a232e8"
+source = "git+https://github.com/thibautRe/dnglab?rev=b653ac0c9598242bc72b5121dacbda848ce989f0#b653ac0c9598242bc72b5121dacbda848ce989f0"
 dependencies = [
  "backtrace",
  "bitstream-io",

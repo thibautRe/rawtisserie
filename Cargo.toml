@@ -28,3 +28,11 @@ panic = "abort"
 opt-level = 3
 [profile.dev]
 opt-level = 1
+
+# rawler 0.8.0 with one fix: its CR3 (CRX) decoder timed itself with
+# std::time::Instant::now() for a debug log, which panics in wasm32-unknown-unknown; the
+# timing is now compiled only on targets with a clock. Tag rawtisserie/rawler-0.8.0-wasm of
+# our fork, on the commit 0.8.0 was published from. Upstream PR: dnglab/dnglab#960; drop
+# this once a release has it.
+[patch.crates-io]
+rawler = { git = "https://github.com/thibautRe/dnglab", rev = "b653ac0c9598242bc72b5121dacbda848ce989f0" }

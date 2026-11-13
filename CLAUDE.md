@@ -43,6 +43,12 @@ See README.md for the architecture overview and commands.
   (`PointMask::Tones` in `PointMasksKey`) from samples of its input, and travel as two
   planes (`tone_curve::plane_ids`) that the point pass blends with the pixel.
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
+- rawler (RAW decoding) is patched from our fork (`[patch.crates-io]` in `Cargo.toml`,
+  tag `rawtisserie/rawler-0.8.0-wasm` of thibautRe/dnglab; upstream PR
+  dnglab/dnglab#960): something that works natively can still fail in
+  wasm32-unknown-unknown (`std::time::Instant` panics there).
+  `packages/pipeline/src/goldenRaws.test.ts` decodes every golden RAW through the wasm
+  build. When upgrading rawler, drop the patch if a release has the fix, or tag a new one.
 - Files (originals, renders, uploaded LUTs) go through the object store
   (`apps/server/src/storage/`: local disk or S3, by key), never `fs` directly, so both
   work; worker threads use it too. Uploads in progress stay on local disk.
