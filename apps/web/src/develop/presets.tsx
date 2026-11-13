@@ -256,7 +256,7 @@ export const PresetMenu = memo(
         {managing && (
           <ManagerDialog
             title={`${title} presets`}
-            description="Rename or delete your presets. Built-in ones can't be changed."
+            description="Rename or delete your presets."
             items={own.map((p) => ({
               id: p.id,
               name: p.name,

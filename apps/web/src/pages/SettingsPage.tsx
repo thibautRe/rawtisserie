@@ -45,9 +45,6 @@ function StorageSection() {
     <Section title="Storage">
       <Stack gap="5">
         {storage ? <StorageBreakdown usage={storage} /> : <Skeleton h="24" />}
-        <Text textStyle="sm" color="fg.muted">
-          Your original RAW files count, those in the trash included. Previews and LUTs don’t.
-        </Text>
         <HStack
           asChild
           justify="space-between"
@@ -87,6 +84,8 @@ function AccountSection() {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  /** The password form is open. */
+  const [editing, setEditing] = useState(false);
   const tooShort = next.length > 0 && next.length < 8;
   const mismatch = submitted && confirm !== next;
 
@@ -103,62 +102,87 @@ function AccountSection() {
             title: 'Password changed',
             description: 'Your other sessions were signed out.',
           });
-          setCurrent('');
-          setNext('');
-          setConfirm('');
-          setSubmitted(false);
+          close();
         },
       },
     );
   };
 
+  const close = () => {
+    setEditing(false);
+    setCurrent('');
+    setNext('');
+    setConfirm('');
+    setSubmitted(false);
+    change.reset();
+  };
+
   return (
     <Section title="Account">
       <Stack gap="6">
-        <Box>
-          <Text fontWeight="medium">{me?.displayName}</Text>
-          <Text textStyle="sm" color="fg.muted">
-            {me?.email}
-          </Text>
-        </Box>
-        <Stack as="form" gap="3" maxW="sm" onSubmit={submit}>
-          <Heading size="sm">Change password</Heading>
-          <Field.Root invalid={change.isError}>
-            <Field.Label>Current password</Field.Label>
-            <Input
-              type="password"
-              autoComplete="current-password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-            <Field.ErrorText>{change.error?.message}</Field.ErrorText>
-          </Field.Root>
-          <Field.Root invalid={tooShort}>
-            <Field.Label>New password</Field.Label>
-            <Input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
-            {!tooShort && <Field.HelperText>At least 8 characters.</Field.HelperText>}
-            <Field.ErrorText>At least 8 characters.</Field.ErrorText>
-          </Field.Root>
-          <Field.Root invalid={mismatch}>
-            <Field.Label>Repeat the new password</Field.Label>
-            <Input
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
-            <Field.ErrorText>The two passwords differ.</Field.ErrorText>
-          </Field.Root>
-          <Button
-            type="submit"
-            alignSelf="start"
-            colorPalette="orange"
-            loading={change.isPending}
-            disabled={!current || !next || !confirm}
-          >
-            Change password
-          </Button>
-        </Stack>
+        <HStack justify="space-between" gap="4">
+          <Box>
+            <Text fontWeight="medium">{me?.displayName}</Text>
+            <Text textStyle="sm" color="fg.muted">
+              {me?.email}
+            </Text>
+          </Box>
+          {!editing && (
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              Change password…
+            </Button>
+          )}
+        </HStack>
+        {editing && (
+          <Stack as="form" gap="3" maxW="sm" onSubmit={submit}>
+            <Heading size="sm">Change password</Heading>
+            <Field.Root invalid={change.isError}>
+              <Field.Label>Current password</Field.Label>
+              <Input
+                autoFocus
+                type="password"
+                autoComplete="current-password"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+              />
+              <Field.ErrorText>{change.error?.message}</Field.ErrorText>
+            </Field.Root>
+            <Field.Root invalid={tooShort}>
+              <Field.Label>New password</Field.Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={next}
+                onChange={(e) => setNext(e.target.value)}
+              />
+              {!tooShort && <Field.HelperText>At least 8 characters.</Field.HelperText>}
+              <Field.ErrorText>At least 8 characters.</Field.ErrorText>
+            </Field.Root>
+            <Field.Root invalid={mismatch}>
+              <Field.Label>Repeat the new password</Field.Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+              <Field.ErrorText>The two passwords differ.</Field.ErrorText>
+            </Field.Root>
+            <HStack gap="2">
+              <Button
+                type="submit"
+                colorPalette="orange"
+                loading={change.isPending}
+                disabled={!current || !next || !confirm}
+              >
+                Change password
+              </Button>
+              <Button variant="ghost" onClick={close}>
+                Cancel
+              </Button>
+            </HStack>
+          </Stack>
+        )}
       </Stack>
     </Section>
   );

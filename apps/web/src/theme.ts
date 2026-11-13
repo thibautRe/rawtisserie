@@ -37,6 +37,9 @@ const config = defineConfig({
     recipes: {
       // Hover states show at once and fade out: transitions on the way in feel sluggish.
       button: { base: { _hover: { transitionDuration: '0s' } } },
+      // A muted fill, as for selects: the outline variant's border barely shows on panels.
+      input: { defaultVariants: { variant: 'subtle' } },
+      textarea: { defaultVariants: { variant: 'subtle' } },
     },
     slotRecipes: {
       collapsible: {
