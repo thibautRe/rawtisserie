@@ -384,12 +384,18 @@ test(
     await cards().first().waitFor();
     originals = { p1: RAW };
     let downloads = 0;
-    page.on('request', (r) => r.url().endsWith('/api/photos/p1/original') && downloads++);
+    const wasm: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/photos/p1/original')) downloads++;
+      if (r.url().endsWith('.wasm')) wasm.push(r.url());
+    });
     // The developer's canvas shows once the photo is decoded.
     const opened = () => page.locator('canvas').first().waitFor({ timeout: 120_000 });
     await page.goto(`${URL_}/versions/v1/develop`);
     await opened();
     assert.equal(downloads, 1);
+    // The pipeline worker fetches the wasm once, for itself and its pool.
+    assert.equal(wasm.length, 1);
     // Stored once downloaded, in the background.
     await page.waitForFunction(async () => {
       for (const name of await caches.keys())

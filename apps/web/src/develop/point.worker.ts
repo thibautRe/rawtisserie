@@ -6,12 +6,13 @@
  * diffuses one channel of a diffuse step at a time (see `PointPool.diffuse`).
  */
 import init, { PointRenderer, diffusePlane } from '@rawtisserie/pipeline/wasm';
-import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import type { PointRequest, PointResponse } from './protocol.ts';
 
 declare const self: DedicatedWorkerGlobalScope;
 
-const ready = init({ module_or_path: wasmUrl });
+/** Instantiated from the module the pipeline worker compiled (its first message). */
+let started: (instance: Promise<unknown>) => void;
+const ready = new Promise<unknown>((resolve) => (started = resolve));
 let renderer: PointRenderer | null = null;
 /** The LUTs loaded, packed: for the renderer, once there is one. */
 const luts = new Map<string, Uint8Array>();
@@ -20,6 +21,7 @@ const post = (msg: PointResponse, transfer: Transferable[] = []) => self.postMes
 
 self.onmessage = async (event: MessageEvent<PointRequest>) => {
   const msg = event.data;
+  if (msg.type === 'init') return started(init({ module_or_path: msg.module }));
   try {
     await ready;
     if (msg.type === 'strip') {

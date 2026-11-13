@@ -162,6 +162,14 @@ Then make yourself an admin (see [Accounts](#accounts)).
 `RAWTISSERIE_IMAGE` to a `sha-<commit>` tag to pin a build). Migrations run when the app starts. A
 change to `deploy/` itself needs a `git pull` first.
 
+**Caching:** the web app's built files (`/assets/…`) are named by a hash of their
+content and sent with a one-year `immutable` cache, so browsers never ask for them
+again; `index.html` is `no-cache`, so a deploy shows on the next load. A missing
+`/assets/` file is a 404, not `index.html`: a tab still on the old version fails
+loudly instead of running HTML as a script. Revalidating the wasm on every load (it
+used to be `max-age=0`, fetched by every worker) left Firefox with corrupted cache
+entries (`NS_ERROR_FILE_CORRUPTED`) behind Caddy's zstd compression.
+
 **Proxy:** `deploy/Caddyfile`. Caddy sets `X-Forwarded-*`, which the server reads, and
 has no request body limit: the server enforces its own (400 MB per upload). A proxy
 with a default limit (nginx: 1 MB) would break uploads.

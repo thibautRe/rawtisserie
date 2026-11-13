@@ -22,11 +22,13 @@ import { computeScope } from './scopes.ts';
 
 declare const self: DedicatedWorkerGlobalScope;
 
-const ready = init({ module_or_path: wasmUrl });
+// Fetched and compiled once here: the pool's workers get the compiled module.
+const wasm = WebAssembly.compileStreaming(fetch(wasmUrl));
+const ready = wasm.then((module) => init({ module_or_path: module }));
 let developer: Developer | null = null;
 // Export workers (`LocalRenderBackend({ pool: false })`) render one photo each, several
 // at once: they don't need a pool of their own.
-const pool = self.name === 'export' ? null : PointPool.create();
+const pool = self.name === 'export' ? null : PointPool.create(wasm);
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 

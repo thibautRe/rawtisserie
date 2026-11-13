@@ -137,6 +137,8 @@ export type WorkerResponse =
 
 /** From the pipeline worker to a worker of its pool (`pointPool.ts`). */
 export type PointRequest =
+  /** The pipeline's wasm module, compiled by the pipeline worker: first, once. */
+  | { type: 'init'; module: WebAssembly.Module }
   /**
    * Rows of the spatial image (interleaved linear RGB f32); `asShot`: xy, or empty;
    * `masks`: the drawn planes of the masks over the same rows, one after the other, for

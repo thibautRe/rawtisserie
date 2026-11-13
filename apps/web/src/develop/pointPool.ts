@@ -29,14 +29,18 @@ export class PointPool {
   private spatialId = -1;
   private strips: [number, number][] = [];
 
-  /** A pool sized for this machine, or null when there aren't enough cores to share. */
-  static create(): PointPool | null {
+  /**
+   * A pool sized for this machine, or null when there aren't enough cores to share.
+   * `wasm` is the pipeline's module, compiled by the caller: the workers instantiate it
+   * rather than each fetching and compiling it again.
+   */
+  static create(wasm: Promise<WebAssembly.Module>): PointPool | null {
     // `hardwareConcurrency` counts hardware threads: use about half the cores.
     const n = Math.min(MAX_WORKERS, Math.floor((navigator.hardwareConcurrency || 1) / 2) - 1);
-    return n >= 2 ? new PointPool(n) : null;
+    return n >= 2 ? new PointPool(n, wasm) : null;
   }
 
-  private constructor(n: number) {
+  private constructor(n: number, wasm: Promise<WebAssembly.Module>) {
     this.workers = Array.from({ length: n }, () => {
       const w = new Worker(new URL('./point.worker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e: MessageEvent<PointResponse>) => {
@@ -49,6 +53,11 @@ export class PointPool {
       w.onerror = (e) => this.fail(new Error(e.message || 'Point worker crashed'));
       return w;
     });
+    // A failed compile fails the pipeline worker's own init too: that's what reports it.
+    wasm.then(
+      (module) => this.workers.forEach((_, i) => this.post(i, { type: 'init', module })),
+      () => {},
+    );
   }
 
   /** Forget the strips the workers hold (e.g. another photo was loaded: its ids start over). */

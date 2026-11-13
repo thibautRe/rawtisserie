@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { relative, sep } from 'node:path';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -62,9 +63,23 @@ export async function buildApp() {
 
   // In production, serve the built web app (with client-side routing fallback).
   if (existsSync(config.webDistDir)) {
-    await app.register(fastifyStatic, { root: config.webDistDir, wildcard: false });
+    await app.register(fastifyStatic, {
+      root: config.webDistDir,
+      wildcard: false,
+      // Built files are named by a hash of their content: kept without asking again.
+      // index.html, which names them, is checked every time, so a deploy shows at once.
+      cacheControl: false,
+      setHeaders: (reply, file) =>
+        reply.header(
+          'cache-control',
+          relative(config.webDistDir, file).startsWith(`assets${sep}`)
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+        ),
+    });
     app.setNotFoundHandler((request, reply) => {
-      if (request.method === 'GET' && !request.url.startsWith('/api/')) {
+      // Not index.html for a file gone after a deploy (asked for by a page still open).
+      if (request.method === 'GET' && !request.url.startsWith('/api/') && !request.url.startsWith('/assets/')) {
         return reply.sendFile('index.html');
       }
       return reply.code(404).send({ error: 'Not found' });
