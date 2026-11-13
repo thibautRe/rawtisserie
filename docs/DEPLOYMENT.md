@@ -159,7 +159,7 @@ docker compose up -d
 Then make yourself an admin (see [Accounts](#accounts)).
 
 **Updating:** `docker compose pull app && docker compose up -d app` (set
-`RAWTISSERIE_IMAGE` to a tag to pin a build). Migrations run when the app starts. A
+`RAWTISSERIE_IMAGE` to a `sha-<commit>` tag to pin a build). Migrations run when the app starts. A
 change to `deploy/` itself needs a `git pull` first.
 
 **Proxy:** `deploy/Caddyfile`. Caddy sets `X-Forwarded-*`, which the server reads, and
@@ -194,8 +194,20 @@ docker compose exec -T db pg_restore -U rawtisserie -d rawtisserie --clean --if-
 docker compose start app
 ```
 
-Not done yet: publishing the image to a registry (`ghcr.io/thibautre/rawtisserie`, the
-default `RAWTISSERIE_IMAGE`) and deploying from CI.
+**The image** comes from GHCR: CI publishes `ghcr.io/thibautre/rawtisserie` (the
+default `RAWTISSERIE_IMAGE`) from every commit on `main` that passes, as `latest` and
+`sha-<commit>`. The package is private like the repository, so the VPS logs in once
+with a token that can only read packages (a classic personal access token with
+`read:packages`):
+
+```sh
+echo "$TOKEN" | docker login ghcr.io -u thibautRe --password-stdin
+```
+
+For the same reason, `git clone` on the VPS needs a read-only deploy key; copying
+`deploy/` there works too, as nothing else in the repository is used.
+
+Not done yet: deploying from CI.
 
 ## CI
 
@@ -207,11 +219,14 @@ request. Four jobs run in parallel:
   (`target/tmp/golden/`) are uploaded as an artifact.
 - **TypeScript:** builds the wasm (`wasm-bindgen` pinned to the crate's version), then
   `format:check`, `typecheck`, the workspaces' tests and the production web build.
-- **Container image:** builds the `Dockerfile` (not pushed anywhere yet), with Buildx's
-  GitHub Actions cache.
+- **Container image:** builds the `Dockerfile`, with Buildx's GitHub Actions cache.
 - **Deploy configuration:** `docker compose config` on `deploy/compose.yaml`,
   `caddy validate` on the Caddyfile, `shellcheck` on the backup script and a build of
   its image.
+
+Then, on pushes to `main` only and once all four passed, **Publish the image** builds it
+again from the cache and pushes it to GHCR (`latest` and `sha-<commit>`, see
+[On a VPS](#on-a-vps-deploy)), with the workflow's `GITHUB_TOKEN`.
 
 Not in CI yet: the browser checks (`test:sliders`, `test:library`, `test:ui`,
 `test:perf`), which need Playwright's Chromium; `cargo fmt` and clippy.
