@@ -44,6 +44,8 @@ flags filtered in any combination, a status bar with photos per row, a virtualis
 grid). Added: 8.9 (focus areas). Deployment: CI, a container image, `deploy/` for a
 single VPS with nightly database backups to a bucket (part of 7.3), then 7.1 (object
 storage).
+2026-11-13: Canon CR3 decoding in wasm fixed (rawler patched from our fork, upstream PR
+dnglab/dnglab#960). Added: 3.9 (better demosaicing at full resolution).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -560,6 +562,33 @@ perspective").
 - **Auto-crop** to the largest frame without empty borders, like lens correction does.
   A `GeometryKey` change re-renders everything after it, so the cache key must include
   the new fields.
+
+### 3.9 Better demosaicing at full resolution (M–L)
+
+Added 2026-11-13. `demosaic.rs` is our own and has two paths: previews and anything
+downscaled **bin** photosites per colour (no demosaicing, alias-free), and full
+resolution (100 % zoom, loupe tiles, full-size exports, the golden `detail` recipe)
+demosaics **bilinearly**, averaging the nearest photosites of each colour. Bilinear
+softens fine detail, leaves zipper patterns and false colour on sharp edges, and is
+weakest on X-Trans. Only the full-resolution path changes; binning stays.
+
+- **Algorithms:** port Ansel's defaults (GPL-3.0, like the other ports): **RCD** for
+  Bayer and **Markesteijn** (1 or 3 passes) for X-Trans, from its demosaic module
+  (`src/iop/demosaic.c` and the algorithm sources it includes). Keep bilinear for odd
+  CFAs and as a fallback. rawler has PPG and Markesteijn (`imgop::sensor`), but they
+  time themselves with `Instant::now()`, which panics in wasm, and RCD is what Ansel
+  uses for Bayer.
+- **Regions:** both read further than bilinear's 2 photosites. The base patch of a
+  zoomed region needs that margin (`develop_base_region`'s reach), or tiles stop
+  matching whole renders: `tests/regions.rs` checks it. Size-dependent choices must use
+  the whole frame, as elsewhere.
+- **Cost:** measure with `examples/bench.rs` at full resolution, native and wasm, 24 and
+  61 MP. It only runs when the base is developed at factor 1 (cached afterwards), so
+  sliders aren't affected; the first 100 % view and full-size exports are.
+- **Golden images:** the `detail` renders move; re-bless them in the same commit and
+  say why. Consider a recipe or crop that shows edges (zipper, false colour).
+- **Choice:** an option in the recipe (Ansel has one per image) or fixed? Fixed RCD /
+  Markesteijn is simpler and enough to start with.
 
 ---
 
