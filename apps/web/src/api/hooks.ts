@@ -500,10 +500,12 @@ export function useCreateInvitation() {
   });
 }
 
+/** Revoke an invitation (`revoke: true`) or reactivate a revoked one. */
 export function useRevokeInvitation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.post<{ invitation: Invitation }>(`/api/admin/invitations/${id}/revoke`, {}),
+    mutationFn: ({ id, revoke }: { id: string; revoke: boolean }) =>
+      api.post<{ invitation: Invitation }>(`/api/admin/invitations/${id}/${revoke ? 'revoke' : 'reactivate'}`, {}),
     onSuccess: ({ invitation }) =>
       qc.setQueryData<Invitation[]>(['admin', 'invitations'], (list) =>
         list?.map((i) => (i.id === invitation.id ? invitation : i)),

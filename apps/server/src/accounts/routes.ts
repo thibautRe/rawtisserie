@@ -155,7 +155,16 @@ export async function accountRoutes(app: FastifyInstance) {
     return reply.code(201).send({ invitation: invitationDto(row) });
   });
 
-  /** Stop an invitation from creating more accounts (those it created stay). */
+  /** Undo a revocation: the link works again, while it has uses left and hasn't expired. */
+  app.post('/api/admin/invitations/:id/reactivate', { preHandler: requireAdmin }, async (request) => {
+    const { id } = Id.parse(request.params);
+    const updated = await db.query(sql`UPDATE invitations SET revoked_at = NULL WHERE id = ${id} RETURNING id`);
+    if (!updated.length) throw notFound('Invitation not found');
+    const [row] = await db.query(sql`${INVITATIONS} WHERE i.id = ${id}`);
+    return { invitation: invitationDto(row) };
+  });
+
+  /** Stop an invitation from creating more accounts (those it created stay); reversible. */
   app.post('/api/admin/invitations/:id/revoke', { preHandler: requireAdmin }, async (request) => {
     const { id } = Id.parse(request.params);
     const updated = await db.query(sql`

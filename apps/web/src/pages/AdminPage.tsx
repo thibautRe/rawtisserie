@@ -17,12 +17,11 @@ import {
   Stat,
   Switch,
   Table,
-  Tabs,
   Text,
 } from '@chakra-ui/react';
 import { Copy, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { Link, Outlet, useLocation } from 'react-router';
+import { Link, NavLink, Outlet } from 'react-router';
 import {
   type NewInvitation,
   useAdminStats,
@@ -58,15 +57,15 @@ const TABS = [
   { value: 'invitations', label: 'Invitations' },
 ] as const;
 
+const adminPath = (tab: string) => (tab ? `/admin/${tab}` : '/admin');
+
 /**
  * The admin pages (`/admin`, `/admin/users`, `/admin/invitations`), one tab each. Admins
  * only: anyone else gets "not found", and the API refuses them too.
  */
 export function AdminLayout() {
   const { data: me } = useMe();
-  const { pathname } = useLocation();
   if (!me?.isAdmin) return <NotFoundPage />;
-  const tab = pathname.replace(/^\/admin\/?/, '').split('/')[0] ?? '';
   return (
     <Flex direction="column" h="full">
       <HStack px="3" gap="4" borderBottomWidth="1px">
@@ -74,15 +73,32 @@ export function AdminLayout() {
           <AppMenu />
           <Heading size="sm">Admin</Heading>
         </HStack>
-        <Tabs.Root value={tab} variant="line" size="sm" alignSelf="stretch">
-          <Tabs.List h="full" borderBottomWidth="0">
-            {TABS.map((t) => (
-              <Tabs.Trigger key={t.value} value={t.value} h="full" asChild>
-                <Link to={t.value ? `/admin/${t.value}` : '/admin'}>{t.label}</Link>
-              </Tabs.Trigger>
-            ))}
-          </Tabs.List>
-        </Tabs.Root>
+        {/* Pages, not panels: a nav of links (styled like line tabs), the current one marked. */}
+        <HStack as="nav" aria-label="Admin pages" gap="0" alignSelf="stretch">
+          {TABS.map((t) => (
+            <Box
+              key={t.value}
+              asChild
+              display="flex"
+              alignItems="center"
+              h="full"
+              px="3"
+              textStyle="sm"
+              fontWeight="medium"
+              color="fg.muted"
+              borderBottomWidth="2px"
+              borderColor="transparent"
+              mb="-1px"
+              _hover={{ color: 'fg' }}
+              _currentPage={{ color: 'fg', borderColor: 'fg' }}
+              focusRing="inside"
+            >
+              <NavLink to={adminPath(t.value)} end>
+                {t.label}
+              </NavLink>
+            </Box>
+          ))}
+        </HStack>
       </HStack>
       <Box flex="1" overflowY="auto">
         <Box p="6" maxW="6xl" mx="auto">
@@ -385,6 +401,19 @@ export function AdminInvitations() {
   const { data: invitations, error } = useInvitations();
   const create = useCreateInvitation();
   const revoke = useRevokeInvitation();
+  const [revoking, setRevoking] = useState<Invitation | null>(null);
+  const setRevoked = (inv: Invitation, revoked: boolean) =>
+    revoke.mutate(
+      { id: inv.id, revoke: revoked },
+      {
+        onSuccess: () =>
+          toaster.create({
+            type: 'success',
+            title: revoked ? `Revoked “${inv.label ?? 'Untitled'}”` : `Reactivated “${inv.label ?? 'Untitled'}”`,
+          }),
+        onError: (err) => toaster.create({ type: 'error', title: err.message }),
+      },
+    );
   const [creating, setCreating] = useState(false);
 
   return (
@@ -418,12 +447,25 @@ export function AdminInvitations() {
             </Table.Header>
             <Table.Body>
               {invitations.map((inv) => (
-                <InvitationRow key={inv.id} invitation={inv} onRevoke={() => revoke.mutate(inv.id)} />
+                <InvitationRow
+                  key={inv.id}
+                  invitation={inv}
+                  onRevoke={() => setRevoking(inv)}
+                  onReactivate={() => setRevoked(inv, false)}
+                />
               ))}
             </Table.Body>
           </Table.Root>
         </Table.ScrollArea>
       )}
+      <RevokeDialog
+        invitation={revoking}
+        onClose={() => setRevoking(null)}
+        onConfirm={(inv) => {
+          setRevoked(inv, true);
+          setRevoking(null);
+        }}
+      />
       <NewInvitationDialog
         open={creating}
         onClose={() => setCreating(false)}
@@ -442,7 +484,15 @@ export function AdminInvitations() {
   );
 }
 
-function InvitationRow({ invitation: inv, onRevoke }: { invitation: Invitation; onRevoke: () => void }) {
+function InvitationRow({
+  invitation: inv,
+  onRevoke,
+  onReactivate,
+}: {
+  invitation: Invitation;
+  onRevoke: () => void;
+  onReactivate: () => void;
+}) {
   const status = STATUS[inv.status];
   return (
     <Table.Row>
@@ -480,6 +530,11 @@ function InvitationRow({ invitation: inv, onRevoke }: { invitation: Invitation; 
         {inv.status === 'active' && (
           <Button size="xs" variant="outline" colorPalette="red" onClick={onRevoke}>
             Revoke
+          </Button>
+        )}
+        {inv.status === 'revoked' && (
+          <Button size="xs" variant="outline" onClick={onReactivate}>
+            Reactivate
           </Button>
         )}
       </Table.Cell>
@@ -554,6 +609,55 @@ function NewInvitationDialog({
                 <CloseButton size="sm" />
               </Dialog.CloseTrigger>
             </form>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
+  );
+}
+
+/** Revoking stops the link; it can be reactivated, but whoever has it is turned away meanwhile. */
+function RevokeDialog({
+  invitation,
+  onConfirm,
+  onClose,
+}: {
+  invitation: Invitation | null;
+  onConfirm: (invitation: Invitation) => void;
+  onClose: () => void;
+}) {
+  const left = invitation ? invitation.maxUses - invitation.uses : 0;
+  return (
+    <Dialog.Root open={!!invitation} onOpenChange={(e) => !e.open && onClose()} role="alertdialog" size="sm">
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content>
+            <Dialog.Header>
+              <Dialog.Title>Revoke “{invitation?.label ?? 'Untitled'}”?</Dialog.Title>
+            </Dialog.Header>
+            <Dialog.Body>
+              <Stack gap="3">
+                <Text>
+                  Its link stops working: the {left === 1 ? 'account' : `${left} accounts`} it could still create won’t
+                  be. Accounts already created with it are not affected.
+                </Text>
+                <Text color="fg.muted" textStyle="sm">
+                  You can reactivate it later from this list; the link stays the same.
+                </Text>
+              </Stack>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <Dialog.ActionTrigger asChild>
+                <Button variant="outline">Cancel</Button>
+              </Dialog.ActionTrigger>
+              <Button colorPalette="red" onClick={() => invitation && onConfirm(invitation)} autoFocus>
+                Revoke
+              </Button>
+            </Dialog.Footer>
+            <Dialog.CloseTrigger asChild>
+              <CloseButton size="sm" />
+            </Dialog.CloseTrigger>
           </Dialog.Content>
         </Dialog.Positioner>
       </Portal>
