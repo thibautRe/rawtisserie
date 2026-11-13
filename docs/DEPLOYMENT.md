@@ -72,8 +72,8 @@ Originals, renders and uploaded LUTs are objects by key (`apps/server/src/storag
 files under `STORAGE_DIR` by default, or an S3-compatible bucket when `S3_BUCKET` is set
 (`S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and
 `S3_PATH_STYLE=true` for servers that need it). `STORAGE_DIR` then only holds uploads in
-progress: they're written there while being hashed, so a duplicate never reaches the
-bucket.
+progress (written there while being hashed, so a duplicate never reaches the bucket)
+and the web app's built files (`web-assets/`, see [Caching](#on-a-vps-deploy)).
 
 - **Served through the server**, not by redirecting to presigned URLs: everything stays
   on one origin, which cross-origin isolation (roadmap P.5) needs, and browsers cache
@@ -128,7 +128,8 @@ moves to a managed instance later, when failover is worth the cost.
    browser ──HTTPS──▶ VPS ┌───────────────────────────────────────────────────┐
                           │ caddy        :80 → :443, certificates, zstd/gzip  │
                           │   └▶ app     the server image (:4000, internal)   │
-                          │        │     volume app-data: uploads in progress │
+                          │        │     volume app-data: uploads in progress,│
+                          │        │     web app files of the last builds     │
                           │        ▼                                          │
                           │ db           Postgres 18, volume db-data          │
                           │   ▲                                               │
@@ -164,9 +165,12 @@ change to `deploy/` itself needs a `git pull` first.
 
 **Caching:** the web app's built files (`/assets/…`) are named by a hash of their
 content and sent with a one-year `immutable` cache, so browsers never ask for them
-again; `index.html` is `no-cache`, so a deploy shows on the next load. A missing
-`/assets/` file is a 404, not `index.html`: a tab still on the old version fails
-loudly instead of running HTML as a script. Revalidating the wasm on every load (it
+again; `index.html` is `no-cache`, so a deploy shows on the next load. A tab opened
+before a deploy still loads its own files afterwards (routes and workers are loaded
+when first needed), so they're served from `STORAGE_DIR/web-assets/`
+(`apps/server/src/webAssets.ts`): each start adds the build's files there, and removes
+those not part of a build for 30 days. A file not there is a 404, not `index.html`, so
+a tab older than that fails clearly rather than running HTML as a script. Revalidating the wasm on every load (it
 used to be `max-age=0`, fetched by every worker) left Firefox with corrupted cache
 entries (`NS_ERROR_FILE_CORRUPTED`) behind Caddy's zstd compression.
 

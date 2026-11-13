@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { relative, sep } from 'node:path';
+import path from 'node:path';
 import fastifyCookie from '@fastify/cookie';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
@@ -16,6 +16,7 @@ import { trashRoutes } from './photos/trash.ts';
 import { presetRoutes } from './presets/routes.ts';
 import { RenderQueue } from './render/queue.ts';
 import { ZoomRenderer } from './render/zoom.ts';
+import { keepAssets } from './webAssets.ts';
 
 export async function buildApp() {
   const app = Fastify({
@@ -63,24 +64,27 @@ export async function buildApp() {
 
   // In production, serve the built web app (with client-side routing fallback).
   if (existsSync(config.webDistDir)) {
+    // Its files, from this build and the ones before (see `webAssets.ts`).
+    const assetsDir = path.join(config.storageDir, 'web-assets');
+    const kept = await keepAssets(path.join(config.webDistDir, 'assets'), assetsDir);
+    app.log.info(kept, 'web assets');
     await app.register(fastifyStatic, {
-      root: config.webDistDir,
-      wildcard: false,
-      // Built files are named by a hash of their content: kept without asking again.
-      // index.html, which names them, is checked every time, so a deploy shows at once.
+      root: assetsDir,
+      prefix: '/assets/',
+      // Named by a hash of their content: kept without asking again. index.html (sent
+      // from the build, below) is checked every time, so a deploy shows on the next load.
       cacheControl: false,
       setHeaders: (reply, file) =>
         reply.header(
           'cache-control',
-          relative(config.webDistDir, file).startsWith(`assets${sep}`)
-            ? 'public, max-age=31536000, immutable'
-            : 'no-cache',
+          path.dirname(file) === assetsDir ? 'public, max-age=31536000, immutable' : 'no-cache',
         ),
     });
     app.setNotFoundHandler((request, reply) => {
-      // Not index.html for a file gone after a deploy (asked for by a page still open).
+      // Not index.html for a file that isn't there (asked for by a page from a build gone
+      // for KEEP_DAYS): a 404 fails clearly.
       if (request.method === 'GET' && !request.url.startsWith('/api/') && !request.url.startsWith('/assets/')) {
-        return reply.sendFile('index.html');
+        return reply.sendFile('index.html', config.webDistDir);
       }
       return reply.code(404).send({ error: 'Not found' });
     });
