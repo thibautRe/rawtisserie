@@ -27,6 +27,16 @@ export interface AdminUser {
   invitation: string | null;
 }
 
+/** The instance at a glance (admin overview); "recent" is the last 30 days. */
+export interface AdminStats {
+  users: { total: number; admins: number; recent: number; invited: number };
+  photos: { total: number; recent: number; versions: number };
+  storage: { used: number; allocated: number; unlimitedUsers: number };
+  renders: { pending: number; failed: number };
+  invitations: { active: number };
+  instance: { storage: string; signup: 'open' | 'invitation'; defaultStorageQuota: number | null };
+}
+
 export type InvitationStatus = 'active' | 'used' | 'expired' | 'revoked';
 
 export interface Invitation {

@@ -20,8 +20,19 @@ export const router = createBrowserRouter([
         children: [
           { path: '/', element: <LibraryPage /> },
           { path: '/versions/:id/develop', element: <LibraryDevelopPage /> },
-          // Users' quotas and invitations, for admins.
-          { path: '/admin', lazy: async () => ({ Component: (await import('./pages/AdminPage.tsx')).AdminPage }) },
+          // The instance, users' quotas and invitations, for admins.
+          {
+            path: '/admin',
+            lazy: async () => ({ Component: (await import('./pages/AdminPage.tsx')).AdminLayout }),
+            children: [
+              { index: true, lazy: async () => ({ Component: (await import('./pages/AdminPage.tsx')).AdminOverview }) },
+              { path: 'users', lazy: async () => ({ Component: (await import('./pages/AdminPage.tsx')).AdminUsers }) },
+              {
+                path: 'invitations',
+                lazy: async () => ({ Component: (await import('./pages/AdminPage.tsx')).AdminInvitations }),
+              },
+            ],
+          },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

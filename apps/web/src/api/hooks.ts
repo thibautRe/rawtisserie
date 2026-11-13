@@ -23,6 +23,7 @@ import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { formatBytes } from '../lib/format.ts';
 import type {
+  AdminStats,
   AdminUser,
   BulkPatch,
   FacetValue,
@@ -452,6 +453,10 @@ export function useStorage(enabled = true) {
 /** Why an upload doesn't fit, worded like the server's refusal. */
 export const storageFull = ({ used, quota }: StorageUsage) =>
   `Not enough storage: ${formatBytes(used)} of ${formatBytes(quota ?? 0)} used`;
+
+export function useAdminStats() {
+  return useQuery({ queryKey: ['admin', 'stats'], queryFn: () => api.get<AdminStats>('/api/admin/stats') });
+}
 
 export function useAdminUsers() {
   return useQuery({

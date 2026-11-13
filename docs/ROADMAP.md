@@ -1287,8 +1287,9 @@ bill for each migration and a slow queue.
 > (red from 90 %, no separate warnings yet). Sign-up needs an invitation unless
 > `ALLOW_SIGNUP=true` (`DEFAULT_STORAGE_QUOTA_GB` for those accounts): an invitation
 > creates up to N accounts with its quota, can expire and be revoked. `/admin`
-> (`users.is_admin`) edits quotas and admin rights and manages invitations; the CLI
-> makes the first admin (`user:invite`, `user:admin`). Billing and tiers come later
+> (`users.is_admin`) is an overview of the instance, with tabs for `/admin/users`
+> (quotas and admin rights) and `/admin/invitations`; the CLI makes the first admin
+> (`user:invite`, `user:admin`). Billing and tiers come later
 > (7.9) and will set quotas. Not done: the photo-count limit (7.8) and removing
 > inactive free libraries.
 

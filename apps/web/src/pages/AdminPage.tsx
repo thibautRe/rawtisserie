@@ -12,15 +12,20 @@ import {
   IconButton,
   Input,
   Portal,
+  SimpleGrid,
   Stack,
+  Stat,
   Switch,
   Table,
+  Tabs,
   Text,
 } from '@chakra-ui/react';
 import { Copy, Plus } from 'lucide-react';
 import { useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router';
 import {
   type NewInvitation,
+  useAdminStats,
   useAdminUsers,
   useCreateInvitation,
   useInvitations,
@@ -47,27 +52,150 @@ async function copyLink(code: string) {
   toaster.create({ type: 'success', title: 'Invitation link copied' });
 }
 
-/** Users' storage quotas and invitations. Admins only (the API checks too). */
-export function AdminPage() {
+const TABS = [
+  { value: '', label: 'Overview' },
+  { value: 'users', label: 'Users' },
+  { value: 'invitations', label: 'Invitations' },
+] as const;
+
+/**
+ * The admin pages (`/admin`, `/admin/users`, `/admin/invitations`), one tab each. Admins
+ * only: anyone else gets "not found", and the API refuses them too.
+ */
+export function AdminLayout() {
   const { data: me } = useMe();
+  const { pathname } = useLocation();
   if (!me?.isAdmin) return <NotFoundPage />;
+  const tab = pathname.replace(/^\/admin\/?/, '').split('/')[0] ?? '';
   return (
     <Flex direction="column" h="full">
-      <HStack px="3" py="2" gap="2" borderBottomWidth="1px">
-        <AppMenu />
-        <Heading size="sm">Admin</Heading>
+      <HStack px="3" gap="4" borderBottomWidth="1px">
+        <HStack gap="2" py="2">
+          <AppMenu />
+          <Heading size="sm">Admin</Heading>
+        </HStack>
+        <Tabs.Root value={tab} variant="line" size="sm" alignSelf="stretch">
+          <Tabs.List h="full" borderBottomWidth="0">
+            {TABS.map((t) => (
+              <Tabs.Trigger key={t.value} value={t.value} h="full" asChild>
+                <Link to={t.value ? `/admin/${t.value}` : '/admin'}>{t.label}</Link>
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+        </Tabs.Root>
       </HStack>
       <Box flex="1" overflowY="auto">
-        <Stack gap="10" p="6" maxW="6xl" mx="auto">
-          <UsersSection myId={me.id} />
-          <InvitationsSection />
-        </Stack>
+        <Box p="6" maxW="6xl" mx="auto">
+          <Outlet />
+        </Box>
       </Box>
     </Flex>
   );
 }
 
+// ── Overview ────────────────────────────────────────────────────────────────
+
+const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+const whole = new Intl.NumberFormat();
+/** Exact below 10,000, compact above (12.3K). */
+const formatCount = (n: number) => (n < 10_000 ? whole.format(n) : compact.format(n));
+const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
+
+function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <Stat.Root borderWidth="1px" rounded="md" p="4" bg="bg.panel">
+      <Stat.Label>{label}</Stat.Label>
+      <Stat.ValueText fontWeight="semibold">{value}</Stat.ValueText>
+      {detail && <Stat.HelpText color="fg.muted">{detail}</Stat.HelpText>}
+    </Stat.Root>
+  );
+}
+
+function OverviewGroup({
+  title,
+  link,
+  children,
+}: {
+  title: string;
+  link?: { to: string; label: string };
+  children: React.ReactNode;
+}) {
+  return (
+    <Stack gap="3">
+      <HStack justify="space-between">
+        <Heading size="md">{title}</Heading>
+        {link && (
+          <Button asChild size="xs" variant="ghost">
+            <Link to={link.to}>{link.label}</Link>
+          </Button>
+        )}
+      </HStack>
+      <SimpleGrid minChildWidth="56" gap="3">
+        {children}
+      </SimpleGrid>
+    </Stack>
+  );
+}
+
+/** The instance at a glance. "Recent" is the last 30 days. */
+export function AdminOverview() {
+  const { data: stats, error } = useAdminStats();
+  if (error) return <Text color="fg.error">{error.message}</Text>;
+  if (!stats) return null;
+  const { users, photos, storage, renders, invitations, instance } = stats;
+  return (
+    <Stack gap="10">
+      <OverviewGroup title="Users" link={{ to: '/admin/users', label: 'Manage users' }}>
+        <StatTile
+          label="Accounts"
+          value={formatCount(users.total)}
+          detail={`${plural(users.admins, 'admin')} · ${formatCount(users.recent)} joined in the last 30 days`}
+        />
+        <StatTile
+          label="From invitations"
+          value={formatCount(users.invited)}
+          detail={`${plural(invitations.active, 'active invitation')}`}
+        />
+      </OverviewGroup>
+      <OverviewGroup title="Photos and storage">
+        <StatTile
+          label="Photos"
+          value={formatCount(photos.total)}
+          detail={`${formatCount(photos.recent)} imported in the last 30 days · ${plural(photos.versions, 'version')}`}
+        />
+        <StatTile label="Originals stored" value={formatBytes(storage.used)} detail="RAW files, across all users" />
+        <StatTile
+          label="Quotas granted"
+          value={formatBytes(storage.allocated)}
+          detail={`Plus ${plural(storage.unlimitedUsers, 'account')} with unlimited storage`}
+        />
+      </OverviewGroup>
+      <OverviewGroup title="Renders">
+        <StatTile label="Waiting" value={formatCount(renders.pending)} detail="Previews not developed yet" />
+        <StatTile label="Failed" value={formatCount(renders.failed)} detail="Previews the server couldn’t develop" />
+      </OverviewGroup>
+      <OverviewGroup title="Instance">
+        <StatTile label="Storage" value={instance.storage} />
+        <StatTile
+          label="Sign-up"
+          value={instance.signup === 'open' ? 'Open to anyone' : 'By invitation'}
+          detail={
+            instance.signup === 'open'
+              ? `New accounts get ${formatQuota(instance.defaultStorageQuota).toLowerCase()}`
+              : 'Create invitations in the Invitations tab'
+          }
+        />
+      </OverviewGroup>
+    </Stack>
+  );
+}
+
 // ── Users ───────────────────────────────────────────────────────────────────
+
+export function AdminUsers() {
+  const { data: me } = useMe();
+  return me ? <UsersSection myId={me.id} /> : null;
+}
 
 function UsersSection({ myId }: { myId: string }) {
   const { data: users, error } = useAdminUsers();
@@ -76,7 +204,6 @@ function UsersSection({ myId }: { myId: string }) {
 
   return (
     <Stack gap="3">
-      <Heading size="md">Users</Heading>
       {error && <Text color="fg.error">{error.message}</Text>}
       <Table.ScrollArea borderWidth="1px" rounded="md">
         <Table.Root size="sm">
@@ -254,7 +381,7 @@ const STATUS: Record<InvitationStatus, { label: string; palette: string }> = {
   revoked: { label: 'Revoked', palette: 'red' },
 };
 
-function InvitationsSection() {
+export function AdminInvitations() {
   const { data: invitations, error } = useInvitations();
   const create = useCreateInvitation();
   const revoke = useRevokeInvitation();
@@ -263,7 +390,9 @@ function InvitationsSection() {
   return (
     <Stack gap="3">
       <HStack justify="space-between">
-        <Heading size="md">Invitations</Heading>
+        <Text textStyle="sm" color="fg.muted">
+          Each invitation is a link that creates accounts with the storage you choose.
+        </Text>
         <Button size="sm" colorPalette="orange" onClick={() => setCreating(true)}>
           <Plus /> New invitation
         </Button>
@@ -271,7 +400,7 @@ function InvitationsSection() {
       {error && <Text color="fg.error">{error.message}</Text>}
       {invitations?.length === 0 && (
         <Text color="fg.muted" textStyle="sm">
-          No invitations yet. Each one is a link that creates accounts with the storage you choose.
+          No invitations yet.
         </Text>
       )}
       {!!invitations?.length && (

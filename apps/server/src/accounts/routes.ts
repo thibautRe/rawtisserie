@@ -5,6 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { currentUser, requireAdmin, requireUser } from '../auth/routes.ts';
+import { config } from '../config.ts';
 import { db, sql } from '../db.ts';
 import { badRequest, notFound } from '../errors.ts';
 import type Invitations from '../__generated__/invitations.ts';
@@ -83,6 +84,38 @@ export async function accountRoutes(app: FastifyInstance) {
   );
 
   // ── Admin ─────────────────────────────────────────────────────────────────
+
+  /** The instance at a glance, for the admin overview. "Recent" is the last 30 days. */
+  app.get('/api/admin/stats', { preHandler: requireAdmin }, async () => {
+    const [row] = await db.query(sql`
+      SELECT
+        (SELECT count(*) FROM users)::int AS users,
+        (SELECT count(*) FROM users WHERE is_admin)::int AS admins,
+        (SELECT count(*) FROM users WHERE created_at > now() - interval '30 days')::int AS users_recent,
+        (SELECT count(*) FROM users WHERE invitation_id IS NOT NULL)::int AS users_invited,
+        (SELECT count(*) FROM users WHERE storage_quota IS NULL)::int AS users_unlimited,
+        (SELECT coalesce(sum(storage_quota), 0) FROM users)::bigint AS quota_allocated,
+        (SELECT count(*) FROM photos)::int AS photos,
+        (SELECT count(*) FROM photos WHERE created_at > now() - interval '30 days')::int AS photos_recent,
+        (SELECT coalesce(sum(file_size), 0) FROM photos)::bigint AS storage_used,
+        (SELECT count(*) FROM versions)::int AS versions,
+        (SELECT count(*) FROM versions WHERE render_status = 'pending')::int AS renders_pending,
+        (SELECT count(*) FROM versions WHERE render_status = 'failed')::int AS renders_failed,
+        (SELECT count(*) FROM invitations WHERE revoked_at IS NULL AND uses < max_uses
+          AND (expires_at IS NULL OR expires_at > now()))::int AS invitations_active`);
+    return {
+      users: { total: row.users, admins: row.admins, recent: row.users_recent, invited: row.users_invited },
+      photos: { total: row.photos, recent: row.photos_recent, versions: row.versions },
+      storage: { used: row.storage_used, allocated: row.quota_allocated, unlimitedUsers: row.users_unlimited },
+      renders: { pending: row.renders_pending, failed: row.renders_failed },
+      invitations: { active: row.invitations_active },
+      instance: {
+        storage: config.s3 ? `S3 bucket ${config.s3.bucket}` : 'Local disk',
+        signup: config.allowSignup ? 'open' : 'invitation',
+        defaultStorageQuota: config.defaultStorageQuota,
+      },
+    };
+  });
 
   app.get('/api/admin/users', { preHandler: requireAdmin }, async () => {
     const rows = (await db.query(sql`${ADMIN_USERS} ORDER BY u.created_at`)) as AdminUserRow[];
