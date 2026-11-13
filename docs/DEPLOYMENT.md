@@ -42,8 +42,27 @@ terminates HTTPS. It ships as a [container image](#container-image), run on a VP
 ```
 
 Configuration is environment variables (`.env.example`): `DATABASE_URL`, `STORAGE_DIR`,
-`PORT`, `ALLOW_SIGNUP`, `COOKIE_SECURE` (true behind HTTPS), `RENDER_CONCURRENCY`,
-`MIGRATE_ON_START`, and the `S3_*` settings.
+`PORT`, `ALLOW_SIGNUP` (false: sign-up needs an invitation), `DEFAULT_STORAGE_QUOTA_GB`
+(for accounts created without one), `COOKIE_SECURE` (true behind HTTPS),
+`RENDER_CONCURRENCY`, `MIGRATE_ON_START`, and the `S3_*` settings.
+
+## Accounts
+
+Sign-up is by invitation: admins create them at `/admin` (a link that creates up to N
+accounts, each with a storage quota, optionally expiring), and set each user's quota
+there. Quotas count original files only. A new server has no admin, so the first one
+comes from the command line:
+
+```sh
+docker compose exec app node apps/server/src/scripts/invite.ts      # prints /login?invite=…
+# sign up at https://<domain>/login?invite=…, then:
+docker compose exec app node apps/server/src/scripts/user-admin.ts you@example.com
+```
+
+Outside Docker: `npm run user:invite -w @rawtisserie/server` and
+`npm run user:admin -w @rawtisserie/server -- you@example.com` (`--revoke` takes admin
+rights away). `invite.ts` takes `--uses`, `--quota-gb` and `--label`; without
+`--quota-gb` the accounts are unlimited.
 
 ## Storage
 
@@ -134,6 +153,8 @@ git clone https://github.com/thibautRe/rawtisserie.git && cd rawtisserie/deploy
 cp .env.example .env    # fill it in
 docker compose up -d
 ```
+
+Then make yourself an admin (see [Accounts](#accounts)).
 
 **Updating:** `docker compose pull app && docker compose up -d app` (set
 `RAWTISSERIE_IMAGE` to a tag to pin a build). Migrations run when the app starts. A

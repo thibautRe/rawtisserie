@@ -49,6 +49,9 @@ See README.md for the architecture overview and commands.
   wasm32-unknown-unknown (`std::time::Instant` panics there).
   `packages/pipeline/src/goldenRaws.test.ts` decodes every golden RAW through the wasm
   build. When upgrading rawler, drop the patch if a release has the fix, or tag a new one.
+- Storage quotas count original files only (`accounts/quota.ts`); anything new that
+  stores user files must decide whether it counts, and check `fits` before storing.
+  Admin-only routes use `requireAdmin` (and the page checks `isAdmin` too).
 - Files (originals, renders, uploaded LUTs) go through the object store
   (`apps/server/src/storage/`: local disk or S3, by key), never `fs` directly, so both
   work; worker threads use it too. Uploads in progress stay on local disk.

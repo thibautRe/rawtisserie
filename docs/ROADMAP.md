@@ -45,7 +45,8 @@ grid). Added: 8.9 (focus areas). Deployment: CI, a container image, `deploy/` fo
 single VPS with nightly database backups to a bucket (part of 7.3), then 7.1 (object
 storage).
 2026-11-13: Canon CR3 decoding in wasm fixed (rawler patched from our fork, upstream PR
-dnglab/dnglab#960). Added: 3.9 (better demosaicing at full resolution).
+dnglab/dnglab#960). Added: 3.9 (better demosaicing at full resolution). 7.5 (quotas)
+done, with invitations and an admin page.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1274,6 +1275,22 @@ bill for each migration and a slow queue.
 - Update the note in `CLAUDE.md` about migrations when this lands.
 
 ### 7.5 Quotas and usage (M, after 7.1)
+
+> **Done** 2026-11-13, with invitations and admins (`apps/server/src/accounts/`,
+> `pages/AdminPage.tsx`, migration 00012). As built: `users.storage_quota` in bytes,
+> NULL unlimited (existing accounts). **Deviations:** only originals count (renders and
+> LUTs don't; decided with the user), and usage is summed per request with an index
+> (`photos_owner_size_idx`) rather than kept in a counter: cheap at this scale, and
+> never out of step. Uploads over quota are refused before the file is stored and again
+> under the user's row lock (concurrent uploads); the client skips files that can't
+> fit before sending them. Lowering a quota deletes nothing. The app menu shows usage
+> (red from 90 %, no separate warnings yet). Sign-up needs an invitation unless
+> `ALLOW_SIGNUP=true` (`DEFAULT_STORAGE_QUOTA_GB` for those accounts): an invitation
+> creates up to N accounts with its quota, can expire and be revoked. `/admin`
+> (`users.is_admin`) edits quotas and admin rights and manages invitations; the CLI
+> makes the first admin (`user:invite`, `user:admin`). Billing and tiers come later
+> (7.9) and will set quotas. Not done: the photo-count limit (7.8) and removing
+> inactive free libraries.
 
 - Count bytes per user (originals + renders), kept up to date on upload and delete
   rather than computed by summing on each request.
