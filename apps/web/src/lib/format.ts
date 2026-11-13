@@ -6,8 +6,11 @@ export const formatIso = (iso: number | null | undefined) => (iso ? `ISO ${iso}`
 export const formatBias = (ev: number | null | undefined) =>
   ev == null ? null : `${ev > 0 ? '+' : ev < 0 ? '−' : '±'}${Math.abs(Number(ev.toFixed(1)))} EV`;
 
+/** Sizes are in units of 1024: a GB is 1024³ bytes (quotas too). */
+export const GB = 1024 ** 3;
+
 export function formatBytes(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB'];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (bytes >= 1024 && i < units.length - 1) {
     bytes /= 1024;

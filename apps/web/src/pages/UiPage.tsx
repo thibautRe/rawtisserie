@@ -36,6 +36,7 @@ import { tracks } from '../develop/slider.ts';
 import { PanelBlock } from '../library/PanelBlock.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
+import { StorageMeter } from '../components/StorageMeter.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
 /**
@@ -700,6 +701,17 @@ export function UiPage() {
           <Panel w="80">
             <Culling {...culling} onChange={(patch) => setCulling((c) => ({ ...c, ...patch }))} />
           </Panel>
+        </Block>
+
+        <Block
+          title="Storage"
+          guide="Original files against the quota, in the app menu and on the admin page. Red from 90 %; unlimited has no bar."
+        >
+          <HStack gap="8" align="start">
+            <StorageMeter usage={{ used: 12.3 * 1024 ** 3, quota: 50 * 1024 ** 3 }} />
+            <StorageMeter usage={{ used: 47.5 * 1024 ** 3, quota: 50 * 1024 ** 3 }} />
+            <StorageMeter usage={{ used: 312 * 1024 ** 3, quota: null }} />
+          </HStack>
         </Block>
       </Container>
     </Box>

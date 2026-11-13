@@ -121,7 +121,8 @@ async function open(path: string) {
     if (method !== 'GET') sent.push({ path, body: route.request().postDataJSON() });
     if (path === '/api/tags') return json(TAGS);
     if (path === '/api/versions/bulk') return json({ versions: [] });
-    if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A' } });
+    if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A', isAdmin: false } });
+    if (path === '/api/account/storage') return json({ used: 0, quota: null });
     if (path === '/api/versions') {
       const q = url.searchParams.get('q') ?? '';
       const versions = PHOTOS.filter((p) => p.filename.includes(q));

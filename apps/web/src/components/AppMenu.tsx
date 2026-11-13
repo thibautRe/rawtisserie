@@ -1,8 +1,9 @@
 import { Box, IconButton, Menu, Portal, Text } from '@chakra-ui/react';
-import { Aperture, Images, LogIn, LogOut } from 'lucide-react';
+import { Aperture, Images, LogIn, LogOut, ShieldCheck } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
-import { useLogout, useMe } from '../api/hooks.ts';
+import { useLogout, useMe, useStorage } from '../api/hooks.ts';
 import { libraryPath } from '../library/libraryView.ts';
+import { StorageMeter } from './StorageMeter.tsx';
 
 /**
  * App navigation and account, folded into one button at the start of each page's
@@ -10,6 +11,7 @@ import { libraryPath } from '../library/libraryView.ts';
  */
 export function AppMenu() {
   const { data: user } = useMe();
+  const { data: storage } = useStorage(!!user);
   const logout = useLogout();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -40,7 +42,17 @@ export function AppMenu() {
                   <Text textStyle="xs" color="fg.muted">
                     {user.email}
                   </Text>
+                  {storage && (
+                    <Box mt="2">
+                      <StorageMeter usage={storage} />
+                    </Box>
+                  )}
                 </Box>
+                {user.isAdmin && (
+                  <Menu.Item value="admin" disabled={pathname === '/admin'} onClick={() => navigate('/admin')}>
+                    <ShieldCheck /> Admin
+                  </Menu.Item>
+                )}
                 <Menu.Item
                   value="logout"
                   onClick={() => logout.mutate(undefined, { onSuccess: () => navigate('/login') })}

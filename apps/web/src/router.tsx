@@ -20,6 +20,8 @@ export const router = createBrowserRouter([
         children: [
           { path: '/', element: <LibraryPage /> },
           { path: '/versions/:id/develop', element: <LibraryDevelopPage /> },
+          // Users' quotas and invitations, for admins.
+          { path: '/admin', lazy: async () => ({ Component: (await import('./pages/AdminPage.tsx')).AdminPage }) },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

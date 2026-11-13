@@ -21,7 +21,19 @@ import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdi
 import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
-import type { BulkPatch, FacetValue, Facets, Photo, PhotoDetail, PhotoPatch, User } from './types.ts';
+import { formatBytes } from '../lib/format.ts';
+import type {
+  AdminUser,
+  BulkPatch,
+  FacetValue,
+  Facets,
+  Invitation,
+  Photo,
+  PhotoDetail,
+  PhotoPatch,
+  StorageUsage,
+  User,
+} from './types.ts';
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -56,10 +68,20 @@ export function useLogin() {
   });
 }
 
+/** Whether an invitation code can be used, and the storage it gives. */
+export function useInvitationCheck(code: string | null) {
+  return useQuery({
+    queryKey: ['invitation', code],
+    queryFn: () => api.get<{ storageQuota: number | null }>(`/api/auth/invitations/${encodeURIComponent(code!)}`),
+    enabled: !!code,
+    retry: false,
+  });
+}
+
 export function useSignup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { email: string; password: string; displayName: string }) =>
+    mutationFn: (body: { email: string; password: string; displayName: string; invitation?: string }) =>
       api.post<{ user: User }>('/api/auth/signup', body),
     onSuccess: ({ user }) => qc.setQueryData(['me'], user),
   });
@@ -277,6 +299,8 @@ export function useDeletePhotos() {
   return useMutation({
     mutationFn: (ids: string[]) => api.post<{ deleted: string[] }>('/api/versions/delete', { ids }),
     onSuccess: ({ deleted }) => {
+      // Deleting a photo's last version deletes its file.
+      void qc.invalidateQueries({ queryKey: ['storage'] });
       const gone = new Set(deleted);
       qc.setQueriesData<CachedPhotos>({ queryKey: ['photos'] }, (data) =>
         mapPages(data, (page) => ({
@@ -383,13 +407,25 @@ export function useUpload() {
   return useMutation({
     mutationFn: async ({ files, onProgress }: { files: File[]; onProgress?: (done: number) => void }) => {
       const result: UploadResult = { created: [], skipped: [] };
+      // Files that can't fit aren't sent: the server would refuse them after the whole
+      // upload. It still checks (duplicates don't count, and other tabs may upload too).
+      const storage = await qc
+        .fetchQuery({ queryKey: ['storage'], queryFn: fetchStorage, staleTime: 0 })
+        .catch(() => null);
+      let used = storage?.used ?? 0;
       for (const [i, file] of files.entries()) {
+        if (storage && storage.quota !== null && used + file.size > storage.quota) {
+          result.skipped.push({ filename: file.name, reason: storageFull({ used, quota: storage.quota }) });
+          onProgress?.(i + 1);
+          continue;
+        }
         const form = new FormData();
         form.append('files', file);
         try {
           const r = await api.post<UploadResult>('/api/photos', form);
           result.created.push(...r.created);
           result.skipped.push(...r.skipped);
+          if (r.created.length) used += file.size;
         } catch (err) {
           result.skipped.push({ filename: file.name, reason: err instanceof Error ? err.message : 'Upload failed' });
         }
@@ -397,7 +433,76 @@ export function useUpload() {
       }
       return result;
     },
-    onSettled: () => refreshLibrary(qc),
+    onSettled: () => {
+      refreshLibrary(qc);
+      void qc.invalidateQueries({ queryKey: ['storage'] });
+    },
+  });
+}
+
+// ── Storage and admin ───────────────────────────────────────────────────────
+
+const fetchStorage = () => api.get<StorageUsage>('/api/account/storage');
+
+/** The user's original files against their quota. */
+export function useStorage(enabled = true) {
+  return useQuery({ queryKey: ['storage'], queryFn: fetchStorage, enabled });
+}
+
+/** Why an upload doesn't fit, worded like the server's refusal. */
+export const storageFull = ({ used, quota }: StorageUsage) =>
+  `Not enough storage: ${formatBytes(used)} of ${formatBytes(quota ?? 0)} used`;
+
+export function useAdminUsers() {
+  return useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: async () => (await api.get<{ users: AdminUser[] }>('/api/admin/users')).users,
+  });
+}
+
+export function useUpdateAdminUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; storageQuota?: number | null; isAdmin?: boolean }) =>
+      api.patch<{ user: AdminUser }>(`/api/admin/users/${id}`, patch),
+    onSuccess: ({ user }) => {
+      qc.setQueryData<AdminUser[]>(['admin', 'users'], (list) => list?.map((u) => (u.id === user.id ? user : u)));
+      void qc.invalidateQueries({ queryKey: ['storage'] });
+    },
+  });
+}
+
+export function useInvitations() {
+  return useQuery({
+    queryKey: ['admin', 'invitations'],
+    queryFn: async () => (await api.get<{ invitations: Invitation[] }>('/api/admin/invitations')).invitations,
+  });
+}
+
+export interface NewInvitation {
+  label?: string;
+  maxUses: number;
+  storageQuota: number | null;
+  expiresAt?: string | null;
+}
+
+export function useCreateInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: NewInvitation) => api.post<{ invitation: Invitation }>('/api/admin/invitations', body),
+    onSuccess: ({ invitation }) =>
+      qc.setQueryData<Invitation[]>(['admin', 'invitations'], (list = []) => [invitation, ...list]),
+  });
+}
+
+export function useRevokeInvitation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<{ invitation: Invitation }>(`/api/admin/invitations/${id}/revoke`, {}),
+    onSuccess: ({ invitation }) =>
+      qc.setQueryData<Invitation[]>(['admin', 'invitations'], (list) =>
+        list?.map((i) => (i.id === invitation.id ? invitation : i)),
+      ),
   });
 }
 

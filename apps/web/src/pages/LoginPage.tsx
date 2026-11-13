@@ -1,15 +1,19 @@
 import { Alert, Box, Button, Card, Center, Field, Input, Link as ChakraLink, Stack, Text } from '@chakra-ui/react';
 import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
-import { useAuthConfig, useLogin, useMe, useSignup } from '../api/hooks.ts';
+import { useAuthConfig, useInvitationCheck, useLogin, useMe, useSignup } from '../api/hooks.ts';
 import { Logo } from '../components/Logo.tsx';
+import { formatBytes } from '../lib/format.ts';
 
 export function LoginPage() {
   const [params] = useSearchParams();
   const next = params.get('next')?.startsWith('/') ? params.get('next')! : '/';
   const { data: me } = useMe();
   const { data: authConfig } = useAuthConfig();
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  // An invitation link (`/login?invite=…`, made at /admin) opens the sign-up form.
+  const invite = params.get('invite');
+  const invitation = useInvitationCheck(invite);
+  const [mode, setMode] = useState<'login' | 'signup'>(invite ? 'signup' : 'login');
   const [form, setForm] = useState({ email: '', password: '', displayName: '' });
   const login = useLogin();
   const signup = useSignup();
@@ -21,7 +25,7 @@ export function LoginPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'login') login.mutate({ email: form.email, password: form.password });
-    else signup.mutate(form);
+    else signup.mutate({ ...form, invitation: invite ?? undefined });
   };
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -36,6 +40,22 @@ export function LoginPage() {
         <Card.Root w="full" as="form" onSubmit={submit}>
           <Card.Body>
             <Stack gap="4">
+              {mode === 'signup' && invite && (
+                <Alert.Root status={invitation.isError ? 'error' : 'info'} size="sm">
+                  <Alert.Indicator />
+                  <Alert.Title>
+                    {invitation.isError
+                      ? invitation.error.message
+                      : invitation.data
+                        ? `You’re invited, with ${
+                            invitation.data.storageQuota === null
+                              ? 'unlimited storage'
+                              : `${formatBytes(invitation.data.storageQuota)} of storage`
+                          } for your RAW files.`
+                        : 'Checking your invitation…'}
+                  </Alert.Title>
+                </Alert.Root>
+              )}
               {mode === 'signup' && (
                 <Field.Root required>
                   <Field.Label>Name</Field.Label>
@@ -63,13 +83,18 @@ export function LoginPage() {
                   <Alert.Title>{error}</Alert.Title>
                 </Alert.Root>
               )}
-              <Button type="submit" colorPalette="orange" loading={pending}>
+              <Button
+                type="submit"
+                colorPalette="orange"
+                loading={pending}
+                disabled={mode === 'signup' && !!invite && !invitation.data}
+              >
                 {mode === 'login' ? 'Log in' : 'Create account'}
               </Button>
             </Stack>
           </Card.Body>
         </Card.Root>
-        {authConfig?.allowSignup && (
+        {(authConfig?.allowSignup || invite) && (
           <Text textStyle="sm" color="fg.muted">
             {mode === 'login' ? 'New here? ' : 'Already have an account? '}
             <ChakraLink as="button" color="orange.fg" onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>

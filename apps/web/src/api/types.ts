@@ -4,6 +4,43 @@ export interface User {
   id: string;
   email: string;
   displayName: string;
+  isAdmin: boolean;
+}
+
+/** A user's original files against their quota, in bytes (`quota` null: unlimited). */
+export interface StorageUsage {
+  used: number;
+  quota: number | null;
+}
+
+/** A user as the admin page lists them. */
+export interface AdminUser {
+  id: string;
+  email: string;
+  displayName: string;
+  createdAt: string;
+  isAdmin: boolean;
+  storageQuota: number | null;
+  storageUsed: number;
+  photos: number;
+  /** Label of the invitation the account was created with. */
+  invitation: string | null;
+}
+
+export type InvitationStatus = 'active' | 'used' | 'expired' | 'revoked';
+
+export interface Invitation {
+  id: string;
+  code: string;
+  label: string | null;
+  maxUses: number;
+  uses: number;
+  storageQuota: number | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  status: InvitationStatus;
 }
 
 export type Flag = 'picked' | 'rejected';
