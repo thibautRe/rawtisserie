@@ -127,53 +127,71 @@ const fetchPage = (search: string, offset: number) => {
  * pages holding a range of positions (those on screen); the first one always is.
  */
 export function useLibraryPhotos(search: string) {
-  const [wanted, setWanted] = useState({ search, pages: new Set([0]) });
-  const pages = wanted.search === search ? [...wanted.pages].sort((a, b) => a - b) : [0];
+  return usePagedVersions(['photos', search], (offset) => fetchPage(search, offset));
+}
+
+/** The trash, like the library (`useLibraryPhotos`), with the latest page's summary. */
+export function useTrashPhotos() {
+  const paged = usePagedVersions(['trash'], (offset) =>
+    api.get<TrashPage>(`/api/trash?limit=${PAGE_SIZE}&offset=${offset}`),
+  );
+  return { ...paged, summary: paged.latest };
+}
+
+/** Versions listed by pages of `PAGE_SIZE` (`load` gets one from its offset), each cached under `key`. */
+function usePagedVersions<P extends { versions: Photo[]; total: number }>(
+  key: readonly unknown[],
+  load: (offset: number) => Promise<P>,
+) {
+  const keyString = JSON.stringify(key);
+  const [wanted, setWanted] = useState({ key: keyString, pages: new Set([0]) });
+  const pages = wanted.key === keyString ? [...wanted.pages].sort((a, b) => a - b) : [0];
   const results = useQueries({
     queries: pages.map((page) => ({
-      queryKey: ['photos', search, 'page', page],
-      queryFn: () => fetchPage(search, page * PAGE_SIZE),
+      queryKey: [...key, 'page', page],
+      queryFn: () => load(page * PAGE_SIZE),
       // Kept while developing, so going back to the library finds the pages it showed.
       gcTime: 60 * 60_000,
       // Keep polling while previews are being rendered.
-      refetchInterval: (query: { state: { data?: PhotoPage } }) =>
+      refetchInterval: (query: { state: { data?: P } }) =>
         query.state.data?.versions.some((v) => v.renderStatus === 'pending') ? 2000 : false,
     })),
   });
   const datas = results.map((r) => r.data);
   const updated = results.map((r) => r.dataUpdatedAt);
-  const { items, total } = useMemo(() => {
+  const { items, total, latest } = useMemo(() => {
     // The latest page knows the latest total.
     let latest = -1;
     datas.forEach((d, i) => d && (latest < 0 || updated[i]! > updated[latest]!) && (latest = i));
     const total = latest < 0 ? 0 : datas[latest]!.total;
-    const items: (Photo | undefined)[] = new Array(total).fill(undefined);
+    const items: (P['versions'][number] | undefined)[] = new Array(total).fill(undefined);
     datas.forEach((d, i) =>
       d?.versions.forEach((p, k) => {
         const at = pages[i]! * PAGE_SIZE + k;
         if (at < total) items[at] = p;
       }),
     );
-    return { items, total };
+    return { items, total, latest: latest < 0 ? undefined : datas[latest] };
     // Any change of a page's data changes its update time.
   }, [pages.join(), updated.join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const want = useCallback(
     (start: number, end: number) =>
       setWanted((w) => {
-        const base = w.search === search ? w.pages : new Set([0]);
+        const base = w.key === keyString ? w.pages : new Set([0]);
         const missing: number[] = [];
         for (let p = Math.floor(Math.max(0, start) / PAGE_SIZE); p <= Math.floor(Math.max(0, end) / PAGE_SIZE); p++) {
           if (!base.has(p)) missing.push(p);
         }
-        if (!missing.length && w.search === search) return w;
-        return { search, pages: new Set([...base, ...missing]) };
+        if (!missing.length && w.key === keyString) return w;
+        return { key: keyString, pages: new Set([...base, ...missing]) };
       }),
-    [search],
+    [keyString],
   );
   return {
     items,
     total,
+    latest,
     want,
     /** Before the first page is in. */
     isPending: results[0]?.isPending ?? true,
@@ -316,6 +334,7 @@ export function useMoveToTrash() {
     onSettled: () => {
       refreshVersions(qc);
       void qc.invalidateQueries({ queryKey: ['trash'] });
+      void qc.invalidateQueries({ queryKey: ['storage'] });
     },
   });
 }
@@ -328,19 +347,20 @@ export function useRestoreFromTrash() {
     onSettled: () => {
       refreshVersions(qc);
       void qc.invalidateQueries({ queryKey: ['trash'] });
+      void qc.invalidateQueries({ queryKey: ['storage'] });
     },
   });
 }
 
-export function useTrash() {
-  return useInfiniteQuery({
-    queryKey: ['trash'],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) => api.get<TrashPage>(`/api/trash?limit=${PAGE_SIZE}&offset=${pageParam}`),
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((n, p) => n + p.versions.length, 0);
-      return loaded < last.total ? loaded : undefined;
-    },
+/** How many versions are in the trash (a page of one). */
+export function useTrashSummary() {
+  return useQuery({ queryKey: ['trash', 'summary'], queryFn: () => api.get<TrashPage>('/api/trash?limit=1') });
+}
+
+/** Change the user's password: their other sessions are signed out. */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (body: { currentPassword: string; newPassword: string }) => api.post('/api/auth/password', body),
   });
 }
 
@@ -497,7 +517,7 @@ export function useStorage(enabled = true) {
 }
 
 /** Why an upload doesn't fit, worded like the server's refusal. */
-export const storageFull = ({ used, quota }: StorageUsage) =>
+export const storageFull = ({ used, quota }: Pick<StorageUsage, 'used' | 'quota'>) =>
   `Not enough storage: ${formatBytes(used)} of ${formatBytes(quota ?? 0)} used`;
 
 export function useAdminStats() {

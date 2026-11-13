@@ -18,7 +18,7 @@ interface Props {
   joinLeft: boolean;
   joinRight: boolean;
   onClick: (e: React.MouseEvent, photo: Photo) => void;
-  onOpen: (photo: Photo) => void;
+  onOpen?: (photo: Photo) => void;
   /** The pointer entered (a photo id) or left (null) one of the photo's versions. */
   onHover: (photoId: string | null) => void;
 }
@@ -43,7 +43,7 @@ export const PhotoCard = memo(function PhotoCard({
       cursor="pointer"
       userSelect="none"
       onClick={(e) => onClick(e, photo)}
-      onDoubleClick={() => onOpen(photo)}
+      onDoubleClick={onOpen && (() => onOpen(photo))}
       data-group={photo.photoId}
       // The hovered photo's box: highlighted at once (no transition on the way in), fading
       // back with the box's own transition.

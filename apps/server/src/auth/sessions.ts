@@ -34,6 +34,11 @@ export async function getSessionUser(token: string): Promise<SessionUser | null>
   return row ? toSessionUser(row as Users) : null;
 }
 
+/** Sign the user out everywhere but the session `keepToken` (after a password change). */
+export async function deleteOtherSessions(userId: string, keepToken: string): Promise<void> {
+  await db.query(sql`DELETE FROM sessions WHERE user_id = ${userId} AND id <> ${hashToken(keepToken)}`);
+}
+
 export async function deleteSession(token: string): Promise<void> {
   await sessions(db).delete({ id: hashToken(token) });
 }

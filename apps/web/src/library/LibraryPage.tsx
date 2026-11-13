@@ -40,6 +40,7 @@ import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
 import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
+import { useGridSelection } from './useGridSelection.ts';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
 const SORTS = [
@@ -59,8 +60,6 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const library = useLibraryPhotos(search.search);
   const { items, total } = library;
-  /** The photos whose pages are in, in order. */
-  const photos = useMemo(() => items.filter((p) => p !== undefined), [items]);
 
   const location = useLocation();
   // Coming back with the filters it was left with (from the developer): restore the
@@ -72,9 +71,9 @@ export function LibraryPage() {
     const selection = same && (!focus || view.selection.includes(focus)) ? view.selection : focus ? [focus] : [];
     return { scrollTop: same ? view.scrollTop : 0, selection, focusedId: focus ?? (same ? view.focusedId : null) };
   });
-  const [selection, setSelection] = useState<Set<string>>(() => new Set(restored.selection));
-  const [focusedId, setFocusedId] = useState<string | null>(restored.focusedId);
-  const anchorRef = useRef<string | null>(restored.focusedId);
+  const grid = useGridSelection(items, restored);
+  const { photos, selection, focusedId, focusedIndex, selectOne } = grid;
+  const selectedPhotos = grid.selected;
   const scrollTop = useRef(restored.scrollTop);
   // Saved as it changes, not when the library unmounts: the developer's film roll reads
   // it while its route renders, before the library's cleanup would run.
@@ -112,52 +111,6 @@ export function LibraryPage() {
   const upload = useUpload();
   const batchEdit = useBatchEdit();
 
-  // Drop selected photos that are no longer listed (deleted / filtered out): those gone
-  // from the pages that are in. (One whose page isn't in yet may still be listed.)
-  const listedBefore = useRef(new Set<string>());
-  useEffect(() => {
-    const listed = new Set(photos.map((p) => p.id));
-    const gone = [...listedBefore.current].filter((id) => !listed.has(id));
-    listedBefore.current = listed;
-    if (!gone.length) return;
-    setSelection((sel) => {
-      const kept = [...sel].filter((id) => !gone.includes(id));
-      return kept.length === sel.size ? sel : new Set(kept);
-    });
-  }, [photos]);
-  const focusedIndex = useMemo(() => items.findIndex((p) => p?.id === focusedId), [items, focusedId]);
-
-  const selectedPhotos = useMemo(() => photos.filter((p) => selection.has(p.id)), [photos, selection]);
-
-  const selectOne = useCallback((id: string) => {
-    setSelection(new Set([id]));
-    setFocusedId(id);
-    anchorRef.current = id;
-  }, []);
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent, photo: Photo) => {
-      if (e.shiftKey && anchorRef.current) {
-        const ids = photos.map((p) => p.id);
-        const [a, b] = [ids.indexOf(anchorRef.current), ids.indexOf(photo.id)].sort((x, y) => x - y);
-        setSelection(new Set(ids.slice(a, b! + 1)));
-        setFocusedId(photo.id);
-      } else if (e.metaKey || e.ctrlKey) {
-        setSelection((sel) => {
-          const next = new Set(sel);
-          if (next.has(photo.id)) next.delete(photo.id);
-          else next.add(photo.id);
-          return next;
-        });
-        setFocusedId(photo.id);
-        anchorRef.current = photo.id;
-      } else {
-        selectOne(photo.id);
-      }
-    },
-    [photos, selectOne],
-  );
-
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
 
   /** Duplicate each selected version, then select the copies. */
@@ -167,9 +120,7 @@ export function LibraryPage() {
       if (!ids.length) return;
       try {
         const copies = await Promise.all(ids.map((id) => duplicate.mutateAsync({ id, fromOriginal })));
-        setSelection(new Set(copies.map((c) => c.id)));
-        setFocusedId(copies.at(-1)!.id);
-        anchorRef.current = copies.at(-1)!.id;
+        grid.selectMany(copies.map((c) => c.id));
       } catch (err) {
         toaster.create({
           type: 'error',
@@ -178,7 +129,7 @@ export function LibraryPage() {
         });
       }
     },
-    [photos, selection, duplicate],
+    [photos, selection, duplicate, grid.selectMany],
   );
 
   // ── Export (roadmap 8.4): the selection, in the grid's order ──
@@ -244,21 +195,15 @@ export function LibraryPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (loupe || isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
-      const idx = focusedIndex;
       const move = (delta: number) => {
-        const at = Math.min(items.length - 1, Math.max(0, idx < 0 ? 0 : idx + delta));
-        const next = items[at];
+        const missing = grid.step(delta, e.shiftKey);
         // Not in yet: the grid scrolls there, and the page is asked for.
-        if (!next) return library.want(at, at);
-        if (e.shiftKey) {
-          setSelection((sel) => new Set(sel).add(next.id));
-          setFocusedId(next.id);
-        } else selectOne(next.id);
+        if (missing !== null) library.want(missing, missing);
       };
       const key = e.key.toLowerCase();
       if ((e.metaKey || e.ctrlKey) && key === 'a') {
         e.preventDefault();
-        setSelection(new Set(photos.map((p) => p.id)));
+        grid.selectAll();
         return;
       }
       // Copy and paste settings, unless there's text selected to copy.
@@ -303,7 +248,7 @@ export function LibraryPage() {
       else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/versions/${focusedId}/develop`);
       else if ((key === ' ' || key === 'e') && (loupeStart ?? photos[0])) setLoupe(loupeStart ?? photos[0]!.id);
       else if ((key === 'delete' || key === 'backspace') && selection.size) trash(selectedPhotos);
-      else if (key === 'escape') setSelection(new Set());
+      else if (key === 'escape') grid.clear();
       else return;
       e.preventDefault();
     };
@@ -325,16 +270,14 @@ export function LibraryPage() {
     loupe,
     loupeStart,
     photos,
-    items,
-    focusedIndex,
     library,
     focusedId,
     columns,
+    grid,
     selection,
     selectedPhotos,
     applyToSelection,
     duplicateSelection,
-    selectOne,
     navigate,
   ]);
 
@@ -477,7 +420,7 @@ export function LibraryPage() {
             onRange={library.want}
             initialScrollTop={restored.scrollTop}
             onScroll={(top) => (scrollTop.current = top)}
-            onClick={handleClick}
+            onClick={grid.onClick}
             onOpen={openDevelop}
           />
         )}

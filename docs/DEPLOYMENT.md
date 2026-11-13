@@ -179,7 +179,7 @@ the VPS and can delete dumps: if that's a concern, turn on versioning or object 
 the bucket. The dumps are not encrypted by us. They cover the database only; the
 originals are another matter (7.1, 7.3).
 
-**Deleted photos** go to the user's trash (`/trash`) for 30 days first. The app deletes
+**Deleted photos** go to the user's trash (`/settings/trash`) for 30 days first. The app deletes
 what's older every hour (and when it starts), and that, or a user deleting from the
 trash, is the only way originals and renders leave storage. Restoring a database dump
 older than a purge brings back rows whose files are gone: their renders are missing and

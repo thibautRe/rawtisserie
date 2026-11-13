@@ -36,7 +36,7 @@ import { tracks } from '../develop/slider.ts';
 import { PanelBlock } from '../library/PanelBlock.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
-import { StorageMeter } from '../components/StorageMeter.tsx';
+import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
 /**
@@ -711,6 +711,23 @@ export function UiPage() {
             <StorageMeter usage={{ used: 12.3 * 1024 ** 3, quota: 50 * 1024 ** 3 }} />
             <StorageMeter usage={{ used: 47.5 * 1024 ** 3, quota: 50 * 1024 ** 3 }} />
             <StorageMeter usage={{ used: 312 * 1024 ** 3, quota: null }} />
+          </HStack>
+        </Block>
+
+        <Block
+          title="Storage breakdown"
+          guide="On the settings page: the library and the trash against the quota (or splitting what's stored, when unlimited)."
+        >
+          <HStack gap="8" align="start">
+            <Box w="64">
+              <StorageBreakdown usage={{ used: 32.4 * 1024 ** 3, trash: 6.1 * 1024 ** 3, quota: 50 * 1024 ** 3 }} />
+            </Box>
+            <Box w="64">
+              <StorageBreakdown usage={{ used: 46.2 * 1024 ** 3, trash: 1.2 * 1024 ** 3, quota: 50 * 1024 ** 3 }} />
+            </Box>
+            <Box w="64">
+              <StorageBreakdown usage={{ used: 312 * 1024 ** 3, trash: 40 * 1024 ** 3, quota: null }} />
+            </Box>
           </HStack>
         </Block>
       </Container>

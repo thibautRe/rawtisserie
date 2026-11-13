@@ -9,7 +9,10 @@ export interface User {
 
 /** A user's original files against their quota, in bytes (`quota` null: unlimited). */
 export interface StorageUsage {
+  /** Everything stored, the trash included. */
   used: number;
+  /** Of `used`, the originals whose versions are all in the trash. */
+  trash: number;
   quota: number | null;
 }
 

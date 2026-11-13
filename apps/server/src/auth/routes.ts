@@ -8,6 +8,7 @@ import {
   SESSION_COOKIE,
   type SessionUser,
   createSession,
+  deleteOtherSessions,
   deleteSession,
   findUserByEmail,
   getSessionUser,
@@ -23,6 +24,10 @@ declare module 'fastify' {
 const Credentials = z.object({
   email: z.email().max(320),
   password: z.string().min(8).max(1024),
+});
+const PasswordChange = z.object({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword: Credentials.shape.password,
 });
 const Signup = Credentials.extend({
   displayName: z.string().trim().min(1).max(100),
@@ -128,6 +133,18 @@ export async function authRoutes(app: FastifyInstance) {
     if (!user || !ok) return reply.code(401).send({ error: 'Invalid email or password' });
     await startSession(reply, user.id);
     return { user: toSessionUser(user) };
+  });
+
+  /** Change the user's password; their other sessions are signed out. */
+  app.post('/api/auth/password', { preHandler: requireUser }, async (request, reply) => {
+    const { currentPassword, newPassword } = PasswordChange.parse(request.body);
+    const user = (await users(db).findOne({ id: currentUser(request).id }))!;
+    if (!(await verifyPassword(currentPassword, user.password_hash))) {
+      return reply.code(400).send({ error: 'The current password is wrong' });
+    }
+    await users(db).update({ id: user.id }, { password_hash: await hashPassword(newPassword) });
+    await deleteOtherSessions(user.id, request.cookies[SESSION_COOKIE]!);
+    return { ok: true };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

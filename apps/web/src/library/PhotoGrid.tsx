@@ -24,7 +24,8 @@ interface Props {
   initialScrollTop?: number;
   onScroll?: (top: number) => void;
   onClick: (e: React.MouseEvent, photo: Photo) => void;
-  onOpen: (photo: Photo) => void;
+  /** Double-click (none: nothing happens). */
+  onOpen?: (photo: Photo) => void;
 }
 
 /**

@@ -9,7 +9,10 @@ import { type Queryable, sql } from '@databases/pg';
 export const GB = 1024 ** 3;
 
 export interface StorageUsage {
+  /** Everything stored, the trash included. */
   used: number;
+  /** Of `used`, the originals whose versions are all in the trash. */
+  trash: number;
   /** Bytes, or null for unlimited. */
   quota: number | null;
 }
@@ -21,14 +24,17 @@ export interface StorageUsage {
 export async function storageUsage(q: Queryable, userId: string, { lock = false } = {}): Promise<StorageUsage> {
   const [row] = (await q.query(sql`
     SELECT u.storage_quota AS quota,
-      (SELECT coalesce(sum(p.file_size), 0) FROM photos p WHERE p.owner_id = u.id)::bigint AS used
+      (SELECT coalesce(sum(p.file_size), 0) FROM photos p WHERE p.owner_id = u.id)::bigint AS used,
+      (SELECT coalesce(sum(p.file_size), 0) FROM photos p WHERE p.owner_id = u.id
+        AND NOT EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id AND v.trashed_at IS NULL))::bigint AS trash
     FROM users u WHERE u.id = ${userId}
-    ${lock ? sql`FOR UPDATE OF u` : sql``}`)) as { quota: number | null; used: number }[];
+    ${lock ? sql`FOR UPDATE OF u` : sql``}`)) as { quota: number | null; used: number; trash: number }[];
   if (!row) throw new Error(`no user ${userId}`);
-  return { used: row.used, quota: row.quota };
+  return { used: row.used, trash: row.trash, quota: row.quota };
 }
 
-export const fits = ({ used, quota }: StorageUsage, size: number) => quota === null || used + size <= quota;
+export const fits = ({ used, quota }: Pick<StorageUsage, 'used' | 'quota'>, size: number) =>
+  quota === null || used + size <= quota;
 
 export function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -41,5 +47,5 @@ export function formatBytes(bytes: number): string {
 }
 
 /** Why an upload was refused. */
-export const quotaExceeded = ({ used, quota }: StorageUsage) =>
+export const quotaExceeded = ({ used, quota }: Pick<StorageUsage, 'used' | 'quota'>) =>
   `Not enough storage: ${formatBytes(used)} of ${formatBytes(quota ?? 0)} used`;

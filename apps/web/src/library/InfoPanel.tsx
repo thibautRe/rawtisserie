@@ -54,10 +54,10 @@ import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { TAG_INPUT_ID, useTagCompletion } from './TagCompletion.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 
-const PANEL_PROPS = { as: 'aside', w: '80', flexShrink: 0, borderLeftWidth: '1px' } as const;
+export const PANEL_PROPS = { as: 'aside', w: '80', flexShrink: 0, borderLeftWidth: '1px' } as const;
 
 /** The single-photo preview's box, square so photos of either orientation look the same size: the panel's width inside its block (CSS px). */
-const PREVIEW_SIZE = 295;
+export const PREVIEW_SIZE = 295;
 
 interface Actions {
   onDelete: (versions: Photo[]) => void;
@@ -509,7 +509,7 @@ function SinglePanel({
 }
 
 /** What the file says about the capture, as a list (the empty ones left out). */
-function CaptureDetails({ photo }: { photo: Photo }) {
+export function CaptureDetails({ photo }: { photo: Photo }) {
   const camera = [photo.cameraMake, photo.cameraModel].filter(Boolean).join(' ');
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(' · ') || null;
   // Label, value, and whether it's a number (in the numeric font).

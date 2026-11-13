@@ -1,5 +1,5 @@
 import { Box, IconButton, Menu, Portal, Text } from '@chakra-ui/react';
-import { Aperture, Images, LogIn, LogOut, ShieldCheck, Trash2 } from 'lucide-react';
+import { Aperture, Images, LogIn, LogOut, Settings, ShieldCheck } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { useLogout, useMe, useStorage } from '../api/hooks.ts';
 import { libraryPath } from '../library/libraryView.ts';
@@ -31,11 +31,6 @@ export function AppMenu() {
                 <Images /> Library
               </Menu.Item>
             )}
-            {user && (
-              <Menu.Item value="trash" disabled={pathname === '/trash'} onClick={() => navigate('/trash')}>
-                <Trash2 /> Trash
-              </Menu.Item>
-            )}
             <Menu.Item value="develop" disabled={pathname === '/develop'} onClick={() => navigate('/develop')}>
               <Aperture /> Develop a local file
             </Menu.Item>
@@ -53,6 +48,9 @@ export function AppMenu() {
                     </Box>
                   )}
                 </Box>
+                <Menu.Item value="settings" disabled={pathname === '/settings'} onClick={() => navigate('/settings')}>
+                  <Settings /> Settings
+                </Menu.Item>
                 {user.isAdmin && (
                   <Menu.Item value="admin" disabled={pathname === '/admin'} onClick={() => navigate('/admin')}>
                     <ShieldCheck /> Admin

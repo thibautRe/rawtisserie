@@ -1261,7 +1261,7 @@ cheaper class (OVH Infrequent Access, or Active Archive if its reads are immedia
 
 ### 7.3 Backups and soft delete (S–M, after 7.1)
 
-> **Soft delete done** 2026-11-13, as a trash (`photos/trash.ts`, `/trash`): deleting from
+> **Soft delete done** 2026-11-13, as a trash (`photos/trash.ts`, `/settings/trash`): deleting from
 > the library moves versions to the user's trash (`versions.trashed_at`), with an Undo in
 > the toast and no confirmation. From the trash they can be restored, or deleted for good
 > (a selection, or "Empty trash", confirmed). After 30 days the server deletes them (an
@@ -1269,6 +1269,10 @@ cheaper class (OVH Infrequent Access, or Active Archive if its reads are immedia
 > trash counts towards the quota until then. Uploading a file that's only in the trash
 > adds a new version to it. Postgres backups: nightly dumps, 30 days, to a bucket (done
 > 2026-11-12). Left: a copy of originals with a second provider, and testing restores.
+> Feedback the same day: the trash is the library's grid, selection, side panel (with
+> when each item goes) and loupe (read-only), reached from a new settings page
+> (`/settings`: storage split between the library and the trash, password change), and
+> the toast links to it.
 
 Multi-zone storage protects against losing a data centre, not against bugs, mistakes or
 losing the account.

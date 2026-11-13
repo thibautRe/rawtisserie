@@ -28,10 +28,11 @@ interface Props {
   /** Where the first of `photos` is in the library's list, and how many it lists. */
   offset?: number;
   total?: number;
-  onChange: (id: string, patch: BulkPatch) => void;
+  /** Rate, flag or label a photo (none: the loupe only shows them, as in the trash). */
+  onChange?: (id: string, patch: BulkPatch) => void;
   /** Closed on this photo. */
   onClose: (id: string) => void;
-  onDevelop: (id: string) => void;
+  onDevelop?: (id: string) => void;
 }
 
 /** How long a photo must stay before its zoom levels are asked (which decodes it on the server). */
@@ -87,6 +88,7 @@ export function Loupe({
 
   const [, forceRender] = useReducer((n: number) => n + 1, 0);
   const change = (patch: BulkPatch) => {
+    if (!onChange) return;
     seen.current.set(photo.id, { ...photo, ...patch });
     onChange(photo.id, patch);
     if (autoAdvance && advancesOn(patch)) go(index + 1);
@@ -156,6 +158,7 @@ export function Loupe({
     const target = e.target as HTMLElement | null;
     if (e.metaKey || e.ctrlKey || e.altKey || target?.closest('input, textarea, select, [contenteditable]')) return;
     const key = e.key.toLowerCase();
+    if (!onChange && /^[0-9pxua]$/.test(key)) return;
     if (/^[0-5]$/.test(key)) change({ rating: Number(key) });
     else if (/^[6-9]$/.test(key)) {
       const label = COLOR_LABELS[Number(key) - 6]!;
@@ -170,7 +173,7 @@ export function Loupe({
     else if (key === 'z') zoomTo(zoom ? null : 1);
     else if (key === 'a') setAutoAdvance((a) => !a);
     else if (key === 'i') setShowInfo((s) => !s);
-    else if (key === 'd' || key === 'enter') onDevelop(photo.id);
+    else if ((key === 'd' || key === 'enter') && onDevelop) onDevelop(photo.id);
     else if (key === 'escape' || key === 'e' || key === ' ') onClose(photo.id);
     else return;
     e.preventDefault();
@@ -214,27 +217,31 @@ export function Loupe({
               {zoom ? `${Math.round(scale * 100)} %` : 'Fit'}
             </Text>
           )}
-          <Switch.Root
-            size="sm"
-            colorPalette="orange"
-            checked={autoAdvance}
-            onCheckedChange={(e) => setAutoAdvance(e.checked)}
-            title="Move on after a rating or a flag (A)"
-          >
-            <Switch.HiddenInput />
-            <Switch.Control />
-            <Switch.Label>Auto-advance</Switch.Label>
-          </Switch.Root>
-          <IconButton
-            size="sm"
-            variant="ghost"
-            color="white"
-            aria-label="Develop (D)"
-            title="Develop (D)"
-            onClick={() => onDevelop(photo.id)}
-          >
-            <SlidersHorizontal />
-          </IconButton>
+          {onChange && (
+            <Switch.Root
+              size="sm"
+              colorPalette="orange"
+              checked={autoAdvance}
+              onCheckedChange={(e) => setAutoAdvance(e.checked)}
+              title="Move on after a rating or a flag (A)"
+            >
+              <Switch.HiddenInput />
+              <Switch.Control />
+              <Switch.Label>Auto-advance</Switch.Label>
+            </Switch.Root>
+          )}
+          {onDevelop && (
+            <IconButton
+              size="sm"
+              variant="ghost"
+              color="white"
+              aria-label="Develop (D)"
+              title="Develop (D)"
+              onClick={() => onDevelop(photo.id)}
+            >
+              <SlidersHorizontal />
+            </IconButton>
+          )}
           <IconButton
             size="sm"
             variant="ghost"
@@ -327,66 +334,72 @@ export function Loupe({
       )}
       {showInfo && (
         <HStack px="3" py="2" gap="4" bg="blackAlpha.800" flexShrink="0" textStyle="sm">
-          <HStack gap="0.5" title="Rating (0–5)">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <IconButton
-                key={n}
-                size="xs"
-                variant="ghost"
-                color={n <= photo.rating ? 'orange.300' : 'whiteAlpha.500'}
-                aria-label={`${n} star${n === 1 ? '' : 's'}`}
-                onClick={() => change({ rating: photo.rating === n ? 0 : n })}
-              >
-                <Star fill={n <= photo.rating ? 'currentColor' : 'none'} />
-              </IconButton>
-            ))}
-          </HStack>
-          <HStack gap="1">
-            <IconButton
-              size="xs"
-              variant={photo.flag === 'picked' ? 'solid' : 'ghost'}
-              colorPalette="green"
-              color={photo.flag === 'picked' ? undefined : 'whiteAlpha.700'}
-              aria-label="Pick (P)"
-              title="Pick (P)"
-              onClick={() => change({ flag: photo.flag === 'picked' ? null : 'picked' })}
-            >
-              <Check />
-            </IconButton>
-            <IconButton
-              size="xs"
-              variant={rejected ? 'solid' : 'ghost'}
-              colorPalette="red"
-              color={rejected ? undefined : 'whiteAlpha.700'}
-              aria-label="Reject (X)"
-              title="Reject (X)"
-              onClick={() => change({ flag: rejected ? null : 'rejected' })}
-            >
-              <X />
-            </IconButton>
-          </HStack>
-          <HStack gap="1.5">
-            {COLOR_LABELS.map((label, i) => (
-              <Circle
-                key={label}
-                as="button"
-                size="3.5"
-                bg={LABEL_COLORS[label]}
-                opacity={photo.colorLabel === label ? 1 : 0.3}
-                borderWidth={photo.colorLabel === label ? '2px' : 0}
-                borderColor="white"
-                cursor="pointer"
-                aria-label={`${label} label (${i + 6})`}
-                title={`${label[0]!.toUpperCase()}${label.slice(1)} (${i + 6})`}
-                onClick={() => change({ colorLabel: photo.colorLabel === label ? null : label })}
-              />
-            ))}
-          </HStack>
+          {onChange && (
+            <>
+              <HStack gap="0.5" title="Rating (0–5)">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <IconButton
+                    key={n}
+                    size="xs"
+                    variant="ghost"
+                    color={n <= photo.rating ? 'orange.300' : 'whiteAlpha.500'}
+                    aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                    onClick={() => change({ rating: photo.rating === n ? 0 : n })}
+                  >
+                    <Star fill={n <= photo.rating ? 'currentColor' : 'none'} />
+                  </IconButton>
+                ))}
+              </HStack>
+              <HStack gap="1">
+                <IconButton
+                  size="xs"
+                  variant={photo.flag === 'picked' ? 'solid' : 'ghost'}
+                  colorPalette="green"
+                  color={photo.flag === 'picked' ? undefined : 'whiteAlpha.700'}
+                  aria-label="Pick (P)"
+                  title="Pick (P)"
+                  onClick={() => change({ flag: photo.flag === 'picked' ? null : 'picked' })}
+                >
+                  <Check />
+                </IconButton>
+                <IconButton
+                  size="xs"
+                  variant={rejected ? 'solid' : 'ghost'}
+                  colorPalette="red"
+                  color={rejected ? undefined : 'whiteAlpha.700'}
+                  aria-label="Reject (X)"
+                  title="Reject (X)"
+                  onClick={() => change({ flag: rejected ? null : 'rejected' })}
+                >
+                  <X />
+                </IconButton>
+              </HStack>
+              <HStack gap="1.5">
+                {COLOR_LABELS.map((label, i) => (
+                  <Circle
+                    key={label}
+                    as="button"
+                    size="3.5"
+                    bg={LABEL_COLORS[label]}
+                    opacity={photo.colorLabel === label ? 1 : 0.3}
+                    borderWidth={photo.colorLabel === label ? '2px' : 0}
+                    borderColor="white"
+                    cursor="pointer"
+                    aria-label={`${label} label (${i + 6})`}
+                    title={`${label[0]!.toUpperCase()}${label.slice(1)} (${i + 6})`}
+                    onClick={() => change({ colorLabel: photo.colorLabel === label ? null : label })}
+                  />
+                ))}
+              </HStack>
+            </>
+          )}
           <Text color="whiteAlpha.800" truncate flex="1">
             {exifLine(photo)}
           </Text>
           <Text color="whiteAlpha.600" whiteSpace="nowrap" hideBelow="lg">
-            ← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · A auto-advance · Esc close
+            {onChange
+              ? '← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · A auto-advance · Esc close'
+              : '← → move · Z zoom · Esc close'}
           </Text>
         </HStack>
       )}
