@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AUTO_RECIPE_LABEL, defaultEditParams, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
+import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
@@ -553,10 +554,21 @@ export async function photoRoutes(
         skipped.push({ filename, reason: `Already in your library as ${duplicate.original_filename}` });
         continue;
       }
+      // Checked before storing the file, so an upload over quota costs nothing more…
+      const before = await storageUsage(db, user.id);
+      if (!fits(before, upload.size)) {
+        await discardUpload(upload);
+        skipped.push({ filename, reason: quotaExceeded(before) });
+        continue;
+      }
       const id = randomUUID();
       const storageKey = `${user.id}/${id}${ext}`;
       await commitUpload(upload, storageKey);
-      const versionId = await db.tx(async (tx) => {
+      const inserted = await db.tx(async (tx) => {
+        // …and again under the user's row lock, so concurrent uploads can't all take the
+        // last free bytes.
+        const usage = await storageUsage(tx, user.id, { lock: true });
+        if (!fits(usage, upload.size)) return { versionId: null, usage };
         await photos(tx).insert({
           id,
           owner_id: user.id,
@@ -566,8 +578,14 @@ export async function photoRoutes(
           sha256: upload.sha256,
         });
         const [version] = await versions(tx).insert({ photo_id: id });
-        return version!.id;
+        return { versionId: version!.id, usage };
       });
+      const { versionId } = inserted;
+      if (!versionId) {
+        await deleteOriginal(storageKey);
+        skipped.push({ filename, reason: quotaExceeded(inserted.usage) });
+        continue;
+      }
       created.push(versionDto(await findVersion(user.id, versionId)));
       renderQueue.enqueue(versionId);
     }

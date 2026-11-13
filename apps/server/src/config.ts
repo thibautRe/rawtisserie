@@ -9,6 +9,15 @@ function required(name: string): string {
   return value;
 }
 
+/** `DEFAULT_STORAGE_QUOTA_GB` in bytes (GB of 1024³ bytes), or null for unlimited. */
+function defaultStorageQuota(): number | null {
+  const value = process.env.DEFAULT_STORAGE_QUOTA_GB;
+  if (!value) return null;
+  const gb = Number(value);
+  if (!(gb >= 0)) throw new Error(`DEFAULT_STORAGE_QUOTA_GB must be a number of GB, not ${value}`);
+  return Math.round(gb * 1024 ** 3);
+}
+
 /** S3-compatible object storage, when `S3_BUCKET` is set; local disk otherwise. */
 function s3Config() {
   const bucket = process.env.S3_BUCKET;
@@ -32,7 +41,10 @@ export const config = {
   storageDir: path.resolve(repoRoot, process.env.STORAGE_DIR ?? 'data'),
   s3: s3Config(),
   webDistDir: path.resolve(repoRoot, 'apps/web/dist'),
-  allowSignup: process.env.ALLOW_SIGNUP !== 'false',
+  /** Sign-up without an invitation. */
+  allowSignup: process.env.ALLOW_SIGNUP === 'true',
+  /** Quota of accounts created without an invitation. */
+  defaultStorageQuota: defaultStorageQuota(),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   sessionTtlDays: 30,
   maxUploadBytes: 400 * 1024 * 1024,

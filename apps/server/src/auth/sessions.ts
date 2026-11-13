@@ -9,12 +9,13 @@ export interface SessionUser {
   id: string;
   email: string;
   displayName: string;
+  isAdmin: boolean;
 }
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('base64url');
 
 export function toSessionUser(user: Users): SessionUser {
-  return { id: user.id, email: user.email, displayName: user.display_name };
+  return { id: user.id, email: user.email, displayName: user.display_name, isAdmin: user.is_admin };
 }
 
 /** Create a session and return the opaque token to put in the cookie. */

@@ -4,6 +4,7 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
+import { accountRoutes } from './accounts/routes.ts';
 import { authPlugin, authRoutes } from './auth/routes.ts';
 import { config } from './config.ts';
 import { exportRoutes } from './exports/routes.ts';
@@ -53,6 +54,7 @@ export async function buildApp() {
   await app.register(presetRoutes);
   await app.register(exportRoutes);
   await app.register(lutRoutes);
+  await app.register(accountRoutes);
 
   app.get('/api/health', async () => ({ ok: true }));
 

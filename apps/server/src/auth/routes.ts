@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { claimInvitation, findInvitation, invitationProblem } from '../accounts/invitations.ts';
 import { config } from '../config.ts';
 import { db, users } from '../db.ts';
 import { hashPassword, verifyPassword } from './password.ts';
@@ -23,7 +24,11 @@ const Credentials = z.object({
   email: z.email().max(320),
   password: z.string().min(8).max(1024),
 });
-const Signup = Credentials.extend({ displayName: z.string().trim().min(1).max(100) });
+const Signup = Credentials.extend({
+  displayName: z.string().trim().min(1).max(100),
+  /** An invitation's code; required unless `ALLOW_SIGNUP`. */
+  invitation: z.string().min(1).max(100).optional(),
+});
 
 // A real hash, so that unknown emails take as long as wrong passwords.
 const dummyHash = await hashPassword('not-a-real-password');
@@ -43,6 +48,12 @@ export async function requireUser(request: FastifyRequest, reply: FastifyReply) 
   if (!request.user) {
     return reply.code(401).send({ error: 'Authentication required' });
   }
+}
+
+/** Route guard: 401 unless logged in, 403 unless an admin. */
+export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
+  if (!request.user) return reply.code(401).send({ error: 'Authentication required' });
+  if (!request.user.isAdmin) return reply.code(403).send({ error: 'Admins only' });
 }
 
 export function currentUser(request: FastifyRequest): SessionUser {
@@ -69,19 +80,45 @@ export async function authRoutes(app: FastifyInstance) {
     return { user: request.user };
   });
 
+  /** Whether an invitation can be used, and the storage it gives (bytes, null: unlimited). */
+  app.get('/api/auth/invitations/:code', async (request, reply) => {
+    const { code } = z.object({ code: z.string().min(1).max(100) }).parse(request.params);
+    const invitation = await findInvitation(db, code);
+    const problem = invitationProblem(invitation);
+    if (problem) return reply.code(404).send({ error: problem });
+    return { storageQuota: invitation!.storage_quota };
+  });
+
   app.post('/api/auth/signup', async (request, reply) => {
-    if (!config.allowSignup) return reply.code(403).send({ error: 'Sign-up is disabled' });
     const body = Signup.parse(request.body);
+    if (!body.invitation && !config.allowSignup) {
+      return reply.code(403).send({ error: 'Sign-up needs an invitation' });
+    }
     if (await findUserByEmail(body.email)) {
       return reply.code(409).send({ error: 'An account with this email already exists' });
     }
-    const [user] = await users(db).insert({
-      email: body.email,
-      display_name: body.displayName,
-      password_hash: await hashPassword(body.password),
+    const passwordHash = await hashPassword(body.password);
+    const result = await db.tx(async (tx) => {
+      let quota = config.defaultStorageQuota;
+      let invitationId: string | null = null;
+      if (body.invitation) {
+        const claimed = await claimInvitation(tx, body.invitation);
+        if ('error' in claimed) return claimed;
+        quota = claimed.invitation.storage_quota;
+        invitationId = claimed.invitation.id;
+      }
+      const [user] = await users(tx).insert({
+        email: body.email,
+        display_name: body.displayName,
+        password_hash: passwordHash,
+        storage_quota: quota,
+        invitation_id: invitationId,
+      });
+      return { user: user! };
     });
-    await startSession(reply, user!.id);
-    return { user: toSessionUser(user!) };
+    if ('error' in result) return reply.code(403).send({ error: result.error });
+    await startSession(reply, result.user.id);
+    return { user: toSessionUser(result.user) };
   });
 
   app.post('/api/auth/login', async (request, reply) => {
