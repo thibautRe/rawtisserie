@@ -52,7 +52,7 @@ Sign-up is by invitation: admins create them at `/admin/invitations` (a link tha
 creates up to N accounts, each with a storage quota, optionally expiring), and set each
 user's quota at `/admin/users`. `/admin` itself is an overview of the instance
 (accounts, photos, storage, and the render queue: what's waiting now, and its peak, longest
-wait and throughput over 24 hours and 7 days, from the hourly `render_stats` table). Quotas count original files only. A new server
+wait and throughput over 24 hours and 7 days, from the hourly `render_stats` table). Quotas count original files only, those in the trash included. A new server
 has no admin, so the first one comes from the command line:
 
 ```sh
@@ -178,6 +178,12 @@ once. Use a bucket of its own and an S3 user limited to it. Those credentials si
 the VPS and can delete dumps: if that's a concern, turn on versioning or object lock on
 the bucket. The dumps are not encrypted by us. They cover the database only; the
 originals are another matter (7.1, 7.3).
+
+**Deleted photos** go to the user's trash (`/trash`) for 30 days first. The app deletes
+what's older every hour (and when it starts), and that, or a user deleting from the
+trash, is the only way originals and renders leave storage. Restoring a database dump
+older than a purge brings back rows whose files are gone: their renders are missing and
+they can't be rendered again.
 
 To restore one:
 

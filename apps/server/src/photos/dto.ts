@@ -31,12 +31,15 @@ export type VersionRow = Versions &
     | 'copyright'
   > & { version_count: number; version_index: number };
 
+/** Siblings `s` that count for a version `v`: those in the library, and itself (in the trash). */
+const COUNTED = sql`(s.trashed_at IS NULL OR s.id = v.id)`;
+
 export const VERSION_COLUMNS = sql`v.*, p.owner_id, p.original_filename, p.file_size, p.camera_make, p.camera_model,
   p.lens, p.iso, p.exposure_time, p.f_number, p.focal_length, p.exposure_bias, p.captured_at, p.width, p.height,
   p.gps_latitude, p.gps_longitude, p.artist, p.copyright,
-  (SELECT count(*)::int FROM versions s WHERE s.photo_id = v.photo_id) AS version_count,
-  (SELECT count(*)::int + 1 FROM versions s WHERE s.photo_id = v.photo_id AND (s.position, s.id) < (v.position, v.id))
-    AS version_index`;
+  (SELECT count(*)::int FROM versions s WHERE s.photo_id = v.photo_id AND ${COUNTED}) AS version_count,
+  (SELECT count(*)::int + 1 FROM versions s
+    WHERE s.photo_id = v.photo_id AND ${COUNTED} AND (s.position, s.id) < (v.position, v.id)) AS version_index`;
 
 const renderUrl = (v: Pick<Versions, 'id' | 'render_version'>, size: 'thumb' | 'preview') =>
   v.render_version > 0 ? `/api/versions/${v.id}/render/${size}?v=${v.render_version}` : null;

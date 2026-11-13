@@ -1,4 +1,4 @@
-/** Library filtering: query-string → SQL conditions over `versions v JOIN photos p`. */
+/** Library filtering: query-string → SQL conditions over `versions v JOIN photos p` (trash left out). */
 import type { SQLQuery } from '@databases/pg';
 import { z } from 'zod';
 import { sql } from '../db.ts';
@@ -57,7 +57,7 @@ export const PhotoListQuery = PhotoFilters.extend({
 });
 
 export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
-  const c: SQLQuery[] = [sql`p.owner_id = ${ownerId}`];
+  const c: SQLQuery[] = [sql`p.owner_id = ${ownerId}`, sql`v.trashed_at IS NULL`];
   if (f.q) {
     const like = `%${f.q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     c.push(sql`(p.original_filename ILIKE ${like} OR v.name ILIKE ${like} OR v.title ILIKE ${like}

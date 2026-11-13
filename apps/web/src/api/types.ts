@@ -30,8 +30,10 @@ export interface AdminUser {
 /** The instance at a glance (admin overview); "recent" is the last 30 days. */
 export interface AdminStats {
   users: { total: number; admins: number; recent: number; invited: number };
-  photos: { total: number; recent: number; versions: number };
-  storage: { used: number; allocated: number; unlimitedUsers: number };
+  /** `versions`: in libraries; `trashed`: in the trash. */
+  photos: { total: number; recent: number; versions: number; trashed: number };
+  /** `used` includes `trash`: originals whose versions are all in the trash. */
+  storage: { used: number; trash: number; allocated: number; unlimitedUsers: number };
   renders: {
     pending: number;
     failed: number;
@@ -76,6 +78,24 @@ export type ColorLabel = (typeof COLOR_LABELS)[number];
  * A library item: one version of a photo (darktable's "duplicate"). `id` is the
  * version id; the file and its metadata belong to the photo and are shared by its versions.
  */
+/** A version in the trash. */
+export interface TrashItem extends Photo {
+  trashedAt: string;
+  /** When it will be deleted for good. */
+  deleteAt: string;
+  /** None of the photo's versions is left in the library: deleting this one may delete the original. */
+  photoInTrash: boolean;
+}
+
+export interface TrashPage {
+  versions: TrashItem[];
+  total: number;
+  /** The storage emptying the trash would free. */
+  bytes: number;
+  /** How long things stay in the trash. */
+  days: number;
+}
+
 export interface Photo {
   id: string;
   photoId: string;

@@ -33,6 +33,7 @@ import type {
   PhotoDetail,
   PhotoPatch,
   StorageUsage,
+  TrashPage,
   User,
 } from './types.ts';
 
@@ -295,22 +296,67 @@ export function useBulkUpdate() {
   });
 }
 
-export function useDeletePhotos() {
+/**
+ * Move versions to the trash (restorable for 30 days). Their files stay stored, so the
+ * storage used doesn't change.
+ */
+export function useMoveToTrash() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) => api.post<{ deleted: string[] }>('/api/versions/delete', { ids }),
-    onSuccess: ({ deleted }) => {
-      // Deleting a photo's last version deletes its file.
-      void qc.invalidateQueries({ queryKey: ['storage'] });
-      const gone = new Set(deleted);
+    mutationFn: (ids: string[]) => api.post<{ trashed: string[] }>('/api/versions/delete', { ids }),
+    onSuccess: ({ trashed }) => {
+      const gone = new Set(trashed);
       qc.setQueriesData<CachedPhotos>({ queryKey: ['photos'] }, (data) =>
         mapPages(data, (page) => ({
-          total: page.total - deleted.length,
+          total: page.total - page.versions.filter((p) => gone.has(p.id)).length,
           versions: page.versions.filter((p) => !gone.has(p.id)),
         })),
       );
     },
-    onSettled: () => refreshVersions(qc),
+    onSettled: () => {
+      refreshVersions(qc);
+      void qc.invalidateQueries({ queryKey: ['trash'] });
+    },
+  });
+}
+
+/** Put versions from the trash back in the library. */
+export function useRestoreFromTrash() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.post<{ restored: string[] }>('/api/trash/restore', { ids }),
+    onSettled: () => {
+      refreshVersions(qc);
+      void qc.invalidateQueries({ queryKey: ['trash'] });
+    },
+  });
+}
+
+export function useTrash() {
+  return useInfiniteQuery({
+    queryKey: ['trash'],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.get<TrashPage>(`/api/trash?limit=${PAGE_SIZE}&offset=${pageParam}`),
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.versions.length, 0);
+      return loaded < last.total ? loaded : undefined;
+    },
+  });
+}
+
+/** Delete versions from the trash for good (`ids`), or everything in it (`'all'`). */
+export function useDeleteForever() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[] | 'all') =>
+      ids === 'all'
+        ? api.post<{ deleted: string[] }>('/api/trash/empty')
+        : api.post<{ deleted: string[] }>('/api/trash/delete', { ids }),
+    onSettled: () => {
+      // A photo's original goes with its last version.
+      void qc.invalidateQueries({ queryKey: ['storage'] });
+      void qc.invalidateQueries({ queryKey: ['trash'] });
+    },
   });
 }
 

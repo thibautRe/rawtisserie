@@ -49,6 +49,10 @@ See README.md for the architecture overview and commands.
   wasm32-unknown-unknown (`std::time::Instant` panics there).
   `packages/pipeline/src/goldenRaws.test.ts` decodes every golden RAW through the wasm
   build. When upgrading rawler, drop the patch if a release has the fix, or tag a new one.
+- Deleting from the library moves versions to the trash (`versions.trashed_at`,
+  `photos/trash.ts`); only the trash deletes rows and files. Anything that reads
+  versions for the library must leave trashed ones out (`whereClause`, `findVersion`
+  do; the trash's own routes and the render queue don't).
 - Storage quotas count original files only (`accounts/quota.ts`); anything new that
   stores user files must decide whether it counts, and check `fits` before storing.
   Admin-only routes use `requireAdmin` (and the page checks `isAdmin` too).

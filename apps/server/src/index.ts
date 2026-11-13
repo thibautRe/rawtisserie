@@ -4,6 +4,7 @@ import { config } from './config.ts';
 import { db } from './db.ts';
 import { collectLuts } from './luts/storage.ts';
 import { migrate } from './migrate.ts';
+import { startTrashPurge } from './photos/trash.ts';
 
 if (config.migrateOnStart) await migrate(db);
 
@@ -12,6 +13,7 @@ renderQueue.start();
 await renderQueue.enqueuePending();
 await deleteExpiredSessions();
 await collectLuts(db);
+startTrashPurge(app.log);
 
 await app.listen({ port: config.port, host: config.host });
 

@@ -11,6 +11,7 @@ import { exportRoutes } from './exports/routes.ts';
 import { isolationReports } from './isolation.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
+import { trashRoutes } from './photos/trash.ts';
 import { presetRoutes } from './presets/routes.ts';
 import { RenderQueue } from './render/queue.ts';
 import { ZoomRenderer } from './render/zoom.ts';
@@ -51,6 +52,7 @@ export async function buildApp() {
   await app.register(authPlugin);
   await app.register(authRoutes);
   await app.register(photoRoutes, { renderQueue, zoom });
+  await app.register(trashRoutes);
   await app.register(presetRoutes);
   await app.register(exportRoutes);
   await app.register(lutRoutes);

@@ -23,7 +23,6 @@ import {
   RENDER_SIZES,
   commitUpload,
   deleteOriginal,
-  deleteRenders,
   discardUpload,
   originalKey,
   receiveUpload,
@@ -166,9 +165,11 @@ export async function photoRoutes(
 ) {
   app.addHook('preHandler', requireUser);
 
-  const findVersion = async (ownerId: string, id: string) => {
+  /** A version of the user's in the library (or, with `inTrash`, in their trash too). */
+  const findVersion = async (ownerId: string, id: string, { inTrash = false } = {}) => {
     const [row] = (await db.query(sql`
-      SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ${id} AND p.owner_id = ${ownerId}`)) as VersionRow[];
+      SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM}
+      WHERE v.id = ${id} AND p.owner_id = ${ownerId} AND (v.trashed_at IS NULL OR ${inTrash})`)) as VersionRow[];
     if (!row) throw notFound('Photo not found');
     return row;
   };
@@ -178,7 +179,9 @@ export async function photoRoutes(
     const [photo, history, siblings] = await Promise.all([
       photos(db).findOne({ id: row.photo_id }),
       historyEntries(db).find({ version_id: id }).orderByAsc('seq').all(),
-      versions(db).find({ photo_id: row.photo_id }).orderByAsc('position').orderByAsc('id').all(),
+      db.query(sql`
+        SELECT * FROM versions WHERE photo_id = ${row.photo_id} AND trashed_at IS NULL
+        ORDER BY position, id`) as Promise<Versions[]>,
     ]);
     return versionDetailDto(row, photo!, history, siblings);
   };
@@ -269,33 +272,22 @@ export async function photoRoutes(
       sets.push(sql`tags = ARRAY(SELECT unnest(tags) EXCEPT SELECT unnest(${removeTags}::text[]))`);
     const updated = await db.query(sql`
       UPDATE versions SET ${sql.join(sets, sql`, `)}
-      WHERE id = ANY(${ids}) AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
+      WHERE id = ANY(${ids}) AND trashed_at IS NULL AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
       RETURNING id`);
     const rows = (await db.query(sql`
       SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ANY(${updated.map((r) => r.id)})`)) as VersionRow[];
     return { versions: rows.map(versionDto) };
   });
 
-  /** Delete versions. A photo left without any version is deleted too, original file included. */
+  /** Move versions to the trash (`trash.ts`): restorable for `TRASH_DAYS`. */
   app.post('/api/versions/delete', async (request) => {
     const user = currentUser(request);
     const { ids } = Ids.parse(request.body);
-    const { deleted, orphans } = await db.tx(async (tx) => {
-      const deleted = (await tx.query(sql`
-        DELETE FROM versions
-        WHERE id = ANY(${ids}) AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
-        RETURNING id, photo_id`)) as Pick<Versions, 'id' | 'photo_id'>[];
-      const orphans = (await tx.query(sql`
-        DELETE FROM photos p WHERE p.id = ANY(${deleted.map((d) => d.photo_id)})
-          AND NOT EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id)
-        RETURNING storage_key`)) as Pick<Photos, 'storage_key'>[];
-      return { deleted, orphans };
-    });
-    await Promise.all([
-      ...deleted.map((d) => deleteRenders(d.id)),
-      ...orphans.map((p) => deleteOriginal(p.storage_key)),
-    ]);
-    return { deleted: deleted.map((d) => d.id) };
+    const trashed = await db.query(sql`
+      UPDATE versions SET trashed_at = now(), updated_at = now()
+      WHERE id = ANY(${ids}) AND trashed_at IS NULL AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
+      RETURNING id`);
+    return { trashed: trashed.map((v) => v.id as string) };
   });
 
   /**
@@ -402,7 +394,7 @@ export async function photoRoutes(
         NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
       FROM ${VERSIONS_FROM}
       LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
-      WHERE v.id = ANY(${ids}) AND p.owner_id = ${user.id}`)) as (Pick<
+      WHERE v.id = ANY(${ids}) AND p.owner_id = ${user.id} AND v.trashed_at IS NULL`)) as (Pick<
       Versions,
       'id' | 'history_end' | 'revision' | 'render_status'
     > &
@@ -462,7 +454,8 @@ export async function photoRoutes(
 
   app.get('/api/versions/:id/render/:size', async (request, reply) => {
     const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(request.params);
-    const version = await findVersion(currentUser(request).id, id);
+    // Also for the trash page's thumbnails.
+    const version = await findVersion(currentUser(request).id, id, { inTrash: true });
     const file = await storage.get(renderKey(version.id, size));
     if (!file) throw notFound('Not rendered yet');
     const versioned = (request.query as Record<string, string>).v === String(version.render_version);
@@ -551,7 +544,17 @@ export async function photoRoutes(
       const duplicate = await photos(db).findOne({ owner_id: user.id, sha256: upload.sha256 });
       if (duplicate) {
         await discardUpload(upload);
-        skipped.push({ filename, reason: `Already in your library as ${duplicate.original_filename}` });
+        const [inLibrary] = await db.query(sql`
+          SELECT 1 FROM versions WHERE photo_id = ${duplicate.id} AND trashed_at IS NULL LIMIT 1`);
+        if (inLibrary) {
+          skipped.push({ filename, reason: `Already in your library as ${duplicate.original_filename}` });
+          continue;
+        }
+        // Only in the trash: the file is stored already, so it comes back as a new version
+        // (the trashed ones stay there, to restore or not).
+        const [version] = await versions(db).insert({ photo_id: duplicate.id });
+        created.push(versionDto(await findVersion(user.id, version!.id)));
+        renderQueue.enqueue(version!.id);
         continue;
       }
       // Checked before storing the file, so an upload over quota costs nothing more…
@@ -625,7 +628,10 @@ async function applyHistoryChange(
     SELECT v.history_end, v.revision,
       (SELECT coalesce(max(seq), 0)::int FROM history_entries h WHERE h.version_id = v.id) AS count
     FROM ${VERSIONS_FROM}
-    WHERE v.id = ${id} AND p.owner_id = ${ownerId} FOR UPDATE OF v`)) as (Pick<Versions, 'history_end' | 'revision'> & {
+    WHERE v.id = ${id} AND p.owner_id = ${ownerId} AND v.trashed_at IS NULL FOR UPDATE OF v`)) as (Pick<
+    Versions,
+    'history_end' | 'revision'
+  > & {
     count: number;
   })[];
   if (!current) {

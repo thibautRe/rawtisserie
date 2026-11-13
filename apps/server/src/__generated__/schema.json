@@ -847,6 +847,13 @@
         "typeName": "TEXT"
       },
       {
+        "name": "trashed_at",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
         "name": "updated_at",
         "isNullable": false,
         "hasDefault": true,

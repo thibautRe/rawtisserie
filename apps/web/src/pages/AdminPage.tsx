@@ -200,9 +200,20 @@ export function AdminOverview() {
           <StatTile
             label="Photos"
             value={formatCount(photos.total)}
-            detail={`${formatCount(photos.recent)} imported in the last 30 days · ${plural(photos.versions, 'version')}`}
+            detail={
+              `${formatCount(photos.recent)} imported in the last 30 days · ${plural(photos.versions, 'version')}` +
+              (photos.trashed ? ` · ${formatCount(photos.trashed)} in the trash` : '')
+            }
           />
-          <StatTile label="Originals stored" value={formatBytes(storage.used)} detail="RAW files, across all users" />
+          <StatTile
+            label="Originals stored"
+            value={formatBytes(storage.used)}
+            detail={
+              storage.trash
+                ? `RAW files, across all users · ${formatBytes(storage.trash)} in the trash`
+                : 'RAW files, across all users'
+            }
+          />
           <StatTile
             label="Quotas granted"
             value={formatBytes(storage.allocated)}

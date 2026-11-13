@@ -106,7 +106,7 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
           tag · <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings ·{' '}
-          <b>Ctrl+E</b> export · <b>Del</b> delete · arrows to move
+          <b>Ctrl+E</b> export · <b>Del</b> move to trash · arrows to move
         </Text>
       </Stack>
     );
@@ -383,7 +383,7 @@ function SinglePanel({
                   </Menu.Item>
                   <Menu.Separator />
                   <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
-                    <Trash2 /> Delete <Menu.ItemCommand>Del</Menu.ItemCommand>
+                    <Trash2 /> Move to trash <Menu.ItemCommand>Del</Menu.ItemCommand>
                   </Menu.Item>
                 </Menu.Content>
               </Menu.Positioner>
@@ -699,7 +699,7 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport }: { p
           </Button>
         </DuplicateMenu>
         <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(photos)}>
-          <Trash2 /> Delete {photos.length} photos
+          <Trash2 /> Move {photos.length} to trash
         </Button>
       </PanelBlock>
     </Stack>

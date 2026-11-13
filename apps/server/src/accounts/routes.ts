@@ -124,15 +124,24 @@ export async function accountRoutes(app: FastifyInstance, { renderQueue }: { ren
         (SELECT count(*) FROM photos)::int AS photos,
         (SELECT count(*) FROM photos WHERE created_at > now() - interval '30 days')::int AS photos_recent,
         (SELECT coalesce(sum(file_size), 0) FROM photos)::bigint AS storage_used,
-        (SELECT count(*) FROM versions)::int AS versions,
+        (SELECT count(*) FROM versions WHERE trashed_at IS NULL)::int AS versions,
+        (SELECT count(*) FROM versions WHERE trashed_at IS NOT NULL)::int AS versions_trashed,
+        (SELECT coalesce(sum(file_size), 0) FROM photos p
+          WHERE NOT EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id AND v.trashed_at IS NULL))::bigint
+          AS storage_trash,
         (SELECT count(*) FROM versions WHERE render_status = 'pending')::int AS renders_pending,
         (SELECT count(*) FROM versions WHERE render_status = 'failed')::int AS renders_failed,
         (SELECT count(*) FROM invitations WHERE revoked_at IS NULL AND uses < max_uses
           AND (expires_at IS NULL OR expires_at > now()))::int AS invitations_active`);
     return {
       users: { total: row.users, admins: row.admins, recent: row.users_recent, invited: row.users_invited },
-      photos: { total: row.photos, recent: row.photos_recent, versions: row.versions },
-      storage: { used: row.storage_used, allocated: row.quota_allocated, unlimitedUsers: row.users_unlimited },
+      photos: { total: row.photos, recent: row.photos_recent, versions: row.versions, trashed: row.versions_trashed },
+      storage: {
+        used: row.storage_used,
+        trash: row.storage_trash,
+        allocated: row.quota_allocated,
+        unlimitedUsers: row.users_unlimited,
+      },
       renders: {
         pending: row.renders_pending,
         failed: row.renders_failed,

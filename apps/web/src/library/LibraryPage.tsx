@@ -16,17 +16,10 @@ import type { EditParams } from '@rawtisserie/pipeline';
 import { Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import {
-  useBatchEdit,
-  useBulkUpdate,
-  useDeletePhotos,
-  useDuplicateVersion,
-  useLibraryPhotos,
-  useUpload,
-} from '../api/hooks.ts';
+import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos, useUpload } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
-import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVersionsDialog.tsx';
+import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT } from '../lib/format.ts';
 import {
@@ -99,7 +92,6 @@ export function LibraryPage() {
   // The scroll position only matters when coming back: saved on the way out.
   useEffect(() => () => latestSave.current(), []);
   const [columns, setColumns] = useColumns();
-  const [pendingDelete, setPendingDelete] = useState<Photo[] | null>(null);
   /** The photo the culling loupe opened on, while it's open. */
   const [loupe, setLoupe] = useState<string | null>(null);
   const loupeStart = focusedId ?? [...selection][0] ?? null;
@@ -115,7 +107,7 @@ export function LibraryPage() {
   }, [loupe, items, photos, total]);
 
   const bulk = useBulkUpdate();
-  const del = useDeletePhotos();
+  const moveToTrash = useTrashWithUndo();
   const duplicate = useDuplicateVersion();
   const upload = useUpload();
   const batchEdit = useBatchEdit();
@@ -310,7 +302,7 @@ export function LibraryPage() {
       else if (key === 'arrowup') move(-columns);
       else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/versions/${focusedId}/develop`);
       else if ((key === ' ' || key === 'e') && (loupeStart ?? photos[0])) setLoupe(loupeStart ?? photos[0]!.id);
-      else if ((key === 'delete' || key === 'backspace') && selection.size) setPendingDelete(selectedPhotos);
+      else if ((key === 'delete' || key === 'backspace') && selection.size) trash(selectedPhotos);
       else if (key === 'escape') setSelection(new Set());
       else return;
       e.preventDefault();
@@ -379,14 +371,10 @@ export function LibraryPage() {
     [upload],
   );
 
-  const confirmDelete = (versions: Photo[]) => {
-    const { done } = describeDeletion(versions);
-    del.mutate(
-      versions.map((v) => v.id),
-      { onSuccess: () => toaster.create({ type: 'info', title: done }) },
+  const trash = (versions: Photo[]) =>
+    void moveToTrash(versions).catch((err: Error) =>
+      toaster.create({ type: 'error', title: 'Could not move to the trash', description: err.message }),
     );
-    setPendingDelete(null);
-  };
 
   return (
     <Flex
@@ -505,7 +493,7 @@ export function LibraryPage() {
 
       <InfoPanel
         selected={selectedPhotos}
-        onDelete={setPendingDelete}
+        onDelete={trash}
         onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
         onApplyEdit={(edit) => batchEdit([...selection], edit)}
         onCopy={() => void copyFrom(true)}
@@ -560,8 +548,6 @@ export function LibraryPage() {
           onDevelop={(id) => navigate(`/versions/${id}/develop`)}
         />
       )}
-
-      <DeleteVersionsDialog versions={pendingDelete} onConfirm={confirmDelete} onClose={() => setPendingDelete(null)} />
     </Flex>
   );
 }

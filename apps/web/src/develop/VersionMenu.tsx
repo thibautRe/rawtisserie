@@ -2,11 +2,11 @@ import { Box, Button, Image, Menu, Portal, Text } from '@chakra-ui/react';
 import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, CopyPlus, Pencil, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useDeletePhotos, useDuplicateVersion, useMoveVersion, useUpdatePhoto } from '../api/hooks.ts';
+import { useDuplicateVersion, useMoveVersion, useUpdatePhoto } from '../api/hooks.ts';
 import type { PhotoDetail } from '../api/types.ts';
-import { DeleteVersionsDialog, describeDeletion } from '../components/DeleteVersionsDialog.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { toaster } from '../components/toaster.tsx';
+import { useTrashWithUndo } from '../components/trash.tsx';
 import { versionLabel } from '../lib/format.ts';
 import { libraryPath } from '../library/libraryView.ts';
 
@@ -19,9 +19,8 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
   const duplicate = useDuplicateVersion();
   const move = useMoveVersion();
   const update = useUpdatePhoto();
-  const del = useDeletePhotos();
+  const moveToTrash = useTrashWithUndo();
   const [renaming, setRenaming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const index = photo.versions.findIndex((v) => v.id === photo.id);
   const label = versionLabel({ name: photo.versionName, index: photo.versionIndex });
 
@@ -44,17 +43,14 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
       case 'later':
         return move.mutateAsync({ id: photo.id, position: index + (value === 'earlier' ? -1 : 1) });
       case 'delete':
-        return setDeleting(true);
+        return trash();
     }
   };
 
-  const confirmDelete = async () => {
-    setDeleting(false);
-    const { done } = describeDeletion([photo]);
+  const trash = async () => {
     // Nothing must be saved to it afterwards.
     await whenSaved().catch(() => {});
-    await del.mutateAsync([photo.id]);
-    toaster.create({ type: 'info', title: done });
+    await moveToTrash([photo]);
     const next = photo.versions[index + 1] ?? photo.versions[index - 1];
     if (next) open(next.id, true);
     else navigate(libraryPath(), { replace: true });
@@ -109,7 +105,7 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
               </Menu.Item>
               <Menu.Separator />
               <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
-                <Trash2 /> Delete version…
+                <Trash2 /> Move to trash
               </Menu.Item>
             </Menu.Content>
           </Menu.Positioner>
@@ -127,11 +123,6 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
         onRename={(versionName) =>
           update.mutate({ id: photo.id, patch: { versionName } }, { onError: failed('Could not rename') })
         }
-      />
-      <DeleteVersionsDialog
-        versions={deleting ? [photo] : null}
-        onConfirm={() => void confirmDelete().catch(failed('Could not delete'))}
-        onClose={() => setDeleting(false)}
       />
     </>
   );

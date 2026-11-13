@@ -50,7 +50,8 @@ done, with invitations and an admin page. The render queue records its figures p
 (`render_stats`: peak pending, longest wait, renders and their durations), shown on the
 admin overview for 24 hours and 7 days; a graph can read the same table later. 4.8 (3D
 LUT) closed: what was left (uploading browser-only LUTs on "Add to library") can't
-happen in the app as it is.
+happen in the app as it is. 7.3's soft delete done, as a trash: deleted photos can be
+restored for 30 days.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1260,6 +1261,15 @@ cheaper class (OVH Infrequent Access, or Active Archive if its reads are immedia
 
 ### 7.3 Backups and soft delete (S–M, after 7.1)
 
+> **Soft delete done** 2026-11-13, as a trash (`photos/trash.ts`, `/trash`): deleting from
+> the library moves versions to the user's trash (`versions.trashed_at`), with an Undo in
+> the toast and no confirmation. From the trash they can be restored, or deleted for good
+> (a selection, or "Empty trash", confirmed). After 30 days the server deletes them (an
+> hourly purge); a photo goes with its original once none of its versions is left. The
+> trash counts towards the quota until then. Uploading a file that's only in the trash
+> adds a new version to it. Postgres backups: nightly dumps, 30 days, to a bucket (done
+> 2026-11-12). Left: a copy of originals with a second provider, and testing restores.
+
 Multi-zone storage protects against losing a data centre, not against bugs, mistakes or
 losing the account.
 
@@ -1313,7 +1323,7 @@ Many photographers keep everything, rejects included.
 - A "Delete rejected" action in the library (reusing `DeleteVersionsDialog`): deletes
   rejected versions, and their photos once no version is left.
 - Opt-in automatic deletion of versions rejected more than 30 days ago, with a reminder
-  before it runs. Goes through soft delete (7.3).
+  before it runs. Goes through the trash (7.3).
 
 ### 7.7 History size (M)
 
