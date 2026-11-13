@@ -9,7 +9,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { AUTO_RECIPE_LABEL, type EditParams, type PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
-import { RENDER_SIZES, renderKey, type RenderSize } from '../photos/storage.ts';
+import { RENDER_SIZES, deleteRenders, renderKey, type RenderSize } from '../photos/storage.ts';
 import { renderSource } from './source.ts';
 import { RenderStats, writeRenderStats } from './stats.ts';
 import type { RenderJob, RenderResult } from './types.ts';
@@ -159,10 +159,11 @@ export class RenderQueue {
       return;
     }
     this.log.info({ versionId, ms: Date.now() - started }, 'rendered');
-    await db.tx(async (tx) => {
-      await tx.query(sql`
+    const stored = await db.tx(async (tx) => {
+      const updated = await tx.query(sql`
         UPDATE versions SET render_status = 'ready', render_error = NULL, render_version = render_version + 1
-        WHERE id = ${versionId}`);
+        WHERE id = ${versionId} RETURNING id`);
+      if (!updated.length) return false;
       if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
       if (result.resolvedRecipe && job.params) await resolveEntry(tx, versionId, job.params, result.resolvedRecipe);
       if (result.metadata) {
@@ -171,7 +172,10 @@ export class RenderQueue {
         const rating = Math.min(5, Math.max(0, result.metadata.rating ?? 0));
         if (rating) await versions(tx).update({ photo_id: job.photoId, rating: 0 }, { rating });
       }
+      return true;
     });
+    // Deleted while it rendered (e.g. from the trash): what it wrote has nothing left to show.
+    if (!stored) await deleteRenders(versionId);
   }
 }
 
