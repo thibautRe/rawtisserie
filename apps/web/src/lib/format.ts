@@ -19,6 +19,17 @@ export function formatBytes(bytes: number): string {
   return `${bytes.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
+/** "0.8 s", "42 s", "3 min 20 s", "2 h 5 min". */
+export function formatDuration(ms: number): string {
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)} s`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+}
+
 export function formatDateTime(iso: string | null | undefined): string | null {
   if (!iso) return null;
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });

@@ -32,7 +32,22 @@ export interface AdminStats {
   users: { total: number; admins: number; recent: number; invited: number };
   photos: { total: number; recent: number; versions: number };
   storage: { used: number; allocated: number; unlimitedUsers: number };
-  renders: { pending: number; failed: number };
+  renders: {
+    pending: number;
+    failed: number;
+    /** How long the oldest waiting render has waited (0: none waiting). */
+    oldestWaitMs: number;
+    /** The last 24 hours: peak of pending renders, longest wait before a render started… */
+    day: {
+      peakPending: number;
+      peakAt: string | null;
+      maxWaitMs: number;
+      renders: number;
+      failures: number;
+      averageMs: number | null;
+    };
+    week: { peakPending: number; maxWaitMs: number };
+  };
   invitations: { active: number };
   instance: { storage: string; signup: 'open' | 'invitation'; defaultStorageQuota: number | null };
 }

@@ -51,7 +51,8 @@ Configuration is environment variables (`.env.example`): `DATABASE_URL`, `STORAG
 Sign-up is by invitation: admins create them at `/admin/invitations` (a link that
 creates up to N accounts, each with a storage quota, optionally expiring), and set each
 user's quota at `/admin/users`. `/admin` itself is an overview of the instance
-(accounts, photos, storage, renders). Quotas count original files only. A new server
+(accounts, photos, storage, and the render queue: what's waiting now, and its peak, longest
+wait and throughput over 24 hours and 7 days, from the hourly `render_stats` table). Quotas count original files only. A new server
 has no admin, so the first one comes from the command line:
 
 ```sh

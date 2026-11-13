@@ -46,7 +46,9 @@ single VPS with nightly database backups to a bucket (part of 7.3), then 7.1 (ob
 storage).
 2026-11-13: Canon CR3 decoding in wasm fixed (rawler patched from our fork, upstream PR
 dnglab/dnglab#960). Added: 3.9 (better demosaicing at full resolution). 7.5 (quotas)
-done, with invitations and an admin page.
+done, with invitations and an admin page. The render queue records its figures per hour
+(`render_stats`: peak pending, longest wait, renders and their durations), shown on the
+admin overview for 24 hours and 7 days; a graph can read the same table later.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct

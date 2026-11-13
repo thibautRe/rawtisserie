@@ -36,7 +36,7 @@ import type { AdminUser, Invitation, InvitationStatus } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { StorageMeter } from '../components/StorageMeter.tsx';
 import { toaster } from '../components/toaster.tsx';
-import { GB, formatBytes } from '../lib/format.ts';
+import { GB, formatBytes, formatDuration } from '../lib/format.ts';
 import { NotFoundPage } from './NotFoundPage.tsx';
 
 const NUMERIC = { fontFamily: 'numeric', fontVariantNumeric: 'tabular-nums' } as const;
@@ -115,6 +115,12 @@ const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumF
 const whole = new Intl.NumberFormat();
 /** Exact below 10,000, compact above (12.3K). */
 const formatCount = (n: number) => (n < 10_000 ? whole.format(n) : compact.format(n));
+/** The start (or with `plus`, a later) hour of a render stats bucket, in local time. */
+const formatHour = (iso: string, plus = 0) =>
+  new Date(new Date(iso).getTime() + plus * 3600_000).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 const plural = (n: number, one: string, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
@@ -146,6 +152,20 @@ function OverviewGroup({
           </Button>
         )}
       </HStack>
+      {children}
+    </Stack>
+  );
+}
+
+/** A row of tiles, optionally under a small label ("Last 24 hours"). */
+function Tiles({ label, children }: { label?: string; children: React.ReactNode }) {
+  return (
+    <Stack gap="2">
+      {label && (
+        <Text textStyle="xs" color="fg.muted" fontFamily="label" textTransform="uppercase" letterSpacing="wider">
+          {label}
+        </Text>
+      )}
       <SimpleGrid minChildWidth="56" gap="3">
         {children}
       </SimpleGrid>
@@ -162,45 +182,85 @@ export function AdminOverview() {
   return (
     <Stack gap="10">
       <OverviewGroup title="Users" link={{ to: '/admin/users', label: 'Manage users' }}>
-        <StatTile
-          label="Accounts"
-          value={formatCount(users.total)}
-          detail={`${plural(users.admins, 'admin')} · ${formatCount(users.recent)} joined in the last 30 days`}
-        />
-        <StatTile
-          label="From invitations"
-          value={formatCount(users.invited)}
-          detail={`${plural(invitations.active, 'active invitation')}`}
-        />
+        <Tiles>
+          <StatTile
+            label="Accounts"
+            value={formatCount(users.total)}
+            detail={`${plural(users.admins, 'admin')} · ${formatCount(users.recent)} joined in the last 30 days`}
+          />
+          <StatTile
+            label="From invitations"
+            value={formatCount(users.invited)}
+            detail={`${plural(invitations.active, 'active invitation')}`}
+          />
+        </Tiles>
       </OverviewGroup>
       <OverviewGroup title="Photos and storage">
-        <StatTile
-          label="Photos"
-          value={formatCount(photos.total)}
-          detail={`${formatCount(photos.recent)} imported in the last 30 days · ${plural(photos.versions, 'version')}`}
-        />
-        <StatTile label="Originals stored" value={formatBytes(storage.used)} detail="RAW files, across all users" />
-        <StatTile
-          label="Quotas granted"
-          value={formatBytes(storage.allocated)}
-          detail={`Plus ${plural(storage.unlimitedUsers, 'account')} with unlimited storage`}
-        />
+        <Tiles>
+          <StatTile
+            label="Photos"
+            value={formatCount(photos.total)}
+            detail={`${formatCount(photos.recent)} imported in the last 30 days · ${plural(photos.versions, 'version')}`}
+          />
+          <StatTile label="Originals stored" value={formatBytes(storage.used)} detail="RAW files, across all users" />
+          <StatTile
+            label="Quotas granted"
+            value={formatBytes(storage.allocated)}
+            detail={`Plus ${plural(storage.unlimitedUsers, 'account')} with unlimited storage`}
+          />
+        </Tiles>
       </OverviewGroup>
       <OverviewGroup title="Renders">
-        <StatTile label="Waiting" value={formatCount(renders.pending)} detail="Previews not developed yet" />
-        <StatTile label="Failed" value={formatCount(renders.failed)} detail="Previews the server couldn’t develop" />
+        <Tiles label="Now">
+          <StatTile
+            label="Waiting"
+            value={formatCount(renders.pending)}
+            detail={renders.oldestWaitMs ? `The oldest for ${formatDuration(renders.oldestWaitMs)}` : 'Nothing waiting'}
+          />
+          <StatTile label="Failed" value={formatCount(renders.failed)} detail="Previews the server couldn’t develop" />
+        </Tiles>
+        <Tiles label="Last 24 hours">
+          <StatTile
+            label="Peak queue"
+            value={formatCount(renders.day.peakPending)}
+            detail={[
+              renders.day.peakAt &&
+                `Between ${formatHour(renders.day.peakAt)} and ${formatHour(renders.day.peakAt, 1)}`,
+              `${formatCount(renders.week.peakPending)} over 7 days`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          />
+          <StatTile
+            label="Longest wait"
+            value={formatDuration(renders.day.maxWaitMs)}
+            detail={`From queued to started · ${formatDuration(renders.week.maxWaitMs)} over 7 days`}
+          />
+          <StatTile
+            label="Rendered"
+            value={formatCount(renders.day.renders)}
+            detail={[
+              renders.day.averageMs !== null && `${formatDuration(renders.day.averageMs)} each on average`,
+              `${formatCount(renders.day.failures)} failed`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          />
+        </Tiles>
       </OverviewGroup>
       <OverviewGroup title="Instance">
-        <StatTile label="Storage" value={instance.storage} />
-        <StatTile
-          label="Sign-up"
-          value={instance.signup === 'open' ? 'Open to anyone' : 'By invitation'}
-          detail={
-            instance.signup === 'open'
-              ? `New accounts get ${formatQuota(instance.defaultStorageQuota).toLowerCase()}`
-              : 'Create invitations in the Invitations tab'
-          }
-        />
+        <Tiles>
+          <StatTile label="Storage" value={instance.storage} />
+          <StatTile
+            label="Sign-up"
+            value={instance.signup === 'open' ? 'Open to anyone' : 'By invitation'}
+            detail={
+              instance.signup === 'open'
+                ? `New accounts get ${formatQuota(instance.defaultStorageQuota).toLowerCase()}`
+                : 'Create invitations in the Invitations tab'
+            }
+          />
+        </Tiles>
       </OverviewGroup>
     </Stack>
   );

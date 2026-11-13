@@ -11,6 +11,7 @@ import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
 import { RENDER_SIZES, renderKey, type RenderSize } from '../photos/storage.ts';
 import { renderSource } from './source.ts';
+import { RenderStats, writeRenderStats } from './stats.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
 interface PoolWorker {
@@ -21,8 +22,12 @@ interface PoolWorker {
 export class RenderQueue {
   private queue: string[] = [];
   private inFlight = new Set<string>();
-  /** Versions edited again while rendering: render once more when done. */
-  private dirty = new Set<string>();
+  /** Versions edited again while rendering: render once more when done (since when). */
+  private dirty = new Map<string, number>();
+  /** When each waiting version was queued (for those left from before a restart: the start). */
+  private queuedAt = new Map<string, number>();
+  private stats: RenderStats;
+  private flushTimer: ReturnType<typeof setInterval> | undefined;
   private pool: PoolWorker[] = [];
   private pending = new Map<number, (r: RenderResult) => void>();
   private nextJobId = 1;
@@ -30,15 +35,37 @@ export class RenderQueue {
 
   constructor(log: FastifyBaseLogger) {
     this.log = log;
+    this.stats = new RenderStats(writeRenderStats(db), {
+      onError: (err) => log.warn({ err }, 'could not write render stats'),
+    });
   }
 
   start() {
     for (let i = 0; i < config.renderConcurrency; i++) this.pool.push(this.spawn());
+    this.flushTimer = setInterval(() => void this.flushStats(), 60_000);
+    this.flushTimer.unref();
   }
 
   async stop() {
+    clearInterval(this.flushTimer);
     await Promise.all(this.pool.map((w) => w.worker.terminate()));
     this.pool = [];
+    await this.flushStats();
+  }
+
+  /** Write this hour's figures so far (`render_stats`), e.g. before reading them. */
+  async flushStats() {
+    await this.stats.flush().catch((err) => this.log.warn({ err }, 'could not write render stats'));
+  }
+
+  /** How long the oldest waiting version has waited (0 when none is). */
+  oldestWaitMs(): number {
+    const oldest = Math.min(...this.queue.map((id) => this.queuedAt.get(id) ?? Date.now()));
+    return this.queue.length ? Date.now() - oldest : 0;
+  }
+
+  private countPending() {
+    this.stats.pendingNow(this.queue.length + this.inFlight.size);
   }
 
   /** Queue every version still marked as pending (e.g. after a restart). */
@@ -49,10 +76,12 @@ export class RenderQueue {
 
   enqueue(versionId: string) {
     if (this.inFlight.has(versionId)) {
-      this.dirty.add(versionId);
+      if (!this.dirty.has(versionId)) this.dirty.set(versionId, Date.now());
     } else if (!this.queue.includes(versionId)) {
       this.queue.push(versionId);
+      this.queuedAt.set(versionId, Date.now());
     }
+    this.countPending();
     this.pump();
   }
 
@@ -79,12 +108,20 @@ export class RenderQueue {
       if (!versionId) return;
       entry.busy = true;
       this.inFlight.add(versionId);
+      this.stats.started(Date.now() - (this.queuedAt.get(versionId) ?? Date.now()));
+      this.queuedAt.delete(versionId);
       this.process(entry, versionId)
         .catch((err) => this.log.error({ err, versionId }, 'render failed'))
         .finally(() => {
           entry.busy = false;
           this.inFlight.delete(versionId);
-          if (this.dirty.delete(versionId)) this.queue.push(versionId);
+          const again = this.dirty.get(versionId);
+          if (again !== undefined) {
+            this.dirty.delete(versionId);
+            this.queue.push(versionId);
+            this.queuedAt.set(versionId, again);
+          }
+          this.countPending();
           this.pump();
         });
     }
@@ -115,6 +152,7 @@ export class RenderQueue {
       })),
     });
 
+    this.stats.finished(result.ok, Date.now() - started);
     if (!result.ok) {
       this.log.warn({ versionId, error: result.error }, 'render failed');
       await versions(db).update({ id: versionId }, { render_status: 'failed', render_error: result.error });

@@ -3,6 +3,7 @@
  * invitations. Quotas are in bytes here; the UI shows and takes GB.
  */
 import type { FastifyInstance } from 'fastify';
+import type { RenderQueue } from '../render/queue.ts';
 import { z } from 'zod';
 import { currentUser, requireAdmin, requireUser } from '../auth/routes.ts';
 import { config } from '../config.ts';
@@ -77,7 +78,7 @@ const invitationDto = (r: Invitations & { created_by_email: string | null }) => 
 const INVITATIONS = sql`
   SELECT i.*, u.email AS created_by_email FROM invitations i LEFT JOIN users u ON u.id = i.created_by`;
 
-export async function accountRoutes(app: FastifyInstance) {
+export async function accountRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
   /** The user's original files against their quota. */
   app.get('/api/account/storage', { preHandler: requireUser }, async (request) =>
     storageUsage(db, currentUser(request).id),
@@ -85,8 +86,33 @@ export async function accountRoutes(app: FastifyInstance) {
 
   // ── Admin ─────────────────────────────────────────────────────────────────
 
-  /** The instance at a glance, for the admin overview. "Recent" is the last 30 days. */
+  /**
+   * The instance at a glance, for the admin overview. "Recent" is the last 30 days; the
+   * render queue's history (`render_stats`, per hour) is summed over 24 hours and 7 days.
+   */
   app.get('/api/admin/stats', { preHandler: requireAdmin }, async () => {
+    await renderQueue.flushStats();
+    const [queue] = (await db.query(sql`
+      SELECT
+        coalesce(max(peak_pending) FILTER (WHERE hour > now() - interval '24 hours'), 0)::int AS peak_day,
+        coalesce(max(peak_pending), 0)::int AS peak_week,
+        (SELECT hour FROM render_stats WHERE hour > now() - interval '24 hours' AND peak_pending > 0
+          ORDER BY peak_pending DESC, hour DESC LIMIT 1) AS peak_day_at,
+        coalesce(max(max_wait_ms) FILTER (WHERE hour > now() - interval '24 hours'), 0)::int AS wait_day,
+        coalesce(max(max_wait_ms), 0)::int AS wait_week,
+        coalesce(sum(renders) FILTER (WHERE hour > now() - interval '24 hours'), 0)::int AS renders_day,
+        coalesce(sum(failures) FILTER (WHERE hour > now() - interval '24 hours'), 0)::int AS failures_day,
+        coalesce(sum(render_ms) FILTER (WHERE hour > now() - interval '24 hours'), 0)::bigint AS render_ms_day
+      FROM render_stats WHERE hour > now() - interval '7 days'`)) as {
+      peak_day: number;
+      peak_week: number;
+      peak_day_at: Date | null;
+      wait_day: number;
+      wait_week: number;
+      renders_day: number;
+      failures_day: number;
+      render_ms_day: number;
+    }[];
     const [row] = await db.query(sql`
       SELECT
         (SELECT count(*) FROM users)::int AS users,
@@ -107,7 +133,20 @@ export async function accountRoutes(app: FastifyInstance) {
       users: { total: row.users, admins: row.admins, recent: row.users_recent, invited: row.users_invited },
       photos: { total: row.photos, recent: row.photos_recent, versions: row.versions },
       storage: { used: row.storage_used, allocated: row.quota_allocated, unlimitedUsers: row.users_unlimited },
-      renders: { pending: row.renders_pending, failed: row.renders_failed },
+      renders: {
+        pending: row.renders_pending,
+        failed: row.renders_failed,
+        oldestWaitMs: renderQueue.oldestWaitMs(),
+        day: {
+          peakPending: queue!.peak_day,
+          peakAt: queue!.peak_day_at,
+          maxWaitMs: queue!.wait_day,
+          renders: queue!.renders_day,
+          failures: queue!.failures_day,
+          averageMs: queue!.renders_day ? Math.round(queue!.render_ms_day / queue!.renders_day) : null,
+        },
+        week: { peakPending: queue!.peak_week, maxWaitMs: queue!.wait_week },
+      },
       invitations: { active: row.invitations_active },
       instance: {
         storage: config.s3 ? `S3 bucket ${config.s3.bucket}` : 'Local disk',

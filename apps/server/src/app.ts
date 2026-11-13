@@ -54,7 +54,7 @@ export async function buildApp() {
   await app.register(presetRoutes);
   await app.register(exportRoutes);
   await app.register(lutRoutes);
-  await app.register(accountRoutes);
+  await app.register(accountRoutes, { renderQueue });
 
   app.get('/api/health', async () => ({ ok: true }));
 
