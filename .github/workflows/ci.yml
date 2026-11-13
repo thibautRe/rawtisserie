@@ -108,8 +108,10 @@ jobs:
           docker run --rm -e DOMAIN=rawtisserie.example.com
           -v ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro docker.io/library/caddy:2-alpine
           caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Scripts
+        run: shellcheck deploy/backup/backup.sh deploy/deploy.sh
       - name: Backup image
-        run: shellcheck deploy/backup/backup.sh && docker build deploy/backup
+        run: docker build deploy/backup
 
   # On main, once everything above passed: the image again (from the cache) to GHCR, as
   # `latest` and `sha-<commit>`, which deploy/compose.yaml pulls.
@@ -142,3 +144,26 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
+
+  # Then onto the VPS, as that commit's image. The key can only run deploy/deploy.sh
+  # there, which takes the commit's SHA (see docs/DEPLOYMENT.md, "Deploying from CI").
+  deploy:
+    name: Deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://rawtisserie.thibaut.re
+    steps:
+      - name: Deploy to the VPS
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "ubuntu@$HOST" "$GITHUB_SHA"

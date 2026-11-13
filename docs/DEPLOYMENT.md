@@ -159,9 +159,31 @@ docker compose up -d
 
 Then make yourself an admin (see [Accounts](#accounts)).
 
-**Updating:** `docker compose pull app && docker compose up -d app` (set
-`RAWTISSERIE_IMAGE` to a `sha-<commit>` tag to pin a build). Migrations run when the app starts. A
-change to `deploy/` itself needs a `git pull` first.
+**Updating:** automatic: every commit on `main` that passes CI is deployed (see
+"Deploying from CI" in [On a VPS](#on-a-vps-deploy)). By hand, `./deploy.sh <full commit sha>` in
+the deploy directory does the same; it pins that build in `.env` (`RAWTISSERIE_IMAGE`),
+so rolling back is deploying an older commit's SHA. Migrations run when the app starts,
+and aren't undone by a rollback. A change to `deploy/` itself (compose file, Caddyfile,
+backup service, `deploy.sh`) isn't deployed by CI: copy the files across (`git pull`
+or `scp`), then `docker compose up -d`.
+
+**Deploying from CI:** the workflow's last job, **Deploy**, after the image is
+published, connects to the VPS over SSH and runs `deploy.sh` with the commit's SHA:
+it pulls `sha-<commit>`, records it in `.env`, restarts the app and waits for
+`/api/health`, failing with the app's logs if it doesn't answer. Its key is in the
+repository's secrets (`DEPLOY_SSH_KEY`, with the server's host key in
+`DEPLOY_KNOWN_HOSTS` and the address in the `DEPLOY_HOST` variable), and on the server
+it's restricted to that script:
+
+```
+restrict,command="/home/ubuntu/rawtisserie/deploy.sh" ssh-ed25519 AAAA… rawtisserie-ci-deploy
+```
+
+in `~/.ssh/authorized_keys`, so whatever is sent, it can only deploy a published
+build: no shell, no forwarding. To revoke it, delete that line. To replace it,
+generate a key, put that line with the new public key there and the private key in
+`DEPLOY_SSH_KEY` (`gh secret set DEPLOY_SSH_KEY < key`). Runs show under the
+repository's `production` environment.
 
 **Caching:** the web app's built files (`/assets/…`) are named by a hash of their
 content and sent with a one-year `immutable` cache, so browsers never ask for them
@@ -219,8 +241,6 @@ echo "$TOKEN" | docker login ghcr.io -u thibautRe --password-stdin
 For the same reason, `git clone` on the VPS needs a read-only deploy key; copying
 `deploy/` there works too, as nothing else in the repository is used.
 
-Not done yet: deploying from CI.
-
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`), on every push to `main` and every pull
@@ -233,12 +253,13 @@ request. Four jobs run in parallel:
   `format:check`, `typecheck`, the workspaces' tests and the production web build.
 - **Container image:** builds the `Dockerfile`, with Buildx's GitHub Actions cache.
 - **Deploy configuration:** `docker compose config` on `deploy/compose.yaml`,
-  `caddy validate` on the Caddyfile, `shellcheck` on the backup script and a build of
+  `caddy validate` on the Caddyfile, `shellcheck` on the backup and deploy scripts and a build of
   its image.
 
 Then, on pushes to `main` only and once all four passed, **Publish the image** builds it
 again from the cache and pushes it to GHCR (`latest` and `sha-<commit>`, see
-[On a VPS](#on-a-vps-deploy)), with the workflow's `GITHUB_TOKEN`.
+[On a VPS](#on-a-vps-deploy)), with the workflow's `GITHUB_TOKEN`, and **Deploy** puts
+it on the VPS ("Deploying from CI" in [On a VPS](#on-a-vps-deploy)).
 
 Not in CI yet: the browser checks (`test:sliders`, `test:library`, `test:ui`,
 `test:perf`), which need Playwright's Chromium; `cargo fmt` and clippy.
