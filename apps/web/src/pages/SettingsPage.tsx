@@ -1,4 +1,19 @@
-import { Box, Button, Card, Field, Flex, HStack, Heading, Input, Skeleton, Stack, Text } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  Card,
+  CloseButton,
+  Dialog,
+  Field,
+  Flex,
+  HStack,
+  Heading,
+  Input,
+  Portal,
+  Skeleton,
+  Stack,
+  Text,
+} from '@chakra-ui/react';
 import { ChevronRight, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -84,7 +99,7 @@ function AccountSection() {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  /** The password form is open. */
+  /** The password dialog is open. */
   const [editing, setEditing] = useState(false);
   const tooShort = next.length > 0 && next.length < 8;
   const mismatch = submitted && confirm !== next;
@@ -100,7 +115,6 @@ function AccountSection() {
           toaster.create({
             type: 'success',
             title: 'Password changed',
-            description: 'Your other sessions were signed out.',
           });
           close();
         },
@@ -119,71 +133,94 @@ function AccountSection() {
 
   return (
     <Section title="Account">
-      <Stack gap="6">
-        <HStack justify="space-between" gap="4">
-          <Box>
-            <Text fontWeight="medium">{me?.displayName}</Text>
-            <Text textStyle="sm" color="fg.muted">
-              {me?.email}
-            </Text>
-          </Box>
-          {!editing && (
-            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              Change password…
-            </Button>
-          )}
-        </HStack>
-        {editing && (
-          <Stack as="form" gap="3" maxW="sm" onSubmit={submit}>
-            <Heading size="sm">Change password</Heading>
-            <Field.Root invalid={change.isError}>
-              <Field.Label>Current password</Field.Label>
-              <Input
-                autoFocus
-                type="password"
-                autoComplete="current-password"
-                value={current}
-                onChange={(e) => setCurrent(e.target.value)}
-              />
-              <Field.ErrorText>{change.error?.message}</Field.ErrorText>
-            </Field.Root>
-            <Field.Root invalid={tooShort}>
-              <Field.Label>New password</Field.Label>
-              <Input
-                type="password"
-                autoComplete="new-password"
-                value={next}
-                onChange={(e) => setNext(e.target.value)}
-              />
-              {!tooShort && <Field.HelperText>At least 8 characters.</Field.HelperText>}
-              <Field.ErrorText>At least 8 characters.</Field.ErrorText>
-            </Field.Root>
-            <Field.Root invalid={mismatch}>
-              <Field.Label>Repeat the new password</Field.Label>
-              <Input
-                type="password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-              />
-              <Field.ErrorText>The two passwords differ.</Field.ErrorText>
-            </Field.Root>
-            <HStack gap="2">
-              <Button
-                type="submit"
-                colorPalette="orange"
-                loading={change.isPending}
-                disabled={!current || !next || !confirm}
-              >
-                Change password
-              </Button>
-              <Button variant="ghost" onClick={close}>
-                Cancel
-              </Button>
-            </HStack>
-          </Stack>
-        )}
-      </Stack>
+      <HStack justify="space-between" gap="4">
+        <Box>
+          <Text fontWeight="medium">{me?.displayName}</Text>
+          <Text textStyle="sm" color="fg.muted">
+            {me?.email}
+          </Text>
+        </Box>
+        <Button
+          size="sm"
+          variant="outline"
+          bg="bg.emphasized"
+          borderColor="border.emphasized"
+          _hover={{ bg: 'bg.muted' }}
+          onClick={() => setEditing(true)}
+        >
+          Change password…
+        </Button>
+      </HStack>
+
+      <Dialog.Root open={editing} onOpenChange={(e) => !e.open && close()} size="sm">
+        <Portal>
+          <Dialog.Backdrop />
+          <Dialog.Positioner>
+            <Dialog.Content asChild>
+              <form onSubmit={submit}>
+                <Dialog.Header>
+                  <Dialog.Title>Change password</Dialog.Title>
+                </Dialog.Header>
+                <Dialog.Body>
+                  <Stack gap="4">
+                    <Field.Root invalid={change.isError}>
+                      <Field.Label>Current password</Field.Label>
+                      <Input
+                        autoFocus
+                        type="password"
+                        autoComplete="current-password"
+                        value={current}
+                        onChange={(e) => setCurrent(e.target.value)}
+                      />
+                      <Field.ErrorText>{change.error?.message}</Field.ErrorText>
+                    </Field.Root>
+                    <Field.Root invalid={tooShort}>
+                      <Field.Label>New password</Field.Label>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        value={next}
+                        onChange={(e) => setNext(e.target.value)}
+                      />
+                      {!tooShort && <Field.HelperText>At least 8 characters.</Field.HelperText>}
+                      <Field.ErrorText>At least 8 characters.</Field.ErrorText>
+                    </Field.Root>
+                    <Field.Root invalid={mismatch}>
+                      <Field.Label>Repeat the new password</Field.Label>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                      />
+                      <Field.ErrorText>The two passwords differ.</Field.ErrorText>
+                    </Field.Root>
+                    <Text textStyle="sm" color="fg.muted">
+                      Your other sessions will be signed out.
+                    </Text>
+                  </Stack>
+                </Dialog.Body>
+                <Dialog.Footer>
+                  <Dialog.ActionTrigger asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </Dialog.ActionTrigger>
+                  <Button
+                    type="submit"
+                    colorPalette="orange"
+                    loading={change.isPending}
+                    disabled={!current || !next || !confirm}
+                  >
+                    Change password
+                  </Button>
+                </Dialog.Footer>
+                <Dialog.CloseTrigger asChild>
+                  <CloseButton size="sm" />
+                </Dialog.CloseTrigger>
+              </form>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
     </Section>
   );
 }
