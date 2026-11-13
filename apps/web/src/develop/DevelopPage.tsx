@@ -9,7 +9,8 @@ import {
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { api, fetchBytes } from '../api/client.ts';
+import { api } from '../api/client.ts';
+import { fetchOriginal } from '../api/originals.ts';
 import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
@@ -258,7 +259,7 @@ function LibraryDeveloper({ id }: { id: string }) {
     loadedUrl.current = originalUrl;
     setLoaded(null);
     setError(null);
-    fetchBytes(originalUrl, setProgress)
+    fetchOriginal(originalUrl, { onProgress: setProgress })
       .then((bytes) => backend.load(bytes))
       .then((metadata) => !cancelled && setLoaded({ url: originalUrl, metadata }))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))

@@ -16,7 +16,8 @@ import {
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
 import { useSyncExternalStore } from 'react';
-import { ApiError, fetchBytes } from '../api/client.ts';
+import { ApiError } from '../api/client.ts';
+import { fetchOriginal } from '../api/originals.ts';
 import type { Photo } from '../api/types.ts';
 import { toaster } from '../components/toaster.tsx';
 import { backendMeasures } from '../develop/autoTune.ts';
@@ -105,7 +106,8 @@ const DOWNLOAD_RETRIES = [1000, 4000];
 async function download(url: string, signal: AbortSignal): Promise<ArrayBuffer> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await fetchBytes(url, undefined, signal);
+      // Read from the browser's copy, without filling it with every photo exported.
+      return await fetchOriginal(url, { signal, keep: false });
     } catch (err) {
       const final = err instanceof ApiError && err.status < 500;
       if (signal.aborted || final || attempt >= DOWNLOAD_RETRIES.length)

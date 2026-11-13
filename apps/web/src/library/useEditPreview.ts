@@ -5,7 +5,7 @@
  */
 import { type EditParams, type PhotoMetadata, defaultRecipe } from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchBytes } from '../api/client.ts';
+import { fetchOriginal } from '../api/originals.ts';
 import type { PhotoDetail } from '../api/types.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import type { BatchEdit } from './batchEdit.ts';
@@ -15,7 +15,7 @@ import type { BatchEdit } from './batchEdit.ts';
  * the original for now, a small proxy image once there are some.
  */
 async function openForPreview(backend: LocalRenderBackend, photo: Pick<PhotoDetail, 'originalUrl'>) {
-  return backend.load(await fetchBytes(photo.originalUrl));
+  return backend.load(await fetchOriginal(photo.originalUrl));
 }
 
 /** The decoded photo goes (worker and memory) this long after the menu closes. */

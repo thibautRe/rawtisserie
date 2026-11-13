@@ -38,8 +38,9 @@ export async function fetchBytes(
   url: string,
   onProgress?: (fraction: number) => void,
   signal?: AbortSignal,
+  cache?: RequestCache,
 ): Promise<ArrayBuffer> {
-  const res = await fetch(url, { credentials: 'same-origin', signal });
+  const res = await fetch(url, { credentials: 'same-origin', signal, cache });
   if (!res.ok || !res.body) throw new ApiError(res.status, res.statusText);
   const total = Number(res.headers.get('content-length')) || 0;
   const reader = res.body.getReader();

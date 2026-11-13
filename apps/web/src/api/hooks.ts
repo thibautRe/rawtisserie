@@ -21,6 +21,7 @@ import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdi
 import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
+import { clearOriginals } from './originals.ts';
 import { formatBytes } from '../lib/format.ts';
 import type {
   AdminStats,
@@ -94,6 +95,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => api.post('/api/auth/logout'),
     onSuccess: () => {
+      clearOriginals();
       qc.clear();
       qc.setQueryData(['me'], null);
     },

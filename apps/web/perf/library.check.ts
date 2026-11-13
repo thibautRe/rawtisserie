@@ -375,3 +375,29 @@ test(
     assert.equal(left, 1);
   },
 );
+
+test(
+  'an original opened before is read from the browser, not downloaded again',
+  { skip: !existsSync(RAW) },
+  async () => {
+    await open('/?q=beach');
+    await cards().first().waitFor();
+    originals = { p1: RAW };
+    let downloads = 0;
+    page.on('request', (r) => r.url().endsWith('/api/photos/p1/original') && downloads++);
+    // The developer's canvas shows once the photo is decoded.
+    const opened = () => page.locator('canvas').first().waitFor({ timeout: 120_000 });
+    await page.goto(`${URL_}/versions/v1/develop`);
+    await opened();
+    assert.equal(downloads, 1);
+    // Stored once downloaded, in the background.
+    await page.waitForFunction(async () => {
+      for (const name of await caches.keys())
+        if (await (await caches.open(name)).match('/api/photos/p1/original')) return true;
+      return false;
+    });
+    await page.reload();
+    await opened();
+    assert.equal(downloads, 1);
+  },
+);
