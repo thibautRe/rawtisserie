@@ -51,7 +51,9 @@ export function PhotoGrid({
   pending = [],
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ width: 0, height: 0, top: initialScrollTop });
+  // `top` is always the scroller's: rows are rendered around it, so it must never be
+  // ahead of where the browser actually is.
+  const [view, setView] = useState({ width: 0, height: 0, top: 0 });
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -70,15 +72,21 @@ export function PhotoGrid({
   const rows = Math.ceil((lead + items.length) / columns);
   const height = rows ? rows * rowHeight - GRID_GAP : 0;
 
-  // Restore the scroll position once there's room for it.
+  // Restore the scroll position once the list's size is known (as far as it goes, if
+  // it's shorter now). And whenever the list's height changes: the browser may have
+  // moved the scroll position (a shorter list) without a scroll event.
   const pendingScroll = useRef(initialScrollTop > 0 ? initialScrollTop : null);
   useLayoutEffect(() => {
     const el = scroller.current;
+    if (!el || !view.width) return;
     const target = pendingScroll.current;
-    if (!el || target === null || !view.width || height + 2 * PADDING < target + el.clientHeight) return;
-    el.scrollTop = target;
-    pendingScroll.current = null;
-  }, [height, view.width]);
+    if (target !== null && rows) {
+      el.scrollTop = target;
+      pendingScroll.current = null;
+    }
+    const top = el.scrollTop;
+    setView((v) => (v.top === top ? v : { ...v, top }));
+  }, [height, view.width, rows]);
 
   const first = Math.max(0, Math.floor((view.top - PADDING) / rowHeight) - OVERSCAN_ROWS);
   const last = Math.min(rows - 1, Math.ceil((view.top + view.height) / rowHeight) + OVERSCAN_ROWS);

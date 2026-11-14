@@ -60,6 +60,7 @@ const photo = (i: number): Photo => ({
   updatedAt: '2026-01-01T00:00:00Z',
 });
 const PHOTOS = [1, 2, 3, 4, 5, 6].map(photo);
+const MANY = Array.from({ length: 600 }, (_, i) => ({ ...photo(100 + i), filename: `many-${i}.ARW` }));
 
 const detail = (p: Photo): PhotoDetail => ({
   ...p,
@@ -145,6 +146,13 @@ async function open(path: string) {
     if (path === '/api/account/storage') return json({ used: 0, quota: null });
     if (path === '/api/versions') {
       const q = url.searchParams.get('q') ?? '';
+      // `many…`: a library of hundreds, in pages.
+      if (q.startsWith('many')) {
+        const all = MANY.filter((p) => p.filename.includes(q));
+        const offset = Number(url.searchParams.get('offset') ?? 0);
+        const limit = Number(url.searchParams.get('limit') ?? 200);
+        return json({ versions: all.slice(offset, offset + limit), total: all.length });
+      }
       const versions = PHOTOS.filter((p) => p.filename.includes(q));
       return json({ versions, total: versions.length });
     }
@@ -481,4 +489,64 @@ test('an import shows its files waiting, then what happened to each, and retries
   // Back to the whole library.
   await page.getByRole('button', { name: 'Show the whole library' }).click();
   await page.waitForURL((u) => !u.searchParams.has('import'));
+});
+
+/** The library grid's scroller, and how far down it is. */
+const gridScroll = () =>
+  page.evaluate(() => {
+    let el = document.querySelector('[data-photo-id]')?.parentElement ?? null;
+    while (el && getComputedStyle(el).overflowY !== 'auto') el = el.parentElement;
+    return el ? { top: el.scrollTop, height: el.clientHeight } : null;
+  });
+
+/** Photos actually on screen in the grid (not just rendered somewhere above or below). */
+const cardsOnScreen = () =>
+  page.evaluate(() => {
+    let el = document.querySelector('[data-photo-id]')?.parentElement ?? null;
+    while (el && getComputedStyle(el).overflowY !== 'auto') el = el.parentElement;
+    const box = el?.getBoundingClientRect();
+    if (!box) return 0;
+    return [...document.querySelectorAll('[data-photo-id]')].filter((c) => {
+      const r = c.getBoundingClientRect();
+      return r.bottom > box.top && r.top < box.bottom;
+    }).length;
+  });
+
+test('back from the developer, the library is where it was, and a filter then shows its photos', async () => {
+  await open('/?q=many');
+  await cards().first().waitFor();
+  await page.evaluate(() => {
+    let el = document.querySelector('[data-photo-id]')?.parentElement ?? null;
+    while (el && getComputedStyle(el).overflowY !== 'auto') el = el.parentElement;
+    el!.scrollTop = 3000;
+  });
+  await page.waitForTimeout(1000);
+  assert.ok((await cardsOnScreen()) > 0);
+  const before = (await gridScroll())!;
+  assert.ok(before.top > 2500);
+  // Open one that's on screen; its original isn't served: back from the error.
+  const onScreen = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('[data-photo-id]')];
+    const mid = window.innerHeight / 2;
+    return cards
+      .find((c) => {
+        const r = c.getBoundingClientRect();
+        return r.top < mid && r.bottom > mid;
+      })!
+      .getAttribute('data-photo-id');
+  });
+  await page.locator(`[data-photo-id="${onScreen}"]`).dblclick();
+  await page.waitForURL(/\/develop/);
+  await page.getByRole('link', { name: 'Back to library' }).click();
+  await page.waitForURL((u) => u.pathname === '/');
+  await page.waitForTimeout(800);
+  const after = (await gridScroll())!;
+  assert.ok(Math.abs(after.top - before.top) < 300, `scrolled to ${after.top}, was ${before.top}`);
+  assert.ok((await cardsOnScreen()) > 0, 'no photo on screen');
+
+  // A filter with a few photos, without scrolling first: they're on screen.
+  await page.getByPlaceholder('Search filename').fill('many-599');
+  await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 1);
+  await page.waitForTimeout(300);
+  assert.equal(await cardsOnScreen(), 1);
 });
