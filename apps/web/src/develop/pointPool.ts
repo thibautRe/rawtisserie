@@ -10,6 +10,7 @@
  */
 import { type DiffuseJob, type Developer, diffusePlane } from '@rawtisserie/pipeline/wasm';
 import type { PointRequest, PointResponse } from './protocol.ts';
+import { startWorker } from './startWorker.ts';
 
 /**
  * Busy workers slow the page down: with 8 on an 8-core/16-thread laptop, the main
@@ -22,7 +23,11 @@ type Pending = { resolve: (data: ArrayBuffer) => void; reject: (e: Error) => voi
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 export class PointPool {
-  private workers: Worker[];
+  private workers: Worker[] = [];
+  /** The LUTs loaded, for workers that start later. */
+  private luts = new Map<string, Uint8Array>();
+  /** Its workers are up: renders can use it. */
+  ready = false;
   private pending = new Map<number, Pending>();
   private nextId = 1;
   /** Which spatial image the workers hold (`Developer.spatialInfo`), and its split. */
@@ -41,8 +46,33 @@ export class PointPool {
   }
 
   private constructor(n: number, wasm: Promise<WebAssembly.Module>) {
-    this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL('./point.worker.ts', import.meta.url), { type: 'module' });
+    void this.start(n, wasm);
+  }
+
+  /**
+   * Start the workers one after the other, each once the one before said it's alive:
+   * several asking for the same scripts at once is what breaks Firefox's cache. Until
+   * they're all up (`ready`), the pipeline worker renders alone.
+   */
+  private async start(n: number, wasm: Promise<WebAssembly.Module>) {
+    let module: WebAssembly.Module;
+    try {
+      module = await wasm;
+    } catch {
+      // The pipeline worker's own init fails too: that's what reports it.
+      return;
+    }
+    for (let i = 0; i < n; i++) {
+      let w: Worker;
+      try {
+        w = await startWorker(
+          () => new Worker(new URL('./point.worker.ts', import.meta.url), { type: 'module' }),
+          'render worker',
+        );
+      } catch (err) {
+        console.warn(err);
+        break;
+      }
       w.onmessage = (e: MessageEvent<PointResponse>) => {
         const p = this.pending.get(e.data.id);
         if (!p) return;
@@ -51,13 +81,17 @@ export class PointPool {
         else p.resolve(e.data.data);
       };
       w.onerror = (e) => this.fail(new Error(e.message || 'Point worker crashed'));
-      return w;
-    });
-    // A failed compile fails the pipeline worker's own init too: that's what reports it.
-    wasm.then(
-      (module) => this.workers.forEach((_, i) => this.post(i, { type: 'init', module })),
-      () => {},
-    );
+      const init: PointRequest = { type: 'init', module };
+      w.postMessage(init);
+      // The LUTs loaded before it was up.
+      for (const [lutId, bytes] of this.luts) {
+        const copy = bytes.slice().buffer;
+        const lut: PointRequest = { type: 'lut', lutId, bytes: copy };
+        w.postMessage(lut, [copy]);
+      }
+      this.workers.push(w);
+    }
+    this.ready = this.workers.length >= 2;
   }
 
   /** Forget the strips the workers hold (e.g. another photo was loaded: its ids start over). */
@@ -105,6 +139,7 @@ export class PointPool {
 
   /** Load a LUT's packed table into every worker (each gets a copy). */
   loadLut(lutId: string, bytes: Uint8Array) {
+    this.luts.set(lutId, bytes);
     this.workers.forEach((_, i) => {
       const copy = bytes.slice().buffer;
       this.post(i, { type: 'lut', lutId, bytes: copy }, [copy]);
@@ -112,6 +147,7 @@ export class PointPool {
   }
 
   unloadLut(lutId: string) {
+    this.luts.delete(lutId);
     this.workers.forEach((_, i) => this.post(i, { type: 'unloadLut', lutId }));
   }
 

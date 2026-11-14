@@ -7,6 +7,7 @@
  */
 import init, { PointRenderer, diffusePlane } from '@rawtisserie/pipeline/wasm';
 import type { PointRequest, PointResponse } from './protocol.ts';
+import { announceAlive } from './startWorker.ts';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -69,3 +70,5 @@ self.onmessage = async (event: MessageEvent<PointRequest>) => {
     else console.error(err);
   }
 };
+
+announceAlive();

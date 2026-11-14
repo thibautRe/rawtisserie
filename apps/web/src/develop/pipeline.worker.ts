@@ -9,6 +9,7 @@ import { type EditParams, type SensorMapping, lutIds } from '@rawtisserie/pipeli
 import init, { Developer, parseLut } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
 import { PointPool } from './pointPool.ts';
+import { announceAlive } from './startWorker.ts';
 import type {
   GuideLine,
   Overlays,
@@ -29,6 +30,8 @@ let developer: Developer | null = null;
 // Export workers (`LocalRenderBackend({ pool: false })`) render one photo each, several
 // at once: they don't need a pool of their own.
 const pool = self.name === 'export' ? null : PointPool.create(wasm);
+/** The pool, once its workers are up (until then, this worker renders alone). */
+const livePool = () => (pool?.ready ? pool : null);
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 
@@ -49,6 +52,7 @@ async function offloadDiffuse(
   maxHeight: number,
   region?: Uint32Array,
 ) {
+  const pool = livePool();
   if (!pool) return;
   // Each job is one diffuse step; a recipe rarely has more than a couple.
   for (let i = 0; i < 16; i++) {
@@ -229,6 +233,7 @@ async function handle(msg: WorkerRequest) {
       };
       // A draft stands in for a full-size render while dragging. If only the point
       // operations need to run, the pool renders full size about as fast: do that.
+      const pool = livePool();
       const upgrade = isDraft && !!pool && developer.isSpatialCached(params, full.width, full.height, full.region);
       if (pool && (!isDraft || upgrade)) {
         await offloadDiffuse(developer, params, full.width, full.height, full.region);
@@ -311,3 +316,5 @@ async function handle(msg: WorkerRequest) {
     post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
   }
 }
+
+announceAlive();

@@ -19,6 +19,7 @@ import type {
   WorkerResponse,
 } from './protocol.ts';
 import type { Frame, LutSource, RenderBackend } from './renderBackend.ts';
+import { startWorker } from './startWorker.ts';
 import type { ScopeRequest } from './scopes.ts';
 
 type Pending = { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void };
@@ -26,37 +27,53 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 
 /** Renders in the browser: promise-based RPC to the pipeline worker. */
 export class LocalRenderBackend implements RenderBackend {
-  private worker: Worker;
+  /** The pipeline worker, once it said it's alive. */
+  private worker: Promise<Worker>;
   private pending = new Map<number, Pending>();
   private nextId = 1;
   private lutSource: LutSource | null = null;
   /** The LUTs sent to the worker, or being fetched for it, by id. */
   private luts = new Map<string, Promise<void>>();
+  private disposed = new AbortController();
 
   /** Without `pool`, renders run on the pipeline worker alone (exports, several at once). */
   constructor({ pool = true }: { pool?: boolean } = {}) {
-    this.worker = new Worker(new URL('./pipeline.worker.ts', import.meta.url), {
-      type: 'module',
-      name: pool ? 'pipeline' : 'export',
+    this.worker = startWorker(
+      () =>
+        new Worker(new URL('./pipeline.worker.ts', import.meta.url), {
+          type: 'module',
+          name: pool ? 'pipeline' : 'export',
+        }),
+      'pipeline worker',
+      this.disposed.signal,
+    ).then((worker) => {
+      // `startWorker` resolved: from here, every message is an answer.
+      worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+        const p = this.pending.get(e.data.id);
+        if (!p) return;
+        this.pending.delete(e.data.id);
+        if (e.data.type === 'error') p.reject(new Error(e.data.message));
+        else p.resolve(e.data);
+      };
+      worker.onerror = (e) => {
+        for (const p of this.pending.values()) p.reject(new Error(e.message || 'Pipeline worker crashed'));
+        this.pending.clear();
+      };
+      return worker;
     });
-    this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
-      const p = this.pending.get(e.data.id);
-      if (!p) return;
-      this.pending.delete(e.data.id);
-      if (e.data.type === 'error') p.reject(new Error(e.data.message));
-      else p.resolve(e.data);
-    };
-    this.worker.onerror = (e) => {
-      for (const p of this.pending.values()) p.reject(new Error(e.message || 'Pipeline worker crashed'));
-      this.pending.clear();
-    };
   }
 
   private call<T extends WorkerResponse>(msg: DistributiveOmit<WorkerRequest, 'id'>, transfer: Transferable[] = []) {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (r: WorkerResponse) => void, reject });
-      this.worker.postMessage({ ...msg, id }, transfer);
+      this.worker.then(
+        (worker) => worker.postMessage({ ...msg, id }, transfer),
+        (err: Error) => {
+          this.pending.delete(id);
+          reject(err);
+        },
+      );
     });
   }
 
@@ -232,7 +249,12 @@ export class LocalRenderBackend implements RenderBackend {
   }
 
   dispose() {
-    this.worker.terminate();
+    // Ends the worker if it's still starting.
+    this.disposed.abort();
+    this.worker.then(
+      (w) => w.terminate(),
+      () => {},
+    );
     for (const p of this.pending.values()) p.reject(new Error('Pipeline disposed'));
     this.pending.clear();
   }
