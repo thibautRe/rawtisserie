@@ -13,7 +13,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { Check, Star, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
@@ -60,35 +60,53 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
 const IMPORTS_SHOWN = 5;
 
 /**
- * The imports, newest first, to show one of them (the files an upload or a transfer
- * brought). Picking the one shown again shows the whole library.
+ * The imports, newest first, to show some of them (the files an upload or a transfer
+ * brought). A click shows one (again: the whole library), Ctrl/⌘-click adds or removes
+ * one, Shift-click shows those between the last one clicked and this one (an import
+ * that went in several goes).
  */
 function ImportList({ imports, search }: { imports: ImportFacet[]; search: LibrarySearch }) {
-  const selected = search.params.get('import');
+  const selected = search.params.getAll('import');
   const [more, setMore] = useState(false);
-  // The one shown stays listed, even when it isn't among them (still starting, or old).
-  const all =
-    selected && !imports.some((i) => i.value === selected)
-      ? [{ value: selected, count: 0, importedAt: null, source: null }, ...imports]
-      : imports;
+  const anchor = useRef<string | null>(null);
+  // The ones shown stay listed, even when they aren't among them (still starting, or old).
+  const missing = selected.filter((id) => !imports.some((i) => i.value === id));
+  const all = [...missing.map((value) => ({ value, count: 0, importedAt: null, source: null })), ...imports];
   if (!all.length)
     return (
       <Text textStyle="xs" color="fg.subtle">
         Nothing yet
       </Text>
     );
-  const shown = more ? all : all.filter((i, n) => n < IMPORTS_SHOWN || i.value === selected);
+  const shown = more ? all : all.filter((i, n) => n < IMPORTS_SHOWN || selected.includes(i.value));
+  const pick = (e: MouseEvent, id: string) => {
+    const from = all.findIndex((i) => i.value === (anchor.current ?? selected[0]));
+    if (e.shiftKey && from >= 0) {
+      const to = all.findIndex((i) => i.value === id);
+      const [a, b] = from < to ? [from, to] : [to, from];
+      search.setAll(
+        'import',
+        all.slice(a, b + 1).map((i) => i.value),
+      );
+      return;
+    }
+    anchor.current = id;
+    if (e.ctrlKey || e.metaKey) search.toggle('import', id);
+    else search.setAll('import', selected.length === 1 && selected[0] === id ? [] : [id]);
+  };
   return (
     <Stack gap="0.5">
       {shown.map((i) => {
-        const active = i.value === selected;
+        const active = selected.includes(i.value);
         return (
           <HStack
             as="button"
             key={i.value}
             aria-pressed={active}
             data-import={i.value}
-            onClick={() => search.set('import', active ? null : i.value)}
+            onClick={(e) => pick(e, i.value)}
+            // Shift-click selects a range, not the text.
+            onMouseDown={(e) => e.shiftKey && e.preventDefault()}
             title={i.importedAt ? `Imported ${formatDateTime(i.importedAt)}` : undefined}
             justify="space-between"
             gap="2"
@@ -247,10 +265,10 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
   // Open when it was left open; showing an import opens it too.
   const [importsOpen, setImportsOpen] = useState(() => localStorage.getItem(IMPORTS_OPEN_KEY) === '1');
   useEffect(() => localStorage.setItem(IMPORTS_OPEN_KEY, importsOpen ? '1' : '0'), [importsOpen]);
-  const shownImport = p.get('import');
+  const shownImports = p.getAll('import').length;
   useEffect(() => {
-    if (shownImport) setImportsOpen(true);
-  }, [shownImport]);
+    if (shownImports) setImportsOpen(true);
+  }, [shownImports]);
   const ratingMin = Number(p.get('ratingMin') ?? 0);
   const r = facets?.ranges;
 
@@ -359,9 +377,9 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
       <PanelBlock
         title="Recent imports"
         badge={
-          p.has('import') && (
+          shownImports > 0 && (
             <Badge size="xs" {...NUMERIC}>
-              1
+              {shownImports}
             </Badge>
           )
         }

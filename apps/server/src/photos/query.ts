@@ -35,8 +35,11 @@ export const PhotoFilters = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   edited: z.enum(['true', 'false']).optional(),
-  /** The versions one import created (`versions.import_id`). */
-  import: z.uuid().optional(),
+  /** The versions some imports created (`versions.import_id`). */
+  import: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : [v].flat()),
+    z.array(z.uuid()).max(100).optional(),
+  ),
 });
 export type PhotoFilters = z.infer<typeof PhotoFilters>;
 
@@ -84,6 +87,6 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.to) c.push(sql`p.captured_at <= ${f.to}`);
   if (f.edited === 'true') c.push(sql`v.edited`);
   if (f.edited === 'false') c.push(sql`NOT v.edited`);
-  if (f.import) c.push(sql`v.import_id = ${f.import}`);
+  if (f.import?.length) c.push(sql`v.import_id = ANY(${f.import})`);
   return sql.join(c, sql` AND `);
 }

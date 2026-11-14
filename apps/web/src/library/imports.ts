@@ -79,6 +79,11 @@ const emit = () => listeners.forEach((l) => l());
 const files = new Map<string, File>();
 const running = new Set<string>();
 
+// Leaving the app while files are being sent asks first (the rest of them would be lost).
+globalThis.addEventListener?.('beforeunload', (e) => {
+  if (running.size) e.preventDefault();
+});
+
 function update(runId: string, f: (run: ImportRun) => ImportRun) {
   runs = runs.map((r) => (r.id === runId ? f(r) : r));
   emit();

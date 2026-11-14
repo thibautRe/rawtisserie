@@ -115,8 +115,9 @@ export function LibraryPage() {
   // Files being imported come first in the grid: in their import's view, or the whole
   // library's (not another import's).
   const activeImport = useActiveImport();
-  const importId = search.params.get('import');
-  const pending = !importId || importId === activeImport?.id ? pendingItems(activeImport) : [];
+  const importIds = search.params.getAll('import');
+  const pending =
+    !importIds.length || (activeImport && importIds.includes(activeImport.id)) ? pendingItems(activeImport) : [];
   const batchEdit = useBatchEdit();
 
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
@@ -371,11 +372,13 @@ export function LibraryPage() {
           <Center flex="1">
             <Spinner color="orange.solid" />
           </Center>
-        ) : total === 0 && !pending.length && importId && search.activeFilterCount === 1 ? (
+        ) : total === 0 && !pending.length && importIds.length > 0 && search.activeFilterCount === 1 ? (
           <Center flex="1">
             <Stack align="center" gap="3" textAlign="center" maxW="md">
-              <Heading size="lg">Nothing new from this import</Heading>
-              <Text color="fg.muted">Its files were already in your library, or couldn’t be imported.</Text>
+              <Heading size="lg">Nothing new from {importIds.length > 1 ? 'these imports' : 'this import'}</Heading>
+              <Text color="fg.muted">
+                {importIds.length > 1 ? 'Their' : 'Its'} files were already in your library, or couldn’t be imported.
+              </Text>
               <Button variant="outline" onClick={search.clear}>
                 Clear filters
               </Button>

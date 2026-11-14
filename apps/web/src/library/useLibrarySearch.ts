@@ -66,9 +66,9 @@ export function useLibrarySearch() {
     [setParams],
   );
 
-  // The flags shown count as one filter.
+  // The flags shown count as one filter, and so do the imports.
   const activeFilterCount = [...params.keys()].filter(
-    (k, i, keys) => k !== 'sort' && (k !== 'flag' || keys.indexOf(k) === i),
+    (k, i, keys) => k !== 'sort' && ((k !== 'flag' && k !== 'import') || keys.indexOf(k) === i),
   ).length;
 
   return { params, search: params.toString(), set, setAll, toggle, clear, activeFilterCount };

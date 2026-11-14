@@ -89,6 +89,13 @@ let recipes: Record<string, unknown> = {};
 /** Originals whose next download fails with a server error. */
 let flaky = new Set<string>();
 /** Imports: what `/api/photos/check` knows, and the files whose upload fails next. */
+/** Earlier imports, newest first, for the sidebar. */
+const IMPORTS = [1, 2, 3, 4].map((n) => ({
+  value: `00000000-0000-4000-8000-00000000000${n}`,
+  count: n,
+  importedAt: new Date(Date.UTC(2026, 0, 10 - n)).toISOString(),
+  source: null,
+}));
 let knownHashes: Record<string, { status: string; filename: string }> = {};
 let failUploads = new Set<string>();
 
@@ -157,7 +164,14 @@ async function open(path: string) {
       return json({ versions, total: versions.length });
     }
     if (path === '/api/versions/facets')
-      return json({ cameras: [], lenses: [], tags: [], ratings: [], ranges: { total: PHOTOS.length } });
+      return json({
+        cameras: [],
+        lenses: [],
+        tags: [],
+        ratings: [],
+        ranges: { total: PHOTOS.length },
+        imports: IMPORTS,
+      });
     const version = /^\/api\/versions\/(v\d+)$/.exec(path)?.[1];
     const p = PHOTOS.find((p) => p.id === version);
     if (p && method === 'PATCH') patched.set(p.id, { ...patched.get(p.id), ...route.request().postDataJSON() });
@@ -456,6 +470,8 @@ test('an import shows its files waiting, then what happened to each, and retries
   assert.ok((await page.locator('[data-pending]').count()) <= 3);
   // Shown in the sidebar's imports, picked.
   await page.locator(`[data-import="${importId}"][aria-pressed="true"]`).waitFor();
+  // Leaving now asks first.
+  assert.equal(await leavingAsks(), true);
 
   const done = page.locator('[data-import-state=done]');
   await done.waitFor({ timeout: 20_000 });
@@ -486,10 +502,46 @@ test('an import shows its files waiting, then what happened to each, and retries
   );
   await done.getByRole('button', { name: 'Close' }).click();
   await done.waitFor({ state: 'detached' });
+  assert.equal(await leavingAsks(), false);
 
   // Back to the whole library: picking it again.
   await page.locator(`[data-import="${importId}"]`).click();
   await page.waitForURL((u) => !u.searchParams.has('import'));
+});
+
+/** Whether leaving the page now would ask first. */
+const leavingAsks = () =>
+  page.evaluate(() => {
+    const e = new Event('beforeunload', { cancelable: true });
+    dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+
+test('imports in the sidebar: one, a range with Shift, one more with Ctrl', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  if (!(await page.locator('[data-import]').first().isVisible()))
+    await page.getByText('Recent imports', { exact: true }).click();
+  const ids = IMPORTS.map((i) => i.value);
+  const row = (n: number) => page.locator(`[data-import="${ids[n]}"]`);
+  const shown = () => new URL(page.url()).searchParams.getAll('import');
+  const until = (ids: string[]) => page.waitForURL((u) => u.searchParams.getAll('import').join() === ids.join());
+  await row(0).click();
+  await until([ids[0]!]);
+  await row(2).click({ modifiers: ['Shift'] });
+  await until(ids.slice(0, 3));
+  await row(1).click({ modifiers: ['ControlOrMeta'] });
+  await until([ids[0]!, ids[2]!]);
+  // From the last one clicked.
+  await row(3).click({ modifiers: ['Shift'] });
+  await until(ids.slice(1, 4));
+  await page.waitForFunction(() => document.querySelectorAll('[data-import][aria-pressed="true"]').length === 3);
+  // A click shows that one alone; again, the whole library.
+  await row(2).click();
+  await until([ids[2]!]);
+  await row(2).click();
+  await until([]);
+  assert.deepEqual(shown(), []);
 });
 
 /** The library grid's scroller, and how far down it is. */
