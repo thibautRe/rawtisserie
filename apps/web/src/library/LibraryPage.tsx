@@ -40,7 +40,6 @@ import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './li
 import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
 import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
-import { pendingItems, useActiveImport } from './imports.ts';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
 import { useImporter } from './useImporter.tsx';
@@ -112,12 +111,7 @@ export function LibraryPage() {
   const moveToTrash = useTrashWithUndo();
   const duplicate = useDuplicateVersion();
   const startImport = useImporter();
-  // Files being imported come first in the grid: in their import's view, or the whole
-  // library's (not another import's).
-  const activeImport = useActiveImport();
   const importIds = search.params.getAll('import');
-  const pending =
-    !importIds.length || (activeImport && importIds.includes(activeImport.id)) ? pendingItems(activeImport) : [];
   const batchEdit = useBatchEdit();
 
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
@@ -368,11 +362,11 @@ export function LibraryPage() {
           />
         </HStack>
 
-        {library.isPending && !pending.length ? (
+        {library.isPending ? (
           <Center flex="1">
             <Spinner color="orange.solid" />
           </Center>
-        ) : total === 0 && !pending.length && importIds.length > 0 && search.activeFilterCount === 1 ? (
+        ) : total === 0 && importIds.length > 0 && search.activeFilterCount === 1 ? (
           <Center flex="1">
             <Stack align="center" gap="3" textAlign="center" maxW="md">
               <Heading size="lg">Nothing new from {importIds.length > 1 ? 'these imports' : 'this import'}</Heading>
@@ -384,7 +378,7 @@ export function LibraryPage() {
               </Button>
             </Stack>
           </Center>
-        ) : total === 0 && !pending.length ? (
+        ) : total === 0 ? (
           <Center flex="1">
             <Stack align="center" gap="3" textAlign="center" maxW="md">
               <Heading size="lg">
@@ -414,7 +408,6 @@ export function LibraryPage() {
             onScroll={(top) => (scrollTop.current = top)}
             onClick={grid.onClick}
             onOpen={openDevelop}
-            pending={pending}
           />
         )}
         <LibraryStatusBar

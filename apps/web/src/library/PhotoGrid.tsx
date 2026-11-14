@@ -1,8 +1,6 @@
 import { Box } from '@chakra-ui/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Photo } from '../api/types.ts';
-import type { ImportItem } from './imports.ts';
-import { PendingCard } from './PendingCard.tsx';
 import { GRID_GAP, GROUP_BOX_CLASS, PhotoCard } from './PhotoCard.tsx';
 
 /** The scroller's padding, in px. */
@@ -28,8 +26,6 @@ interface Props {
   onClick: (e: React.MouseEvent, photo: Photo) => void;
   /** Double-click (none: nothing happens). */
   onOpen?: (photo: Photo) => void;
-  /** Files being imported, shown before the photos (positions above are the photos'). */
-  pending?: ImportItem[];
 }
 
 /**
@@ -48,7 +44,6 @@ export function PhotoGrid({
   onScroll,
   onClick,
   onOpen,
-  pending = [],
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   // `top` is always the scroller's: rows are rendered around it, so it must never be
@@ -67,9 +62,7 @@ export function PhotoGrid({
 
   const cell = Math.max(1, (view.width - 2 * PADDING - (columns - 1) * GRID_GAP) / columns);
   const rowHeight = cell + GRID_GAP;
-  // Cells: the pending files, then the photos.
-  const lead = pending.length;
-  const rows = Math.ceil((lead + items.length) / columns);
+  const rows = Math.ceil(items.length / columns);
   const height = rows ? rows * rowHeight - GRID_GAP : 0;
 
   // Restore the scroll position once the list's size is known (as far as it goes, if
@@ -102,15 +95,14 @@ export function PhotoGrid({
   useEffect(() => {
     if (!view.width || !rows) return;
     const ahead = Math.ceil((PREFETCH_SCREENS * view.height) / rowHeight);
-    const start = Math.max(0, first - ahead) * columns - lead;
-    onRange(Math.max(0, start), Math.max(0, Math.min(rows, last + 1 + ahead) * columns - 1 - lead));
-  }, [first, last, rows, columns, rowHeight, view.width, view.height, onRange, lead]);
+    onRange(Math.max(0, first - ahead) * columns, Math.min(rows, last + 1 + ahead) * columns - 1);
+  }, [first, last, rows, columns, rowHeight, view.width, view.height, onRange]);
 
   // Keep the keyboard focus visible.
   useEffect(() => {
     const el = scroller.current;
     if (!el || focusedIndex < 0 || !view.width) return;
-    const top = PADDING + Math.floor((focusedIndex + lead) / columns) * rowHeight;
+    const top = PADDING + Math.floor(focusedIndex / columns) * rowHeight;
     if (top < el.scrollTop) el.scrollTop = top - PADDING;
     else if (top + cell > el.scrollTop + el.clientHeight) el.scrollTop = top + cell + PADDING - el.clientHeight;
   }, [focusedId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,7 +119,7 @@ export function PhotoGrid({
       : '';
   }, []);
   const shown: number[] = [];
-  for (let i = first * columns; i < Math.min(lead + items.length, (last + 1) * columns); i++) shown.push(i);
+  for (let i = first * columns; i < Math.min(items.length, (last + 1) * columns); i++) shown.push(i);
 
   return (
     <Box
@@ -158,9 +150,7 @@ export function PhotoGrid({
             gap: GRID_GAP,
           }}
         >
-          {shown.map((cellIndex) => {
-            if (cellIndex < lead) return <PendingCard key={pending[cellIndex]!.key} item={pending[cellIndex]!} />;
-            const i = cellIndex - lead;
+          {shown.map((i) => {
             const photo = items[i];
             if (!photo) return <Placeholder key={`at-${i}`} />;
             return (
@@ -169,8 +159,8 @@ export function PhotoGrid({
                 photo={photo}
                 selected={selection.has(photo.id)}
                 focused={photo.id === focusedId}
-                joinLeft={cellIndex % columns > 0 && items[i - 1]?.photoId === photo.photoId}
-                joinRight={(cellIndex + 1) % columns > 0 && items[i + 1]?.photoId === photo.photoId}
+                joinLeft={i % columns > 0 && items[i - 1]?.photoId === photo.photoId}
+                joinRight={(i + 1) % columns > 0 && items[i + 1]?.photoId === photo.photoId}
                 onClick={onClick}
                 onOpen={onOpen}
                 onHover={onHover}

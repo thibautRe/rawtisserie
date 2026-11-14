@@ -41,10 +41,6 @@ export interface ImportRun {
   done: boolean;
 }
 
-/** What's left of a run to upload: its pending cards. */
-export const pendingItems = (run: ImportRun | null) =>
-  run ? run.items.filter((i) => i.status === 'waiting' || i.status === 'uploading') : [];
-
 /** A run's outcome so far, by what happened to each file. */
 export function summarize(run: ImportRun) {
   const of = (f: (i: ImportItem) => boolean) => run.items.filter(f);
@@ -96,11 +92,6 @@ export const getRun = (id: string) => runs.find((r) => r.id === id) ?? null;
 /** A run, kept up to date. */
 export function useImportRun(id: string | null) {
   return useSyncExternalStore(subscribe, () => (id ? getRun(id) : null));
-}
-
-/** The run still sending files, if any. */
-export function useActiveImport() {
-  return useSyncExternalStore(subscribe, () => runs.findLast((r) => !r.done) ?? null);
 }
 
 export interface ImportDeps {

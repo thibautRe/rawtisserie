@@ -463,11 +463,9 @@ test('an import shows its files waiting, then what happened to each, and retries
     { name: 'c.ARW', mimeType: 'application/octet-stream', buffer: raw(3) },
     { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') },
   ]);
-  // The library shows this import, its files first while they're waiting (not the text file).
+  // The library shows this import.
   await page.waitForURL(/[?&]import=[0-9a-f-]{36}/);
   const importId = new URL(page.url()).searchParams.get('import')!;
-  await page.locator('[data-pending]').first().waitFor();
-  assert.ok((await page.locator('[data-pending]').count()) <= 3);
   // Shown in the sidebar's imports, picked.
   await page.locator(`[data-import="${importId}"][aria-pressed="true"]`).waitFor();
   // Leaving now asks first.
@@ -475,7 +473,6 @@ test('an import shows its files waiting, then what happened to each, and retries
 
   const done = page.locator('[data-import-state=done]');
   await done.waitFor({ timeout: 20_000 });
-  assert.equal(await page.locator('[data-pending]').count(), 0);
   const text = await done.innerText();
   assert.match(text, /1 photo imported/);
   assert.match(text, /1 file already in your library/);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pendingItems, sampleRun, summarize } from './imports.ts';
+import { sampleRun, summarize } from './imports.ts';
 
 test("a run's outcome, by what happened to each file", () => {
   const run = sampleRun(
@@ -22,7 +22,6 @@ test("a run's outcome, by what happened to each file", () => {
     [s.imported, s.duplicates, s.deleted, s.failed, s.refused].map((l) => l.length),
     [2, 1, 1, 1, 2],
   );
-  assert.deepEqual(pendingItems(run), []);
 });
 
 test('progress counts the bytes sent of the file uploading', () => {
@@ -34,8 +33,4 @@ test('progress counts the bytes sent of the file uploading', () => {
   assert.equal(s.finished, 1);
   assert.equal(s.sentBytes, 130);
   assert.equal(s.totalBytes, 300);
-  assert.deepEqual(
-    pendingItems(run).map((i) => i.status),
-    ['uploading', 'waiting'],
-  );
 });

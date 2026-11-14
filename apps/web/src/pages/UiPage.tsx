@@ -40,7 +40,6 @@ import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import { TransferSummary } from '../components/transfer.tsx';
 import { ImportSummary } from '../library/ImportToast.tsx';
 import { sampleRun } from '../library/imports.ts';
-import { PendingCard } from '../library/PendingCard.tsx';
 import type { ColorLabel, Flag, Transfer } from '../api/types.ts';
 
 /**
@@ -737,16 +736,9 @@ export function UiPage() {
 
         <Block
           title="Import"
-          guide="Files being imported come first in the grid, shimmering, with a thin bar while they upload. The toast shows the progress (bytes), then the outcome until it's closed: what to retry, what to upload anyway."
+          guide="The toast shows the import's progress (bytes), then the outcome until it's closed: what to retry, what to upload anyway."
         >
           <Stack gap="6">
-            <HStack gap="2" align="start">
-              {IMPORT_PENDING.map((item) => (
-                <Box key={item.key} w="36">
-                  <PendingCard item={item} />
-                </Box>
-              ))}
-            </HStack>
             <HStack gap="4" align="start" wrap="wrap">
               {IMPORT_TOASTS.map(([label, run]) => (
                 <Example key={label} label={label} w="96">
@@ -832,7 +824,6 @@ const TRANSFER_TOASTS = [
   ],
 ] as [string, Transfer][];
 
-const IMPORT_PENDING = sampleRun([{}, { status: 'uploading', sent: 17e6 }, {}], false).items;
 const IMPORT_TOASTS = [
   [
     'Importing',
