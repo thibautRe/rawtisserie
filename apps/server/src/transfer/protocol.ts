@@ -28,6 +28,27 @@ export const Origin = z.object({
   label: z.string().trim().min(1).max(200),
 });
 
+/** A photo's value as files carry it (longer than an edit may make it). */
+const fileText = z.string().max(5000).nullable().optional();
+const fileNumber = z.number().nonnegative().nullable().optional();
+
+/**
+ * The library's edits, but with the photo's values as files carry them: a manual lens
+ * records an aperture and focal length of 0, which an edit couldn't set, and the copy
+ * must have them as they are.
+ */
+const SentPatch = VersionPatch.extend({
+  cameraMake: fileText,
+  cameraModel: fileText,
+  lens: fileText,
+  artist: fileText,
+  copyright: fileText,
+  iso: fileNumber,
+  exposureTime: fileNumber,
+  fNumber: fileNumber,
+  focalLength: fileNumber,
+});
+
 /** `POST /api/transfer/versions` (the `meta` field, before the original if it's needed). */
 export const SentVersion = z.object({
   origin: Origin,
@@ -36,7 +57,7 @@ export const SentVersion = z.object({
   sha256: Sha256,
   filename: z.string().trim().min(1).max(500),
   /** Culling, metadata and the photo's corrections, as the library edits them. */
-  patch: VersionPatch,
+  patch: SentPatch,
   /** The photo's extracted metadata, so the receiver doesn't extract it over the corrections. */
   exif: z.record(z.string(), z.unknown()).nullable(),
   history: z.object({ end: z.number().int().min(0), entries: z.array(HistoryEntryInput).max(5000) }),

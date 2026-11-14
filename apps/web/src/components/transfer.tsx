@@ -84,7 +84,14 @@ export function TransferSummary({
       : t.status === 'cancelled'
         ? `Stopped sending to ${host}`
         : `Sent to ${host}`;
-  const sentSomething = t.created + t.updated > 0;
+  // What arrived there, as one import.
+  const openThere = (
+    <Button size="2xs" variant="outline" asChild flexShrink={0}>
+      <Link href={`${t.url}/?import=${t.id}`} target="_blank" rel="noreferrer">
+        Open there <ExternalLink />
+      </Link>
+    </Button>
+  );
 
   return (
     <HStack align="start" gap="3" w="full" data-transfer-state={busy ? 'busy' : 'done'}>
@@ -123,12 +130,24 @@ export function TransferSummary({
         )}
         <Stack gap="1" textStyle="sm">
           {t.error && (
-            <Line icon={<CircleX size={14} />} color="red.fg">
+            <Line
+              icon={<CircleX size={14} />}
+              color="red.fg"
+              action={!busy && <Action onClick={onRetry}>Retry</Action>}
+            >
               {t.error}
             </Line>
           )}
-          {t.created > 0 && <Line icon={<Plus size={14} />}>{plural(t.created, 'new photo')} there</Line>}
-          {t.updated > 0 && <Line icon={<RefreshCw size={14} />}>{plural(t.updated, 'photo')} updated</Line>}
+          {t.created > 0 && (
+            <Line icon={<Plus size={14} />} action={!busy && openThere}>
+              {plural(t.created, 'new photo')} there
+            </Line>
+          )}
+          {t.updated > 0 && (
+            <Line icon={<RefreshCw size={14} />} action={!busy && !t.created && openThere}>
+              {plural(t.updated, 'photo')} updated
+            </Line>
+          )}
           {t.unchanged > 0 && <Line icon={<Equal size={14} />}>{plural(t.unchanged, 'photo')} already up to date</Line>}
           {t.extrasSent > 0 && (
             <Line icon={<Plus size={14} />}>
@@ -136,23 +155,15 @@ export function TransferSummary({
             </Line>
           )}
           {t.failed > 0 && (
-            <Line icon={<CircleX size={14} />} color="red.fg">
+            <Line
+              icon={<CircleX size={14} />}
+              color="red.fg"
+              action={!busy && !t.error && <Action onClick={onRetry}>Retry</Action>}
+            >
               {plural(t.failed, 'photo')} failed
             </Line>
           )}
         </Stack>
-        {!busy && (
-          <HStack gap="2">
-            {sentSomething && (
-              <Button size="2xs" variant="outline" asChild>
-                <Link href={`${t.url}/?import=${t.id}`} target="_blank" rel="noreferrer">
-                  Open there <ExternalLink />
-                </Link>
-              </Button>
-            )}
-            {problems && <Action onClick={onRetry}>Retry</Action>}
-          </HStack>
-        )}
         {!busy && t.failures.length > 0 && <Failures items={t.failures} />}
       </Stack>
       {!busy && <CloseButton size="2xs" onClick={onClose} aria-label="Close" mt="-1" me="-1" />}
@@ -160,13 +171,27 @@ export function TransferSummary({
   );
 }
 
-function Line({ icon, color = 'fg.muted', children }: { icon: ReactNode; color?: string; children: ReactNode }) {
+/** One outcome, with what can be done about it on the same line. */
+function Line({
+  icon,
+  color = 'fg.muted',
+  action,
+  children,
+}: {
+  icon: ReactNode;
+  color?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <HStack gap="2" minH="6" align="start">
       <Box color={color} flexShrink={0} pt="1">
         {icon}
       </Box>
-      <Text flex="1">{children}</Text>
+      <Text flex="1" pt="0.5">
+        {children}
+      </Text>
+      {action || null}
     </HStack>
   );
 }

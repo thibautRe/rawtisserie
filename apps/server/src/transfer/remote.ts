@@ -103,8 +103,14 @@ export async function remoteFetch(
 
 /** The error a response from another instance carries. */
 export async function remoteError(res: Response): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
-  return body?.error ?? `The other instance answered ${res.status}`;
+  const body = (await res.json().catch(() => null)) as {
+    error?: string;
+    issues?: { path: (string | number)[]; message: string }[];
+  } | null;
+  // What it refused, when it says (a value it can't take).
+  const issue = body?.issues?.[0];
+  const detail = issue ? ` (${issue.path.join('.')}: ${issue.message})` : '';
+  return body?.error ? body.error + detail : `The other instance answered ${res.status}`;
 }
 
 /** Who's there: checked to speak the same protocol. */

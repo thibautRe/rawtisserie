@@ -175,6 +175,7 @@ export const LABEL_COLORS: Record<string, string> = {
 /** The camera and capture settings filters, folded away by default. */
 const TECHNICAL_FILTERS = ['camera', 'lens', 'isoMin', 'isoMax', 'focalMin', 'focalMax', 'apertureMin', 'apertureMax'];
 const TECHNICAL_OPEN_KEY = 'library.filters.technicalOpen';
+const IMPORTS_OPEN_KEY = 'library.filters.importsOpen';
 
 /** The flags shown: any combination, none set meaning all of them. */
 const FLAG_FILTERS = [
@@ -243,6 +244,13 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
     () => localStorage.getItem(TECHNICAL_OPEN_KEY) === '1' || technicalFilters > 0,
   );
   useEffect(() => localStorage.setItem(TECHNICAL_OPEN_KEY, technicalOpen ? '1' : '0'), [technicalOpen]);
+  // Open when it was left open; showing an import opens it too.
+  const [importsOpen, setImportsOpen] = useState(() => localStorage.getItem(IMPORTS_OPEN_KEY) === '1');
+  useEffect(() => localStorage.setItem(IMPORTS_OPEN_KEY, importsOpen ? '1' : '0'), [importsOpen]);
+  const shownImport = p.get('import');
+  useEffect(() => {
+    if (shownImport) setImportsOpen(true);
+  }, [shownImport]);
   const ratingMin = Number(p.get('ratingMin') ?? 0);
   const r = facets?.ranges;
 
@@ -348,7 +356,18 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
         <FacetList name="tag" values={facets?.tags ?? []} search={search} />
       </PanelBlock>
 
-      <PanelBlock title="Imports">
+      <PanelBlock
+        title="Recent imports"
+        badge={
+          p.has('import') && (
+            <Badge size="xs" {...NUMERIC}>
+              1
+            </Badge>
+          )
+        }
+        open={importsOpen}
+        onOpenChange={setImportsOpen}
+      >
         <ImportList imports={facets?.imports ?? []} search={search} />
       </PanelBlock>
 
