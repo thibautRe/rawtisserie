@@ -1,6 +1,6 @@
 import { HStack, Separator, Slider, Spinner, Text } from '@chakra-ui/react';
 import { Grid3x3 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 
 export const MIN_COLUMNS = 3;
 export const MAX_COLUMNS = 12;
@@ -30,7 +30,7 @@ export function useColumns() {
 const NUMERIC = { fontFamily: 'numeric', fontVariantNumeric: 'tabular-nums' } as const;
 
 /** A slim bar under the library's grid, as the developer's: counts, and the grid's size. */
-export function LibraryStatusBar({
+export const LibraryStatusBar = memo(function LibraryStatusBar({
   selected,
   total,
   developing,
@@ -90,4 +90,4 @@ export function LibraryStatusBar({
       </HStack>
     </HStack>
   );
-}
+});

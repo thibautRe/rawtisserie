@@ -1,10 +1,12 @@
 import { createSystem, defaultConfig, defineConfig } from '@chakra-ui/react';
 import { collapsibleAnatomy, menuAnatomy, nativeSelectAnatomy } from '@chakra-ui/react/anatomy';
+import { PHOTO_CARD_CSS } from './library/photoCardCss.ts';
 
 const config = defineConfig({
   globalCss: {
     'html, body, #root': { height: '100%' },
     body: { bg: 'bg', color: 'fg' },
+    ...PHOTO_CARD_CSS,
   },
   theme: {
     tokens: {

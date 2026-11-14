@@ -521,7 +521,7 @@ test('imports in the sidebar: one, a range with Shift, one more with Ctrl', asyn
   await open('/');
   await cards().first().waitFor();
   if (!(await page.locator('[data-import]').first().isVisible()))
-    await page.getByText('Recent imports', { exact: true }).click();
+    await page.getByRole('button', { name: 'Recent imports' }).click();
   const ids = IMPORTS.map((i) => i.value);
   const row = (n: number) => page.locator(`[data-import="${ids[n]}"]`);
   const shown = () => new URL(page.url()).searchParams.getAll('import');

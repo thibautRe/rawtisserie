@@ -4,9 +4,11 @@ import { ChevronDown } from 'lucide-react';
 /** The library's side panels: blocks on the panel's background, as the developer's modules. */
 export const BLOCKS_PROPS = { gap: '1.5', py: '1.5', bg: 'bg', overflowY: 'auto' } as const;
 
-function BlockTitle({ children }: { children: React.ReactNode }) {
+/** As a span inside a foldable block's button (no heading may go in one). */
+function BlockTitle({ children, inButton }: { children: React.ReactNode; inButton?: boolean }) {
   return (
     <Heading
+      as={inButton ? 'span' : undefined}
       size="xs"
       fontSize="xs"
       fontWeight="bold"
@@ -45,20 +47,27 @@ export function PanelBlock({
       <Collapsible.Root asChild open={open} onOpenChange={(e) => onOpenChange(e.open)}>
         <Stack gap="0" px="3" pt="2" pb={open ? '3' : '2'} bg="bg.panel">
           <HStack justify="space-between" h="6">
-            <Collapsible.Trigger asChild>
-              <HStack flex="1" h="full" cursor="pointer" gap="2">
-                <BlockTitle>{title}</BlockTitle>
-                {badge}
-                <Box
-                  asChild
-                  ms="auto"
-                  color="fg.muted"
-                  transform={open ? 'rotate(180deg)' : undefined}
-                  transition="transform 0.15s"
-                >
-                  <ChevronDown size={14} />
-                </Box>
-              </HStack>
+            <Collapsible.Trigger
+              display="flex"
+              alignItems="center"
+              flex="1"
+              h="full"
+              cursor="pointer"
+              gap="2"
+              borderRadius="sm"
+              focusRing="outside"
+            >
+              <BlockTitle inButton>{title}</BlockTitle>
+              {badge}
+              <Box
+                asChild
+                ms="auto"
+                color="fg.muted"
+                transform={open ? 'rotate(180deg)' : undefined}
+                transition="transform 0.15s"
+              >
+                <ChevronDown size={14} />
+              </Box>
             </Collapsible.Trigger>
             {actions}
           </HStack>

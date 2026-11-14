@@ -13,7 +13,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import { Check, Star, X } from 'lucide-react';
-import { type MouseEvent, useEffect, useRef, useState } from 'react';
+import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
@@ -253,7 +253,7 @@ function SubTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function FilterSidebar({ search }: { search: LibrarySearch }) {
+export const FilterSidebar = memo(function FilterSidebar({ search }: { search: LibrarySearch }) {
   const { data: facets } = useFacets(search.search);
   const p = search.params;
   const technicalFilters = TECHNICAL_FILTERS.filter((k) => p.has(k)).length;
@@ -423,4 +423,4 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
       </PanelBlock>
     </Stack>
   );
-}
+});

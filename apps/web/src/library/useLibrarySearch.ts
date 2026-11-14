@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
 /**
@@ -71,7 +71,11 @@ export function useLibrarySearch() {
     (k, i, keys) => k !== 'sort' && ((k !== 'flag' && k !== 'import') || keys.indexOf(k) === i),
   ).length;
 
-  return { params, search: params.toString(), set, setAll, toggle, clear, activeFilterCount };
+  // The same object while the filters are: memoised panels take it.
+  return useMemo(
+    () => ({ params, search: params.toString(), set, setAll, toggle, clear, activeFilterCount }),
+    [params, set, setAll, toggle, clear, activeFilterCount],
+  );
 }
 
 export type LibrarySearch = ReturnType<typeof useLibrarySearch>;

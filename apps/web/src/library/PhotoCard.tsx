@@ -1,14 +1,12 @@
-import { Badge, Box, Center, Circle, HStack, Image, Spinner, Stack, Text } from '@chakra-ui/react';
+import { Spinner, Stack, Text } from '@chakra-ui/react';
 import { Check, CircleAlert, Star, X } from 'lucide-react';
 import { memo } from 'react';
 import type { Photo } from '../api/types.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
-/** The box behind a photo, highlighted with its other versions on hover. */
-export const GROUP_BOX_CLASS = 'photo-group-box';
+import { GROUP_BOX_CLASS } from './photoCardCss.ts';
 
-/** The grid's gap, in px. */
-export const GRID_GAP = 8;
+export { GRID_GAP, GROUP_BOX_CLASS } from './photoCardCss.ts';
 
 interface Props {
   photo: Photo;
@@ -23,6 +21,13 @@ interface Props {
   onHover: (photoId: string | null) => void;
 }
 
+/** A colour token as its CSS variable (`red.500` → `var(--chakra-colors-red-500)`). */
+const colorVar = (token: string) => `var(--chakra-colors-${token.replace('.', '-')})`;
+
+/**
+ * A photo in the library's grid. Plain elements styled by `PHOTO_CARD_CSS` (see there:
+ * style props cost too much here), with Chakra components only for what's rare.
+ */
 export const PhotoCard = memo(function PhotoCard({
   photo,
   selected,
@@ -33,57 +38,29 @@ export const PhotoCard = memo(function PhotoCard({
   onOpen,
   onHover,
 }: Props) {
-  const rejected = photo.flag === 'rejected';
   const showBar = photo.rating > 0 || photo.flag || photo.colorLabel || photo.edited;
   return (
-    <Box
+    <div
+      className="photo-card"
       data-photo-id={photo.id}
-      position="relative"
-      aspectRatio="1"
-      cursor="pointer"
-      userSelect="none"
+      data-group={photo.photoId}
+      data-selected={selected || undefined}
+      data-focused={focused || undefined}
+      data-join-left={joinLeft || undefined}
+      data-join-right={joinRight || undefined}
+      data-rejected={photo.flag === 'rejected' || undefined}
       onClick={(e) => onClick(e, photo)}
       onDoubleClick={onOpen && (() => onOpen(photo))}
-      data-group={photo.photoId}
-      // The hovered photo's box: highlighted at once (no transition on the way in), fading
-      // back with the box's own transition.
-      css={{ [`&:hover > .${GROUP_BOX_CLASS}`]: { bg: 'bg.emphasized', transition: 'none' } }}
       onPointerEnter={() => onHover(photo.photoId)}
       onPointerLeave={() => onHover(null)}
     >
       {/* The box shared by the photo's versions, across the gap to the next one. The grid
           highlights a hovered photo's boxes with a style rule (`PhotoGrid`). */}
-      <Box
-        className={GROUP_BOX_CLASS}
-        position="absolute"
-        inset="0"
-        right={joinRight ? `-${GRID_GAP}px` : '0'}
-        bg="bg.panel"
-        transition="background-color 0.2s"
-        borderLeftRadius={joinLeft ? '0' : 'md'}
-        borderRightRadius={joinRight ? '0' : 'md'}
-      />
-      <Box
-        position="absolute"
-        inset="0"
-        bg={selected ? 'bg.emphasized' : undefined}
-        borderRadius="md"
-        borderWidth="2px"
-        borderColor={selected ? 'orange.solid' : focused ? 'border.emphasized' : 'transparent'}
-        overflow="hidden"
-      >
-        <Center position="absolute" inset="2" opacity={rejected ? 0.35 : 1}>
+      <div className={GROUP_BOX_CLASS} />
+      <div className="photo-card-frame">
+        <div className="photo-card-thumb">
           {photo.thumbUrl ? (
-            <Image
-              src={photo.thumbUrl}
-              alt={photo.title ?? photo.filename}
-              maxW="full"
-              maxH="full"
-              objectFit="contain"
-              loading="lazy"
-              draggable={false}
-              boxShadow="md"
-            />
+            <img src={photo.thumbUrl} alt={photo.title ?? photo.filename} loading="lazy" draggable={false} />
           ) : photo.renderStatus === 'failed' ? (
             <Stack align="center" color="fg.error" title={photo.renderError ?? undefined}>
               <CircleAlert />
@@ -92,31 +69,28 @@ export const PhotoCard = memo(function PhotoCard({
           ) : (
             <Spinner color="orange.solid" />
           )}
-        </Center>
+        </div>
 
         {photo.renderStatus === 'pending' && photo.thumbUrl && (
           <Spinner size="xs" position="absolute" top="2" right="2" color="orange.solid" />
         )}
 
         {showBar && (
-          <HStack position="absolute" insetX="0" bottom="0" px="2" py="1" gap="1" bg="blackAlpha.600" color="white">
-            <HStack gap="0" color="orange.300">
+          <div className="photo-card-bar">
+            <span className="stars">
               {Array.from({ length: photo.rating }, (_, i) => (
                 <Star key={i} size={12} fill="currentColor" />
               ))}
-            </HStack>
-            <Box flex="1" />
-            {photo.edited && (
-              <Badge size="xs" bg="blackAlpha.700" color="white">
-                edited
-              </Badge>
+            </span>
+            {photo.edited && <span className="edited">edited</span>}
+            {photo.colorLabel && (
+              <span className="label" style={{ background: colorVar(LABEL_COLORS[photo.colorLabel] ?? 'gray.500') }} />
             )}
-            {photo.colorLabel && <Circle size="2.5" bg={LABEL_COLORS[photo.colorLabel]} />}
             {photo.flag === 'picked' && <Check size={14} />}
             {photo.flag === 'rejected' && <X size={14} color="var(--chakra-colors-red-400)" />}
-          </HStack>
+          </div>
         )}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 });

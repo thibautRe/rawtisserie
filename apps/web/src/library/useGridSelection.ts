@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo } from '../api/types.ts';
+import { useStableCallback } from '../develop/useStableCallback.ts';
 
 /**
  * Selecting in a photo grid (the library, the trash): a click selects one, Ctrl/Cmd+click
@@ -48,28 +49,26 @@ export function useGridSelection<T extends Photo>(
     anchorRef.current = last;
   }, []);
 
-  const onClick = useCallback(
-    (e: React.MouseEvent, photo: Photo) => {
-      if (e.shiftKey && anchorRef.current) {
-        const ids = photos.map((p) => p.id);
-        const [a, b] = [ids.indexOf(anchorRef.current), ids.indexOf(photo.id)].sort((x, y) => x - y);
-        setSelection(new Set(ids.slice(a, b! + 1)));
-        setFocusedId(photo.id);
-      } else if (e.metaKey || e.ctrlKey) {
-        setSelection((sel) => {
-          const next = new Set(sel);
-          if (next.has(photo.id)) next.delete(photo.id);
-          else next.add(photo.id);
-          return next;
-        });
-        setFocusedId(photo.id);
-        anchorRef.current = photo.id;
-      } else {
-        selectOne(photo.id);
-      }
-    },
-    [photos, selectOne],
-  );
+  // Stable: the grid's cards are memoised, and would all render again when a page comes in.
+  const onClick = useStableCallback((e: React.MouseEvent, photo: Photo) => {
+    if (e.shiftKey && anchorRef.current) {
+      const ids = photos.map((p) => p.id);
+      const [a, b] = [ids.indexOf(anchorRef.current), ids.indexOf(photo.id)].sort((x, y) => x - y);
+      setSelection(new Set(ids.slice(a, b! + 1)));
+      setFocusedId(photo.id);
+    } else if (e.metaKey || e.ctrlKey) {
+      setSelection((sel) => {
+        const next = new Set(sel);
+        if (next.has(photo.id)) next.delete(photo.id);
+        else next.add(photo.id);
+        return next;
+      });
+      setFocusedId(photo.id);
+      anchorRef.current = photo.id;
+    } else {
+      selectOne(photo.id);
+    }
+  });
 
   /**
    * Move the focus by `delta` positions (arrow keys), selecting the photo there, or with

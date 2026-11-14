@@ -1,5 +1,6 @@
 import { Box, IconButton, Menu, Portal, Text } from '@chakra-ui/react';
 import { Aperture, Images, LogIn, LogOut, Settings, ShieldCheck } from 'lucide-react';
+import { memo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useLogout, useMe, useStorage } from '../api/hooks.ts';
 import { libraryPath } from '../library/libraryView.ts';
@@ -9,7 +10,7 @@ import { StorageMeter } from './StorageMeter.tsx';
  * App navigation and account, folded into one button at the start of each page's
  * toolbar (there is no app-wide header, to leave the vertical space to photos).
  */
-export function AppMenu() {
+export const AppMenu = memo(function AppMenu() {
   const { data: user } = useMe();
   const { data: storage } = useStorage(!!user);
   const logout = useLogout();
@@ -73,4 +74,4 @@ export function AppMenu() {
       </Portal>
     </Menu.Root>
   );
-}
+});

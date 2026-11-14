@@ -190,3 +190,27 @@ Where the ~78 ns go: range weights and xyY ~5, forward to dt UCS with saturation
 brilliance ~30, gamut lookup ~4, soft-clip and back ~40. A 2D table over (luminance,
 colourfulness) could replace the forward part (~30 → ~10–15); the rest depends on
 three values (lightness, chroma and the hue's gamut edge), so a table doesn't fit it.
+
+## Library grid scrolling (2026-11-14)
+
+Measured in the production build at 4× CPU slowdown, scrolling 600 photos with
+thumbnails 37 px a frame for 150 frames: 1.2 s of script and 4 long tasks (~470 ms)
+before, ~0.5 s and one (~80 ms) after. Almost all of it was Chakra resolving style props
+(emotion's `serializeStyles`), not React or the DOM:
+
+- Cards mount by the row as it scrolls, ~10 styled elements each. `PhotoCard` is now
+  plain elements styled by one global stylesheet (`photoCardCss.ts`, in `theme.ts`),
+  its state in data attributes: card mounts went from ~1.4 ms to too small to show.
+- Every card on screen rendered again whenever a page came in: the grid's `onClick`
+  depended on the photos list. It's a stable callback now.
+- So did the whole sidebar (`useLibrarySearch` returned a new object each render), the
+  status bar and the app menu: memoised.
+- Sizes and offsets that change while scrolling (the grid's height and top) were style
+  props, each new value a new CSS rule and a restyle of the page: inline styles now.
+  The grid also renders only when other rows come into range, not on every scroll event.
+
+What's left is `LibraryPage`'s own render when a page arrives. To measure: React's
+profiling build (`react-dom/profiling`) with a `__REACT_DEVTOOLS_GLOBAL_HOOK__` that sums
+each fiber's `selfBaseDuration` (skipping subtrees whose `child` didn't change), and a
+CDP CPU profile of the unminified build. Test data needs thumbnails: without, every card
+shows a spinner, and their animations dominate the measure.

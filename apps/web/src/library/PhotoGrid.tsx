@@ -1,4 +1,4 @@
-import { Box, Grid } from '@chakra-ui/react';
+import { Box } from '@chakra-ui/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Photo } from '../api/types.ts';
 import type { ImportItem } from './imports.ts';
@@ -88,8 +88,15 @@ export function PhotoGrid({
     setView((v) => (v.top === top ? v : { ...v, top }));
   }, [height, view.width, rows]);
 
-  const first = Math.max(0, Math.floor((view.top - PADDING) / rowHeight) - OVERSCAN_ROWS);
-  const last = Math.min(rows - 1, Math.ceil((view.top + view.height) / rowHeight) + OVERSCAN_ROWS);
+  const range = (top: number) => [
+    Math.max(0, Math.floor((top - PADDING) / rowHeight) - OVERSCAN_ROWS),
+    Math.min(rows - 1, Math.ceil((top + view.height) / rowHeight) + OVERSCAN_ROWS),
+  ];
+  const [first, last] = range(view.top) as [number, number];
+  const sameRows = (a: number, b: number) => {
+    const [ra, rb] = [range(a), range(b)];
+    return ra[0] === rb[0] && ra[1] === rb[1];
+  };
 
   // Ask for the pages around what's visible.
   useEffect(() => {
@@ -130,18 +137,26 @@ export function PhotoGrid({
       p={`${PADDING}px`}
       onScroll={(e) => {
         const top = e.currentTarget.scrollTop;
-        setView((v) => (v.top === top ? v : { ...v, top }));
+        // Rendered again only when other rows come into range: most scroll events don't
+        // change which.
+        setView((v) => (v.top === top || sameRows(v.top, top) ? v : { ...v, top }));
         onScroll?.(top);
       }}
     >
       <style ref={hoverStyle} />
-      <Box position="relative" h={`${height}px`}>
-        <Grid
-          position="absolute"
-          insetX="0"
-          top={`${first * rowHeight}px`}
-          templateColumns={`repeat(${columns}, minmax(0, 1fr))`}
-          gap={`${GRID_GAP}px`}
+      {/* Plain elements, sized inline: as style props, each new size or offset would add a
+          CSS rule (the browser restyles the page for each), and they render as it scrolls. */}
+      <div style={{ position: 'relative', height }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: first * rowHeight,
+            display: 'grid',
+            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+            gap: GRID_GAP,
+          }}
         >
           {shown.map((cellIndex) => {
             if (cellIndex < lead) return <PendingCard key={pending[cellIndex]!.key} item={pending[cellIndex]!} />;
@@ -162,13 +177,13 @@ export function PhotoGrid({
               />
             );
           })}
-        </Grid>
-      </Box>
+        </div>
+      </div>
     </Box>
   );
 }
 
 /** A photo whose page isn't in yet. */
 const Placeholder = memo(function Placeholder() {
-  return <Box aspectRatio="1" bg="bg.panel" borderRadius="md" />;
+  return <div className="photo-placeholder" />;
 });
