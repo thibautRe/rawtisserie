@@ -87,6 +87,9 @@ let originals: Record<string, string> = {};
 let recipes: Record<string, unknown> = {};
 /** Originals whose next download fails with a server error. */
 let flaky = new Set<string>();
+/** Imports: what `/api/photos/check` knows, and the files whose upload fails next. */
+let knownHashes: Record<string, { status: string; filename: string }> = {};
+let failUploads = new Set<string>();
 
 let server: PreviewServer;
 let browser: Browser;
@@ -113,12 +116,29 @@ async function open(path: string) {
   originals = {};
   recipes = {};
   flaky = new Set();
+  knownHashes = {};
+  failUploads = new Set();
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ json: body });
     const method = route.request().method();
-    if (method !== 'GET') sent.push({ path, body: route.request().postDataJSON() });
+    if (method !== 'GET' && path !== '/api/photos') sent.push({ path, body: route.request().postDataJSON() });
+    if (path === '/api/photos/check') {
+      const { hashes } = route.request().postDataJSON() as { hashes: string[] };
+      return json({ files: hashes.filter((h) => knownHashes[h]).map((h) => ({ sha256: h, ...knownHashes[h] })) });
+    }
+    if (path === '/api/photos' && method === 'POST') {
+      const name = /filename="([^"]+)"/.exec(route.request().postDataBuffer()!.toString('latin1'))?.[1] ?? '';
+      sent.push({ path, body: { file: name, query: url.search } });
+      // Slow enough to see the files waiting.
+      return new Promise<void>((resolve) =>
+        setTimeout(() => {
+          if (failUploads.delete(name)) resolve(route.fulfill({ status: 500, json: { error: 'disk full' } }));
+          else resolve(json({ created: [{ ...PHOTOS[0], id: `new-${name}` }], skipped: [] }));
+        }, 400),
+      );
+    }
     if (path === '/api/tags') return json(TAGS);
     if (path === '/api/versions/bulk') return json({ versions: [] });
     if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A', isAdmin: false } });
@@ -407,3 +427,58 @@ test(
     assert.equal(downloads, 1);
   },
 );
+
+test('an import shows its files waiting, then what happened to each, and retries what failed', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const raw = (n: number) => Buffer.alloc(64 * 1024, n);
+  const { createHash } = await import('node:crypto');
+  knownHashes = { [createHash('sha256').update(raw(2)).digest('hex')]: { status: 'library', filename: 'old.ARW' } };
+  failUploads = new Set(['c.ARW']);
+  await page.locator('input[type=file]').setInputFiles([
+    { name: 'a.ARW', mimeType: 'application/octet-stream', buffer: raw(1) },
+    { name: 'b.ARW', mimeType: 'application/octet-stream', buffer: raw(2) },
+    { name: 'c.ARW', mimeType: 'application/octet-stream', buffer: raw(3) },
+    { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') },
+  ]);
+  // The library shows this import, its files first while they're waiting (not the text file).
+  await page.waitForURL(/[?&]import=[0-9a-f-]{36}/);
+  const importId = new URL(page.url()).searchParams.get('import')!;
+  await page.locator('[data-pending]').first().waitFor();
+  assert.ok((await page.locator('[data-pending]').count()) <= 3);
+  await page.getByText(/^Imported .* · /).waitFor();
+
+  const done = page.locator('[data-import-state=done]');
+  await done.waitFor({ timeout: 20_000 });
+  assert.equal(await page.locator('[data-pending]').count(), 0);
+  const text = await done.innerText();
+  assert.match(text, /1 photo imported/);
+  assert.match(text, /1 file already in your library/);
+  assert.match(text, /1 file failed/);
+  assert.match(text, /1 file not imported \(not RAW files\)/);
+  // Only the new files were sent, as part of this import; the duplicate wasn't.
+  const uploads = () =>
+    sent.filter((s) => s.path === '/api/photos').map((s) => s.body as { file: string; query: string });
+  assert.deepEqual(
+    uploads().map((u) => u.file),
+    ['a.ARW', 'c.ARW'],
+  );
+  assert.ok(uploads().every((u) => u.query.includes(`import=${importId}`)));
+
+  // It stays until closed; Retry sends the failed one again.
+  await page.waitForTimeout(600);
+  await done.getByRole('button', { name: 'Retry' }).click();
+  await page.waitForFunction(() =>
+    /2 photos imported/.test(document.querySelector('[data-import-state=done]')?.textContent ?? ''),
+  );
+  assert.deepEqual(
+    uploads().map((u) => u.file),
+    ['a.ARW', 'c.ARW', 'c.ARW'],
+  );
+  await done.getByRole('button', { name: 'Close' }).click();
+  await done.waitFor({ state: 'detached' });
+
+  // Back to the whole library.
+  await page.getByRole('button', { name: 'Show the whole library' }).click();
+  await page.waitForURL((u) => !u.searchParams.has('import'));
+});

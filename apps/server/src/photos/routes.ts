@@ -31,6 +31,9 @@ import {
 } from './storage.ts';
 
 const Id = z.object({ id: z.uuid() });
+const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
+/** Why an uploaded file wasn't added (the web app groups them by this). */
+type SkipKind = 'unsupported' | 'tooLarge' | 'duplicate' | 'deleted' | 'quota';
 const nullableText = (max: number) =>
   z
     .string()
@@ -521,24 +524,64 @@ export async function photoRoutes(
 
   // ── Photos (original files) ───────────────────────────────────────────────
 
-  /** Upload one or more RAW files (multipart/form-data, field name `files`). Each gets one version. */
+  /**
+   * Which of these files (by SHA-256) the user has: in the library, only in the trash, or
+   * deleted for good. An import asks before sending them; the upload checks again.
+   */
+  app.post('/api/photos/check', async (request) => {
+    const { hashes } = z.object({ hashes: z.array(Sha256).min(1).max(1000) }).parse(request.body);
+    const user = currentUser(request);
+    const rows = (await db.query(sql`
+      SELECT p.sha256, p.original_filename AS filename,
+        EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id AND v.trashed_at IS NULL) AS in_library
+      FROM photos p WHERE p.owner_id = ${user.id} AND p.sha256 = ANY(${hashes})`)) as {
+      sha256: string;
+      filename: string;
+      in_library: boolean;
+    }[];
+    const deleted = (await db.query(sql`
+      SELECT sha256 FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ANY(${hashes})`)) as {
+      sha256: string;
+    }[];
+    const known = new Set(rows.map((r) => r.sha256));
+    return {
+      files: [
+        ...rows.map((r) => ({
+          sha256: r.sha256,
+          status: r.in_library ? ('library' as const) : ('trash' as const),
+          filename: r.filename,
+        })),
+        ...deleted.filter((d) => !known.has(d.sha256)).map((d) => ({ sha256: d.sha256, status: 'deleted' as const })),
+      ],
+    };
+  });
+
+  /**
+   * Upload one or more RAW files (multipart/form-data, field name `files`). Each gets one
+   * version, marked with `import` (the client's id for this import) when given. A file
+   * deleted for good before is skipped unless `allowDeleted`.
+   */
   app.post('/api/photos', async (request, reply) => {
     const user = currentUser(request);
+    const query = z
+      .object({ import: z.uuid().optional(), allowDeleted: z.enum(['true', 'false']).optional() })
+      .parse(request.query);
+    const importId = query.import ?? null;
     const created: ReturnType<typeof versionDto>[] = [];
-    const skipped: { filename: string; reason: string }[] = [];
+    const skipped: { filename: string; kind: SkipKind; reason: string }[] = [];
 
     for await (const part of request.files()) {
       const filename = path.basename(part.filename || 'unnamed');
       const ext = path.extname(filename).toLowerCase();
       if (!RAW_EXTENSIONS.has(ext)) {
         part.file.resume();
-        skipped.push({ filename, reason: 'Not a supported RAW file' });
+        skipped.push({ filename, kind: 'unsupported', reason: 'Not a supported RAW file' });
         continue;
       }
       const upload = await receiveUpload(part.file);
       if (part.file.truncated) {
         await discardUpload(upload);
-        skipped.push({ filename, reason: 'File too large' });
+        skipped.push({ filename, kind: 'tooLarge', reason: 'File too large' });
         continue;
       }
       const duplicate = await photos(db).findOne({ owner_id: user.id, sha256: upload.sha256 });
@@ -547,21 +590,34 @@ export async function photoRoutes(
         const [inLibrary] = await db.query(sql`
           SELECT 1 FROM versions WHERE photo_id = ${duplicate.id} AND trashed_at IS NULL LIMIT 1`);
         if (inLibrary) {
-          skipped.push({ filename, reason: `Already in your library as ${duplicate.original_filename}` });
+          skipped.push({
+            filename,
+            kind: 'duplicate',
+            reason: `Already in your library as ${duplicate.original_filename}`,
+          });
           continue;
         }
         // Only in the trash: the file is stored already, so it comes back as a new version
         // (the trashed ones stay there, to restore or not).
-        const [version] = await versions(db).insert({ photo_id: duplicate.id });
+        const [version] = await versions(db).insert({ photo_id: duplicate.id, import_id: importId });
         created.push(versionDto(await findVersion(user.id, version!.id)));
         renderQueue.enqueue(version!.id);
         continue;
+      }
+      if (query.allowDeleted !== 'true') {
+        const [deleted] = await db.query(sql`
+          SELECT 1 FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ${upload.sha256}`);
+        if (deleted) {
+          await discardUpload(upload);
+          skipped.push({ filename, kind: 'deleted', reason: 'You deleted this file before' });
+          continue;
+        }
       }
       // Checked before storing the file, so an upload over quota costs nothing more…
       const before = await storageUsage(db, user.id);
       if (!fits(before, upload.size)) {
         await discardUpload(upload);
-        skipped.push({ filename, reason: quotaExceeded(before) });
+        skipped.push({ filename, kind: 'quota', reason: quotaExceeded(before) });
         continue;
       }
       const id = randomUUID();
@@ -580,13 +636,15 @@ export async function photoRoutes(
           file_size: upload.size,
           sha256: upload.sha256,
         });
-        const [version] = await versions(tx).insert({ photo_id: id });
+        const [version] = await versions(tx).insert({ photo_id: id, import_id: importId });
+        // Uploaded again on purpose: no longer one to ask about.
+        await tx.query(sql`DELETE FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ${upload.sha256}`);
         return { versionId: version!.id, usage };
       });
       const { versionId } = inserted;
       if (!versionId) {
         await deleteOriginal(storageKey);
-        skipped.push({ filename, reason: quotaExceeded(inserted.usage) });
+        skipped.push({ filename, kind: 'quota', reason: quotaExceeded(inserted.usage) });
         continue;
       }
       created.push(versionDto(await findVersion(user.id, versionId)));

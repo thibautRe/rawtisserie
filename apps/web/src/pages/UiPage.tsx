@@ -37,6 +37,9 @@ import { PanelBlock } from '../library/PanelBlock.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
+import { ImportSummary } from '../library/ImportToast.tsx';
+import { sampleRun } from '../library/imports.ts';
+import { PendingCard } from '../library/PendingCard.tsx';
 import type { ColorLabel, Flag } from '../api/types.ts';
 
 /**
@@ -730,7 +733,68 @@ export function UiPage() {
             </Box>
           </HStack>
         </Block>
+
+        <Block
+          title="Import"
+          guide="Files being imported come first in the grid, shimmering, with a thin bar while they upload. The toast shows the progress (bytes), then the outcome until it's closed: what to retry, what to upload anyway."
+        >
+          <Stack gap="6">
+            <HStack gap="2" align="start">
+              {IMPORT_PENDING.map((item) => (
+                <Box key={item.key} w="36">
+                  <PendingCard item={item} />
+                </Box>
+              ))}
+            </HStack>
+            <HStack gap="4" align="start" wrap="wrap">
+              {IMPORT_TOASTS.map(([label, run]) => (
+                <Example key={label} label={label} w="96">
+                  <Box p="4" borderWidth="1px" borderRadius="l2" bg="bg.panel" boxShadow="lg">
+                    <ImportSummary
+                      run={run}
+                      onShow={() => {}}
+                      onRetry={() => {}}
+                      onUploadDeleted={() => {}}
+                      onClose={() => {}}
+                    />
+                  </Box>
+                </Example>
+              ))}
+            </HStack>
+          </Stack>
+        </Block>
       </Container>
     </Box>
   );
 }
+
+const IMPORT_PENDING = sampleRun([{}, { status: 'uploading', sent: 17e6 }, {}], false).items;
+const IMPORT_TOASTS = [
+  [
+    'Importing',
+    sampleRun(
+      [
+        ...Array(30).fill({ status: 'imported' }),
+        { status: 'skipped', kind: 'duplicate', reason: 'Already in your library as DSC01003.ARW' },
+        { status: 'uploading', sent: 12e6 },
+        ...Array(55).fill({}),
+      ],
+      false,
+    ),
+  ],
+  ['Done', sampleRun(Array(87).fill({ status: 'imported' }), true)],
+  [
+    'Done, with problems',
+    sampleRun(
+      [
+        ...Array(80).fill({ status: 'imported' }),
+        ...Array(3).fill({ status: 'skipped', kind: 'duplicate', reason: 'Already in your library as DSC00412.ARW' }),
+        { status: 'skipped', kind: 'deleted', reason: 'You deleted this file before' },
+        { status: 'failed', reason: 'Upload failed: the connection was lost' },
+        { status: 'skipped', kind: 'unsupported', reason: 'Not a supported RAW file' },
+        { status: 'skipped', kind: 'quota', reason: 'Not enough storage: 49.8 GB of 50 GB used' },
+      ],
+      true,
+    ),
+  ],
+] as const;

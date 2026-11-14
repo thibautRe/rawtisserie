@@ -22,7 +22,6 @@ import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { clearOriginals } from './originals.ts';
-import { formatBytes } from '../lib/format.ts';
 import type {
   AdminStats,
   AdminUser,
@@ -465,48 +464,10 @@ export function useBatchEdit() {
   );
 }
 
+/** What `POST /api/photos` answers (imports: `library/imports.ts`). */
 export interface UploadResult {
   created: Photo[];
-  skipped: { filename: string; reason: string }[];
-}
-
-/** Upload files one at a time so progress can be reported. */
-export function useUpload() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ files, onProgress }: { files: File[]; onProgress?: (done: number) => void }) => {
-      const result: UploadResult = { created: [], skipped: [] };
-      // Files that can't fit aren't sent: the server would refuse them after the whole
-      // upload. It still checks (duplicates don't count, and other tabs may upload too).
-      const storage = await qc
-        .fetchQuery({ queryKey: ['storage'], queryFn: fetchStorage, staleTime: 0 })
-        .catch(() => null);
-      let used = storage?.used ?? 0;
-      for (const [i, file] of files.entries()) {
-        if (storage && storage.quota !== null && used + file.size > storage.quota) {
-          result.skipped.push({ filename: file.name, reason: storageFull({ used, quota: storage.quota }) });
-          onProgress?.(i + 1);
-          continue;
-        }
-        const form = new FormData();
-        form.append('files', file);
-        try {
-          const r = await api.post<UploadResult>('/api/photos', form);
-          result.created.push(...r.created);
-          result.skipped.push(...r.skipped);
-          if (r.created.length) used += file.size;
-        } catch (err) {
-          result.skipped.push({ filename: file.name, reason: err instanceof Error ? err.message : 'Upload failed' });
-        }
-        onProgress?.(i + 1);
-      }
-      return result;
-    },
-    onSettled: () => {
-      refreshLibrary(qc);
-      void qc.invalidateQueries({ queryKey: ['storage'] });
-    },
-  });
+  skipped: { filename: string; kind: string; reason: string }[];
 }
 
 // ── Storage and admin ───────────────────────────────────────────────────────
@@ -517,10 +478,6 @@ const fetchStorage = () => api.get<StorageUsage>('/api/account/storage');
 export function useStorage(enabled = true) {
   return useQuery({ queryKey: ['storage'], queryFn: fetchStorage, enabled });
 }
-
-/** Why an upload doesn't fit, worded like the server's refusal. */
-export const storageFull = ({ used, quota }: Pick<StorageUsage, 'used' | 'quota'>) =>
-  `Not enough storage: ${formatBytes(used)} of ${formatBytes(quota ?? 0)} used`;
 
 export function useAdminStats() {
   return useQuery({ queryKey: ['admin', 'stats'], queryFn: () => api.get<AdminStats>('/api/admin/stats') });

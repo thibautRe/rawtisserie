@@ -73,6 +73,25 @@
     ]
   },
   {
+    "name": "deleted_originals",
+    "columns": [
+      {
+        "name": "owner_id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "sha256",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      }
+    ]
+  },
+  {
     "name": "export_presets",
     "columns": [
       {
@@ -773,6 +792,13 @@
         "name": "id",
         "isNullable": false,
         "hasDefault": true,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "import_id",
+        "isNullable": true,
+        "hasDefault": false,
         "typeId": 2950,
         "typeName": "UUID"
       },

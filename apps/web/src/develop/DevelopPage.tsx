@@ -88,7 +88,8 @@ export function LocalDevelopPage() {
     try {
       const form = new FormData();
       form.append('files', loaded.file);
-      const { created, skipped } = await api.post<UploadResult>('/api/photos', form);
+      // Asked for this one file: added even if it was deleted for good before.
+      const { created, skipped } = await api.post<UploadResult>('/api/photos?allowDeleted=true', form);
       const version = created[0];
       if (!version) throw new Error(skipped[0]?.reason ?? 'Upload failed');
       if (entries.length) {

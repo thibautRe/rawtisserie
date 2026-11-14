@@ -55,6 +55,11 @@ See README.md for the architecture overview and commands.
   do; the trash's own routes and the render queue don't). The trash page reuses the
   library's grid, selection (`useGridSelection`) and loupe: keep them working without
   editing (`Loupe`'s `onChange`/`onDevelop` and `PhotoGrid`'s `onOpen` are optional).
+- Imports (`library/imports.ts`) live outside the pages, so they survive navigation:
+  files are hashed in the browser and checked (`POST /api/photos/check`) before upload,
+  versions get the import's id (`import_id`, the library's `?import=` filter), and an
+  original deleted for good leaves only its hash in `deleted_originals`, so it's skipped
+  unless uploaded with `allowDeleted`. The upload route checks all of it again.
 - Storage quotas count original files only (`accounts/quota.ts`); anything new that
   stores user files must decide whether it counts, and check `fits` before storing.
   Admin-only routes use `requireAdmin` (and the page checks `isAdmin` too).

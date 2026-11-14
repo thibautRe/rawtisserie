@@ -2,7 +2,8 @@
  * The trash (roadmap 7.3). Deleting from the library moves versions here (`trashed_at`):
  * they can be restored for `TRASH_DAYS`, then they're deleted for good, as they are when
  * deleted from the trash. Deleting a version for good removes its history and renders;
- * a photo left without versions goes too, with its original file. A photo's original
+ * a photo left without versions goes too, with its original file (its hash is kept in
+ * `deleted_originals`, so importing it again asks first). A photo's original
  * counts towards the quota while any of its versions exists, trashed or not.
  */
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
@@ -43,7 +44,13 @@ export async function deleteForever(where: SQLQuery, log?: FastifyBaseLogger): P
     const orphans = (await tx.query(sql`
       DELETE FROM photos p WHERE p.id = ANY(${[...new Set(deleted.map((d) => d.photo_id))]})
         AND NOT EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id)
-      RETURNING storage_key`)) as Pick<Photos, 'storage_key'>[];
+      RETURNING storage_key, owner_id, sha256`)) as Pick<Photos, 'storage_key' | 'owner_id' | 'sha256'>[];
+    // Only their hash is remembered: imports skip them unless asked (`photos/routes.ts`).
+    if (orphans.length)
+      await tx.query(sql`
+        INSERT INTO deleted_originals (owner_id, sha256)
+        SELECT * FROM unnest(${orphans.map((o) => o.owner_id)}::uuid[], ${orphans.map((o) => o.sha256)}::text[])
+        ON CONFLICT DO NOTHING`);
     return { deleted, orphans };
   });
   const results = await Promise.allSettled([

@@ -215,7 +215,9 @@ originals are another matter (7.1, 7.3).
 
 **Deleted photos** go to the user's trash (`/settings/trash`) for 30 days first. The app deletes
 what's older every hour (and when it starts), and that, or a user deleting from the
-trash, is the only way originals and renders leave storage. Restoring a database dump
+trash, is the only way originals and renders leave storage. Of a file deleted for good,
+only its SHA-256 is kept (`deleted_originals`), so that importing it again asks first.
+Restoring a database dump
 older than a purge brings back rows whose files are gone: their renders are missing and
 they can't be rendered again.
 

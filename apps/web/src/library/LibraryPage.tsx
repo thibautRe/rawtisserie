@@ -13,15 +13,15 @@ import {
   Text,
 } from '@chakra-ui/react';
 import type { EditParams } from '@rawtisserie/pipeline';
-import { Maximize, Search, Upload } from 'lucide-react';
+import { Maximize, Search, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos, useUpload } from '../api/hooks.ts';
+import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
-import { RAW_ACCEPT } from '../lib/format.ts';
+import { RAW_ACCEPT, formatDateTime } from '../lib/format.ts';
 import {
   copyEdits,
   lastSelection,
@@ -39,8 +39,10 @@ import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './li
 import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
 import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
+import { getRun, pendingItems, useActiveImport } from './imports.ts';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
+import { useImporter } from './useImporter.tsx';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
 const SORTS = [
@@ -108,7 +110,12 @@ export function LibraryPage() {
   const bulk = useBulkUpdate();
   const moveToTrash = useTrashWithUndo();
   const duplicate = useDuplicateVersion();
-  const upload = useUpload();
+  const startImport = useImporter();
+  // Files being imported come first in the grid: in their import's view, or the whole
+  // library's (not another import's).
+  const activeImport = useActiveImport();
+  const importId = search.params.get('import');
+  const pending = !importId || importId === activeImport?.id ? pendingItems(activeImport) : [];
   const batchEdit = useBatchEdit();
 
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
@@ -281,38 +288,9 @@ export function LibraryPage() {
     navigate,
   ]);
 
-  // ── Upload (button or drag & drop) ──
+  // ── Import (button or drag & drop) ──
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
-  const startUpload = useCallback(
-    (files: File[]) => {
-      if (!files.length) return;
-      const id = toaster.create({ type: 'loading', title: `Uploading ${files.length} file(s)…` });
-      upload.mutate(
-        {
-          files,
-          onProgress: (done) =>
-            toaster.update(id, { type: 'loading', title: `Uploading… ${done} of ${files.length} done` }),
-        },
-        {
-          onSuccess: ({ created, skipped }) =>
-            toaster.update(id, {
-              type: skipped.length ? (created.length ? 'warning' : 'error') : 'success',
-              title: `Imported ${created.length} photo${created.length === 1 ? '' : 's'}`,
-              description: skipped.length
-                ? skipped
-                    .slice(0, 5)
-                    .map((s) => `${s.filename}: ${s.reason}`)
-                    .join('\n') + (skipped.length > 5 ? `\n…and ${skipped.length - 5} more` : '')
-                : 'Previews are being developed.',
-              closable: true,
-              duration: skipped.length ? 10000 : 4000,
-            }),
-        },
-      );
-    },
-    [upload],
-  );
 
   const trash = (versions: Photo[]) =>
     void moveToTrash(versions).catch((err: Error) =>
@@ -332,7 +310,7 @@ export function LibraryPage() {
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        startUpload([...e.dataTransfer.files]);
+        startImport([...e.dataTransfer.files]);
       }}
       position="relative"
     >
@@ -372,7 +350,7 @@ export function LibraryPage() {
           >
             <Maximize /> Cull
           </Button>
-          <Button size="sm" colorPalette="orange" onClick={() => fileInput.current?.click()} loading={upload.isPending}>
+          <Button size="sm" colorPalette="orange" onClick={() => fileInput.current?.click()}>
             <Upload /> Import
           </Button>
           <input
@@ -382,17 +360,34 @@ export function LibraryPage() {
             accept={RAW_ACCEPT}
             hidden
             onChange={(e) => {
-              startUpload([...(e.target.files ?? [])]);
+              startImport([...(e.target.files ?? [])]);
               e.target.value = '';
             }}
           />
         </HStack>
 
-        {library.isPending ? (
+        {importId && (
+          <ImportBar
+            startedAt={getRun(importId)?.startedAt ?? earliest(photos)}
+            count={total}
+            onClear={() => search.set('import', null)}
+          />
+        )}
+        {library.isPending && !pending.length ? (
           <Center flex="1">
             <Spinner color="orange.solid" />
           </Center>
-        ) : total === 0 ? (
+        ) : total === 0 && !pending.length && importId && search.activeFilterCount === 1 ? (
+          <Center flex="1">
+            <Stack align="center" gap="3" textAlign="center" maxW="md">
+              <Heading size="lg">Nothing new from this import</Heading>
+              <Text color="fg.muted">Its files were already in your library, or couldn’t be imported.</Text>
+              <Button variant="outline" onClick={() => search.set('import', null)}>
+                Show the whole library
+              </Button>
+            </Stack>
+          </Center>
+        ) : total === 0 && !pending.length ? (
           <Center flex="1">
             <Stack align="center" gap="3" textAlign="center" maxW="md">
               <Heading size="lg">
@@ -422,6 +417,7 @@ export function LibraryPage() {
             onScroll={(top) => (scrollTop.current = top)}
             onClick={grid.onClick}
             onOpen={openDevelop}
+            pending={pending}
           />
         )}
         <LibraryStatusBar
@@ -492,5 +488,28 @@ export function LibraryPage() {
         />
       )}
     </Flex>
+  );
+}
+
+/** When the earliest of these was added (an import's start, when it isn't in memory). */
+const earliest = (photos: Photo[]) => (photos.length ? Math.min(...photos.map((p) => Date.parse(p.createdAt))) : null);
+
+/** Above the grid while it shows one import: which, and the way back to the whole library. */
+function ImportBar({ startedAt, count, onClear }: { startedAt: number | null; count: number; onClear: () => void }) {
+  return (
+    <HStack px="3" py="1.5" gap="2" borderBottomWidth="1px" bg="bg.panel" textStyle="sm">
+      <Upload size={14} />
+      <Text>
+        {startedAt ? `Imported ${formatDateTime(new Date(startedAt).toISOString())}` : 'One import'}
+        <Text as="span" color="fg.muted">
+          {' · '}
+          {count === 1 ? '1 photo' : `${count} photos`}
+        </Text>
+      </Text>
+      <Box flex="1" />
+      <Button size="xs" variant="ghost" onClick={onClear}>
+        <X /> Show the whole library
+      </Button>
+    </HStack>
   );
 }
