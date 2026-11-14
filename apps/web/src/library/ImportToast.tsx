@@ -24,6 +24,8 @@ export function ImportSummary({ run, onShow, onRetry, onUploadDeleted, onClose }
   const busy = !run.done;
   const problems = s.failed.length + s.deleted.length + s.refused.length;
   const notImported = [...s.failed, ...s.deleted, ...s.refused, ...s.duplicates];
+  // Everything imported: the title says it all, with the way to see them.
+  const clean = !busy && s.imported.length === s.total;
   const title = busy
     ? `Importing ${plural(s.total, 'file')}`
     : s.imported.length
@@ -42,9 +44,12 @@ export function ImportSummary({ run, onShow, onRetry, onUploadDeleted, onClose }
         )}
       </Box>
       <Stack gap="2" flex="1" minW="0">
-        <Text fontWeight="semibold" textStyle="sm">
-          {title}
-        </Text>
+        <HStack gap="2" justify="space-between">
+          <Text fontWeight="semibold" textStyle="sm">
+            {title}
+          </Text>
+          {clean && onShow && <Action onClick={onShow}>Show</Action>}
+        </HStack>
         {busy && (
           <Stack gap="1">
             <Progress.Root
@@ -63,7 +68,7 @@ export function ImportSummary({ run, onShow, onRetry, onUploadDeleted, onClose }
           </Stack>
         )}
         <Stack gap="1" textStyle="sm">
-          {s.imported.length > 0 && onShow && (
+          {s.imported.length > 0 && !clean && onShow && (
             <Line icon={<CircleCheck size={14} />} color="green.fg">
               {plural(s.imported.length, 'photo')} imported
               <Action onClick={onShow}>Show</Action>
