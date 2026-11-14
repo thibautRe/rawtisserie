@@ -50,4 +50,9 @@ export const config = {
   maxUploadBytes: 400 * 1024 * 1024,
   renderConcurrency: Math.max(1, Number(process.env.RENDER_CONCURRENCY ?? 2)),
   migrateOnStart: process.env.MIGRATE_ON_START !== 'false',
+  /**
+   * Let users connect instances at private or loopback addresses (to send them photos).
+   * Off by default: the server makes those requests, which could reach what only it can.
+   */
+  allowPrivateInstances: process.env.ALLOW_PRIVATE_INSTANCES === 'true',
 };

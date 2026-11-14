@@ -227,3 +227,41 @@ export interface Facets {
     apertureMax: number | null;
   };
 }
+
+/** A token made here, for another instance to send photos to this one. */
+export interface AccessToken {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  /** Only when just made: shown once. */
+  token?: string;
+}
+
+/** Another instance connected here, to send photos to. */
+export interface RemoteInstance {
+  id: string;
+  url: string;
+  /** The account its token is for. */
+  account: string;
+  createdAt: string;
+}
+
+/** Sending versions (or everything) to another instance, run by the server. */
+export interface Transfer {
+  id: string;
+  url: string;
+  everything: boolean;
+  status: 'running' | 'done' | 'failed' | 'cancelled';
+  /** Why it stopped as a whole. */
+  error: string | null;
+  total: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  failed: number;
+  waiting: number;
+  /** Presets, styles and LUTs sent (with everything). */
+  extrasSent: number;
+  failures: { versionId: string; filename: string; error: string | null }[];
+}

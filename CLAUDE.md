@@ -60,6 +60,12 @@ See README.md for the architecture overview and commands.
   versions get the import's id (`import_id`, the library's `?import=` filter), and an
   original deleted for good leaves only its hash in `deleted_originals`, so it's skipped
   unless uploaded with `allowDeleted`. The upload route checks all of it again.
+- Sending to another instance (`apps/server/src/transfer/`): the sender's server posts
+  `SentVersion`s (`protocol.ts`) to the receiver's `/api/transfer/…`, authorised by an
+  access token that can only add. Anything new a version carries (a column, a photo
+  correction) must go into `SentVersion` (and `sendVersion`/`update` on each side), or it
+  won't travel; a change the other side can't read bumps `PROTOCOL`. Requests to other
+  instances go through `remoteFetch`, which refuses private addresses.
 - Storage quotas count original files only (`accounts/quota.ts`); anything new that
   stores user files must decide whether it counts, and check `fits` before storing.
   Admin-only routes use `requireAdmin` (and the page checks `isAdmin` too).

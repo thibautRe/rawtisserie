@@ -1838,6 +1838,28 @@ Ideas, roughly by value for effort:
   once cloud processing exists). The lensfun database is CC-BY-SA 3.0 and needs
   attribution.
 
+### 8.10 Sending to another instance (M)
+
+> **Done** (`apps/server/src/transfer/`, Settings, the library's "Send to …"). As built:
+> a user makes an access token on the receiving instance (Settings, Access tokens:
+> shown once, stored hashed, revocable) and connects it on the sending one (Settings,
+> Other instances: the address and the token, checked by asking). The sending server
+> then sends, one transfer at a time and resuming when it starts: selected versions,
+> or everything with the user's presets, styles and LUTs. Per version, the original
+> only if the other side doesn't have it (asked first), the LUTs its recipes use, its
+> culling, metadata, the photo's corrections and extracted metadata, and its whole
+> history. A copy remembers its origin: sending it again updates it (history replaced
+> if untouched there since, else the sender's current recipe goes on top as "Sent from
+> …"); unchanged versions are skipped (a fingerprint per instance). The token can only
+> add (`/api/transfer/…`); the receiver refuses recipes newer than it reads. What arrives
+> shows there as one import ("Open there"). The server refuses private addresses unless
+> `ALLOW_PRIVATE_INSTANCES`.
+
+- **Post-1.0: pulling.** The reverse direction, an instance fetching from another with a
+  read token, for when only the receiver can reach the sender (sending from a server to
+  a laptop).
+- Export presets and settings, and the trash, aren't sent.
+
 ## 1.0 release scope
 
 Required before 1.0, on top of what's done:

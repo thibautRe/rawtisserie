@@ -44,7 +44,19 @@ terminates HTTPS. It ships as a [container image](#container-image), run on a VP
 Configuration is environment variables (`.env.example`): `DATABASE_URL`, `STORAGE_DIR`,
 `PORT`, `ALLOW_SIGNUP` (false: sign-up needs an invitation), `DEFAULT_STORAGE_QUOTA_GB`
 (for accounts created without one), `COOKIE_SECURE` (true behind HTTPS),
-`RENDER_CONCURRENCY`, `MIGRATE_ON_START`, and the `S3_*` settings.
+`RENDER_CONCURRENCY`, `MIGRATE_ON_START`, `ALLOW_PRIVATE_INSTANCES` (see below), and the
+`S3_*` settings.
+
+**Instances talk to each other** when a user sends photos from one to another (Settings,
+Other instances; roadmap 8.10): the sending server makes HTTPS requests to the address
+the user gave, with a token made on the receiving one, which only lets it add to that
+user's library (`/api/transfer/…`). Since the server makes these requests, it refuses
+private and loopback addresses unless `ALLOW_PRIVATE_INSTANCES=true` (for testing
+between local instances): a user could otherwise reach what only the server can (the
+database, a cloud's metadata service). Sending from a laptop to a public instance needs
+nothing on either side. Transfers run in the server, resume when it restarts, and are
+recorded in `transfers` (the tokens of other instances are stored as given, in
+`remote_instances`).
 
 ## Accounts
 

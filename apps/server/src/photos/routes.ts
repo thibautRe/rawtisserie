@@ -1,9 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AUTO_RECIPE_LABEL, defaultEditParams, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
-import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
@@ -17,23 +15,12 @@ import { ZoomError, type ZoomRenderer } from '../render/zoom.ts';
 import { ZOOM_TILE } from '../render/zoomTypes.ts';
 import { storage } from '../storage/index.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
+import { type SkipKind, ingestFile } from './ingest.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
-import {
-  RAW_EXTENSIONS,
-  RENDER_SIZES,
-  commitUpload,
-  deleteOriginal,
-  discardUpload,
-  originalKey,
-  receiveUpload,
-  renderKey,
-  type RenderSize,
-} from './storage.ts';
+import { RENDER_SIZES, originalKey, renderKey, type RenderSize } from './storage.ts';
 
 const Id = z.object({ id: z.uuid() });
-const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
-/** Why an uploaded file wasn't added (the web app groups them by this). */
-type SkipKind = 'unsupported' | 'tooLarge' | 'duplicate' | 'deleted' | 'quota';
+export const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const nullableText = (max: number) =>
   z
     .string()
@@ -47,7 +34,7 @@ const COLOR_LABELS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
  * Fields a user may edit on a library item. Curation belongs to the version; metadata
  * corrections belong to the photo (shared by its versions). Originals are never modified.
  */
-const VersionPatch = z
+export const VersionPatch = z
   .object({
     versionName: nullableText(200),
     title: nullableText(500),
@@ -72,9 +59,9 @@ const VersionPatch = z
   })
   .partial()
   .strict();
-type VersionPatch = z.infer<typeof VersionPatch>;
+export type VersionPatch = z.infer<typeof VersionPatch>;
 
-const VERSION_FIELDS: Partial<Record<keyof VersionPatch, keyof Versions>> = {
+export const VERSION_FIELDS: Partial<Record<keyof VersionPatch, keyof Versions>> = {
   versionName: 'name',
   title: 'title',
   description: 'description',
@@ -84,7 +71,7 @@ const VERSION_FIELDS: Partial<Record<keyof VersionPatch, keyof Versions>> = {
   tags: 'tags',
 };
 
-const PHOTO_FIELDS: Partial<Record<keyof VersionPatch, keyof Photos>> = {
+export const PHOTO_FIELDS: Partial<Record<keyof VersionPatch, keyof Photos>> = {
   cameraMake: 'camera_make',
   cameraModel: 'camera_model',
   lens: 'lens',
@@ -100,7 +87,7 @@ const PHOTO_FIELDS: Partial<Record<keyof VersionPatch, keyof Photos>> = {
   copyright: 'copyright',
 };
 
-function toColumns<T>(patch: VersionPatch, fields: Partial<Record<keyof VersionPatch, keyof T>>): Partial<T> {
+export function toColumns<T>(patch: VersionPatch, fields: Partial<Record<keyof VersionPatch, keyof T>>): Partial<T> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
     const column = fields[key as keyof VersionPatch];
@@ -122,7 +109,7 @@ const Duplicate = z.object({
   fromOriginal: z.boolean().default(false),
 });
 
-const HistoryEntryInput = z.object({
+export const HistoryEntryInput = z.object({
   label: z.string().trim().min(1).max(200),
   recipe: z.unknown().refine((r) => r !== null && r !== undefined, 'A recipe is required'),
   createdAt: z.coerce.date().optional(),
@@ -150,7 +137,7 @@ const HistoryChange = z.object({
   /** The `revision` the client based its changes on; a mismatch means someone else edited it. */
   baseRevision: z.number().int().optional(),
 });
-type HistoryChange = z.infer<typeof HistoryChange>;
+export type HistoryChange = z.infer<typeof HistoryChange>;
 
 const Ids = z.object({ ids: z.array(z.uuid()).min(1).max(5000) });
 
@@ -572,81 +559,25 @@ export async function photoRoutes(
 
     for await (const part of request.files()) {
       const filename = path.basename(part.filename || 'unnamed');
-      const ext = path.extname(filename).toLowerCase();
-      if (!RAW_EXTENSIONS.has(ext)) {
-        part.file.resume();
-        skipped.push({ filename, kind: 'unsupported', reason: 'Not a supported RAW file' });
+      const result = await ingestFile(user.id, filename, part.file, {
+        allowDeleted: query.allowDeleted === 'true',
+        version: { import_id: importId },
+      });
+      if (result.status === 'skipped') {
+        skipped.push({ filename, kind: result.kind, reason: result.reason });
         continue;
       }
-      const upload = await receiveUpload(part.file);
-      if (part.file.truncated) {
-        await discardUpload(upload);
-        skipped.push({ filename, kind: 'tooLarge', reason: 'File too large' });
-        continue;
-      }
-      const duplicate = await photos(db).findOne({ owner_id: user.id, sha256: upload.sha256 });
-      if (duplicate) {
-        await discardUpload(upload);
-        const [inLibrary] = await db.query(sql`
-          SELECT 1 FROM versions WHERE photo_id = ${duplicate.id} AND trashed_at IS NULL LIMIT 1`);
-        if (inLibrary) {
-          skipped.push({
-            filename,
-            kind: 'duplicate',
-            reason: `Already in your library as ${duplicate.original_filename}`,
-          });
+      let versionId: string;
+      if (result.status === 'existing') {
+        if (result.inLibrary) {
+          skipped.push({ filename, kind: 'duplicate', reason: `Already in your library as ${result.filename}` });
           continue;
         }
         // Only in the trash: the file is stored already, so it comes back as a new version
         // (the trashed ones stay there, to restore or not).
-        const [version] = await versions(db).insert({ photo_id: duplicate.id, import_id: importId });
-        created.push(versionDto(await findVersion(user.id, version!.id)));
-        renderQueue.enqueue(version!.id);
-        continue;
-      }
-      if (query.allowDeleted !== 'true') {
-        const [deleted] = await db.query(sql`
-          SELECT 1 FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ${upload.sha256}`);
-        if (deleted) {
-          await discardUpload(upload);
-          skipped.push({ filename, kind: 'deleted', reason: 'You deleted this file before' });
-          continue;
-        }
-      }
-      // Checked before storing the file, so an upload over quota costs nothing more…
-      const before = await storageUsage(db, user.id);
-      if (!fits(before, upload.size)) {
-        await discardUpload(upload);
-        skipped.push({ filename, kind: 'quota', reason: quotaExceeded(before) });
-        continue;
-      }
-      const id = randomUUID();
-      const storageKey = `${user.id}/${id}${ext}`;
-      await commitUpload(upload, storageKey);
-      const inserted = await db.tx(async (tx) => {
-        // …and again under the user's row lock, so concurrent uploads can't all take the
-        // last free bytes.
-        const usage = await storageUsage(tx, user.id, { lock: true });
-        if (!fits(usage, upload.size)) return { versionId: null, usage };
-        await photos(tx).insert({
-          id,
-          owner_id: user.id,
-          original_filename: filename,
-          storage_key: storageKey,
-          file_size: upload.size,
-          sha256: upload.sha256,
-        });
-        const [version] = await versions(tx).insert({ photo_id: id, import_id: importId });
-        // Uploaded again on purpose: no longer one to ask about.
-        await tx.query(sql`DELETE FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ${upload.sha256}`);
-        return { versionId: version!.id, usage };
-      });
-      const { versionId } = inserted;
-      if (!versionId) {
-        await deleteOriginal(storageKey);
-        skipped.push({ filename, kind: 'quota', reason: quotaExceeded(inserted.usage) });
-        continue;
-      }
+        const [version] = await versions(db).insert({ photo_id: result.photoId, import_id: importId });
+        versionId = version!.id;
+      } else versionId = result.versionId;
       created.push(versionDto(await findVersion(user.id, versionId)));
       renderQueue.enqueue(versionId);
     }
@@ -675,7 +606,7 @@ type SQLColumn = 'camera_model' | 'lens';
  * re-rendering. A missing version or a `baseRevision` mismatch throws, or with
  * `skipConflicts` returns null and changes nothing.
  */
-async function applyHistoryChange(
+export async function applyHistoryChange(
   tx: Queryable,
   ownerId: string,
   id: string,

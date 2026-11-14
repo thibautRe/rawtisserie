@@ -23,6 +23,7 @@ import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { clearOriginals } from './originals.ts';
 import type {
+  AccessToken,
   AdminStats,
   AdminUser,
   BulkPatch,
@@ -32,7 +33,9 @@ import type {
   Photo,
   PhotoDetail,
   PhotoPatch,
+  RemoteInstance,
   StorageUsage,
+  Transfer,
   TrashPage,
   User,
 } from './types.ts';
@@ -665,5 +668,83 @@ export function useDeleteExportPreset() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/export-presets/${id}`),
     onSuccess: (_, id) => presetsOf(qc, (list) => list.filter((p) => p.id !== id)),
+  });
+}
+
+// ── Other instances (sending photos there, receiving from there) ────────────
+
+export function useAccessTokens() {
+  return useQuery({
+    queryKey: ['access-tokens'],
+    queryFn: async () => (await api.get<{ tokens: AccessToken[] }>('/api/access-tokens')).tokens,
+  });
+}
+
+export function useCreateAccessToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post<AccessToken>('/api/access-tokens', { name }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['access-tokens'] }),
+  });
+}
+
+export function useRevokeAccessToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/access-tokens/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['access-tokens'] }),
+  });
+}
+
+export function useInstances() {
+  return useQuery({
+    queryKey: ['instances'],
+    queryFn: async () => (await api.get<{ instances: RemoteInstance[] }>('/api/instances')).instances,
+    staleTime: 60_000,
+  });
+}
+
+export function useConnectInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { url: string; token: string }) => api.post<RemoteInstance>('/api/instances', body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['instances'] }),
+  });
+}
+
+export function useDisconnectInstance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/instances/${id}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['instances'] }),
+  });
+}
+
+/** Start sending versions (`ids`) or everything to an instance. */
+export const sendToInstance = (instanceId: string, what: { ids: string[] } | { everything: true }) =>
+  api.post<Transfer>(`/api/instances/${instanceId}/send`, what);
+
+/** A transfer, polled while it runs. */
+export function useTransfer(id: string) {
+  return useQuery({
+    queryKey: ['transfer', id],
+    queryFn: () => api.get<Transfer>(`/api/transfers/${id}`),
+    refetchInterval: (q) => (q.state.data?.status === 'running' ? 1000 : false),
+  });
+}
+
+export function useRetryTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Transfer>(`/api/transfers/${id}/retry`),
+    onSuccess: (t) => qc.setQueryData(['transfer', t.id], t),
+  });
+}
+
+export function useCancelTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Transfer>(`/api/transfers/${id}/cancel`),
+    onSuccess: (t) => qc.setQueryData(['transfer', t.id], t),
   });
 }

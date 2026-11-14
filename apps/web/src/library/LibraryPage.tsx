@@ -19,6 +19,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
+import { startTransfer } from '../components/transfer.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { RAW_ACCEPT, formatDateTime } from '../lib/format.ts';
@@ -437,6 +438,7 @@ export function LibraryPage() {
         onApplyEdit={(edit) => batchEdit([...selection], edit)}
         onCopy={() => void copyFrom(true)}
         onExport={() => setExporting(selectedPhotos)}
+        onSend={(instance) => void startTransfer(instance, { ids: selectedPhotos.map((p) => p.id) })}
       />
       <LibraryExportDialog photos={exporting} preview={exportPreview} onClose={() => setExporting(null)} />
       {copyDialog && (

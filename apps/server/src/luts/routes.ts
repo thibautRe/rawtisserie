@@ -32,6 +32,45 @@ const lutDto = (row: Row): UserLut => ({
   createdAt: row.created_at.toISOString(),
 });
 
+/**
+ * Give the user the LUT packed in `body` (`parseLut(file).takePacked()` in the app, or
+ * from another instance) under `name`. One they already have (even removed) comes back
+ * under the new name.
+ */
+export async function addLut(userId: string, name: string, body: unknown): Promise<Row> {
+  if (!(body instanceof Uint8Array) || !PACKED_MAGIC.every((b, i) => body[i] === b)) {
+    throw badRequest('Expected a packed LUT (application/octet-stream)');
+  }
+  let parsed;
+  try {
+    parsed = parseLut(body);
+  } catch (err) {
+    throw badRequest(err instanceof Error ? err.message : String(err));
+  }
+  const { id, size, bitDepth } = parsed;
+  // Stored as the pipeline packs it, whatever the client sent.
+  const packed = parsed.takePacked();
+  parsed.free();
+  // The table first, then its file, then the user's copy of it: a table is only used
+  // through a copy, so it never is before its file is there. If the copy can't be made
+  // (its name is taken), a new table is left without one: `collectLuts` removes it at
+  // the next start. Built-in tables ship with the app; the user still gets a copy.
+  await db.query(sql`
+    INSERT INTO luts (id, size, bit_depth, file_size) VALUES (${id}, ${size}, ${bitDepth}, ${packed.length})
+    ON CONFLICT (id) DO NOTHING`);
+  if (!isBuiltinLut(id)) await storeLut(id, packed);
+  const [row] = (await db
+    .query(
+      sql`
+        INSERT INTO user_luts (owner_id, lut_id, name) VALUES (${userId}, ${id}, ${name})
+        ON CONFLICT (owner_id, lut_id)
+        DO UPDATE SET name = excluded.name, hidden_at = NULL, updated_at = now()
+        RETURNING id, lut_id, name, ${size}::smallint AS size, ${bitDepth}::smallint AS bit_depth, created_at`,
+    )
+    .catch(nameTaken(name))) as Row[];
+  return row!;
+}
+
 const nameTaken = (name: string) => (err: { code?: string }) => {
   throw err.code === UNIQUE_VIOLATION ? conflict(`There is already a LUT named “${name}”`) : err;
 };
@@ -63,40 +102,8 @@ export async function lutRoutes(app: FastifyInstance) {
    * (even removed) brings it back under the new name.
    */
   app.post('/api/luts', { preHandler: requireUser }, async (request, reply) => {
-    const user = currentUser(request);
     const { name } = z.object({ name: Name }).parse(request.query);
-    const body = request.body;
-    if (!(body instanceof Uint8Array) || !PACKED_MAGIC.every((b, i) => body[i] === b)) {
-      throw badRequest('Expected a packed LUT (application/octet-stream)');
-    }
-    let parsed;
-    try {
-      parsed = parseLut(body);
-    } catch (err) {
-      throw badRequest(err instanceof Error ? err.message : String(err));
-    }
-    const { id, size, bitDepth } = parsed;
-    // Stored as the pipeline packs it, whatever the client sent.
-    const packed = parsed.takePacked();
-    parsed.free();
-    // The table first, then its file, then the user's copy of it: a table is only used
-    // through a copy, so it never is before its file is there. If the copy can't be made
-    // (its name is taken), a new table is left without one: `collectLuts` removes it at
-    // the next start. Built-in tables ship with the app; the user still gets a copy.
-    await db.query(sql`
-      INSERT INTO luts (id, size, bit_depth, file_size) VALUES (${id}, ${size}, ${bitDepth}, ${packed.length})
-      ON CONFLICT (id) DO NOTHING`);
-    if (!isBuiltinLut(id)) await storeLut(id, packed);
-    const [row] = (await db
-      .query(
-        sql`
-          INSERT INTO user_luts (owner_id, lut_id, name) VALUES (${user.id}, ${id}, ${name})
-          ON CONFLICT (owner_id, lut_id)
-          DO UPDATE SET name = excluded.name, hidden_at = NULL, updated_at = now()
-          RETURNING id, lut_id, name, ${size}::smallint AS size, ${bitDepth}::smallint AS bit_depth, created_at`,
-      )
-      .catch(nameTaken(name))) as Row[];
-    return reply.code(201).send(lutDto(row!));
+    return reply.code(201).send(lutDto(await addLut(currentUser(request).id, name, request.body)));
   });
 
   app.patch('/api/luts/:id', { preHandler: requireUser }, async (request) => {

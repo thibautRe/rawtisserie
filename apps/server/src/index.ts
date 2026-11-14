@@ -8,12 +8,14 @@ import { startTrashPurge } from './photos/trash.ts';
 
 if (config.migrateOnStart) await migrate(db);
 
-const { app, renderQueue } = await buildApp();
+const { app, renderQueue, transfers } = await buildApp();
 renderQueue.start();
 await renderQueue.enqueuePending();
 await deleteExpiredSessions();
 await collectLuts(db);
 startTrashPurge(app.log);
+// Transfers to other instances that were running when the server stopped.
+transfers.kick();
 
 await app.listen({ port: config.port, host: config.host });
 

@@ -14,15 +14,28 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronRight, Copy, KeyRound, Send, Server, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useChangePassword, useMe, useStorage, useTrashSummary } from '../api/hooks.ts';
+import {
+  useAccessTokens,
+  useChangePassword,
+  useConnectInstance,
+  useCreateAccessToken,
+  useDisconnectInstance,
+  useInstances,
+  useMe,
+  useRevokeAccessToken,
+  useStorage,
+  useTrashSummary,
+} from '../api/hooks.ts';
+import type { AccessToken } from '../api/types.ts';
+import { hostOf, startTransfer } from '../components/transfer.tsx';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { StorageBreakdown } from '../components/StorageMeter.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { TRASH_PATH } from '../components/trash.tsx';
-import { formatBytes } from '../lib/format.ts';
+import { formatBytes, formatDateTime } from '../lib/format.ts';
 
 /** The user's own settings: their account and password, their storage, and the trash. */
 export function SettingsPage() {
@@ -36,6 +49,8 @@ export function SettingsPage() {
         <Stack p="6" maxW="3xl" mx="auto" gap="6">
           <StorageSection />
           <AccountSection />
+          <InstancesSection />
+          <AccessTokensSection />
         </Stack>
       </Box>
     </Flex>
@@ -222,5 +237,267 @@ function AccountSection() {
         </Portal>
       </Dialog.Root>
     </Section>
+  );
+}
+
+/** A row of a list in a section: an icon, what it is, and its actions. */
+function ItemRow({
+  icon,
+  title,
+  detail,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <HStack gap="3" p="3" borderWidth="1px" borderRadius="md" justify="space-between">
+      <HStack gap="3" minW="0">
+        <Box color="fg.muted">{icon}</Box>
+        <Box minW="0">
+          <Text fontWeight="medium" truncate>
+            {title}
+          </Text>
+          <Text textStyle="sm" color="fg.muted" truncate>
+            {detail}
+          </Text>
+        </Box>
+      </HStack>
+      <HStack gap="2" flexShrink={0}>
+        {children}
+      </HStack>
+    </HStack>
+  );
+}
+
+/** Sending: the instances connected here, to send photos to. */
+function InstancesSection() {
+  const { data: instances } = useInstances();
+  const disconnect = useDisconnectInstance();
+  const [connecting, setConnecting] = useState(false);
+  return (
+    <Section title="Other instances">
+      <Stack gap="3">
+        <Text textStyle="sm" color="fg.muted">
+          Send photos to another RAWtisserie (with their edits, culling and metadata), from the library or all at once.
+        </Text>
+        {instances?.map((i) => (
+          <ItemRow key={i.id} icon={<Server size={18} />} title={hostOf(i.url)} detail={i.account}>
+            <Button size="xs" variant="outline" onClick={() => void startTransfer(i, { everything: true })}>
+              <Send /> Send everything
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => disconnect.mutate(i.id)}>
+              Disconnect
+            </Button>
+          </ItemRow>
+        ))}
+        <Button size="sm" variant="outline" alignSelf="start" onClick={() => setConnecting(true)}>
+          Connect an instance…
+        </Button>
+      </Stack>
+      <ConnectDialog open={connecting} onClose={() => setConnecting(false)} />
+    </Section>
+  );
+}
+
+function ConnectDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const connect = useConnectInstance();
+  const [url, setUrl] = useState('');
+  const [token, setToken] = useState('');
+  const close = () => {
+    setUrl('');
+    setToken('');
+    connect.reset();
+    onClose();
+  };
+  return (
+    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} size="sm">
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content asChild>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                connect.mutate(
+                  { url, token },
+                  {
+                    onSuccess: (i) => {
+                      toaster.create({
+                        type: 'success',
+                        title: `Connected to ${hostOf(i.url)}`,
+                        description: i.account,
+                      });
+                      close();
+                    },
+                  },
+                );
+              }}
+            >
+              <Dialog.Header>
+                <Dialog.Title>Connect an instance</Dialog.Title>
+              </Dialog.Header>
+              <Dialog.Body>
+                <Stack gap="4">
+                  <Text textStyle="sm" color="fg.muted">
+                    On the other instance, make an access token (Settings, Access tokens), then paste it here.
+                  </Text>
+                  <Field.Root>
+                    <Field.Label>Address</Field.Label>
+                    <Input
+                      autoFocus
+                      placeholder="photos.example.com"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                    />
+                  </Field.Root>
+                  <Field.Root invalid={connect.isError}>
+                    <Field.Label>Access token</Field.Label>
+                    <Input
+                      type="password"
+                      autoComplete="off"
+                      placeholder="rtt_…"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                    />
+                    <Field.ErrorText>{connect.error?.message}</Field.ErrorText>
+                  </Field.Root>
+                </Stack>
+              </Dialog.Body>
+              <Dialog.Footer>
+                <Dialog.ActionTrigger asChild>
+                  <Button variant="outline">Cancel</Button>
+                </Dialog.ActionTrigger>
+                <Button type="submit" colorPalette="orange" loading={connect.isPending} disabled={!url || !token}>
+                  Connect
+                </Button>
+              </Dialog.Footer>
+              <Dialog.CloseTrigger asChild>
+                <CloseButton size="sm" />
+              </Dialog.CloseTrigger>
+            </form>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
+  );
+}
+
+/** Receiving: tokens another instance uses to send photos here. */
+function AccessTokensSection() {
+  const { data: tokens } = useAccessTokens();
+  const revoke = useRevokeAccessToken();
+  const [creating, setCreating] = useState(false);
+  return (
+    <Section title="Access tokens">
+      <Stack gap="3">
+        <Text textStyle="sm" color="fg.muted">
+          For another instance to send photos here. A token can only add to your library.
+        </Text>
+        {tokens?.map((t) => (
+          <ItemRow
+            key={t.id}
+            icon={<KeyRound size={18} />}
+            title={t.name}
+            detail={
+              `Made ${formatDateTime(t.createdAt)}` +
+              (t.lastUsedAt ? ` · last used ${formatDateTime(t.lastUsedAt)}` : ' · never used')
+            }
+          >
+            <Button size="xs" variant="ghost" colorPalette="red" onClick={() => revoke.mutate(t.id)}>
+              Revoke
+            </Button>
+          </ItemRow>
+        ))}
+        <Button size="sm" variant="outline" alignSelf="start" onClick={() => setCreating(true)}>
+          New token…
+        </Button>
+      </Stack>
+      <NewTokenDialog open={creating} onClose={() => setCreating(false)} />
+    </Section>
+  );
+}
+
+function NewTokenDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const create = useCreateAccessToken();
+  const [name, setName] = useState('');
+  const [made, setMade] = useState<AccessToken | null>(null);
+  const close = () => {
+    setName('');
+    setMade(null);
+    create.reset();
+    onClose();
+  };
+  return (
+    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} size="sm">
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content asChild>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (made) return close();
+                create.mutate(name, { onSuccess: setMade });
+              }}
+            >
+              <Dialog.Header>
+                <Dialog.Title>{made ? 'Your new token' : 'New access token'}</Dialog.Title>
+              </Dialog.Header>
+              <Dialog.Body>
+                {made ? (
+                  <Stack gap="3">
+                    <Text textStyle="sm" color="fg.muted">
+                      Paste it into the other instance (Settings, Other instances). It won’t be shown again.
+                    </Text>
+                    <HStack gap="2">
+                      <Input readOnly value={made.token} fontFamily="mono" onFocus={(e) => e.target.select()} />
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          void navigator.clipboard
+                            .writeText(made.token!)
+                            .then(() => toaster.create({ type: 'success', title: 'Token copied', duration: 2000 }))
+                        }
+                      >
+                        <Copy /> Copy
+                      </Button>
+                    </HStack>
+                  </Stack>
+                ) : (
+                  <Field.Root invalid={create.isError}>
+                    <Field.Label>Name</Field.Label>
+                    <Input autoFocus placeholder="My laptop" value={name} onChange={(e) => setName(e.target.value)} />
+                    <Field.HelperText>Where it will be used, to know which to revoke.</Field.HelperText>
+                    <Field.ErrorText>{create.error?.message}</Field.ErrorText>
+                  </Field.Root>
+                )}
+              </Dialog.Body>
+              <Dialog.Footer>
+                {made ? (
+                  <Button type="submit" colorPalette="orange">
+                    Done
+                  </Button>
+                ) : (
+                  <>
+                    <Dialog.ActionTrigger asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </Dialog.ActionTrigger>
+                    <Button type="submit" colorPalette="orange" loading={create.isPending} disabled={!name.trim()}>
+                      Make token
+                    </Button>
+                  </>
+                )}
+              </Dialog.Footer>
+              <Dialog.CloseTrigger asChild>
+                <CloseButton size="sm" />
+              </Dialog.CloseTrigger>
+            </form>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
   );
 }

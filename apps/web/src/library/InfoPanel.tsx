@@ -28,14 +28,23 @@ import {
   Lock,
   LockOpen,
   Palette,
+  Send,
   Star,
   Trash2,
   X,
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useBulkUpdate, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
-import { COLOR_LABELS, type ColorLabel, type Flag, type Photo, type PhotoPatch } from '../api/types.ts';
+import { useBulkUpdate, useInstances, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
+import {
+  COLOR_LABELS,
+  type ColorLabel,
+  type Flag,
+  type Photo,
+  type PhotoPatch,
+  type RemoteInstance,
+} from '../api/types.ts';
+import { hostOf } from '../components/transfer.tsx';
 import {
   formatAperture,
   formatBias,
@@ -69,6 +78,8 @@ interface Actions {
   onCopy: () => void;
   /** Export the selected versions. */
   onExport: () => void;
+  /** Send the selected versions to another instance (connected in the settings). */
+  onSend: (instance: RemoteInstance) => void;
 }
 
 /** Duplicate / Duplicate from original. */
@@ -259,7 +270,9 @@ function SinglePanel({
   onApplyEdit,
   onCopy,
   onExport,
+  onSend,
 }: { photo: Photo } & Actions) {
+  const { data: instances = [] } = useInstances();
   const { data: detail } = usePhoto(listPhoto.id);
   // The render state comes from the list: it's polled while previews are rendered, the detail isn't.
   const photo = detail
@@ -344,6 +357,7 @@ function SinglePanel({
               else if (value === 'export') onExport();
               else if (value === 'duplicate' || value === 'original') onDuplicate(value === 'original');
               else if (value === 'delete') onDelete([photo]);
+              else if (value.startsWith('send:')) onSend(instances.find((i) => `send:${i.id}` === value)!);
             }}
           >
             <Menu.Trigger asChild>
@@ -381,6 +395,11 @@ function SinglePanel({
                   <Menu.Item value="original">
                     <CopyPlus /> Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
                   </Menu.Item>
+                  {instances.map((i) => (
+                    <Menu.Item key={i.id} value={`send:${i.id}`}>
+                      <Send /> Send to {hostOf(i.url)}
+                    </Menu.Item>
+                  ))}
                   <Menu.Separator />
                   <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
                     <Trash2 /> Move to trash <Menu.ItemCommand>Del</Menu.ItemCommand>
@@ -645,7 +664,8 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
 
 // ── Several photos ──────────────────────────────────────────────────────────
 
-function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport }: { photos: Photo[] } & Actions) {
+function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport, onSend }: { photos: Photo[] } & Actions) {
+  const { data: instances = [] } = useInstances();
   const bulk = useBulkUpdate();
   const ids = photos.map((p) => p.id);
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
@@ -698,6 +718,11 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport }: { p
             <Copy /> Duplicate {photos.length}
           </Button>
         </DuplicateMenu>
+        {instances.map((i) => (
+          <Button key={i.id} size="xs" variant="outline" onClick={() => onSend(i)}>
+            <Send /> Send {photos.length} to {hostOf(i.url)}
+          </Button>
+        ))}
         <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(photos)}>
           <Trash2 /> Move {photos.length} to trash
         </Button>

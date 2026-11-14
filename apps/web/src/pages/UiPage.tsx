@@ -37,10 +37,11 @@ import { PanelBlock } from '../library/PanelBlock.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
+import { TransferSummary } from '../components/transfer.tsx';
 import { ImportSummary } from '../library/ImportToast.tsx';
 import { sampleRun } from '../library/imports.ts';
 import { PendingCard } from '../library/PendingCard.tsx';
-import type { ColorLabel, Flag } from '../api/types.ts';
+import type { ColorLabel, Flag, Transfer } from '../api/types.ts';
 
 /**
  * Sets the colour mode on the whole document (menus and popovers are portalled out of
@@ -763,10 +764,73 @@ export function UiPage() {
             </HStack>
           </Stack>
         </Block>
+
+        <Block
+          title="Sending to another instance"
+          guide="The server sends; the toast follows it (polled), then stays with the outcome: what's new there, updated or already up to date, what failed (Retry), and a link to see it there as one import."
+        >
+          <HStack gap="4" align="start" wrap="wrap">
+            {TRANSFER_TOASTS.map(([label, transfer]) => (
+              <Example key={label} label={label} w="96">
+                <Box p="4" borderWidth="1px" borderRadius="l2" bg="bg.panel" boxShadow="lg">
+                  <TransferSummary transfer={transfer} onRetry={() => {}} onCancel={() => {}} onClose={() => {}} />
+                </Box>
+              </Example>
+            ))}
+          </HStack>
+        </Block>
       </Container>
     </Box>
   );
 }
+
+const TRANSFER: Transfer = {
+  id: 'sample',
+  url: 'https://photos.example.com',
+  everything: false,
+  status: 'running',
+  error: null,
+  total: 87,
+  created: 20,
+  updated: 3,
+  unchanged: 11,
+  failed: 0,
+  waiting: 53,
+  extrasSent: 0,
+  failures: [],
+};
+const TRANSFER_TOASTS = [
+  ['Sending', TRANSFER],
+  ['Sent', { ...TRANSFER, status: 'done', created: 70, updated: 6, unchanged: 11, waiting: 0, extrasSent: 14 }],
+  [
+    'Sent, with failures',
+    {
+      ...TRANSFER,
+      status: 'done',
+      created: 70,
+      updated: 6,
+      unchanged: 9,
+      failed: 2,
+      waiting: 0,
+      failures: [
+        { versionId: 'a', filename: 'DSC04411.ARW', error: 'Not enough storage: 49.8 GB of 50 GB used' },
+        { versionId: 'b', filename: 'DSC04412.ARW', error: 'Couldn’t reach https://photos.example.com' },
+      ],
+    },
+  ],
+  [
+    'Failed',
+    {
+      ...TRANSFER,
+      status: 'failed',
+      error: 'The other instance refused the token (revoked?)',
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      waiting: 87,
+    },
+  ],
+] as [string, Transfer][];
 
 const IMPORT_PENDING = sampleRun([{}, { status: 'uploading', sent: 17e6 }, {}], false).items;
 const IMPORT_TOASTS = [
