@@ -10,6 +10,7 @@ import {
   Heading,
   Input,
   Portal,
+  Separator,
   Skeleton,
   Stack,
   Text,
@@ -29,7 +30,8 @@ import {
   useStorage,
   useTrashSummary,
 } from '../api/hooks.ts';
-import type { AccessToken } from '../api/types.ts';
+import type { AccessToken, RemoteInstance } from '../api/types.ts';
+import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { hostOf, startTransfer } from '../components/transfer.tsx';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { StorageBreakdown } from '../components/StorageMeter.tsx';
@@ -50,7 +52,6 @@ export function SettingsPage() {
           <StorageSection />
           <AccountSection />
           <InstancesSection />
-          <AccessTokensSection />
         </Stack>
       </Box>
     </Flex>
@@ -137,8 +138,9 @@ function AccountSection() {
     );
   };
 
-  const close = () => {
-    setEditing(false);
+  const close = () => setEditing(false);
+  // Once it's closed: emptied while it fades out, it would flash.
+  const reset = () => {
     setCurrent('');
     setNext('');
     setConfirm('');
@@ -167,7 +169,7 @@ function AccountSection() {
         </Button>
       </HStack>
 
-      <Dialog.Root open={editing} onOpenChange={(e) => !e.open && close()} size="sm">
+      <Dialog.Root open={editing} onOpenChange={(e) => !e.open && close()} onExitComplete={reset} size="sm">
         <Portal>
           <Dialog.Backdrop />
           <Dialog.Positioner>
@@ -272,14 +274,37 @@ function ItemRow({
   );
 }
 
-/** Sending: the instances connected here, to send photos to. */
+/** Sending photos to other instances, and receiving them from there. */
 function InstancesSection() {
+  return (
+    <Section title="Other instances">
+      <Stack gap="6">
+        <SendingPart />
+        <Separator />
+        <ReceivingPart />
+      </Stack>
+    </Section>
+  );
+}
+
+function PartHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <Heading size="sm" mb="-1">
+      {children}
+    </Heading>
+  );
+}
+
+/** Sending: the instances connected here, to send photos to. */
+function SendingPart() {
   const { data: instances } = useInstances();
   const disconnect = useDisconnectInstance();
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<RemoteInstance | null>(null);
   return (
-    <Section title="Other instances">
+    <>
       <Stack gap="3">
+        <PartHeading>Sending</PartHeading>
         <Text textStyle="sm" color="fg.muted">
           Send photos to another RAWtisserie (with their edits, culling and metadata), from the library or all at once.
         </Text>
@@ -288,7 +313,7 @@ function InstancesSection() {
             <Button size="xs" variant="outline" onClick={() => void startTransfer(i, { everything: true })}>
               <Send /> Send everything
             </Button>
-            <Button size="xs" variant="ghost" onClick={() => disconnect.mutate(i.id)}>
+            <Button size="xs" variant="ghost" onClick={() => setDisconnecting(i)}>
               Disconnect
             </Button>
           </ItemRow>
@@ -298,7 +323,23 @@ function InstancesSection() {
         </Button>
       </Stack>
       <ConnectDialog open={connecting} onClose={() => setConnecting(false)} />
-    </Section>
+      <ConfirmDialog
+        text={
+          disconnecting && {
+            title: `Disconnect ${hostOf(disconnecting.url)}?`,
+            body:
+              `You won’t be able to send photos to ${disconnecting.account} there any more. ` +
+              'What you sent stays there. To send again, connect it with a new token from there.',
+          }
+        }
+        confirm="Disconnect"
+        onConfirm={() => {
+          disconnect.mutate(disconnecting!.id);
+          setDisconnecting(null);
+        }}
+        onClose={() => setDisconnecting(null)}
+      />
+    </>
   );
 }
 
@@ -306,14 +347,14 @@ function ConnectDialog({ open, onClose }: { open: boolean; onClose: () => void }
   const connect = useConnectInstance();
   const [url, setUrl] = useState('');
   const [token, setToken] = useState('');
-  const close = () => {
+  const close = onClose;
+  const reset = () => {
     setUrl('');
     setToken('');
     connect.reset();
-    onClose();
   };
   return (
-    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} size="sm">
+    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} onExitComplete={reset} size="sm">
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
@@ -386,13 +427,15 @@ function ConnectDialog({ open, onClose }: { open: boolean; onClose: () => void }
 }
 
 /** Receiving: tokens another instance uses to send photos here. */
-function AccessTokensSection() {
+function ReceivingPart() {
   const { data: tokens } = useAccessTokens();
   const revoke = useRevokeAccessToken();
   const [creating, setCreating] = useState(false);
+  const [revoking, setRevoking] = useState<AccessToken | null>(null);
   return (
-    <Section title="Access tokens">
+    <>
       <Stack gap="3">
+        <PartHeading>Receiving: access tokens</PartHeading>
         <Text textStyle="sm" color="fg.muted">
           For another instance to send photos here. A token can only add to your library.
         </Text>
@@ -406,7 +449,7 @@ function AccessTokensSection() {
               (t.lastUsedAt ? ` · last used ${formatDateTime(t.lastUsedAt)}` : ' · never used')
             }
           >
-            <Button size="xs" variant="ghost" colorPalette="red" onClick={() => revoke.mutate(t.id)}>
+            <Button size="xs" variant="ghost" colorPalette="red" onClick={() => setRevoking(t)}>
               Revoke
             </Button>
           </ItemRow>
@@ -416,7 +459,23 @@ function AccessTokensSection() {
         </Button>
       </Stack>
       <NewTokenDialog open={creating} onClose={() => setCreating(false)} />
-    </Section>
+      <ConfirmDialog
+        text={
+          revoking && {
+            title: `Revoke “${revoking.name}”?`,
+            body:
+              'Any instance using this token won’t be able to send photos here any more. ' +
+              'What it sent stays in your library.',
+          }
+        }
+        confirm="Revoke"
+        onConfirm={() => {
+          revoke.mutate(revoking!.id);
+          setRevoking(null);
+        }}
+        onClose={() => setRevoking(null)}
+      />
+    </>
   );
 }
 
@@ -424,14 +483,15 @@ function NewTokenDialog({ open, onClose }: { open: boolean; onClose: () => void 
   const create = useCreateAccessToken();
   const [name, setName] = useState('');
   const [made, setMade] = useState<AccessToken | null>(null);
-  const close = () => {
+  const close = onClose;
+  // Once it's closed, not while it closes: the first step would show again meanwhile.
+  const reset = () => {
     setName('');
     setMade(null);
     create.reset();
-    onClose();
   };
   return (
-    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} size="sm">
+    <Dialog.Root open={open} onOpenChange={(e) => !e.open && close()} onExitComplete={reset} size="sm">
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
@@ -486,7 +546,7 @@ function NewTokenDialog({ open, onClose }: { open: boolean; onClose: () => void 
                       <Button variant="outline">Cancel</Button>
                     </Dialog.ActionTrigger>
                     <Button type="submit" colorPalette="orange" loading={create.isPending} disabled={!name.trim()}>
-                      Make token
+                      Create token
                     </Button>
                   </>
                 )}

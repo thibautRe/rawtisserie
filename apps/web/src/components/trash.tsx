@@ -1,6 +1,7 @@
-import { Button, CloseButton, Dialog, Link, Portal, Text } from '@chakra-ui/react';
+import { Link } from '@chakra-ui/react';
 import { useNavigate } from 'react-router';
 import { useMoveToTrash, useRestoreFromTrash } from '../api/hooks.ts';
+import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { toaster } from './toaster.tsx';
 import { type Version, describeVersions } from './trashText.ts';
 
@@ -56,32 +57,5 @@ export function DeleteForeverDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
-  return (
-    <Dialog.Root open={!!text} onOpenChange={(e) => !e.open && onClose()} role="alertdialog">
-      <Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content>
-            <Dialog.Header>
-              <Dialog.Title>{text?.title}</Dialog.Title>
-            </Dialog.Header>
-            <Dialog.Body>
-              <Text>{text?.body}</Text>
-            </Dialog.Body>
-            <Dialog.Footer>
-              <Dialog.ActionTrigger asChild>
-                <Button variant="outline">Cancel</Button>
-              </Dialog.ActionTrigger>
-              <Button colorPalette="red" onClick={onConfirm}>
-                {confirm}
-              </Button>
-            </Dialog.Footer>
-            <Dialog.CloseTrigger asChild>
-              <CloseButton size="sm" />
-            </Dialog.CloseTrigger>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Portal>
-    </Dialog.Root>
-  );
+  return <ConfirmDialog text={text} confirm={confirm} onConfirm={onConfirm} onClose={onClose} />;
 }
