@@ -29,7 +29,7 @@ terminates HTTPS. It ships as a [container image](#container-image), run on a VP
    │  on start: migrations (MIGRATE_ON_START),          │
    │            collectLuts                             │
    │  render queue ─▶ RENDER_CONCURRENCY worker threads │  thumbnails, previews,
-   │                  (wasm)                            │  auto-tune write-back
+   │                  (wasm), stopped after 2 min idle  │  auto-tune write-back
    │  zoom worker ─▶ 1 thread, last RAW kept decoded    │  loupe tiles at 100 %
    └─────────────┬──────────────────────┬───────────────┘
                  │ DATABASE_URL         │ S3_BUCKET, or STORAGE_DIR
@@ -167,6 +167,18 @@ machine, ports 80 and 443 open):
 git clone https://github.com/thibautRe/rawtisserie.git && cd rawtisserie/deploy
 cp .env.example .env    # fill it in
 docker compose up -d
+```
+
+**Memory:** at most `RENDER_CONCURRENCY` + 1 RAWs are decoded at once (the render
+queue and the zoom worker), and both stop their workers when idle, since WebAssembly
+memory never shrinks. In case of a spike, the host has a 4 GB swap file rather than
+a memory limit on `app`, which would kill the whole server instead of slowing it down:
+
+```sh
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/90-rawtisserie-swap.conf && sudo sysctl --system
 ```
 
 Then make yourself an admin (see [Accounts](#accounts)).

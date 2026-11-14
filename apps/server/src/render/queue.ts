@@ -1,7 +1,9 @@
 /**
  * Render queue: renders thumbnails/previews for versions whose `render_status` is
  * `pending`, on a small pool of worker threads. The database is the source of
- * truth, so pending work survives restarts.
+ * truth, so pending work survives restarts. A worker is started when there's work and
+ * stopped once idle: WebAssembly memory never shrinks, so a worker that has decoded a
+ * large RAW keeps that memory until it exits.
  */
 import { Worker } from 'node:worker_threads';
 import type { Queryable } from '@databases/pg';
@@ -14,9 +16,14 @@ import { renderSource } from './source.ts';
 import { RenderStats, writeRenderStats } from './stats.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
+const IDLE_MS = 2 * 60_000;
+
 interface PoolWorker {
-  worker: Worker;
+  worker: Worker | null;
   busy: boolean;
+  /** The job it's running, resolved when the worker answers (or crashes). */
+  pending: { jobId: number; resolve: (r: RenderResult) => void } | null;
+  idle: ReturnType<typeof setTimeout> | undefined;
 }
 
 export class RenderQueue {
@@ -29,7 +36,6 @@ export class RenderQueue {
   private stats: RenderStats;
   private flushTimer: ReturnType<typeof setInterval> | undefined;
   private pool: PoolWorker[] = [];
-  private pending = new Map<number, (r: RenderResult) => void>();
   private nextJobId = 1;
   private log: FastifyBaseLogger;
 
@@ -41,14 +47,16 @@ export class RenderQueue {
   }
 
   start() {
-    for (let i = 0; i < config.renderConcurrency; i++) this.pool.push(this.spawn());
+    for (let i = 0; i < config.renderConcurrency; i++) {
+      this.pool.push({ worker: null, busy: false, pending: null, idle: undefined });
+    }
     this.flushTimer = setInterval(() => void this.flushStats(), 60_000);
     this.flushTimer.unref();
   }
 
   async stop() {
     clearInterval(this.flushTimer);
-    await Promise.all(this.pool.map((w) => w.worker.terminate()));
+    await Promise.all(this.pool.map((entry) => this.retire(entry)));
     this.pool = [];
     await this.flushStats();
   }
@@ -85,27 +93,46 @@ export class RenderQueue {
     this.pump();
   }
 
-  private spawn(): PoolWorker {
-    const entry: PoolWorker = { worker: new Worker(new URL('./worker.ts', import.meta.url)), busy: false };
-    entry.worker.on('message', (result: RenderResult) => {
-      this.pending.get(result.jobId)?.(result);
-      this.pending.delete(result.jobId);
+  /** The entry's worker, started if it has none. */
+  private spawn(entry: PoolWorker): Worker {
+    clearTimeout(entry.idle);
+    if (entry.worker) return entry.worker;
+    const worker = new Worker(new URL('./worker.ts', import.meta.url));
+    worker.on('message', (result: RenderResult) => {
+      if (entry.pending?.jobId !== result.jobId) return;
+      const { resolve } = entry.pending;
+      entry.pending = null;
+      resolve(result);
     });
-    entry.worker.on('error', (err) => {
-      this.log.error({ err }, 'render worker crashed; restarting');
-      for (const [id, resolve] of this.pending) resolve({ jobId: id, ok: false, error: 'Render worker crashed' });
-      this.pending.clear();
-      const idx = this.pool.indexOf(entry);
-      if (idx >= 0) this.pool[idx] = this.spawn();
+    worker.on('error', (err) => {
+      this.log.error({ err }, 'render worker crashed');
+      if (entry.worker === worker) entry.worker = null;
+      const pending = entry.pending;
+      entry.pending = null;
+      pending?.resolve({ jobId: pending.jobId, ok: false, error: 'Render worker crashed' });
     });
-    return entry;
+    entry.worker = worker;
+    return worker;
+  }
+
+  /** Stop the entry's worker, freeing its memory; the next job starts another. */
+  private async retire(entry: PoolWorker) {
+    clearTimeout(entry.idle);
+    const worker = entry.worker;
+    entry.worker = null;
+    await worker?.terminate();
   }
 
   private pump() {
     for (const entry of this.pool) {
       if (entry.busy) continue;
       const versionId = this.queue.shift();
-      if (!versionId) return;
+      if (!versionId) {
+        clearTimeout(entry.idle);
+        if (entry.worker) entry.idle = setTimeout(() => void this.retire(entry), IDLE_MS).unref();
+        continue;
+      }
+      clearTimeout(entry.idle);
       entry.busy = true;
       this.inFlight.add(versionId);
       this.stats.started(Date.now() - (this.queuedAt.get(versionId) ?? Date.now()));
@@ -130,8 +157,8 @@ export class RenderQueue {
   private run(entry: PoolWorker, job: Omit<RenderJob, 'jobId'>): Promise<RenderResult> {
     const jobId = this.nextJobId++;
     return new Promise((resolve) => {
-      this.pending.set(jobId, resolve);
-      entry.worker.postMessage({ ...job, jobId });
+      entry.pending = { jobId, resolve };
+      this.spawn(entry).postMessage({ ...job, jobId });
     });
   }
 
