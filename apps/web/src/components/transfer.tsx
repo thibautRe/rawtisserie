@@ -84,7 +84,7 @@ export function TransferSummary({
       : t.status === 'cancelled'
         ? `Stopped sending to ${host}`
         : `Sent to ${host}`;
-  // What arrived there, as one import.
+  // What arrived there, as one import: as soon as something has (it fills in there too).
   const openThere = (
     <Button size="2xs" variant="outline" asChild flexShrink={0}>
       <Link href={`${t.url}/?import=${t.id}`} target="_blank" rel="noreferrer">
@@ -139,12 +139,12 @@ export function TransferSummary({
             </Line>
           )}
           {t.created > 0 && (
-            <Line icon={<Plus size={14} />} action={!busy && openThere}>
+            <Line icon={<Plus size={14} />} action={openThere}>
               {plural(t.created, 'new photo')} there
             </Line>
           )}
           {t.updated > 0 && (
-            <Line icon={<RefreshCw size={14} />} action={!busy && !t.created && openThere}>
+            <Line icon={<RefreshCw size={14} />} action={!t.created && openThere}>
               {plural(t.updated, 'photo')} updated
             </Line>
           )}
