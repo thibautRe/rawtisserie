@@ -454,7 +454,8 @@ test('an import shows its files waiting, then what happened to each, and retries
   const importId = new URL(page.url()).searchParams.get('import')!;
   await page.locator('[data-pending]').first().waitFor();
   assert.ok((await page.locator('[data-pending]').count()) <= 3);
-  await page.getByText(/^Imported .* · /).waitFor();
+  // Shown in the sidebar's imports, picked.
+  await page.locator(`[data-import="${importId}"][aria-pressed="true"]`).waitFor();
 
   const done = page.locator('[data-import-state=done]');
   await done.waitFor({ timeout: 20_000 });
@@ -486,8 +487,8 @@ test('an import shows its files waiting, then what happened to each, and retries
   await done.getByRole('button', { name: 'Close' }).click();
   await done.waitFor({ state: 'detached' });
 
-  // Back to the whole library.
-  await page.getByRole('button', { name: 'Show the whole library' }).click();
+  // Back to the whole library: picking it again.
+  await page.locator(`[data-import="${importId}"]`).click();
   await page.waitForURL((u) => !u.searchParams.has('import'));
 });
 

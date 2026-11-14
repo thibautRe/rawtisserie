@@ -201,7 +201,9 @@ export async function photoRoutes(
         SELECT ${sql.ident('p', column)} AS value, count(*)::int AS count FROM ${VERSIONS_FROM}
         WHERE ${where} AND ${sql.ident('p', column)} IS NOT NULL
         GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100`);
-    const [cameras, lenses, tags, ratings, ranges] = await Promise.all([
+    // Imports are listed under the other filters, not their own: picking one shows the others still.
+    const notByImport = whereClause(user.id, { ...filters, import: undefined });
+    const [cameras, lenses, tags, ratings, ranges, imports] = await Promise.all([
       facet('camera_model'),
       facet('lens'),
       db.query(sql`
@@ -214,8 +216,12 @@ export async function photoRoutes(
           min(p.iso) AS "isoMin", max(p.iso) AS "isoMax", min(p.focal_length) AS "focalMin",
           max(p.focal_length) AS "focalMax", min(p.f_number) AS "apertureMin", max(p.f_number) AS "apertureMax"
         FROM ${VERSIONS_FROM} WHERE ${where}`),
+      db.query(sql`
+        SELECT i.id AS value, count(*)::int AS count, i.created_at AS "importedAt", i.source
+        FROM ${VERSIONS_FROM} JOIN imports i ON i.owner_id = p.owner_id AND i.id = v.import_id
+        WHERE ${notByImport} GROUP BY i.id, i.created_at, i.source ORDER BY i.created_at DESC LIMIT 50`),
     ]);
-    return { cameras, lenses, tags, ratings, ranges: ranges[0] };
+    return { cameras, lenses, tags, ratings, ranges: ranges[0], imports };
   });
 
   /** Every tag in the user's library, most used first: for completing tags as they're typed. */
@@ -554,6 +560,9 @@ export async function photoRoutes(
       .object({ import: z.uuid().optional(), allowDeleted: z.enum(['true', 'false']).optional() })
       .parse(request.query);
     const importId = query.import ?? null;
+    // When it began, for the library's list of imports (its versions are counted there).
+    if (importId)
+      await db.query(sql`INSERT INTO imports (owner_id, id) VALUES (${user.id}, ${importId}) ON CONFLICT DO NOTHING`);
     const created: ReturnType<typeof versionDto>[] = [];
     const skipped: { filename: string; kind: SkipKind; reason: string }[] = [];
 

@@ -35,6 +35,29 @@ export function formatDateTime(iso: string | null | undefined): string | null {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+/**
+ * How long ago, as said in a list: "just now", "5 minutes ago", "3 hours ago",
+ * "yesterday", "4 days ago", then the date (with the year when it isn't this one's).
+ */
+export function formatAgo(iso: string, now = new Date()): string {
+  const then = new Date(iso);
+  const minutes = Math.floor((now.getTime() - then.getTime()) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  // Days by the calendar: "yesterday" at 1 a.m. can be 2 hours ago.
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(now) - midnight(then)) / 86_400_000);
+  if (days === 0) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  return then.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    ...(then.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+  });
+}
+
 /** `Date` → value for `<input type="datetime-local">`, in local time. */
 export function toDateTimeLocal(iso: string | null): string {
   if (!iso) return '';

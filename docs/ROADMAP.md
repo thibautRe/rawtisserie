@@ -1428,7 +1428,8 @@ that bumps `revision`. The render queue re-renders the previews.
 > (they go on while browsing), hash each file in the browser a few ahead of the upload
 > and ask which hashes the server knows, so files already in the library, or deleted for
 > good before (only their hash is kept, `deleted_originals`), aren't sent. The library
-> switches to that import (`?import=<id>`, `versions.import_id`; clearable), with the
+> switches to that import (`?import=<id>`, `versions.import_id`; the sidebar lists recent
+> imports, `imports`, by how long ago, and "Clear all" goes back), with the
 > files still coming first in the grid, shimmering. The toast shows the bytes sent, then
 > stays with the outcome: imported (show), already there, deleted before (upload
 > anyway), failed (retry), refused (not RAW, too large, storage full), and a list of

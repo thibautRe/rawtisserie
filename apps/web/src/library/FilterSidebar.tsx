@@ -15,7 +15,8 @@ import {
 import { Check, Star, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
-import { COLOR_LABELS, type FacetValue } from '../api/types.ts';
+import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
+import { formatAgo, formatDateTime } from '../lib/format.ts';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
@@ -51,6 +52,77 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
           </Text>
         </Checkbox.Root>
       ))}
+    </Stack>
+  );
+}
+
+/** Recent imports shown before "Show more". */
+const IMPORTS_SHOWN = 5;
+
+/**
+ * The imports, newest first, to show one of them (the files an upload or a transfer
+ * brought). Picking the one shown again shows the whole library.
+ */
+function ImportList({ imports, search }: { imports: ImportFacet[]; search: LibrarySearch }) {
+  const selected = search.params.get('import');
+  const [more, setMore] = useState(false);
+  // The one shown stays listed, even when it isn't among them (still starting, or old).
+  const all =
+    selected && !imports.some((i) => i.value === selected)
+      ? [{ value: selected, count: 0, importedAt: null, source: null }, ...imports]
+      : imports;
+  if (!all.length)
+    return (
+      <Text textStyle="xs" color="fg.subtle">
+        Nothing yet
+      </Text>
+    );
+  const shown = more ? all : all.filter((i, n) => n < IMPORTS_SHOWN || i.value === selected);
+  return (
+    <Stack gap="0.5">
+      {shown.map((i) => {
+        const active = i.value === selected;
+        return (
+          <HStack
+            as="button"
+            key={i.value}
+            aria-pressed={active}
+            data-import={i.value}
+            onClick={() => search.set('import', active ? null : i.value)}
+            title={i.importedAt ? `Imported ${formatDateTime(i.importedAt)}` : undefined}
+            justify="space-between"
+            gap="2"
+            px="2"
+            py="1"
+            mx="-2"
+            borderRadius="sm"
+            textAlign="start"
+            textStyle="xs"
+            bg={active ? 'bg.emphasized' : undefined}
+            _hover={{ bg: active ? 'bg.emphasized' : 'bg.muted' }}
+            focusRing="outside"
+          >
+            <Stack gap="0" minW="0">
+              <Text truncate fontWeight={active ? 'semibold' : undefined}>
+                {i.importedAt ? formatAgo(i.importedAt) : 'This import'}
+              </Text>
+              {i.source && (
+                <Text truncate color="fg.muted">
+                  from {i.source}
+                </Text>
+              )}
+            </Stack>
+            <Text color="fg.muted" {...NUMERIC}>
+              {i.count || ''}
+            </Text>
+          </HStack>
+        );
+      })}
+      {all.length > IMPORTS_SHOWN && (
+        <Button size="2xs" variant="ghost" color="fg.muted" alignSelf="start" px="1" onClick={() => setMore((m) => !m)}>
+          {more ? 'Show fewer' : `Show ${all.length - IMPORTS_SHOWN} more`}
+        </Button>
+      )}
     </Stack>
   );
 }
@@ -274,6 +346,10 @@ export function FilterSidebar({ search }: { search: LibrarySearch }) {
 
       <PanelBlock title="Tags">
         <FacetList name="tag" values={facets?.tags ?? []} search={search} />
+      </PanelBlock>
+
+      <PanelBlock title="Imports">
+        <ImportList imports={facets?.imports ?? []} search={search} />
       </PanelBlock>
 
       <PanelBlock

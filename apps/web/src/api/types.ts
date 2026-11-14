@@ -210,7 +210,17 @@ export interface FacetValue<T = string> {
   count: number;
 }
 
+/** An import the library lists (newest first), with its versions under the other filters. */
+export interface ImportFacet {
+  value: string;
+  count: number;
+  importedAt: string;
+  /** The instance it was sent from, or null for an upload. */
+  source: string | null;
+}
+
 export interface Facets {
+  imports: ImportFacet[];
   cameras: FacetValue[];
   lenses: FacetValue[];
   tags: FacetValue[];

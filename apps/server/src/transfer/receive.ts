@@ -93,6 +93,9 @@ export async function receiveRoutes(app: FastifyInstance, { renderQueue }: { ren
     }
     if (!meta) throw badRequest('Expected the version’s `meta` first');
     checkRecipes(meta);
+    await db.query(sql`
+      INSERT INTO imports (owner_id, id, source) VALUES (${user.id}, ${meta.importId}, ${meta.origin.label})
+      ON CONFLICT DO NOTHING`);
     if (!versionId) {
       try {
         ({ versionId, status } = await findOrCreate(user.id, meta, null));

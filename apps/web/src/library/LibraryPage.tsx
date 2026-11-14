@@ -13,7 +13,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import type { EditParams } from '@rawtisserie/pipeline';
-import { Maximize, Search, Upload, X } from 'lucide-react';
+import { Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos } from '../api/hooks.ts';
@@ -22,7 +22,7 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { startTransfer } from '../components/transfer.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
-import { RAW_ACCEPT, formatDateTime } from '../lib/format.ts';
+import { RAW_ACCEPT } from '../lib/format.ts';
 import {
   copyEdits,
   lastSelection,
@@ -40,7 +40,7 @@ import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './li
 import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
 import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
-import { getRun, pendingItems, useActiveImport } from './imports.ts';
+import { pendingItems, useActiveImport } from './imports.ts';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
 import { useImporter } from './useImporter.tsx';
@@ -367,13 +367,6 @@ export function LibraryPage() {
           />
         </HStack>
 
-        {importId && (
-          <ImportBar
-            startedAt={getRun(importId)?.startedAt ?? earliest(photos)}
-            count={total}
-            onClear={() => search.set('import', null)}
-          />
-        )}
         {library.isPending && !pending.length ? (
           <Center flex="1">
             <Spinner color="orange.solid" />
@@ -383,8 +376,8 @@ export function LibraryPage() {
             <Stack align="center" gap="3" textAlign="center" maxW="md">
               <Heading size="lg">Nothing new from this import</Heading>
               <Text color="fg.muted">Its files were already in your library, or couldn’t be imported.</Text>
-              <Button variant="outline" onClick={() => search.set('import', null)}>
-                Show the whole library
+              <Button variant="outline" onClick={search.clear}>
+                Clear filters
               </Button>
             </Stack>
           </Center>
@@ -490,28 +483,5 @@ export function LibraryPage() {
         />
       )}
     </Flex>
-  );
-}
-
-/** When the earliest of these was added (an import's start, when it isn't in memory). */
-const earliest = (photos: Photo[]) => (photos.length ? Math.min(...photos.map((p) => Date.parse(p.createdAt))) : null);
-
-/** Above the grid while it shows one import: which, and the way back to the whole library. */
-function ImportBar({ startedAt, count, onClear }: { startedAt: number | null; count: number; onClear: () => void }) {
-  return (
-    <HStack px="3" py="1.5" gap="2" borderBottomWidth="1px" bg="bg.panel" textStyle="sm">
-      <Upload size={14} />
-      <Text>
-        {startedAt ? `Imported ${formatDateTime(new Date(startedAt).toISOString())}` : 'One import'}
-        <Text as="span" color="fg.muted">
-          {' · '}
-          {count === 1 ? '1 photo' : `${count} photos`}
-        </Text>
-      </Text>
-      <Box flex="1" />
-      <Button size="xs" variant="ghost" onClick={onClear}>
-        <X /> Show the whole library
-      </Button>
-    </HStack>
   );
 }
