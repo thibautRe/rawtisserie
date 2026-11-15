@@ -119,6 +119,7 @@ export function PhotoGrid({
       : '';
   }, []);
   const shown: number[] = [];
+  const rendered = new Set<string>();
   for (let i = first * columns; i < Math.min(items.length, (last + 1) * columns); i++) shown.push(i);
 
   return (
@@ -152,7 +153,9 @@ export function PhotoGrid({
         >
           {shown.map((i) => {
             const photo = items[i];
-            if (!photo) return <Placeholder key={`at-${i}`} />;
+            // Keys must be unique: a duplicate would leave stray cards behind.
+            if (!photo || rendered.has(photo.id)) return <Placeholder key={`at-${i}`} />;
+            rendered.add(photo.id);
             return (
               <PhotoCard
                 key={photo.id}

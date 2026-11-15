@@ -15,13 +15,14 @@ import type {
   Preset,
   StylePayload,
 } from '@rawtisserie/pipeline';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
 import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdit.ts';
 import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { clearOriginals } from './originals.ts';
+import { mergePages } from './pages.ts';
 import type {
   AccessToken,
   AdminStats,
@@ -163,21 +164,25 @@ function usePagedVersions<P extends { versions: Photo[]; total: number }>(
   });
   const datas = results.map((r) => r.data);
   const updated = results.map((r) => r.dataUpdatedAt);
-  const { items, total, latest } = useMemo(() => {
-    // The latest page knows the latest total.
-    let latest = -1;
-    datas.forEach((d, i) => d && (latest < 0 || updated[i]! > updated[latest]!) && (latest = i));
-    const total = latest < 0 ? 0 : datas[latest]!.total;
-    const items: (P['versions'][number] | undefined)[] = new Array(total).fill(undefined);
-    datas.forEach((d, i) =>
-      d?.versions.forEach((p, k) => {
-        const at = pages[i]! * PAGE_SIZE + k;
-        if (at < total) items[at] = p;
-      }),
-    );
-    return { items, total, latest: latest < 0 ? undefined : datas[latest] };
+  const { items, total, latest, stale } = useMemo(() => {
+    const loaded = pages.flatMap((page, i) => {
+      const d = datas[i];
+      return d ? [{ page, versions: d.versions, total: d.total, updatedAt: updated[i]! }] : [];
+    });
+    const merged = mergePages<P['versions'][number]>(loaded, PAGE_SIZE);
+    const latest = merged.latest && datas[pages.indexOf(merged.latest.page)];
+    return { ...merged, latest };
     // Any change of a page's data changes its update time.
   }, [pages.join(), updated.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pages fetched before the list changed (an import going on): fetched again, so their
+  // slots show what's there now.
+  useEffect(() => {
+    for (const page of stale) {
+      const r = results[pages.indexOf(page)];
+      if (r && !r.isFetching) void r.refetch();
+    }
+  }, [stale.join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const want = useCallback(
     (start: number, end: number) =>
