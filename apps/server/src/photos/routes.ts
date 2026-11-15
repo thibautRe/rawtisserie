@@ -1,7 +1,13 @@
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { AUTO_RECIPE_LABEL, defaultEditParams, defaultRecipe, normalizeEditParams } from '@rawtisserie/pipeline';
+import {
+  AUTO_RECIPE_LABEL,
+  AUTO_RECIPE_LABELS,
+  defaultRecipe,
+  normalizeEditParams,
+  originalEditParams,
+} from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
@@ -327,10 +333,10 @@ export async function photoRoutes(
       } else {
         // From the original: what a new upload starts with (lens correction when the file
         // has its data), now rather than after its first render, which the developer
-        // opening it right away would miss.
+        // opening it right away would miss. Its auto-tunes run when it's rendered (or opened).
         const photo = await photos(tx).findOne({ id: photo_id });
         const recipe = photo?.exif && defaultRecipe({ lensCorrection: photo.exif.lensCorrection ?? null });
-        if (recipe && recipe !== defaultEditParams) {
+        if (recipe) {
           await historyEntries(tx).insert({ version_id: copy!.id, seq: 1, label: AUTO_RECIPE_LABEL, recipe });
           await versions(tx).update({ id: copy!.id }, { history_end: 1 });
         }
@@ -410,7 +416,7 @@ export async function photoRoutes(
             ? normalizeEditParams(r.recipe)
             : r.no_history
               ? defaultRecipe({ lensCorrection: r.exif?.lensCorrection ?? null })
-              : defaultEditParams,
+              : originalEditParams,
         })),
       notReady: rows.filter(notReady).map((r) => r.id),
     };
@@ -664,7 +670,7 @@ export async function applyHistoryChange(
   const revision = current.revision + 1;
   // The entry a new upload starts with (`AUTO_RECIPE_LABEL`) isn't an edit.
   const [first] = end === 1 ? await historyEntries(tx).find({ version_id: id, seq: 1 }).select('label').all() : [];
-  const edited = end > 1 || (end === 1 && first?.label !== AUTO_RECIPE_LABEL);
+  const edited = end > 1 || (end === 1 && !AUTO_RECIPE_LABELS.includes(first?.label ?? ''));
   await versions(tx).update(
     { id },
     { history_end: end, edited, revision, edited_at: new Date(), render_status: 'pending', updated_at: new Date() },

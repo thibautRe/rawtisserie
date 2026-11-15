@@ -41,11 +41,11 @@ async function prepare(source: ZoomSource) {
     const lut = await readLut(id);
     if (lut) dev.loadLut(lut);
   }
-  const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata())) : (source.params ?? {});
-  const params = JSON.stringify(recipe);
-  if (!source.autoDefaults && hasPendingAutoTune(source.params)) {
+  const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata())) : source.params;
+  const params = JSON.stringify(recipe ?? {});
+  if (recipe && hasPendingAutoTune(recipe)) {
     if (!resolved.has(params)) {
-      resolved.set(params, JSON.stringify(await resolveAutoTunes(source.params!, developerMeasures(dev))));
+      resolved.set(params, JSON.stringify(await resolveAutoTunes(recipe, developerMeasures(dev))));
     }
     return { dev, params: resolved.get(params)! };
   }

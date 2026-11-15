@@ -34,7 +34,9 @@ See README.md for the architecture overview and commands.
   measured on filmic's input, and only uniform LUTs (no shapes, no ranges) may be baked
   into filmic's table (`point::bakeable`).
 - An instance may carry `autoTune: true` (filmic and tone curve only, both languages):
-  a preset or style asked for its auto-tune, not run yet. Renderers ignore it; whoever
+  a preset or style asked for its auto-tune, not run yet. The default recipe's filmic
+  has it: a new image's first history entry (`AUTO_RECIPE_LABEL`) is that recipe
+  resolved; a version's original (history at 0) is `originalEditParams`, unresolved. Renderers ignore it; whoever
   has the image resolves it with `resolveAutoTunes` (`autoTune.ts`) at `AUTO_TUNE_SIZE`:
   the developer on commit and on open, the server's render worker (writing the entry
   back) and zoom worker. Measures must stay pure functions of (recipe, image).

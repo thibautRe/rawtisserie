@@ -19,7 +19,7 @@ export type RenderResult =
       jobId: number;
       ok: true;
       metadata: PhotoMetadata | null;
-      /** With `autoDefaults`, the recipe rendered when it isn't the plain default (lens correction). */
+      /** With `autoDefaults`, the recipe rendered: `defaultRecipe`, its auto-tunes run. */
       defaultRecipe: EditParams | null;
       /** `params` with its pending auto-tunes resolved (what was rendered), if it had any. */
       resolvedRecipe: EditParams | null;

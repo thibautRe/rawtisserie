@@ -112,6 +112,22 @@ export class HistoryStore {
     return entries.length - end;
   }
 
+  /**
+   * Replace the recipe of the current entry, keeping its label and date (an automatic
+   * entry, once its auto-tunes have run). A live change is dropped.
+   */
+  amend(recipe: EditParams) {
+    const { entries, end } = this.#state;
+    const current = entries[end - 1];
+    if (!current) return;
+    const entry = { ...current, recipe };
+    this.#last = null;
+    this.#set(
+      { entries: entries.with(end - 1, entry), live: recipe },
+      { type: 'splice', from: end, entries: [entry, ...entries.slice(end)], end },
+    );
+  }
+
   /** Show the state after entry `seq` (0 = the original), keeping the later entries. */
   goto(seq: number) {
     const { entries, end, live } = this.#state;

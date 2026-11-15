@@ -207,7 +207,7 @@ export class RenderQueue {
 }
 
 /**
- * Record the recipe a new image starts with (lens correction) as its first history
+ * Record the recipe a new image starts with (auto-tuned) as its first history
  * entry, if the version still has no history. The revision isn't bumped: a developer
  * opened before this ran saves over it instead of getting a conflict.
  */

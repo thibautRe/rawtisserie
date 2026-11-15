@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { hasPendingAutoTune, resolveAutoTunes } from './autoTune.ts';
-import { defaultEditParams, findModule, normalizeEditParams, updateModule } from './params.ts';
+import { defaultEditParams, findModule, normalizeEditParams, originalEditParams, updateModule } from './params.ts';
 import {
   BUILTIN_PRESETS,
   type ModulePresetPayload,
@@ -25,7 +25,12 @@ test('presets and styles mark the instances to auto-tune', () => {
   );
   assert.equal(findModule(applied, 'toneCurve')!.autoTune, true);
   assert.ok(hasPendingAutoTune(applied));
-  assert.ok(!hasPendingAutoTune(defaultEditParams));
+  assert.ok(!hasPendingAutoTune(originalEditParams));
+  // A new image auto-tunes filmic.
+  assert.deepEqual(
+    defaultEditParams.modules.filter((m) => m.autoTune).map((m) => m.kind),
+    ['filmic'],
+  );
 
   // Saved, and read back; not on kinds without an auto-tune.
   const filmic = modulePresetPayload(

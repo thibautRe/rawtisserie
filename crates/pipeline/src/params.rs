@@ -223,14 +223,16 @@ impl ModuleKind {
 
 /// The recipe a new image starts with: Ansel's defaults for RAW files, a +0.7 EV
 /// exposure push, white balance as shot (colour calibration), colour balance's
-/// "Colorfulness: standard" preset and filmic. Must match `defaultEditParams` in TS.
+/// "Colorfulness: standard" preset and filmic, marked for its auto-tune (whoever has
+/// the image runs it; renderers ignore the mark). Must match `defaultEditParams` in TS.
 impl Default for EditParams {
     fn default() -> Self {
         let mut params = Self { version: CURRENT_VERSION, modules: Vec::new(), shapes: BTreeMap::new() };
         params.add(Exposure::default());
         params.add(ColorCalibration::default());
         params.add(ColorBalance { saturation: [0.45, 0.2, 0.2], ..ColorBalance::default() });
-        params.add(Filmic::default());
+        let filmic = params.add(Filmic::default());
+        params.modules[filmic].auto_tune = true;
         params
     }
 }
@@ -1660,9 +1662,12 @@ mod tests {
     }
 
     /// The default recipe as it was before colour balance joined it (what old recipes migrate to).
+    /// What old recipes migrate to: the default recipe without colour balance, and
+    /// without filmic's auto-tune mark (it's for new images).
     fn default_without_balance() -> EditParams {
         let mut p = EditParams::default();
         p.remove(ModuleKind::ColorBalance);
+        p.modules.iter_mut().for_each(|m| m.auto_tune = false);
         p
     }
 

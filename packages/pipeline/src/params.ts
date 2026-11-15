@@ -861,7 +861,8 @@ const instance = <K extends ModuleKind>(kind: K, id = ''): ModuleInstance<K> =>
 
 /**
  * The recipe a new image starts with: exposure, white balance as shot (colour
- * calibration), colour balance's "Colorfulness: standard" preset and filmic. Mirrors
+ * calibration), colour balance's "Colorfulness: standard" preset and filmic, marked for
+ * its auto-tune (`autoTune.ts`: whoever has the image runs it). Mirrors
  * `EditParams::default`.
  */
 export const defaultEditParams: EditParams = Object.freeze({
@@ -873,15 +874,27 @@ export const defaultEditParams: EditParams = Object.freeze({
       ...instance('colorBalance', 'colorBalance'),
       params: { ...defaultModuleParams.colorBalance, saturation: [0.45, 0.2, 0.2] },
     },
-    instance('filmic', 'filmic'),
+    { ...instance('filmic', 'filmic'), autoTune: true as const },
   ],
 });
 
 /**
- * The label of the history entry a new upload starts with, when its recipe isn't
- * `defaultEditParams` (lens correction). It doesn't make the version "edited".
+ * A version's original (history at 0): the default recipe without its auto-tunes, as
+ * renderers show it. Nothing resolves them there, so it looks the same everywhere.
+ * Modules compare with it and reset to it.
  */
-export const AUTO_RECIPE_LABEL = 'Lens correction (auto)';
+export const originalEditParams: EditParams = Object.freeze({
+  ...defaultEditParams,
+  modules: defaultEditParams.modules.map(({ autoTune: _, ...m }) => m as ModuleInstance),
+});
+
+/**
+ * The label of the history entry a new image starts with: `defaultRecipe`, its
+ * auto-tunes run. It doesn't make the version "edited".
+ */
+export const AUTO_RECIPE_LABEL = 'Defaults (auto)';
+/** `AUTO_RECIPE_LABEL`, and what it used to be (when only lens correction made one). */
+export const AUTO_RECIPE_LABELS: readonly string[] = [AUTO_RECIPE_LABEL, 'Lens correction (auto)'];
 
 /**
  * The recipe a new image starts with, given what its file contains: the default
@@ -1449,16 +1462,16 @@ export function moveInstance(params: EditParams, id: string, delta: -1 | 1): Edi
   return { ...params, modules };
 }
 
-/** Put the instances of a kind back as in the default recipe (removing them if it has none). */
+/** Put the instances of a kind back as in the original (removing them if it has none). */
 export function resetModule(params: EditParams, kind: ModuleKind): EditParams {
-  const defaults = structuredClone(defaultEditParams.modules.filter((m) => m.kind === kind));
+  const defaults = structuredClone(originalEditParams.modules.filter((m) => m.kind === kind));
   return normalize([...params.modules.filter((m) => m.kind !== kind), ...defaults], params.shapes);
 }
 
-/** Whether the instances of a kind differ from the default recipe's (ids aside). */
+/** Whether the instances of a kind differ from the original's (ids aside). */
 export function isModuleModified(params: EditParams, kind: ModuleKind): boolean {
   const strip = (p: EditParams) => JSON.stringify(p.modules.filter((m) => m.kind === kind).map(({ id: _, ...m }) => m));
-  return strip(params) !== strip(defaultEditParams);
+  return strip(params) !== strip(originalEditParams);
 }
 
 /**

@@ -2,9 +2,9 @@ import { Box, Button, Center, Flex, Heading, Progress, Spinner, Stack, Text } fr
 import {
   AUTO_RECIPE_LABEL,
   type PhotoMetadata,
-  defaultEditParams,
   defaultRecipe,
   normalizeEditParams,
+  originalEditParams,
 } from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -133,7 +133,7 @@ export function LocalDevelopPage() {
           filename={loaded.file.name}
           metadata={loaded.metadata}
           exportInfo={fileExportInfo(loaded.file.name, loaded.metadata)}
-          original={defaultEditParams}
+          original={originalEditParams}
           initialHistory={autoApplied(loaded.metadata)}
           actions={(history) => (
             <>
@@ -218,11 +218,10 @@ export function LocalDevelopPage() {
 
 /**
  * The history a new file starts with: what the server records for a new upload
- * (`addDefaultRecipe` in the render queue), i.e. lens correction when the file has data.
+ * (`addDefaultRecipe` in the render queue). Its auto-tunes run once the image is in.
  */
 function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
   const recipe = defaultRecipe(metadata);
-  if (recipe === defaultEditParams) return { entries: [], end: 0 };
   return { entries: [{ label: AUTO_RECIPE_LABEL, recipe, createdAt: new Date().toISOString() }], end: 1 };
 }
 
@@ -302,16 +301,16 @@ function LibraryDeveloper({ id }: { id: string }) {
       filename={photo.filename}
       metadata={metadata}
       exportInfo={photoExportInfo(photo, metadata)}
-      original={defaultEditParams}
+      original={originalEditParams}
       initialHistory={{
         entries: photo.history.map((h) => ({ ...h, recipe: normalizeEditParams(h.recipe) })),
         end: photo.historyEnd,
       }}
       save={save}
       revision={photo.revision}
-      // No metadata yet: the server hasn't processed the file, and would record its
-      // automatic entry after the developer opened (the version keeps it either way).
-      startWith={!photo.exif && photo.history.length === 0 ? autoApplied(metadata) : null}
+      // No history: the server hasn't rendered it yet, and would record its automatic
+      // entry after the developer opened (the version keeps it either way).
+      startWith={photo.history.length === 0 ? autoApplied(metadata) : null}
       versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
       onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
     />

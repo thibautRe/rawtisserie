@@ -5,6 +5,7 @@ import {
   EDIT_PARAMS_VERSION,
   MODULE_KINDS,
   defaultEditParams,
+  originalEditParams,
   defaultRecipe,
   addInstance,
   defaultModuleParams,
@@ -342,10 +343,10 @@ const legacyBalance = {
   highlightsFalloff: 2,
 };
 
-/** The default recipe before colour balance joined it: what old recipes migrate to. */
+/** The original before colour balance joined it: what old recipes migrate to. */
 const defaultWithoutBalance = {
-  ...defaultEditParams,
-  modules: defaultEditParams.modules.filter((m) => m.kind !== 'colorBalance'),
+  ...originalEditParams,
+  modules: originalEditParams.modules.filter((m) => m.kind !== 'colorBalance'),
 };
 
 test('normalizeEditParams fills gaps and ignores junk', () => {
@@ -445,7 +446,7 @@ test('updateModule adds missing instances in pipeline order', () => {
   assert.deepEqual(normalizeEditParams(p), p);
 });
 
-test('resetModule and isModuleModified compare with the default recipe', () => {
+test('resetModule and isModuleModified compare with the original', () => {
   let p = updateModule(defaultEditParams, 'glow', { params: { strength: 0.5 } });
   p = updateModule(p, 'filmic', { enabled: false });
   p = updateModule(p, 'exposure', { params: { ev: 0.7 } });
@@ -454,7 +455,7 @@ test('resetModule and isModuleModified compare with the default recipe', () => {
     [true, false, true, false],
   );
   p = resetModule(resetModule(p, 'glow'), 'filmic');
-  assert.deepEqual(p, defaultEditParams);
+  assert.deepEqual(p, originalEditParams);
   assert.ok(isDefaultEdit(p));
 });
 

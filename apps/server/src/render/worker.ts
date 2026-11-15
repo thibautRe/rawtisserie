@@ -4,7 +4,6 @@
  */
 import { parentPort } from 'node:worker_threads';
 import {
-  defaultEditParams,
   defaultRecipe as recipeFor,
   developerMeasures,
   type EditParams,
@@ -25,10 +24,6 @@ parentPort!.on('message', async (job: RenderJob) => {
     if (!bytes) throw new Error(`Original not found: ${job.sourceKey}`);
     const metadata = job.extractMetadata || job.autoDefaults ? JSON.parse(readMetadata(bytes)) : null;
     let defaultRecipe: EditParams | null = null;
-    if (job.autoDefaults) {
-      const recipe = recipeFor(metadata);
-      if (recipe !== defaultEditParams) defaultRecipe = recipe;
-    }
     const dev = new Developer(bytes);
     let resolvedRecipe: EditParams | null = null;
     try {
@@ -36,9 +31,11 @@ parentPort!.on('message', async (job: RenderJob) => {
         const lut = await readLut(id);
         if (lut) dev.loadLut(lut);
       }
-      // Auto-tunes a preset or style asked for (roadmap 8.7): measured first, at the
-      // preview's size, so the renders below reuse the cached base.
-      if (!defaultRecipe && hasPendingAutoTune(job.params)) {
+      // Auto-tunes the default recipe or a preset or style asked for (roadmap 8.7):
+      // measured first, at the preview's size, so the renders below reuse the cached base.
+      if (job.autoDefaults) {
+        defaultRecipe = await resolveAutoTunes(recipeFor(metadata), developerMeasures(dev));
+      } else if (hasPendingAutoTune(job.params)) {
         resolvedRecipe = await resolveAutoTunes(job.params!, developerMeasures(dev));
       }
       const params = JSON.stringify(defaultRecipe ?? resolvedRecipe ?? job.params ?? {});

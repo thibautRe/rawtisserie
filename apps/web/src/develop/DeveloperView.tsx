@@ -8,9 +8,9 @@ import {
   type PhotoMetadata,
   type Style,
   AUTO_TUNE_KINDS,
+  AUTO_RECIPE_LABELS,
   applyStyle,
   clearAutoTunes,
-  defaultEditParams,
   exportFilename,
   exportOptions,
   findModule,
@@ -358,7 +358,7 @@ export function DeveloperView({
   // while a slider is dragged, so that only the visible region is rendered.
   const fitParams = zoom && live ? committed : params;
   const withView = (p: EditParams) => {
-    if (comparing) return defaultEditParams;
+    if (comparing) return store.original;
     if (cropDraft) return updateModule(p, 'geometry', { params: { crop: FULL_CROP } });
     // All of the corrected image, borders included, so that every guide shows.
     if (guides) return updateModule(p, 'geometry', { params: { crop: FULL_CROP, autoCrop: 'off' } });
@@ -420,14 +420,18 @@ export function DeveloperView({
     rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
-  // Auto-tunes still pending when the photo is opened (a preset or style applied from
-  // the library, before its preview was rendered): run once the image is in, as an entry.
+  // Auto-tunes still pending when the photo is opened (the recipe a new image starts
+  // with, or a preset or style applied from the library, before its preview was
+  // rendered): run once the image is in. The automatic entry is amended; otherwise
+  // they're a new entry.
   const tunedOnOpen = useRef(false);
   useEffect(() => {
     if (!frame || tunedOnOpen.current) return;
     tunedOnOpen.current = true;
-    const current = store.getState().live;
-    if (hasPendingAutoTune(current)) void commitTuned(current, 'Auto-tune');
+    const { live, entries, end } = store.getState();
+    if (!hasPendingAutoTune(live)) return;
+    if (end === 1 && AUTO_RECIPE_LABELS.includes(entries[0]!.label)) void amendTuned(live);
+    else void commitTuned(live, 'Auto-tune');
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The image is seen through a window: the viewport, or the inside of the ISO 12646
@@ -532,12 +536,18 @@ export function DeveloperView({
    * Commit `p` once the auto-tunes a preset or style asked for (roadmap 8.7) have run on
    * it, as one entry. If they fail, it's committed with its values as they are.
    */
-  const commitTuned = async (p: EditParams, label?: string) => {
+  const commitTuned = (p: EditParams, label?: string) => tuned(p, (r) => commitNow(r, label));
+  /** The automatic entry (`p`, current), its auto-tunes run, unless something else was committed meanwhile. */
+  const amendTuned = (p: EditParams) =>
+    tuned(p, (r) => {
+      if (store.committed === p) store.amend(r);
+    });
+  const tuned = async (p: EditParams, done: (resolved: EditParams) => void) => {
     setAutoTuning(true);
     try {
-      commitNow(await resolveAutoTunes(p, backendMeasures(backend)), label);
+      done(await resolveAutoTunes(p, backendMeasures(backend)));
     } catch (err) {
-      commitNow(clearAutoTunes(p), label);
+      done(clearAutoTunes(p));
       toaster.create({
         type: 'error',
         title: 'Auto-tune failed',
