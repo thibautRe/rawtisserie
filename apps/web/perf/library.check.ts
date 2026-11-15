@@ -201,7 +201,13 @@ async function open(path: string) {
       return json({
         cameras: [],
         lenses: [],
-        tags: [],
+        // Each level, counting the photos under it.
+        tags: [
+          { value: 'People', count: 3 },
+          { value: 'People|Gwen', count: 2 },
+          { value: 'People|Nova', count: 1 },
+          { value: 'beach', count: 4 },
+        ],
         ratings: [],
         ranges: { total: PHOTOS.length },
         imports: IMPORTS,
@@ -302,6 +308,32 @@ test("T focuses the tag input, which completes from the library's tags", async (
     () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 3,
   );
   assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'seagull', 'sea'] });
+});
+
+test('tags are a tree: a parent picks what is under it, and `|` types a level', async () => {
+  await open('/');
+  await cards().first().click();
+  // Folded below the top level.
+  const tree = page.locator('[data-tag]');
+  await page.locator('[data-tag="People"]').waitFor();
+  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), ['beach', 'People']);
+  await page.getByRole('button', { name: 'Unfold People' }).click();
+  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), [
+    'beach',
+    'People',
+    'People|Gwen',
+    'People|Nova',
+  ]);
+  await page.locator('[data-tag="People"]').getByText('People').click();
+  await page.waitForURL(/[?&]tag=People(&|$)/);
+
+  await page.keyboard.press('t');
+  await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
+  await page.keyboard.type(' Family | Gwen ');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Enter');
+  await page.getByText('Family › Gwen').waitFor();
+  assert.deepEqual(sent.at(-1)?.body, { tags: ['Family|Gwen'] });
 });
 
 test('T focuses the tag input of several photos too', async () => {

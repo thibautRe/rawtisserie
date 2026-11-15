@@ -261,13 +261,29 @@ pub fn xmp(meta: &ExportMetadata, mode: MetadataMode) -> Option<String> {
         if let Some(description) = non_empty(&meta.description) {
             body += &alt("dc:description", description);
         }
+        // Tags are paths, levels separated by `|` (`People|Gwen`): as Lightroom and
+        // darktable write them, every level in `dc:subject` and the paths in
+        // `lr:hierarchicalSubject`, so other apps read the tree back.
         let tags: Vec<&str> = meta.tags.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect();
-        if !tags.is_empty() {
+        let mut levels: Vec<&str> = Vec::new();
+        for level in tags.iter().flat_map(|t| t.split('|')).map(str::trim).filter(|l| !l.is_empty()) {
+            if !levels.contains(&level) {
+                levels.push(level);
+            }
+        }
+        if !levels.is_empty() {
             body += "   <dc:subject><rdf:Bag>";
-            for t in tags {
-                body += &format!("<rdf:li>{}</rdf:li>", escape(t));
+            for level in levels {
+                body += &format!("<rdf:li>{}</rdf:li>", escape(level));
             }
             body += "</rdf:Bag></dc:subject>\n";
+        }
+        if tags.iter().any(|t| t.contains('|')) {
+            body += "   <lr:hierarchicalSubject><rdf:Bag>";
+            for t in &tags {
+                body += &format!("<rdf:li>{}</rdf:li>", escape(t));
+            }
+            body += "</rdf:Bag></lr:hierarchicalSubject>\n";
         }
         if (1..=5).contains(&meta.rating) {
             body += &format!("   <xmp:Rating>{}</xmp:Rating>\n", meta.rating);
@@ -285,7 +301,7 @@ pub fn xmp(meta: &ExportMetadata, mode: MetadataMode) -> Option<String> {
         "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
          <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
          <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
-         <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n\
+         <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\">\n\
          {body}  </rdf:Description>\n \
          </rdf:RDF>\n\
          </x:xmpmeta>\n\
@@ -315,7 +331,7 @@ mod tests {
             title: Some("Harbour <night>".into()),
             rating: 4,
             label: Some("red".into()),
-            tags: vec!["sydney".into(), " ".into()],
+            tags: vec!["sydney".into(), " ".into(), "Places|Australia|Sydney".into()],
             ..Default::default()
         }
     }
@@ -368,7 +384,9 @@ mod tests {
         assert!(x.contains("<xmp:Rating>4</xmp:Rating>"), "{x}");
         assert!(x.contains("<xmp:Label>Red</xmp:Label>"));
         assert!(x.contains("Harbour &lt;night&gt;"));
-        assert!(x.contains("<rdf:Bag><rdf:li>sydney</rdf:li></rdf:Bag>"));
+        // Every level once, then the paths.
+        assert!(x.contains("<dc:subject><rdf:Bag><rdf:li>sydney</rdf:li><rdf:li>Places</rdf:li><rdf:li>Australia</rdf:li><rdf:li>Sydney</rdf:li></rdf:Bag>"));
+        assert!(x.contains("<lr:hierarchicalSubject><rdf:Bag><rdf:li>sydney</rdf:li><rdf:li>Places|Australia|Sydney</rdf:li></rdf:Bag>"));
         assert!(x.contains("© Ada"));
         let c = xmp(&meta, MetadataMode::Copyright).unwrap();
         assert!(c.contains("Ada") && !c.contains("Rating") && !c.contains("Harbour"));

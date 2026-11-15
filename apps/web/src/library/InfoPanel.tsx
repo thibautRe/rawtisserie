@@ -56,6 +56,7 @@ import {
   toDateTimeLocal,
   versionLabel,
 } from '../lib/format.ts';
+import { displayTag, normalizeTag } from '../lib/tags.ts';
 import { ApplyMenu } from './ApplyMenu.tsx';
 import type { BatchEdit } from './batchEdit.ts';
 import { useEditPreview } from './useEditPreview.ts';
@@ -593,7 +594,8 @@ function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string
       size="xs"
       variant="subtle"
       value={tags}
-      onValueChange={(e) => onChange(e.value)}
+      // Typed or edited in place: levels separated by `|`.
+      onValueChange={(e) => onChange([...new Set(e.value.map(normalizeTag).filter(Boolean))])}
       inputValue={input}
       onInputValueChange={(e) => setInput(e.inputValue)}
       ids={{ input: TAG_INPUT_ID }}
@@ -603,7 +605,19 @@ function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string
       <TagsInput.Label srOnly>Tags</TagsInput.Label>
       <Box position="relative">
         <TagsInput.Control>
-          <TagsInput.Items />
+          <TagsInput.Context>
+            {(api) =>
+              api.value.map((tag, index) => (
+                <TagsInput.Item key={index} index={index} value={tag}>
+                  <TagsInput.ItemPreview title={displayTag(tag)}>
+                    <TagsInput.ItemText>{displayTag(tag)}</TagsInput.ItemText>
+                    <TagsInput.ItemDeleteTrigger />
+                  </TagsInput.ItemPreview>
+                  <TagsInput.ItemInput />
+                </TagsInput.Item>
+              ))
+            }
+          </TagsInput.Context>
           <TagsInput.Input placeholder="Add tag…" {...completion.inputProps} />
         </TagsInput.Control>
         {completion.list}
@@ -616,7 +630,7 @@ function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string
 function BulkTagInput({ exclude, onAdd }: { exclude: string[]; onAdd: (tag: string) => void }) {
   const [tag, setTag] = useState('');
   const add = (t: string) => {
-    if (t.trim()) onAdd(t.trim());
+    if (normalizeTag(t)) onAdd(normalizeTag(t));
     setTag('');
   };
   const completion = useTagCompletion({ input: tag, exclude, onPick: add });
@@ -698,7 +712,7 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport, onSen
               variant="subtle"
               onClick={() => bulk.mutate({ ids, patch: { removeTags: [t] } })}
             >
-              {t} <X />
+              {displayTag(t)} <X />
             </Button>
           ))}
         </HStack>

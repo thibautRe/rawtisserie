@@ -24,6 +24,7 @@ import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, vers
 import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
 import { RENDER_SIZES, originalKey, renderKey, type RenderSize } from './storage.ts';
+import { TAG_LEVELS, Tag } from './tags.ts';
 
 const Id = z.object({ id: z.uuid() });
 export const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -48,7 +49,7 @@ export const VersionPatch = z
     rating: z.number().int().min(0).max(5),
     flag: z.enum(['picked', 'rejected']).nullable(),
     colorLabel: z.enum(COLOR_LABELS).nullable(),
-    tags: z.array(z.string().trim().min(1).max(100)).max(100),
+    tags: z.array(Tag).max(100),
     cameraMake: nullableText(200),
     cameraModel: nullableText(200),
     lens: nullableText(200),
@@ -105,8 +106,8 @@ export function toColumns<T>(patch: VersionPatch, fields: Partial<Record<keyof V
 const Bulk = z.object({
   ids: z.array(z.uuid()).min(1).max(5000),
   patch: VersionPatch.pick({ rating: true, flag: true, colorLabel: true }).extend({
-    addTags: z.array(z.string().trim().min(1).max(100)).optional(),
-    removeTags: z.array(z.string().trim().min(1).max(100)).optional(),
+    addTags: z.array(Tag).optional(),
+    removeTags: z.array(Tag).optional(),
   }),
 });
 
@@ -212,9 +213,10 @@ export async function photoRoutes(
     const [cameras, lenses, tags, ratings, ranges, imports] = await Promise.all([
       facet('camera_model'),
       facet('lens'),
+      // Every level of the tree, counting the versions under it once.
       db.query(sql`
-        SELECT t AS value, count(*)::int AS count FROM ${VERSIONS_FROM}, unnest(v.tags) t
-        WHERE ${where} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 200`),
+        SELECT n AS value, count(DISTINCT v.id)::int AS count FROM ${VERSIONS_FROM}, unnest(v.tags) t, ${TAG_LEVELS}
+        WHERE ${where} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 500`),
       db.query(sql`
         SELECT v.rating AS value, count(*)::int AS count FROM ${VERSIONS_FROM} WHERE ${where} GROUP BY 1 ORDER BY 1`),
       db.query(sql`
@@ -268,10 +270,10 @@ export async function photoRoutes(
     for (const [key, value] of Object.entries(toColumns<Versions>(simple, VERSION_FIELDS))) {
       sets.push(sql`${sql.ident(key)} = ${value}`);
     }
-    if (addTags?.length)
-      sets.push(sql`tags = ARRAY(SELECT DISTINCT t FROM unnest(tags || ${addTags}::text[]) t ORDER BY 1)`);
-    if (removeTags?.length)
-      sets.push(sql`tags = ARRAY(SELECT unnest(tags) EXCEPT SELECT unnest(${removeTags}::text[]))`);
+    if (addTags?.length || removeTags?.length)
+      sets.push(sql`tags = ARRAY(
+        SELECT DISTINCT t FROM unnest(tags || ${addTags ?? []}::text[]) t
+        WHERE t <> ALL(${removeTags ?? []}::text[]) ORDER BY 1)`);
     const updated = await db.query(sql`
       UPDATE versions SET ${sql.join(sets, sql`, `)}
       WHERE id = ANY(${ids}) AND trashed_at IS NULL AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})

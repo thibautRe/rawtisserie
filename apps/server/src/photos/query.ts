@@ -66,11 +66,14 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.q) {
     const like = `%${f.q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     c.push(sql`(p.original_filename ILIKE ${like} OR v.name ILIKE ${like} OR v.title ILIKE ${like}
-      OR v.description ILIKE ${like} OR p.camera_model ILIKE ${like} OR p.lens ILIKE ${like} OR ${f.q} = ANY(v.tags))`);
+      OR v.description ILIKE ${like} OR p.camera_model ILIKE ${like} OR p.lens ILIKE ${like}
+      OR EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE t ILIKE ${like}))`);
   }
   if (f.camera?.length) c.push(sql`p.camera_model = ANY(${f.camera})`);
   if (f.lens?.length) c.push(sql`p.lens = ANY(${f.lens})`);
-  if (f.tag?.length) c.push(sql`v.tags @> ${f.tag}`);
+  // Each tag asked for, or one under it (`People` finds `People|Gwen`).
+  for (const tag of f.tag ?? [])
+    c.push(sql`EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE t = ${tag} OR starts_with(t, ${`${tag}|`}))`);
   if (f.colorLabel?.length) c.push(sql`v.color_label = ANY(${f.colorLabel})`);
   if (f.ratingMin) c.push(sql`v.rating >= ${f.ratingMin}`);
   if (f.flag?.length && !FLAGS.every((flag) => f.flag!.includes(flag))) {

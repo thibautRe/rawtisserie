@@ -2,6 +2,7 @@ import { Box, HStack, Text } from '@chakra-ui/react';
 import { useMemo, useState } from 'react';
 import { useAllTags } from '../api/hooks.ts';
 import { fold, fuzzyFilter } from '../lib/fuzzy.ts';
+import { displayTag, normalizeTag } from '../lib/tags.ts';
 
 /** The info panel's tag input (one photo or several): T focuses it. */
 export const TAG_INPUT_ID = 'library-tag-input';
@@ -17,7 +18,7 @@ export function focusTagInput(): boolean {
 
 /**
  * Suggests the library's tags matching what's typed (fuzzy: typos and accents are
- * forgiven), most used first. Arrows move through them, Enter picks one; the last
+ * forgiven), most used first. Tags are paths (`People|Gwen`, typed with `|`). Arrows move through them, Enter picks one; the last
  * option creates the tag as typed. Spread `inputProps` on the input (they make it an
  * ARIA combobox, which also tells Chakra's TagsInput to leave Enter to us) and render
  * `list` just below it, in a `position: relative` box.
@@ -36,7 +37,8 @@ export function useTagCompletion({
   const [highlight, setHighlight] = useState(0);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const typed = input.trim();
+  // Levels separated by `|`, matched as shown (`People › Gwen`) too.
+  const typed = normalizeTag(input);
 
   const matches = useMemo(() => {
     if (!typed || !tags) return [];
@@ -119,12 +121,12 @@ export function useTagCompletion({
           >
             {count == null ? (
               <Text flex="1" truncate>
-                Add “{tag}”
+                Add “{displayTag(tag)}”
               </Text>
             ) : (
               <>
                 <Text flex="1" truncate>
-                  {tag}
+                  {displayTag(tag)}
                 </Text>
                 <Text color="fg.muted">{count}</Text>
               </>

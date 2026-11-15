@@ -1,3 +1,4 @@
+import { isTyping } from '../lib/keys.ts';
 import { Box, Button, Center, Flex, HStack, Heading, Spinner, Stack, Text } from '@chakra-ui/react';
 import { ChevronRight, Maximize, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -14,10 +15,6 @@ import { Loupe } from '../library/Loupe.tsx';
 import { PhotoGrid } from '../library/PhotoGrid.tsx';
 import { TrashPanel } from '../library/TrashPanel.tsx';
 import { useGridSelection } from '../library/useGridSelection.ts';
-
-const isTyping = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 const failed = (title: string) => (err: Error) => toaster.create({ type: 'error', title, description: err.message });
 

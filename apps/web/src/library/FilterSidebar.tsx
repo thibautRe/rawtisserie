@@ -12,11 +12,12 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Check, Star, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Star, X } from 'lucide-react';
 import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
+import { type TagNode, isUnder, tagTree } from '../lib/tags.ts';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
@@ -52,6 +53,77 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
           </Text>
         </Checkbox.Root>
       ))}
+    </Stack>
+  );
+}
+
+/**
+ * The tags as a tree: a tag picks the photos with it or one under it (`People`: all of
+ * People's). Folded below the top, except where a tag is picked.
+ */
+function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySearch }) {
+  const selected = search.params.getAll('tag');
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  // Picked tags stay listed even when the other filters leave no photo with them.
+  const tree = tagTree([
+    ...values,
+    ...selected.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 })),
+  ]);
+  if (!tree.length)
+    return (
+      <Text textStyle="xs" color="fg.subtle">
+        Nothing yet
+      </Text>
+    );
+  const toggle = (path: string) =>
+    setOpen((o) => {
+      const next = new Set(o);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  const rows = (nodes: TagNode[], depth: number): React.ReactNode[] =>
+    nodes.flatMap((n) => {
+      // Open by the user, or holding a picked tag.
+      const unfolded = open.has(n.path) || selected.some((s) => s !== n.path && isUnder(s, n.path));
+      return [
+        <HStack key={n.path} gap="1" ps={`${depth * 14}px`} data-tag={n.path}>
+          {n.children.length ? (
+            <IconButton
+              size="2xs"
+              variant="ghost"
+              minW="4"
+              h="4"
+              aria-label={unfolded ? `Fold ${n.name}` : `Unfold ${n.name}`}
+              onClick={() => toggle(n.path)}
+            >
+              {unfolded ? <ChevronDown /> : <ChevronRight />}
+            </IconButton>
+          ) : (
+            <Box w="4" flexShrink={0} />
+          )}
+          <Checkbox.Root
+            size="xs"
+            flex="1"
+            minW="0"
+            checked={selected.includes(n.path)}
+            onCheckedChange={() => search.toggle('tag', n.path)}
+          >
+            <Checkbox.HiddenInput />
+            <Checkbox.Control />
+            <Checkbox.Label flex="1" truncate title={n.path.replaceAll('|', ' › ')} textStyle="xs">
+              {n.name}
+            </Checkbox.Label>
+            <Text textStyle="xs" color="fg.muted" {...NUMERIC}>
+              {n.count}
+            </Text>
+          </Checkbox.Root>
+        </HStack>,
+        ...(unfolded ? rows(n.children, depth + 1) : []),
+      ];
+    });
+  return (
+    <Stack gap="1" maxH="60" overflowY="auto">
+      {rows(tree, 0)}
     </Stack>
   );
 }
@@ -371,7 +443,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
       </PanelBlock>
 
       <PanelBlock title="Tags">
-        <FacetList name="tag" values={facets?.tags ?? []} search={search} />
+        <TagTree values={facets?.tags ?? []} search={search} />
       </PanelBlock>
 
       <PanelBlock

@@ -1,3 +1,4 @@
+import { isTyping } from '../lib/keys.ts';
 import {
   Box,
   Button,
@@ -57,10 +58,6 @@ const SORTS = [
   { value: 'ratingDesc', label: 'Highest rated' },
   { value: 'filename', label: 'Filename' },
 ];
-
-const isTyping = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 export function LibraryPage() {
   const search = useLibrarySearch();
