@@ -14,6 +14,7 @@ import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
 import { trashRoutes } from './photos/trash.ts';
 import { uploadRoutes } from './photos/uploads.ts';
+import { tagRoutes } from './photos/tags.ts';
 import { receiveRoutes } from './transfer/receive.ts';
 import { TransferRunner, sendRoutes } from './transfer/send.ts';
 import { tokenRoutes } from './transfer/tokens.ts';
@@ -60,6 +61,7 @@ export async function buildApp() {
   await app.register(photoRoutes, { renderQueue, zoom });
   await app.register(trashRoutes);
   await app.register(uploadRoutes, { renderQueue });
+  await app.register(tagRoutes);
   const transfers = new TransferRunner(app.log);
   await app.register(tokenRoutes);
   await app.register(receiveRoutes, { renderQueue });

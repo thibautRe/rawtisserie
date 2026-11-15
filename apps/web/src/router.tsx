@@ -20,6 +20,8 @@ export const router = createBrowserRouter([
         children: [
           { path: '/', element: <LibraryPage /> },
           { path: '/versions/:id/develop', element: <LibraryDevelopPage /> },
+          // The tag manager: the tags as a tree, to rename, move, merge, delete, give shortcuts.
+          { path: '/tags', lazy: async () => ({ Component: (await import('./pages/TagsPage.tsx')).TagsPage }) },
           // The user's account, storage and trash.
           {
             path: '/settings',

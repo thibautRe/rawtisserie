@@ -23,6 +23,7 @@ import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { clearOriginals } from './originals.ts';
 import { mergePages } from './pages.ts';
+import type { Shortcut } from '../lib/keys.ts';
 import type {
   AccessToken,
   AdminStats,
@@ -237,6 +238,57 @@ export function useFacets(search: string) {
 }
 
 /** Every tag in the library with its use count. Under `facets`, so library changes refresh it. */
+/** The tag manager's view: every level with its photos, and the user's own tags. */
+export interface TagManagerData {
+  levels: { value: string; photos: number; trashed: number }[];
+  own: { tag: string; shortcut: Shortcut | null }[];
+}
+
+export function useTagManager() {
+  return useQuery({ queryKey: ['tags', 'manage'], queryFn: () => api.get<TagManagerData>('/api/tags/manage') });
+}
+
+/** The user's tag shortcuts (`useTagShortcuts`). */
+export function useOwnTags(enabled = true) {
+  return useQuery({
+    queryKey: ['tags', 'manage'],
+    queryFn: () => api.get<TagManagerData>('/api/tags/manage'),
+    select: (d) => d.own,
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+export type TagChange =
+  | { type: 'create'; tag: string }
+  | { type: 'rename'; from: string; to: string }
+  | { type: 'delete'; tag: string }
+  | { type: 'shortcut'; tag: string; shortcut: Shortcut | null };
+
+/** A change from the tag manager: what shows tags is read again. Answers the versions changed. */
+export function useTagChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (c: TagChange): Promise<number> => {
+      if (c.type === 'create') await api.post('/api/tags', { tag: c.tag });
+      else if (c.type === 'shortcut') await api.put('/api/tags/shortcut', { tag: c.tag, shortcut: c.shortcut });
+      else if (c.type === 'rename')
+        return (await api.post<{ versions: number }>('/api/tags/rename', { from: c.from, to: c.to })).versions;
+      else return (await api.post<{ versions: number }>('/api/tags/delete', { tag: c.tag })).versions;
+      return 0;
+    },
+    onSuccess: (_, c) => {
+      void qc.invalidateQueries({ queryKey: ['tags'] });
+      void qc.invalidateQueries({ queryKey: ['facets'] });
+      if (c.type === 'rename' || c.type === 'delete') {
+        void qc.invalidateQueries({ queryKey: ['photos'] });
+        void qc.invalidateQueries({ queryKey: ['photo'] });
+        void qc.invalidateQueries({ queryKey: ['trash'] });
+      }
+    },
+  });
+}
+
 export function useAllTags() {
   return useQuery({
     queryKey: ['facets', 'all-tags'],

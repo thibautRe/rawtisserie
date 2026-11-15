@@ -66,6 +66,13 @@ See README.md for the architecture overview and commands.
   modification time (`photos.file_modified_at`), without hashing. The app uploads in
   chunks (`photos/uploads.ts`: `/api/uploads`, resumable, taken in by `ingestReceived`
   like `POST /api/photos`, which stays for single requests).
+- Tags are paths, levels separated by `|` (`People|Gwen`, shown People › Gwen; `lib/tags.ts`
+  ↔ server `photos/tags.ts`), counted under their ancestors (filters, the tree's counts,
+  `TAG_LEVELS`; exports write each level to `dc:subject` and the paths to
+  `lr:hierarchicalSubject`). The tag manager (`/tags`) renames, moves, merges and deletes
+  across every version, trashed ones included, the tags under it too; `user_tags` holds
+  tags no photo has yet and the tags' shortcuts. Anything that stores tag names must
+  follow a rename there.
 - Sending to another instance (`apps/server/src/transfer/`): the sender's server posts
   `SentVersion`s (`protocol.ts`) to the receiver's `/api/transfer/…`, authorised by an
   access token that can only add. Anything new a version carries (a column, a photo

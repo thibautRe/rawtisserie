@@ -1,5 +1,5 @@
 import { Box, IconButton, Menu, Portal, Text } from '@chakra-ui/react';
-import { Aperture, Images, LogIn, LogOut, Settings, ShieldCheck } from 'lucide-react';
+import { Aperture, Images, LogIn, LogOut, Settings, ShieldCheck, Tags } from 'lucide-react';
 import { memo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useLogout, useMe, useStorage } from '../api/hooks.ts';
@@ -30,6 +30,11 @@ export const AppMenu = memo(function AppMenu() {
             {user && (
               <Menu.Item value="library" disabled={pathname === '/'} onClick={() => navigate(libraryPath())}>
                 <Images /> Library
+              </Menu.Item>
+            )}
+            {user && (
+              <Menu.Item value="tags" disabled={pathname === '/tags'} onClick={() => navigate('/tags')}>
+                <Tags /> Tags
               </Menu.Item>
             )}
             <Menu.Item value="develop" disabled={pathname === '/develop'} onClick={() => navigate('/develop')}>

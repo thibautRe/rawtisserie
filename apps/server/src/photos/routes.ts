@@ -232,14 +232,6 @@ export async function photoRoutes(
     return { cameras, lenses, tags, ratings, ranges: ranges[0], imports };
   });
 
-  /** Every tag in the user's library, most used first: for completing tags as they're typed. */
-  app.get('/api/tags', async (request) => {
-    const where = whereClause(currentUser(request).id, PhotoFilters.parse({}));
-    return db.query(sql`
-      SELECT t AS value, count(*)::int AS count FROM ${VERSIONS_FROM}, unnest(v.tags) t
-      WHERE ${where} GROUP BY 1 ORDER BY 2 DESC, 1`);
-  });
-
   app.get('/api/versions/:id', async (request) => {
     const { id } = Id.parse(request.params);
     return versionDetail(currentUser(request).id, id);

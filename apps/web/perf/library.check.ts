@@ -182,6 +182,18 @@ async function open(path: string) {
       );
     }
     if (path === '/api/tags') return json(TAGS);
+    if (path === '/api/tags/manage')
+      return json({
+        levels: [
+          { value: 'People', photos: 3, trashed: 1 },
+          { value: 'People|Gwen', photos: 2, trashed: 1 },
+          { value: 'People|Nova', photos: 1, trashed: 0 },
+          { value: 'Family', photos: 1, trashed: 0 },
+          { value: 'Family|Gwen', photos: 1, trashed: 0 },
+        ],
+        own: [{ tag: 'Places|Paris', shortcut: null }],
+      });
+    if (path === '/api/tags/rename' || path === '/api/tags/delete') return json({ versions: 3 });
     if (path === '/api/versions/bulk') return json({ versions: [] });
     if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A', isAdmin: false } });
     if (path === '/api/account/storage') return json({ used: 0, quota: null });
@@ -278,6 +290,8 @@ test('going back restores the filter, and the roll follows a new one', async () 
 test("T focuses the tag input, which completes from the library's tags", async () => {
   await open('/');
   await cards().first().click();
+  // The info panel shows the photo's once its details are in.
+  await page.locator('#library-tag-input').waitFor();
   await page.keyboard.press('t');
   const input = page.locator('#library-tag-input');
   await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
@@ -327,6 +341,8 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   await page.locator('[data-tag="People"]').getByText('People').click();
   await page.waitForURL(/[?&]tag=People(&|$)/);
 
+  // The info panel shows the photo's once its details are in.
+  await page.locator('#library-tag-input').waitFor();
   await page.keyboard.press('t');
   await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
   await page.keyboard.type(' Family | Gwen ');
@@ -336,10 +352,53 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   assert.deepEqual(sent.at(-1)?.body, { tags: ['Family|Gwen'] });
 });
 
+test('the tag manager renames, moves, merges and deletes, saying first what will happen', async () => {
+  await open('/tags');
+  const row = (tag: string) => page.locator(`[data-managed-tag="${tag}"]`);
+  await row('People|Gwen').waitFor();
+  const act = async (tag: string, item: string) => {
+    await row(tag)
+      .getByRole('button', { name: /^Change/ })
+      .click();
+    await page.getByRole('menuitem', { name: item }).click();
+  };
+  const effect = page.locator('[data-tag-effect]');
+
+  await act('People|Gwen', 'Rename…');
+  await page.locator('[data-tag-name]').fill('Gwendolyn');
+  assert.equal(
+    await effect.innerText(),
+    'People › Gwen becomes People › Gwendolyn on 2 photos (and 1 version in the trash).',
+  );
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.getByText('Renamed to People › Gwendolyn on 3 photos').waitFor();
+  assert.deepEqual(sent.at(-1), { path: '/api/tags/rename', body: { from: 'People|Gwen', to: 'People|Gwendolyn' } });
+
+  // Moved onto a tag that exists: a merge, said so.
+  await act('People|Gwen', 'Move…');
+  await page.getByLabel('Move under').selectOption('Family');
+  assert.match(await effect.innerText(), /Family › Gwen exists already: they’ll be one tag\./);
+  await page.getByRole('button', { name: 'Merge', exact: true }).click();
+  await page.getByText('Moved to Family › Gwen on 3 photos').waitFor();
+  assert.deepEqual(sent.at(-1)?.body, { from: 'People|Gwen', to: 'Family|Gwen' });
+
+  await act('People', 'Delete…');
+  const dialog = page.getByRole('alertdialog');
+  assert.match(
+    await dialog.innerText(),
+    /People will be removed from 3 photos \(and 1 version in the trash\), with the 2 tags under it\./,
+  );
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await dialog.waitFor({ state: 'detached' });
+  assert.deepEqual(sent.at(-1), { path: '/api/tags/delete', body: { tag: 'People' } });
+});
+
 test('T focuses the tag input of several photos too', async () => {
   await open('/');
   await cards().first().waitFor();
   await page.keyboard.press('Control+a');
+  // The info panel shows the photo's once its details are in.
+  await page.locator('#library-tag-input').waitFor();
   await page.keyboard.press('t');
   await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
   await page.keyboard.type('cit');

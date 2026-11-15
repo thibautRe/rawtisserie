@@ -14,6 +14,7 @@ import {
 } from '@chakra-ui/react';
 import { Check, ChevronDown, ChevronRight, Star, X } from 'lucide-react';
 import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
@@ -442,7 +443,14 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
         </Row>
       </PanelBlock>
 
-      <PanelBlock title="Tags">
+      <PanelBlock
+        title="Tags"
+        actions={
+          <Button asChild size="2xs" variant="ghost" color="fg.muted">
+            <Link to="/tags">Manage</Link>
+          </Button>
+        }
+      >
         <TagTree values={facets?.tags ?? []} search={search} />
       </PanelBlock>
 
