@@ -96,3 +96,116 @@ export async function walk(entries: readonly Entry[], prefix = ''): Promise<Pick
   }
   return out;
 }
+
+// ── Handles (File System Access: Chrome, Edge) ──────────────────────────────
+// A picker or a drop can give handles instead of files: kept with an import, they open
+// the same files again after a reload (`importQueue.ts`), with the user's permission.
+
+/** The part of `FileSystemHandle` used (the DOM typings lack iteration; tests fake it). */
+export interface Handle {
+  kind: 'file' | 'directory';
+  name: string;
+  getFile?(): Promise<File>;
+  entries?(): AsyncIterable<[string, Handle]>;
+  queryPermission?(o: { mode: 'read' }): Promise<PermissionState>;
+  requestPermission?(o: { mode: 'read' }): Promise<PermissionState>;
+}
+
+/** Where an import's files came from: to pick or open them again after a reload. */
+export interface PickedFrom {
+  kind: 'files' | 'folder';
+  /** Kept to open them again (none: this browser can't). */
+  handles: Handle[] | null;
+}
+
+/** The files in `handles`, folders walked through (hidden ones left out), with their paths. */
+export async function walkHandles(handles: readonly Handle[], prefix = ''): Promise<PickedFile[]> {
+  const out: PickedFile[] = [];
+  for (const h of handles) {
+    const path = prefix + h.name;
+    if (h.kind === 'file') out.push({ file: await h.getFile!(), path });
+    else if (!h.name.startsWith('.')) {
+      const children: Handle[] = [];
+      for await (const [, child] of h.entries!()) children.push(child);
+      out.push(...(await walkHandles(children, `${path}/`)));
+    }
+  }
+  return out;
+}
+
+interface Pickers {
+  showDirectoryPicker?(o?: { id?: string; mode?: 'read' }): Promise<Handle>;
+  showOpenFilePicker?(o?: {
+    id?: string;
+    multiple?: boolean;
+    excludeAcceptAllOption?: boolean;
+    types?: { description: string; accept: Record<string, string[]> }[];
+  }): Promise<Handle[]>;
+}
+const pickers = globalThis as unknown as Pickers;
+/** Whether this browser keeps what was picked across a reload. */
+export const keepsHandles = () => typeof pickers.showDirectoryPicker === 'function';
+
+const cancelled = (err: unknown) => err instanceof DOMException && err.name === 'AbortError';
+
+/** A folder, through the browser's picker: null if cancelled. */
+export async function pickFolder(): Promise<{ files: Promise<PickedFile[]>; from: PickedFrom } | null> {
+  try {
+    const dir = await pickers.showDirectoryPicker!({ id: 'import', mode: 'read' });
+    return { files: walkHandles([dir]), from: { kind: 'folder', handles: [dir] } };
+  } catch (err) {
+    if (cancelled(err)) return null;
+    throw err;
+  }
+}
+
+/** RAW files, through the browser's picker: null if cancelled. */
+export async function pickFiles(): Promise<{ files: Promise<PickedFile[]>; from: PickedFrom } | null> {
+  try {
+    const handles = await pickers.showOpenFilePicker!({
+      id: 'import',
+      multiple: true,
+      types: [{ description: 'RAW files', accept: { 'application/octet-stream': RAW_ACCEPT.split(',') } }],
+    });
+    return { files: walkHandles(handles), from: { kind: 'files', handles } };
+  } catch (err) {
+    if (cancelled(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * A drop's handles, where the browser gives them: like `fromDrop`, taken during the
+ * event. Null where it doesn't (then `fromDrop`).
+ */
+export function fromDropHandles(data: DataTransfer): { files: Promise<PickedFile[]>; from: PickedFrom } | null {
+  const items = [...data.items].filter((i) => i.kind === 'file') as (DataTransferItem & {
+    getAsFileSystemHandle?(): Promise<Handle | null>;
+  })[];
+  if (!items.length || !items.every((i) => typeof i.getAsFileSystemHandle === 'function')) return null;
+  const handles = Promise.all(items.map((i) => i.getAsFileSystemHandle!())).then((hs) =>
+    hs.filter((h): h is Handle => !!h),
+  );
+  const from: PickedFrom = { kind: 'files', handles: [] };
+  return {
+    files: handles.then((hs) => {
+      from.handles = hs;
+      if (hs.some((h) => h.kind === 'directory')) from.kind = 'folder';
+      return walkHandles(hs);
+    }),
+    from,
+  };
+}
+
+/** Permission to read `handles` again (asked, in a click, if needed). */
+export async function reopen(handles: readonly Handle[]): Promise<boolean> {
+  for (const h of handles) {
+    const state = (await h.queryPermission?.({ mode: 'read' })) ?? 'granted';
+    if (state !== 'granted' && (await h.requestPermission?.({ mode: 'read' })) !== 'granted') return false;
+  }
+  return true;
+}
+
+/** Same file: name, size and modification time (as the server finds known files). */
+export const sameFile = (a: { name: string; size: number; modified: number }, f: File) =>
+  a.name === f.name && a.size === f.size && a.modified === f.lastModified;

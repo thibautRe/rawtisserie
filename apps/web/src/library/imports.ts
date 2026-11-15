@@ -12,7 +12,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Photo, StorageUsage } from '../api/types.ts';
 import { formatBytes } from '../lib/format.ts';
-import type { Picked, PickedFile } from './pickedFiles.ts';
+import type { Picked, PickedFile, PickedFrom } from './pickedFiles.ts';
 
 export type ImportStatus = 'waiting' | 'uploading' | 'imported' | 'skipped' | 'failed';
 /** Why a file wasn't imported (the server's `SkipKind`). */
@@ -24,6 +24,8 @@ export interface ImportItem {
   /** Inside what was picked (`DCIM/100MSDCF/DSC01234.ARW`), or the name. */
   path: string;
   size: number;
+  /** The file's modification time (ms): with its name and size, finds it again after a reload. */
+  modified: number;
   status: ImportStatus;
   /** Bytes sent, while uploading. */
   sent: number;
@@ -43,6 +45,8 @@ export interface ImportRun {
   startedAt: number;
   /** The folder it's from, if one was picked alone. */
   label: string | null;
+  /** Where its files came from, to open them again after a reload (`importQueue.ts`). */
+  from: PickedFrom;
   items: ImportItem[];
   /** Nothing left to send (until a retry). */
   done: boolean;
@@ -115,12 +119,18 @@ export interface ImportDeps {
  * run. Returns the run's id. `known` (from `findKnown`) are listed as already in the
  * library, without being hashed or sent.
  */
-export function startImport(picked: Picked, deps: ImportDeps, known: ReadonlySet<PickedFile> = new Set()): string {
+export function startImport(
+  picked: Picked,
+  deps: ImportDeps,
+  known: ReadonlySet<PickedFile> = new Set(),
+  from: PickedFrom = { kind: picked.label ? 'folder' : 'files', handles: null },
+): string {
   const refused = picked.refused.map((f): ImportItem => ({
     key: crypto.randomUUID(),
     name: f.file.name,
     path: f.path,
     size: 0,
+    modified: f.file.lastModified,
     // Not sent at all (the server would refuse it after the upload).
     status: 'skipped',
     sent: 0,
@@ -129,7 +139,7 @@ export function startImport(picked: Picked, deps: ImportDeps, known: ReadonlySet
   }));
   const items = picked.files.map((f): ImportItem => {
     const key = crypto.randomUUID();
-    const item = { key, name: f.file.name, path: f.path, size: f.file.size, sent: 0 };
+    const item = { key, name: f.file.name, path: f.path, size: f.file.size, modified: f.file.lastModified, sent: 0 };
     if (known.has(f)) return { ...item, status: 'skipped', kind: 'duplicate', reason: 'Already in your library' };
     files.set(key, f.file);
     return { ...item, status: 'waiting' };
@@ -137,22 +147,60 @@ export function startImport(picked: Picked, deps: ImportDeps, known: ReadonlySet
   const all = [...items, ...refused];
   const active = runs.findLast((r) => !r.done);
   if (active) {
-    update(active.id, (r) => ({ ...r, items: [...r.items, ...all] }));
+    update(active.id, (r) => ({
+      ...r,
+      // Opened again only if all of it can be.
+      from: {
+        kind: r.from.kind === 'folder' || from.kind === 'folder' ? 'folder' : 'files',
+        handles: r.from.handles && from.handles && [...r.from.handles, ...from.handles],
+      },
+      items: [...r.items, ...all],
+    }));
     return active.id;
   }
   const run: ImportRun = {
     id: crypto.randomUUID(),
     startedAt: Date.now(),
     label: picked.label,
+    from,
     items: all,
     done: false,
   };
-  runs = [...runs, run];
-  emit();
-  deps.onStart(run);
-  void process(run.id, deps);
+  begin(run, deps);
   return run.id;
 }
+
+/** The lock a tab holds on each run it has: another tab doesn't offer to resume those. */
+export const runLock = (runId: string) => `rawtisserie-import-${runId}`;
+
+function begin(run: ImportRun, deps: ImportDeps) {
+  runs = [...runs, run];
+  emit();
+  // Held as long as this tab is open.
+  void globalThis.navigator?.locks?.request(runLock(run.id), () => new Promise(() => {}));
+  deps.onStart(run);
+  void process(run.id, deps);
+}
+
+/**
+ * Go on with a run interrupted before (`importQueue.ts`), with its files found again
+ * (`found`, by item key). What was being sent resumes; what wasn't found fails, to be
+ * retried once it's there.
+ */
+export function resumeImport(saved: ImportRun, found: ReadonlyMap<string, File>, deps: ImportDeps) {
+  const items = saved.items.map((i): ImportItem => {
+    if (i.status !== 'waiting' && i.status !== 'uploading') return i;
+    const file = found.get(i.key);
+    if (!file) return { ...i, status: 'failed', sent: 0, reason: 'Not found when the import was resumed' };
+    files.set(i.key, file);
+    return { ...i, status: 'waiting', sent: 0 };
+  });
+  begin({ ...saved, items, done: false }, deps);
+}
+
+/** Runs of this tab (`importQueue.ts` saves them). */
+export const allRuns = () => runs;
+export const subscribeRuns = subscribe;
 
 /** Send the failed files of a run again. */
 export const retryFailed = (runId: string, deps: ImportDeps) => requeue(runId, (i) => i.status === 'failed', {}, deps);
@@ -474,12 +522,14 @@ export function sampleRun(items: Partial<ImportItem>[], done: boolean): ImportRu
     id: 'sample',
     startedAt: Date.UTC(2026, 10, 14, 14, 2),
     label: null,
+    from: { kind: 'files', handles: null },
     done,
     items: items.map((i, n) => ({
       key: `k${n}`,
       name: `DSC0${1000 + n}.ARW`,
       path: `DSC0${1000 + n}.ARW`,
       size: 42e6,
+      modified: 0,
       status: 'waiting',
       sent: 0,
       ...i,

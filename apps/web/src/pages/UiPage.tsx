@@ -38,9 +38,9 @@ import { Culling } from '../library/InfoPanel.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import { TransferSummary } from '../components/transfer.tsx';
-import { ImportSummary } from '../library/ImportToast.tsx';
+import { ImportSummary, InterruptedImport } from '../library/ImportToast.tsx';
 import { type Review, ReviewBody, sampleReview } from '../library/ImportReview.tsx';
-import { sampleRun } from '../library/imports.ts';
+import { type ImportRun, sampleRun } from '../library/imports.ts';
 import type { ColorLabel, Flag, Transfer } from '../api/types.ts';
 
 /**
@@ -737,7 +737,7 @@ export function UiPage() {
 
         <Block
           title="Import"
-          guide="Every import is reviewed first (a dialog: what's new, what the library has already, found by name, size and date). Then the toast shows its progress (bytes), and the outcome until it's closed: what to retry, what to upload anyway."
+          guide="An import interrupted (a reload, the browser closed) is offered again: resumed where the browser kept the files, else picked again. Every import is reviewed first (a dialog: what's new, what the library has already, found by name, size and date). Then the toast shows its progress (bytes), and the outcome until it's closed: what to retry, what to upload anyway."
         >
           <Stack gap="6">
             <HStack gap="4" align="start" wrap="wrap">
@@ -745,6 +745,15 @@ export function UiPage() {
                 <Example key={label} label={label} w="80">
                   <Box p="4" borderWidth="1px" borderRadius="l2" bg="bg.panel" boxShadow="lg">
                     <ReviewBody review={review} />
+                  </Box>
+                </Example>
+              ))}
+            </HStack>
+            <HStack gap="4" align="start" wrap="wrap">
+              {INTERRUPTED.map(([label, run]) => (
+                <Example key={label} label={label} w="96">
+                  <Box p="4" borderWidth="1px" borderRadius="l2" bg="bg.panel" boxShadow="lg">
+                    <InterruptedImport run={run} pending={120} onResume={() => {}} onDiscard={() => {}} />
                   </Box>
                 </Example>
               ))}
@@ -838,6 +847,14 @@ const IMPORT_REVIEWS: [string, Review][] = [
   ['Review: looking through', { phase: 'scanning', label: 'DCIM' }],
   ['Review: a card', sampleReview(412, 380, 415)],
   ['Review: nothing new', sampleReview(24, 24, 0)],
+];
+
+const INTERRUPTED: [string, ImportRun][] = [
+  [
+    'Interrupted (Chrome, Edge: files kept)',
+    { ...sampleRun([], false), label: 'DCIM', from: { kind: 'folder', handles: [] } },
+  ],
+  ['Interrupted (other browsers)', { ...sampleRun([], false), label: 'DCIM', from: { kind: 'folder', handles: null } }],
 ];
 
 const IMPORT_TOASTS = [

@@ -47,7 +47,7 @@ import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
 import { useImporter } from './useImporter.tsx';
-import { fromDrop, fromInput } from './pickedFiles.ts';
+import { fromDrop, fromDropHandles, fromInput, keepsHandles, pickFiles, pickFolder } from './pickedFiles.ts';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
 const SORTS = [
@@ -116,6 +116,16 @@ export function LibraryPage() {
   const moveToTrash = useTrashWithUndo();
   const duplicate = useDuplicateVersion();
   const { start: startImport, review: importReview } = useImporter();
+  /**
+   * Pick files or a folder: with the browser's own pickers where they keep what was
+   * picked (an import then survives a reload), else with the inputs below.
+   */
+  const importFrom = (kind: 'files' | 'folder') => {
+    if (!keepsHandles()) return (kind === 'files' ? fileInput : folderInput).current?.click();
+    void (kind === 'files' ? pickFiles() : pickFolder())
+      .then((picked) => picked && startImport(picked.files, picked.from))
+      .catch((err: Error) => toaster.create({ type: 'error', title: 'Could not open that', description: err.message }));
+  };
   const importIds = search.params.getAll('import');
   const batchEdit = useBatchEdit();
 
@@ -313,7 +323,9 @@ export function LibraryPage() {
         e.preventDefault();
         setDragging(false);
         // Taken now: the drop's items are gone after the event.
-        void startImport(fromDrop(e.dataTransfer));
+        // With handles where the browser gives them, so the import survives a reload.
+        const withHandles = fromDropHandles(e.dataTransfer);
+        void (withHandles ? startImport(withHandles.files, withHandles.from) : startImport(fromDrop(e.dataTransfer)));
       }}
       position="relative"
     >
@@ -355,7 +367,7 @@ export function LibraryPage() {
             <Maximize /> Cull
           </Button>
           <ButtonGroup size="sm" colorPalette="orange" attached>
-            <Button onClick={() => fileInput.current?.click()} title="Import RAW files">
+            <Button onClick={() => importFrom('files')} title="Import RAW files">
               <Upload /> Import
             </Button>
             <Menu.Root positioning={{ placement: 'bottom-end' }}>
@@ -367,10 +379,10 @@ export function LibraryPage() {
               <Portal>
                 <Menu.Positioner>
                   <Menu.Content>
-                    <Menu.Item value="files" onSelect={() => fileInput.current?.click()}>
+                    <Menu.Item value="files" onSelect={() => importFrom('files')}>
                       <Upload /> Files…
                     </Menu.Item>
-                    <Menu.Item value="folder" onSelect={() => folderInput.current?.click()}>
+                    <Menu.Item value="folder" onSelect={() => importFrom('folder')}>
                       <FolderInput /> Folder or card…
                     </Menu.Item>
                   </Menu.Content>

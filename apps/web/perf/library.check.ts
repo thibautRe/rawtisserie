@@ -100,6 +100,8 @@ let knownHashes: Record<string, { status: string; filename: string }> = {};
 /** File names `/api/photos/check` finds by name, size and date. */
 let knownNames = new Set<string>();
 let failUploads = new Set<string>();
+/** Completing uploads waits for this, when set (an import to interrupt). */
+let holdCompletes: Promise<void> | null = null;
 /** Chunks (by their number, from 0) whose connection is cut, once. */
 let cutChunks = new Set<number>();
 let chunks = 0;
@@ -137,6 +139,7 @@ async function open(path: string) {
   received = new Map();
   cutChunks = new Set();
   chunks = 0;
+  holdCompletes = null;
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -169,6 +172,7 @@ async function open(path: string) {
         return json({ offset: u.offset });
       }
       if (method === 'GET') return json({ offset: u.offset, size: u.size });
+      if (holdCompletes) return holdCompletes.then(() => route.abort()).catch(() => {});
       // Slow enough to see the files waiting.
       return new Promise<void>((resolve) =>
         setTimeout(() => {
@@ -624,6 +628,64 @@ test('a large file goes in chunks, and a lost connection costs one chunk', async
   );
   assert.equal(started().length, 1);
 });
+
+test('an import interrupted by a reload is offered again, and resumes once its files are picked', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'pick-'));
+  const paths = [];
+  for (const n of [1, 2, 3]) {
+    paths.push(join(dir, `DSC0000${n}.ARW`));
+    await writeFile(paths.at(-1)!, Buffer.alloc(1024, n));
+  }
+  // The first file is sent, then the tab goes before it's taken in.
+  holdCompletes = new Promise(() => {});
+  await page.locator('input[type=file]:not([webkitdirectory])').setInputFiles(paths);
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  await review.getByRole('button', { name: 'Import 3 photos' }).click();
+  await waitFor(() => sent.some((s) => s.path.endsWith('/complete')));
+  // Saved as it goes (half a second after a change).
+  await page.waitForTimeout(800);
+  holdCompletes = null;
+  page.removeAllListeners('dialog');
+  page.on('dialog', (d) => void d.accept());
+  await page.reload();
+
+  const interrupted = page.locator('[data-import-state=interrupted]');
+  await interrupted.waitFor();
+  const text = await interrupted.innerText();
+  assert.match(text, /3 photos not sent yet/);
+  // Files from an input aren't kept by any browser: picked again.
+  assert.match(text, /Your current browser requires you to pick the files again/);
+  const chooser = page.waitForEvent('filechooser');
+  await interrupted.getByRole('button', { name: 'Pick the files again' }).click();
+  await (await chooser).setFiles(paths);
+
+  const done = page.locator('[data-import-state=done]');
+  await done.waitFor({ timeout: 20_000 });
+  assert.match(await done.innerText(), /Imported 3 photos/);
+  // The first one wasn't sent again: its upload was completed where it stood.
+  assert.equal(started().length, 3);
+  assert.equal(page.url().includes('import='), true);
+  // Done: not offered again.
+  await page.waitForTimeout(200);
+  await page.reload();
+  await cards().first().waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('[data-import-state=interrupted]').count(), 0);
+});
+
+/** Until `f` holds (polled), or fails after 10 s. */
+async function waitFor(f: () => boolean) {
+  for (let t = 0; !f(); t += 50) {
+    if (t > 10_000) assert.fail('timed out');
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 
 /** The uploads started, by what the app said of each file. */
 const started = () =>

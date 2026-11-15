@@ -160,3 +160,53 @@ function Details({ items }: { items: ImportItem[] }) {
     </Stack>
   );
 }
+
+/**
+ * An import interrupted before (a reload, the browser closed): what wasn't sent, to
+ * resume or forget. Where the browser didn't keep the files, resuming picks them again.
+ */
+export function InterruptedImport({
+  run,
+  pending,
+  busy,
+  onResume,
+  onDiscard,
+}: {
+  run: ImportRun;
+  /** Files not sent yet. */
+  pending: number;
+  /** Opening or matching the files. */
+  busy?: boolean;
+  onResume: () => void;
+  onDiscard: () => void;
+}) {
+  const what = run.from.kind === 'folder' ? 'folder' : 'files';
+  return (
+    <HStack align="start" gap="3" w="full" data-import-state="interrupted">
+      <Box pt="0.5" color="orange.fg">
+        <CircleAlert size={18} />
+      </Box>
+      <Stack gap="2" flex="1" minW="0">
+        <Text fontWeight="semibold" textStyle="sm">
+          {run.label ? `Import from ${run.label} interrupted` : 'An import was interrupted'}
+        </Text>
+        <Text textStyle="sm" color="fg.muted">
+          {plural(pending, 'photo')} not sent yet
+        </Text>
+        {!run.from.handles && (
+          <Text textStyle="xs" color="fg.subtle">
+            Your current browser requires you to pick the {what} again
+          </Text>
+        )}
+        <HStack gap="2">
+          <Button size="2xs" colorPalette="orange" onClick={onResume} loading={busy}>
+            {run.from.handles ? 'Resume' : `Pick the ${what} again`}
+          </Button>
+          <Button size="2xs" variant="ghost" onClick={onDiscard} disabled={busy}>
+            Discard
+          </Button>
+        </HStack>
+      </Stack>
+    </HStack>
+  );
+}

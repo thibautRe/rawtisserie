@@ -52,6 +52,10 @@ admin overview for 24 hours and 7 days; a graph can read the same table later. 4
 LUT) closed: what was left (uploading browser-only LUTs on "Add to library") can't
 happen in the app as it is. 7.3's soft delete done, as a trash: deleted photos can be
 restored for 30 days.
+2026-11-15: filmic auto-tuned in the default recipe (a new image's first entry is it
+resolved), a fix for duplicated cards in the library grid during imports, and 8.2 done:
+folders and cards, a review before sending, chunked resumable uploads, and imports that
+survive a reload.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1424,17 +1428,24 @@ that bumps `revision`. The render queue re-renders the previews.
 
 ### 8.2 Folder, recursive and SD card import, skipping known files (M)
 
-> **Partly done** (`library/imports.ts`, `POST /api/photos/check`): imports run app-wide
-> (they go on while browsing), hash each file in the browser a few ahead of the upload
-> and ask which hashes the server knows, so files already in the library, or deleted for
-> good before (only their hash is kept, `deleted_originals`), aren't sent. The library
-> switches to that import (`?import=<id>`, `versions.import_id`; the sidebar lists recent
-> imports, `imports`, by how long ago; Shift-click shows several, and "Clear all" goes
-> back), its photos appearing as they arrive. The toast shows the bytes sent, then
-> stays with the outcome: imported (show), already there, deleted before (upload
-> anyway), failed (retry), refused (not RAW, too large, storage full), and a list of
-> why. Left: folders and SD cards, the quick name/size/date prefilter, resumable uploads
-> and a queue that survives a reload.
+> **Done** (2026-11-15; `library/imports.ts`, `pickedFiles.ts`, `importQueue.ts`,
+> `ImportReview.tsx`, server `photos/uploads.ts`). Imports run app-wide (they go on
+> while browsing). Files, folders and cards are picked or dropped (folders walked
+> through; in them, files that aren't RAW and hidden ones, like macOS's `._*`, are left
+> out). Every import is reviewed first: RAW files found, how many the library has
+> already (by name, size and modification time, `photos.file_modified_at`, without
+> hashing: re-inserting a card costs one request), what was left out, how many are new.
+> The rest are hashed a few ahead of the upload and checked by hash too (files deleted
+> for good are only known by theirs, `deleted_originals`). Uploads go in 8 MiB chunks
+> (`/api/uploads`) that resume where they stopped, after a lost connection or a Retry.
+> Imports are saved in IndexedDB: after a reload, an interrupted one is offered again,
+> its files opened again where the browser kept them (File System Access handles:
+> Chrome, Edge), else picked again ("Your current browser requires you to pick the
+> folder again") and matched by name, size and date. The library switches to the import
+> (`?import=<id>`), its photos appearing as they arrive; the toast shows the bytes sent,
+> then the outcome (imported, already there, deleted before with "Upload anyway",
+> failed with Retry, refused). Not done: remembering cards (the review's counts do that
+> job), auto-import on card insertion (needs the desktop helper, see 7.8).
 
 - **Browser first:** `<input webkitdirectory>` and drag and drop of folders are already
   recursive. Filter to supported RAW extensions.
@@ -1867,7 +1878,7 @@ Required before 1.0, on top of what's done:
 
 - **Modules:** 3.5 raw denoise (AI), 3.6 lensfun, 3.7 diffuse and sharpen, 3.8 perspective /
   vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame, 4.10 tone equalizer (guided mask).
-- **Library:** 8.1 presets on a selection, 8.2 folder/SD import skipping known files,
+- **Library:** 8.1 presets on a selection, ~~8.2 folder/SD import skipping known files~~,
   8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
   export options (colour space/ICC at least).
 - **UI:** 4.13 mask UI redesign.
@@ -1888,7 +1899,7 @@ Required before 1.0, on top of what's done:
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
-   ~~3.7 diffuse and sharpen~~, 8.2 folder/SD import, ~~8.4 export from the library (in the
+   ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
