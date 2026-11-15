@@ -466,6 +466,13 @@
         "typeName": "FLOAT4"
       },
       {
+        "name": "file_modified_at",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
         "name": "file_size",
         "isNullable": false,
         "hasDefault": false,

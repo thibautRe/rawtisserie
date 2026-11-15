@@ -27,6 +27,8 @@ export interface IngestOptions {
   allowDeleted: boolean;
   /** Columns of the version created with it (its import, where it came from…). */
   version?: Partial<Versions>;
+  /** When the file was last modified, as the browser saw it (`photos.file_modified_at`). */
+  modifiedAt?: Date | null;
 }
 
 /** Take in `file` (a multipart part's stream, `truncated` once over the size limit). */
@@ -34,7 +36,7 @@ export async function ingestFile(
   userId: string,
   filename: string,
   file: Readable & { truncated?: boolean },
-  { allowDeleted, version = {} }: IngestOptions,
+  { allowDeleted, version = {}, modifiedAt = null }: IngestOptions,
 ): Promise<Ingested> {
   const ext = path.extname(filename).toLowerCase();
   if (!RAW_EXTENSIONS.has(ext)) {
@@ -49,6 +51,9 @@ export async function ingestFile(
   const existing = await photos(db).findOne({ owner_id: userId, sha256: upload.sha256 });
   if (existing) {
     await discardUpload(upload);
+    // Imported before without its date: known now, so the next import finds it by name.
+    if (modifiedAt && !existing.file_modified_at && existing.original_filename === filename)
+      await photos(db).update({ id: existing.id }, { file_modified_at: modifiedAt });
     const [inLibrary] = await db.query(sql`
       SELECT 1 FROM versions WHERE photo_id = ${existing.id} AND trashed_at IS NULL LIMIT 1`);
     return { status: 'existing', photoId: existing.id, filename: existing.original_filename, inLibrary: !!inLibrary };
@@ -81,6 +86,7 @@ export async function ingestFile(
       original_filename: filename,
       storage_key: storageKey,
       file_size: upload.size,
+      file_modified_at: modifiedAt,
       sha256: upload.sha256,
     });
     const [row] = await versions(tx).insert({ ...version, photo_id: id });

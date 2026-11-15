@@ -56,6 +56,8 @@ export const SentVersion = z.object({
   importId: z.uuid(),
   sha256: Sha256,
   filename: z.string().trim().min(1).max(500),
+  /** The original's modification time when it was imported (ms since the epoch), if known. Optional: added after `PROTOCOL` 1. */
+  fileModifiedAt: z.number().int().nullable().optional(),
   /** Culling, metadata and the photo's corrections, as the library edits them. */
   patch: SentPatch,
   /** The photo's extracted metadata, so the receiver doesn't extract it over the corrections. */

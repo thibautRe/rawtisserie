@@ -207,6 +207,7 @@ async function findOrCreate(
     const result = await ingestFile(userId, meta.filename, file, {
       allowDeleted: true,
       version: newVersionColumns(meta),
+      modifiedAt: meta.fileModifiedAt == null ? null : new Date(meta.fileModifiedAt),
     });
     if (result.status === 'skipped') throw new HttpError(422, result.reason);
     if (result.status === 'created') return { versionId: result.versionId, status: 'created' };

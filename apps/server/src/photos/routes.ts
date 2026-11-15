@@ -524,24 +524,50 @@ export async function photoRoutes(
   // ── Photos (original files) ───────────────────────────────────────────────
 
   /**
-   * Which of these files (by SHA-256) the user has: in the library, only in the trash, or
-   * deleted for good. An import asks before sending them; the upload checks again.
+   * Which of these files the user has: in the library, only in the trash, or deleted for
+   * good. By SHA-256 (`hashes`), or before hashing them by name, size and modification
+   * time (`files`, as the upload recorded them: files imported before that aren't found,
+   * and a file deleted for good is only known by its hash). An import asks before
+   * sending them; the upload checks again.
    */
   app.post('/api/photos/check', async (request) => {
-    const { hashes } = z.object({ hashes: z.array(Sha256).min(1).max(1000) }).parse(request.body);
+    const { hashes = [], files = [] } = z
+      .object({
+        hashes: z.array(Sha256).max(1000).optional(),
+        files: z
+          .array(z.object({ name: z.string().max(1000), size: z.number().int().min(0), modified: z.number().int() }))
+          .max(5000)
+          .optional(),
+      })
+      .refine((b) => b.hashes?.length || b.files?.length, 'Nothing to check')
+      .parse(request.body);
     const user = currentUser(request);
-    const rows = (await db.query(sql`
-      SELECT p.sha256, p.original_filename AS filename,
-        EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id AND v.trashed_at IS NULL) AS in_library
-      FROM photos p WHERE p.owner_id = ${user.id} AND p.sha256 = ANY(${hashes})`)) as {
-      sha256: string;
-      filename: string;
-      in_library: boolean;
-    }[];
-    const deleted = (await db.query(sql`
-      SELECT sha256 FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ANY(${hashes})`)) as {
-      sha256: string;
-    }[];
+    const rows = hashes.length
+      ? ((await db.query(sql`
+          SELECT p.sha256, p.original_filename AS filename,
+            EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id AND v.trashed_at IS NULL) AS in_library
+          FROM photos p WHERE p.owner_id = ${user.id} AND p.sha256 = ANY(${hashes})`)) as {
+          sha256: string;
+          filename: string;
+          in_library: boolean;
+        }[])
+      : [];
+    const deleted = hashes.length
+      ? ((await db.query(sql`
+          SELECT sha256 FROM deleted_originals WHERE owner_id = ${user.id} AND sha256 = ANY(${hashes})`)) as {
+          sha256: string;
+        }[])
+      : [];
+    const byName = files.length
+      ? ((await db.query(sql`
+          SELECT DISTINCT ON (f.i) f.i,
+            EXISTS (SELECT 1 FROM versions v WHERE v.photo_id = p.id AND v.trashed_at IS NULL) AS in_library
+          FROM jsonb_to_recordset(${JSON.stringify(files.map((f, i) => ({ ...f, i })))}::jsonb)
+            AS f(i int, name text, size bigint, modified bigint)
+          JOIN photos p ON p.owner_id = ${user.id} AND p.original_filename = f.name AND p.file_size = f.size
+            AND p.file_modified_at = 'epoch'::timestamptz + f.modified * interval '1 millisecond'
+          ORDER BY f.i, in_library DESC`)) as { i: number; in_library: boolean }[])
+      : [];
     const known = new Set(rows.map((r) => r.sha256));
     return {
       files: [
@@ -552,6 +578,8 @@ export async function photoRoutes(
         })),
         ...deleted.filter((d) => !known.has(d.sha256)).map((d) => ({ sha256: d.sha256, status: 'deleted' as const })),
       ],
+      /** By index in `files`: those found. */
+      named: byName.map((r) => ({ index: r.i, status: r.in_library ? ('library' as const) : ('trash' as const) })),
     };
   });
 
@@ -563,7 +591,12 @@ export async function photoRoutes(
   app.post('/api/photos', async (request, reply) => {
     const user = currentUser(request);
     const query = z
-      .object({ import: z.uuid().optional(), allowDeleted: z.enum(['true', 'false']).optional() })
+      .object({
+        import: z.uuid().optional(),
+        allowDeleted: z.enum(['true', 'false']).optional(),
+        /** The file's modification time (ms since the epoch), as the browser saw it. */
+        modified: z.coerce.number().int().optional(),
+      })
       .parse(request.query);
     const importId = query.import ?? null;
     // When it began, for the library's list of imports (its versions are counted there).
@@ -577,6 +610,7 @@ export async function photoRoutes(
       const result = await ingestFile(user.id, filename, part.file, {
         allowDeleted: query.allowDeleted === 'true',
         version: { import_id: importId },
+        modifiedAt: query.modified === undefined ? null : new Date(query.modified),
       });
       if (result.status === 'skipped') {
         skipped.push({ filename, kind: result.kind, reason: result.reason });

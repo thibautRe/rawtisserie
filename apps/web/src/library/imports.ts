@@ -327,7 +327,8 @@ interface UploadResult {
 function upload(file: File, runId: string, allowDeleted: boolean, onProgress: (sent: number) => void) {
   return new Promise<UploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const params = new URLSearchParams({ import: runId });
+    // Its date, with its name and size, finds it again without hashing (`/api/photos/check`).
+    const params = new URLSearchParams({ import: runId, modified: String(file.lastModified) });
     if (allowDeleted) params.set('allowDeleted', 'true');
     xhr.open('POST', `/api/photos?${params}`);
     xhr.responseType = 'json';
