@@ -55,7 +55,9 @@ restored for 30 days.
 2026-11-15: filmic auto-tuned in the default recipe (a new image's first entry is it
 resolved), a fix for duplicated cards in the library grid during imports, and 8.2 done:
 folders and cards, a review before sending, chunked resumable uploads, and imports that
-survive a reload.
+survive a reload. Then tags: a tree (levels separated by `|`, `/` tags migrated), a tag
+manager (`/tags`: rename, move, merge, delete, each saying first what it'll do) and
+shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and the loupe.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct

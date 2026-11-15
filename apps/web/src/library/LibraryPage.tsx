@@ -48,6 +48,8 @@ import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
 import { useImporter } from './useImporter.tsx';
+import { useTagShortcuts } from './useTagShortcuts.tsx';
+import { displayTag } from '../lib/tags.ts';
 import { fromDrop, fromDropHandles, fromInput, keepsHandles, pickFiles, pickFolder } from './pickedFiles.ts';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
@@ -206,6 +208,23 @@ export function LibraryPage() {
     [bulk, selection],
   );
 
+  // The tags' shortcuts (tag manager) toggle a tag on the selection, as P does a flag.
+  const toggleTag = (tag: string) => {
+    if (!selectedPhotos.length) {
+      toaster.create({ type: 'info', title: 'Select photos to tag first', duration: 2000 });
+      return;
+    }
+    const all = selectedPhotos.every((p) => p.tags.includes(tag));
+    applyToSelection(all ? { removeTags: [tag] } : { addTags: [tag] });
+    const n = selectedPhotos.length === 1 ? '1 photo' : `${selectedPhotos.length} photos`;
+    toaster.create({
+      type: 'success',
+      title: all ? `Removed ${displayTag(tag)} from ${n}` : `Tagged ${n} ${displayTag(tag)}`,
+      duration: 2000,
+    });
+  };
+  const tagSequence = useTagShortcuts(loupe ? null : toggleTag);
+
   // Culling shortcuts, Lightroom/darktable style.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -327,6 +346,7 @@ export function LibraryPage() {
       position="relative"
     >
       {importReview}
+      {tagSequence}
       <FilterSidebar search={search} />
 
       <Flex direction="column" flex="1" minW="0">

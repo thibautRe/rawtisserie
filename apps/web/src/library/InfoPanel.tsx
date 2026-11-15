@@ -34,7 +34,7 @@ import {
   X,
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useBulkUpdate, useInstances, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
 import {
   COLOR_LABELS,
@@ -118,7 +118,8 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
           tag · <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings ·{' '}
-          <b>Ctrl+E</b> export · <b>Del</b> move to trash · arrows to move
+          <b>Ctrl+E</b> export · <b>Del</b> move to trash · arrows to move. Tags get shortcuts of their own in the{' '}
+          <Link to="/tags">tag manager</Link>.
         </Text>
       </Stack>
     );

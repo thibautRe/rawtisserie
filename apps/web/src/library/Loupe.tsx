@@ -18,6 +18,9 @@ import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { FilmRoll } from './FilmRoll.tsx';
 import { advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
 import { TileLoader } from './tileLoader.ts';
+import { useTagShortcuts } from './useTagShortcuts.tsx';
+import { toaster } from '../components/toaster.tsx';
+import { displayTag } from '../lib/tags.ts';
 
 interface Props {
   /** What the library lists now (it may have dropped photos rated out of its filters). */
@@ -62,7 +65,15 @@ export function Loupe({
   // Every photo seen, with the changes made here: a photo rated out of the library's
   // filters is gone from `photos`, but stays in the loupe until it closes.
   const seen = useRef(new Map<string, Photo>());
-  for (const p of photos) seen.current.set(p.id, p);
+  // Taken from the library when it has a new one: a change made here (a flag, a tag)
+  // stays until the library's list has it, rather than being undone by the list as it
+  // was a moment before (a second key press would then repeat the first).
+  const given = useRef(new Map<string, Photo>());
+  for (const p of photos) {
+    if (given.current.get(p.id) === p) continue;
+    given.current.set(p.id, p);
+    seen.current.set(p.id, p);
+  }
   const [id, setId] = useState(startId);
   const index = Math.max(0, order.indexOf(id));
   const photo = seen.current.get(id)!;
@@ -152,6 +163,25 @@ export function Loupe({
   useEffect(() => loader.want(urls), [urls.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   const tilesPending = urls.some((u) => !loader.get(u));
 
+  // The tags' shortcuts toggle a tag on the photo shown. Before the loupe's keys: they
+  // listen first, so a key continuing a sequence isn't also the loupe's.
+  const toggleTag = (tag: string) => {
+    if (!onChange) return;
+    const has = photo.tags.includes(tag);
+    seen.current.set(photo.id, {
+      ...photo,
+      tags: has ? photo.tags.filter((t) => t !== tag) : [...photo.tags, tag].sort(),
+    });
+    onChange(photo.id, has ? { removeTags: [tag] } : { addTags: [tag] });
+    forceRender();
+    toaster.create({
+      type: 'success',
+      title: has ? `Removed ${displayTag(tag)}` : `Tagged ${displayTag(tag)}`,
+      duration: 1500,
+    });
+  };
+  const tagSequence = useTagShortcuts(onChange ? toggleTag : null);
+
   // ── Keys ──
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
@@ -191,6 +221,7 @@ export function Loupe({
 
   return (
     <Flex position="fixed" inset="0" zIndex="modal" direction="column" bg="black" color="white" userSelect="none">
+      {tagSequence}
       {showInfo && (
         <HStack px="3" py="2" gap="3" bg="blackAlpha.800" flexShrink="0">
           <Text fontWeight="medium" truncate>

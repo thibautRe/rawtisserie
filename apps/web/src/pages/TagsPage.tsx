@@ -24,13 +24,14 @@ import {
   CornerDownRight,
   Ellipsis,
   FolderInput,
+  Keyboard,
   Pencil,
   Plus,
   Search,
   Tag,
   Trash2,
 } from 'lucide-react';
-import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { type TagChange, useTagChange, useTagManager } from '../api/hooks.ts';
 import { type TagInfo, describeDelete, describeRename, managedTags, plural } from '../lib/tagManager.ts';
@@ -38,7 +39,7 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { libraryPath } from '../library/libraryView.ts';
 import { fold } from '../lib/fuzzy.ts';
-import { formatShortcut } from '../lib/keys.ts';
+import { type Shortcut, formatShortcut, pressOf, shortcutConflict } from '../lib/keys.ts';
 import {
   SEPARATOR,
   type TagNode,
@@ -56,7 +57,8 @@ type Editing =
   | { type: 'create'; parent: string | null }
   | { type: 'rename'; tag: string }
   | { type: 'move'; tag: string }
-  | { type: 'delete'; tag: string };
+  | { type: 'delete'; tag: string }
+  | { type: 'shortcut'; tag: string };
 
 /**
  * The tag manager: every tag as a tree, with its photos (and those in the trash), to
@@ -149,6 +151,9 @@ export function TagsPage() {
                   </Menu.Item>
                   <Menu.Item value="move" onSelect={() => setEditing({ type: 'move', tag: n.path })}>
                     <FolderInput /> Move…
+                  </Menu.Item>
+                  <Menu.Item value="shortcut" onSelect={() => setEditing({ type: 'shortcut', tag: n.path })}>
+                    <Keyboard /> Shortcut…
                   </Menu.Item>
                   <Menu.Item value="create" onSelect={() => setEditing({ type: 'create', parent: n.path })}>
                     <CornerDownRight /> New tag under it…
@@ -269,6 +274,7 @@ function TagForm({
 }) {
   const [name, setName] = useState(e.type === 'rename' ? tagName(e.tag) : '');
   const [parent, setParent] = useState(e.type === 'move' ? (tagParent(e.tag) ?? '') : '');
+  const [keys, setKeys] = useState<Shortcut>([]);
 
   let title = '';
   let body: ReactNode = null;
@@ -325,6 +331,37 @@ function TagForm({
     else ({ text, action } = describeRename(e.tag, to, info));
     change = { type: 'rename', from: e.tag, to };
     done = (n) => `Moved to ${displayTag(to)}${n ? ` on ${plural(n, 'photo')}` : ''}`;
+  } else if (e.type === 'shortcut') {
+    const current = info.get(e.tag)?.shortcut ?? null;
+    title = `Shortcut for ${displayTag(e.tag)}`;
+    body = (
+      <Stack gap="3">
+        <ShortcutRecorder value={keys} onChange={setKeys} />
+        {current && (
+          <HStack gap="2" textStyle="sm" color="fg.muted">
+            <Text flex="1">Now: {formatShortcut(current)}</Text>
+            <Button
+              size="xs"
+              variant="outline"
+              loading={busy}
+              onClick={() =>
+                onApply({ type: 'shortcut', tag: e.tag, shortcut: null }, () => `${displayTag(e.tag)} has no shortcut`)
+              }
+            >
+              Remove it
+            </Button>
+          </HStack>
+        )}
+      </Stack>
+    );
+    const others = [...info].flatMap(([tag, i]) => (tag !== e.tag ? [{ tag, shortcut: i.shortcut }] : []));
+    if (!keys.length) problem = ' ';
+    else problem = shortcutConflict(keys, others, displayTag) ?? '';
+    if (keys.length)
+      text = `${formatShortcut(keys)} will add or remove ${displayTag(e.tag)}: on the selected photos in the library, on the photo shown when culling.`;
+    action = 'Save';
+    change = { type: 'shortcut', tag: e.tag, shortcut: keys };
+    done = () => `${formatShortcut(keys)} toggles ${displayTag(e.tag)}`;
   } else if (e.type === 'delete') {
     title = `Delete ${displayTag(e.tag)}?`;
     text = describeDelete(e.tag, info);
@@ -373,6 +410,79 @@ function TagForm({
         <CloseButton size="sm" />
       </Dialog.CloseTrigger>
     </Dialog.Content>
+  );
+}
+
+/** Keys pressed apart by more than this start a new shortcut rather than continuing one. */
+const RECORD_GAP = 1500;
+
+interface LayoutMap {
+  get(code: string): string | undefined;
+}
+
+/**
+ * Records a shortcut: focus it and press the keys, one press after another for a
+ * sequence (Ctrl+Alt+O, then Ctrl+Alt+A). A pause starts it again. Escape and Tab
+ * aren't recorded (they close the dialog, move the focus).
+ */
+function ShortcutRecorder({ value, onChange }: { value: Shortcut; onChange: (s: Shortcut) => void }) {
+  const last = useRef(0);
+  // What each key shows without modifiers (Chrome, Edge): `A` on AZERTY, not `Q`.
+  const layout = useRef<LayoutMap | null>(null);
+  useEffect(() => {
+    const keyboard = (navigator as { keyboard?: { getLayoutMap?(): Promise<LayoutMap> } }).keyboard;
+    void keyboard
+      ?.getLayoutMap?.()
+      .then((m) => (layout.current = m))
+      .catch(() => {});
+  }, []);
+  return (
+    <Field.Root>
+      <Field.Label>Keys</Field.Label>
+      <Box
+        tabIndex={0}
+        role="textbox"
+        aria-label="Press the keys"
+        data-shortcut-recorder
+        w="full"
+        px="3"
+        py="2"
+        borderWidth="1px"
+        rounded="l2"
+        bg="bg.subtle"
+        fontFamily="numeric"
+        textStyle="sm"
+        cursor="text"
+        _focus={{ outline: '2px solid', outlineColor: 'orange.focusRing', outlineOffset: '-1px' }}
+        onKeyDown={(ev) => {
+          if (ev.key === 'Escape' || ev.key === 'Tab') return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const press = pressOf(ev.nativeEvent);
+          if (!press || ev.repeat) return;
+          const shown = layout.current?.get(press.code);
+          if (shown) press.key = shown;
+          else if (!/^[\p{L}\p{N}]$/u.test(press.key) || press.ctrl || press.alt || press.meta)
+            press.key = press.code.replace(/^(Key|Digit)/, '');
+          const now = Date.now();
+          const goesOn = value.length > 0 && value.length < 4 && now - last.current < RECORD_GAP;
+          last.current = now;
+          onChange(goesOn ? [...value, press] : [press]);
+        }}
+      >
+        {value.length ? (
+          formatShortcut(value)
+        ) : (
+          <Text as="span" color="fg.subtle">
+            Click here, then press the keys
+          </Text>
+        )}
+      </Box>
+      <Field.HelperText>
+        For a sequence, press the first keys, release, then the next within a second and a half (Ctrl+Alt+O,
+        Ctrl+Alt+A). While it’s typed, no other shortcut fires.
+      </Field.HelperText>
+    </Field.Root>
   );
 }
 

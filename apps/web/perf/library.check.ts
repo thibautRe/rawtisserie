@@ -191,10 +191,30 @@ async function open(path: string) {
           { value: 'Family', photos: 1, trashed: 0 },
           { value: 'Family|Gwen', photos: 1, trashed: 0 },
         ],
-        own: [{ tag: 'Places|Paris', shortcut: null }],
+        own: [
+          { tag: 'Places|Paris', shortcut: null },
+          { tag: 'People|Nova', shortcut: [press('KeyO', 'o', 'ctrl+alt'), press('KeyN', 'n', 'ctrl+alt')] },
+          { tag: 'beach', shortcut: [press('KeyB', 'b', 'ctrl+alt')] },
+        ],
       });
     if (path === '/api/tags/rename' || path === '/api/tags/delete') return json({ versions: 3 });
-    if (path === '/api/versions/bulk') return json({ versions: [] });
+    if (path === '/api/tags/shortcut') {
+      sent.push({ path, body: route.request().postDataJSON() });
+      return json(route.request().postDataJSON());
+    }
+    if (path === '/api/versions/bulk') {
+      // Tags are kept, as the server would: the library reads them back.
+      const { ids, patch } = route.request().postDataJSON() as {
+        ids: string[];
+        patch: { addTags?: string[]; removeTags?: string[] };
+      };
+      for (const id of ids) {
+        const tags = patched.get(id)?.tags ?? PHOTOS.find((p) => p.id === id)?.tags ?? [];
+        const next = [...tags.filter((t) => !patch.removeTags?.includes(t)), ...(patch.addTags ?? [])];
+        if (patch.addTags || patch.removeTags) patched.set(id, { ...patched.get(id), tags: [...new Set(next)] });
+      }
+      return json({ versions: [] });
+    }
     if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A', isAdmin: false } });
     if (path === '/api/account/storage') return json({ used: 0, quota: null });
     if (path === '/api/versions') {
@@ -206,7 +226,10 @@ async function open(path: string) {
         const limit = Number(url.searchParams.get('limit') ?? 200);
         return json({ versions: all.slice(offset, offset + limit), total: all.length });
       }
-      const versions = PHOTOS.filter((p) => p.filename.includes(q));
+      const versions = PHOTOS.filter((p) => p.filename.includes(q)).map((p) => {
+        const tags = patched.get(p.id)?.tags;
+        return tags ? { ...p, tags } : p;
+      });
       return json({ versions, total: versions.length });
     }
     if (path === '/api/versions/facets')
@@ -340,6 +363,9 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   ]);
   await page.locator('[data-tag="People"]').getByText('People').click();
   await page.waitForURL(/[?&]tag=People(&|$)/);
+  // The list is read again for the filter: the photo picked once it's in.
+  await page.waitForLoadState('networkidle');
+  await cards().first().click();
 
   // The info panel shows the photo's once its details are in.
   await page.locator('#library-tag-input').waitFor();
@@ -777,6 +803,86 @@ async function waitFor(f: () => boolean) {
     await new Promise((r) => setTimeout(r, 50));
   }
 }
+
+/** A key press, as shortcuts store them. */
+function press(code: string, key: string, mods = '') {
+  return {
+    code,
+    key,
+    ctrl: mods.includes('ctrl'),
+    alt: mods.includes('alt'),
+    shift: mods.includes('shift'),
+    meta: false,
+  };
+}
+
+test("a tag's shortcut is recorded in the tag manager, refused if the library has its keys", async () => {
+  await open('/tags');
+  await page
+    .locator('[data-managed-tag="Places|Paris"]')
+    .getByRole('button', { name: /^Change/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Shortcut…' }).click();
+  const recorder = page.locator('[data-shortcut-recorder]');
+  await recorder.click();
+  await page.keyboard.press('p');
+  await page.getByText('P is one of the library’s keys').waitFor();
+  // A pause: a new shortcut. Then a sequence of two, released in between.
+  await page.waitForTimeout(1600);
+  await page.keyboard.press('Control+Alt+KeyO');
+  await page.keyboard.press('Control+Alt+KeyN');
+  // People › Nova has it.
+  await page.getByText('People › Nova has Ctrl+Alt+O, Ctrl+Alt+N').waitFor();
+  await page.waitForTimeout(1600);
+  await page.keyboard.press('Control+Alt+KeyO');
+  await page.keyboard.press('Control+Alt+KeyP');
+  assert.equal(await recorder.innerText(), 'Ctrl+Alt+O, Ctrl+Alt+P');
+  await page.getByText(/Ctrl\+Alt\+O, Ctrl\+Alt\+P will add or remove Places › Paris/).waitFor();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByText('Ctrl+Alt+O, Ctrl+Alt+P toggles Places › Paris').waitFor();
+  assert.deepEqual(sent.at(-1), {
+    path: '/api/tags/shortcut',
+    body: { tag: 'Places|Paris', shortcut: [press('KeyO', 'o', 'ctrl+alt'), press('KeyP', 'p', 'ctrl+alt')] },
+  });
+});
+
+test('tag shortcuts toggle a tag on the selection; keys within a sequence do nothing else', async () => {
+  await open('/');
+  await cards().first().click();
+  await page.locator('#library-tag-input').waitFor();
+  const bulkSent = () => sent.filter((s) => s.path === '/api/versions/bulk').map((s) => s.body);
+  await page.keyboard.press('Control+Alt+KeyO');
+  await page.locator('[data-shortcut-pending]').getByText('Ctrl+Alt+O, …').waitFor();
+  // Not the sequence's next key: it does nothing, not even Ctrl+Alt+B's tag or P's flag.
+  await page.keyboard.press('Control+Alt+KeyB');
+  await page.locator('[data-shortcut-pending]').waitFor({ state: 'detached' });
+  await page.keyboard.press('Control+Alt+KeyO');
+  await page.keyboard.press('p');
+  await page.waitForTimeout(200);
+  assert.deepEqual(bulkSent(), []);
+  await page.keyboard.press('Control+Alt+KeyO');
+  await page.keyboard.press('Control+Alt+KeyN');
+  await page.getByText('Tagged 1 photo People › Nova').waitFor();
+  await page.keyboard.press('Control+Alt+KeyB');
+  await waitFor(() => bulkSent().length === 2);
+  assert.deepEqual(bulkSent(), [
+    { ids: [PHOTOS[0]!.id], patch: { addTags: ['People|Nova'] } },
+    { ids: [PHOTOS[0]!.id], patch: { addTags: ['beach'] } },
+  ]);
+
+  // In the loupe, on the photo shown, which has it now: removed, then added again.
+  await page.keyboard.press(' ');
+  await page.getByText('Auto-advance', { exact: true }).waitFor();
+  await page.keyboard.press('Control+Alt+KeyB');
+  await page.getByText('Removed beach').waitFor();
+  await waitFor(() => bulkSent().length === 3);
+  await page.keyboard.press('Control+Alt+KeyB');
+  await page.getByText(/^Tagged beach$/).waitFor();
+  assert.deepEqual(bulkSent().slice(2), [
+    { ids: [PHOTOS[0]!.id], patch: { removeTags: ['beach'] } },
+    { ids: [PHOTOS[0]!.id], patch: { addTags: ['beach'] } },
+  ]);
+});
 
 /** The uploads started, by what the app said of each file. */
 const started = () =>

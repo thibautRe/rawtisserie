@@ -364,6 +364,11 @@ export function useBulkUpdate() {
     mutationFn: ({ ids, patch }: { ids: string[]; patch: BulkPatch }) =>
       api.post<{ versions: Photo[] }>('/api/versions/bulk', { ids, patch }),
     onMutate: ({ ids, patch }) => {
+      // A list being read again (after the last change) would bring the old values back
+      // over this one: a second toggle would then undo the first again. Cancelled now,
+      // without reverting (that would undo this change too, a moment later), and the
+      // cache changed at once (the loupe reads it as it renders).
+      void qc.cancelQueries({ queryKey: ['photos'] }, { revert: false });
       const { addTags, removeTags, ...simple } = patch;
       updateCachedPhotos(qc, ids, (p) => ({
         ...p,
