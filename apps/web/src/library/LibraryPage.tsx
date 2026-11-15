@@ -115,7 +115,7 @@ export function LibraryPage() {
   const bulk = useBulkUpdate();
   const moveToTrash = useTrashWithUndo();
   const duplicate = useDuplicateVersion();
-  const startImport = useImporter();
+  const { start: startImport, review: importReview } = useImporter();
   const importIds = search.params.getAll('import');
   const batchEdit = useBatchEdit();
 
@@ -317,6 +317,7 @@ export function LibraryPage() {
       }}
       position="relative"
     >
+      {importReview}
       <FilterSidebar search={search} />
 
       <Flex direction="column" flex="1" minW="0">

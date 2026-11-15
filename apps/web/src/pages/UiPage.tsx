@@ -39,6 +39,7 @@ import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import { TransferSummary } from '../components/transfer.tsx';
 import { ImportSummary } from '../library/ImportToast.tsx';
+import { type Review, ReviewBody, sampleReview } from '../library/ImportReview.tsx';
 import { sampleRun } from '../library/imports.ts';
 import type { ColorLabel, Flag, Transfer } from '../api/types.ts';
 
@@ -736,9 +737,18 @@ export function UiPage() {
 
         <Block
           title="Import"
-          guide="The toast shows the import's progress (bytes), then the outcome until it's closed: what to retry, what to upload anyway."
+          guide="Every import is reviewed first (a dialog: what's new, what the library has already, found by name, size and date). Then the toast shows its progress (bytes), and the outcome until it's closed: what to retry, what to upload anyway."
         >
           <Stack gap="6">
+            <HStack gap="4" align="start" wrap="wrap">
+              {IMPORT_REVIEWS.map(([label, review]) => (
+                <Example key={label} label={label} w="80">
+                  <Box p="4" borderWidth="1px" borderRadius="l2" bg="bg.panel" boxShadow="lg">
+                    <ReviewBody review={review} />
+                  </Box>
+                </Example>
+              ))}
+            </HStack>
             <HStack gap="4" align="start" wrap="wrap">
               {IMPORT_TOASTS.map(([label, run]) => (
                 <Example key={label} label={label} w="96">
@@ -823,6 +833,12 @@ const TRANSFER_TOASTS = [
     },
   ],
 ] as [string, Transfer][];
+
+const IMPORT_REVIEWS: [string, Review][] = [
+  ['Review: looking through', { phase: 'scanning', label: 'DCIM' }],
+  ['Review: a card', sampleReview(412, 380, 415)],
+  ['Review: nothing new', sampleReview(24, 24, 0)],
+];
 
 const IMPORT_TOASTS = [
   [

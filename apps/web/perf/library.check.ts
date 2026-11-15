@@ -97,6 +97,8 @@ const IMPORTS = [1, 2, 3, 4].map((n) => ({
   source: null,
 }));
 let knownHashes: Record<string, { status: string; filename: string }> = {};
+/** File names `/api/photos/check` finds by name, size and date. */
+let knownNames = new Set<string>();
 let failUploads = new Set<string>();
 
 let server: PreviewServer;
@@ -125,6 +127,7 @@ async function open(path: string) {
   recipes = {};
   flaky = new Set();
   knownHashes = {};
+  knownNames = new Set();
   failUploads = new Set();
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
@@ -133,8 +136,14 @@ async function open(path: string) {
     const method = route.request().method();
     if (method !== 'GET' && path !== '/api/photos') sent.push({ path, body: route.request().postDataJSON() });
     if (path === '/api/photos/check') {
-      const { hashes } = route.request().postDataJSON() as { hashes: string[] };
-      return json({ files: hashes.filter((h) => knownHashes[h]).map((h) => ({ sha256: h, ...knownHashes[h] })) });
+      const { hashes = [], files = [] } = route.request().postDataJSON() as {
+        hashes?: string[];
+        files?: { name: string }[];
+      };
+      return json({
+        files: hashes.filter((h) => knownHashes[h]).map((h) => ({ sha256: h, ...knownHashes[h] })),
+        named: files.flatMap((f, index) => (knownNames.has(f.name) ? [{ index, status: 'library' }] : [])),
+      });
     }
     if (path === '/api/photos' && method === 'POST') {
       const name = /filename="([^"]+)"/.exec(route.request().postDataBuffer()!.toString('latin1'))?.[1] ?? '';
@@ -463,6 +472,11 @@ test('an import shows its files waiting, then what happened to each, and retries
     { name: 'c.ARW', mimeType: 'application/octet-stream', buffer: raw(3) },
     { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hi') },
   ]);
+  // Reviewed first: nothing known by name, so all three RAW files are new.
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  assert.match(await review.innerText(), /3 RAW files[\s\S]*1 file not RAW[\s\S]*3 new photos/);
+  await review.getByRole('button', { name: 'Import 3 photos' }).click();
   // The library shows this import.
   await page.waitForURL(/[?&]import=[0-9a-f-]{36}/);
   const importId = new URL(page.url()).searchParams.get('import')!;
@@ -504,6 +518,61 @@ test('an import shows its files waiting, then what happened to each, and retries
   // Back to the whole library: picking it again.
   await page.locator(`[data-import="${importId}"]`).click();
   await page.waitForURL((u) => !u.searchParams.has('import'));
+});
+
+test("a card: its folders walked through, what the library has and what isn't RAW left out", async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const card = join(await mkdtemp(join(tmpdir(), 'card-')), 'DCIM');
+  const dir = join(card, '100MSDCF');
+  await mkdir(dir, { recursive: true });
+  for (const [name, n] of [
+    ['DSC00001.ARW', 1],
+    ['DSC00002.ARW', 2],
+    ['DSC00002.JPG', 3],
+    ['._DSC00001.ARW', 4],
+  ] as const)
+    await writeFile(join(dir, name), Buffer.alloc(1024, n));
+  knownNames = new Set(['DSC00002.ARW']);
+  await page.locator('input[type=file][webkitdirectory]').setInputFiles(card);
+
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  const text = await review.innerText();
+  assert.match(text, /Import from DCIM/);
+  assert.match(text, /2 RAW files/);
+  assert.match(text, /1 already in your library/);
+  assert.match(text, /2 other files left out/);
+  await review.getByRole('button', { name: 'Import 1 photo' }).click();
+  const done = page.locator('[data-import-state=done]');
+  await done.waitFor({ timeout: 20_000 });
+  assert.match(await done.innerText(), /1 file already in your library/);
+  // Only the new one was sent, with its date.
+  const uploads = sent.filter((s) => s.path === '/api/photos').map((s) => s.body as { file: string; query: string });
+  assert.deepEqual(
+    uploads.map((u) => u.file),
+    ['DSC00001.ARW'],
+  );
+  assert.match(uploads[0]!.query, /modified=\d+/);
+  await done.getByRole('button', { name: 'Close' }).click();
+});
+
+test('nothing new on a card: the review says so', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  knownNames = new Set(['a.ARW']);
+  await page
+    .locator('input[type=file]:not([webkitdirectory])')
+    .setInputFiles([{ name: 'a.ARW', mimeType: 'application/octet-stream', buffer: Buffer.alloc(16) }]);
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  assert.match(await review.innerText(), /Nothing new to import/);
+  await review.getByRole('button', { name: 'Close' }).first().click();
+  await review.waitFor({ state: 'detached' });
+  assert.equal(sent.filter((s) => s.path === '/api/photos').length, 0);
 });
 
 /** Whether leaving the page now would ask first. */

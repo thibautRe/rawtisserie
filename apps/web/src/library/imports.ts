@@ -12,7 +12,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Photo, StorageUsage } from '../api/types.ts';
 import { formatBytes } from '../lib/format.ts';
-import type { Picked } from './pickedFiles.ts';
+import type { Picked, PickedFile } from './pickedFiles.ts';
 
 export type ImportStatus = 'waiting' | 'uploading' | 'imported' | 'skipped' | 'failed';
 /** Why a file wasn't imported (the server's `SkipKind`). */
@@ -110,9 +110,10 @@ export interface ImportDeps {
 
 /**
  * Import what was picked: added to the run still going, if any (same id), else a new
- * run. Returns the run's id.
+ * run. Returns the run's id. `known` (from `findKnown`) are listed as already in the
+ * library, without being hashed or sent.
  */
-export function startImport(picked: Picked, deps: ImportDeps): string {
+export function startImport(picked: Picked, deps: ImportDeps, known: ReadonlySet<PickedFile> = new Set()): string {
   const refused = picked.refused.map((f): ImportItem => ({
     key: crypto.randomUUID(),
     name: f.file.name,
@@ -126,8 +127,10 @@ export function startImport(picked: Picked, deps: ImportDeps): string {
   }));
   const items = picked.files.map((f): ImportItem => {
     const key = crypto.randomUUID();
+    const item = { key, name: f.file.name, path: f.path, size: f.file.size, sent: 0 };
+    if (known.has(f)) return { ...item, status: 'skipped', kind: 'duplicate', reason: 'Already in your library' };
     files.set(key, f.file);
-    return { key, name: f.file.name, path: f.path, size: f.file.size, status: 'waiting', sent: 0 };
+    return { ...item, status: 'waiting' };
   });
   const all = [...items, ...refused];
   const active = runs.findLast((r) => !r.done);
@@ -318,6 +321,33 @@ async function checkHashes(hashes: string[]): Promise<Map<string, KnownStatus>> 
   return new Map(files.map((f) => [f.sha256, f]));
 }
 
+/** Most files asked about at once by name. */
+const NAMED_BATCH = 5000;
+
+/**
+ * The files the library has already, found by name, size and modification time (no
+ * hashing: see `/api/photos/check`). Those only in the trash aren't: importing them
+ * brings them back. If the server can't be asked, none are (hashing still finds them).
+ */
+export async function findKnown(list: readonly PickedFile[]): Promise<Set<PickedFile>> {
+  const known = new Set<PickedFile>();
+  for (let at = 0; at < list.length; at += NAMED_BATCH) {
+    const batch = list.slice(at, at + NAMED_BATCH);
+    const res = await fetch('/api/photos/check', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        files: batch.map((f) => ({ name: f.file.name, size: f.file.size, modified: f.file.lastModified })),
+      }),
+    }).catch(() => null);
+    if (!res?.ok) return known;
+    const { named } = (await res.json()) as { named: { index: number; status: 'library' | 'trash' }[] };
+    for (const n of named) if (n.status === 'library') known.add(batch[n.index]!);
+  }
+  return known;
+}
+
 interface UploadResult {
   created: Photo[];
   skipped: { filename: string; kind: SkipKind; reason: string }[];
@@ -339,7 +369,8 @@ function upload(file: File, runId: string, allowDeleted: boolean, onProgress: (s
     };
     xhr.onerror = () => reject(new Error('Upload failed: the connection was lost'));
     const form = new FormData();
-    form.append('files', file);
+    // The name alone: from a folder, Chrome would send its path in it.
+    form.append('files', file, file.name);
     xhr.send(form);
   });
 }
