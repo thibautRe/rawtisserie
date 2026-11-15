@@ -13,6 +13,7 @@ import { isolationReports } from './isolation.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
 import { trashRoutes } from './photos/trash.ts';
+import { uploadRoutes } from './photos/uploads.ts';
 import { receiveRoutes } from './transfer/receive.ts';
 import { TransferRunner, sendRoutes } from './transfer/send.ts';
 import { tokenRoutes } from './transfer/tokens.ts';
@@ -58,6 +59,7 @@ export async function buildApp() {
   await app.register(authRoutes);
   await app.register(photoRoutes, { renderQueue, zoom });
   await app.register(trashRoutes);
+  await app.register(uploadRoutes, { renderQueue });
   const transfers = new TransferRunner(app.log);
   await app.register(tokenRoutes);
   await app.register(receiveRoutes, { renderQueue });

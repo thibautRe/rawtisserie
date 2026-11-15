@@ -34,6 +34,8 @@ export interface ImportItem {
   versionId?: string;
   /** Imported although it was deleted for good before ("Upload anyway"). */
   allowDeleted?: boolean;
+  /** The upload on the server (`/api/uploads`): a retry resumes it where it stopped. */
+  uploadId?: string;
 }
 
 export interface ImportRun {
@@ -259,9 +261,13 @@ async function process(runId: string, deps: ImportDeps) {
 
       updateItem(runId, item.key, { status: 'uploading', sent: 0 });
       try {
-        const result = await upload(files.get(item.key)!, runId, !!item.allowDeleted, (sent) =>
-          updateItem(runId, item.key, { sent }),
-        );
+        const result = await upload(files.get(item.key)!, {
+          importId: runId,
+          allowDeleted: !!item.allowDeleted,
+          uploadId: item.uploadId,
+          onStart: (uploadId) => updateItem(runId, item.key, { uploadId }),
+          onProgress: (sent) => updateItem(runId, item.key, { sent }),
+        });
         const created = result.created[0];
         const skipped = result.skipped[0];
         if (created) {
@@ -353,26 +359,113 @@ interface UploadResult {
   skipped: { filename: string; kind: SkipKind; reason: string }[];
 }
 
-/** One file to `POST /api/photos`, reporting the bytes sent (XHR: fetch can't). */
-function upload(file: File, runId: string, allowDeleted: boolean, onProgress: (sent: number) => void) {
-  return new Promise<UploadResult>((resolve, reject) => {
+/** Bytes sent at a time: a lost connection costs at most this much again. */
+const CHUNK = 8 * 1024 * 1024;
+/** Tries of a chunk before the file fails (waiting 1, 2, 4… s in between). */
+const CHUNK_TRIES = 5;
+
+class UploadError extends Error {
+  status: number;
+  /** What the server has, when it says (409). */
+  offset: number | undefined;
+  constructor(status: number, message: string, offset?: number) {
+    super(message);
+    this.status = status;
+    this.offset = offset;
+  }
+}
+
+async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    credentials: 'same-origin',
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => null)) as (T & { error?: string; offset?: number }) | null;
+  if (!res.ok) throw new UploadError(res.status, json?.error ?? `Upload failed (${res.status})`, json?.offset);
+  return json as T;
+}
+
+/** One chunk at `offset`, reporting the bytes sent (XHR: fetch can't). Resolves with the new offset. */
+function putChunk(id: string, offset: number, chunk: Blob, onProgress: (sent: number) => void) {
+  return new Promise<number>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    // Its date, with its name and size, finds it again without hashing (`/api/photos/check`).
-    const params = new URLSearchParams({ import: runId, modified: String(file.lastModified) });
-    if (allowDeleted) params.set('allowDeleted', 'true');
-    xhr.open('POST', `/api/photos?${params}`);
+    xhr.open('PUT', `/api/uploads/${id}`);
     xhr.responseType = 'json';
+    xhr.setRequestHeader('content-type', 'application/octet-stream');
+    xhr.setRequestHeader('upload-offset', String(offset));
     xhr.upload.onprogress = (e) => onProgress(e.loaded);
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as UploadResult);
-      else reject(new Error((xhr.response as { error?: string } | null)?.error ?? `Upload failed (${xhr.status})`));
+      const body = xhr.response as { offset?: number; error?: string } | null;
+      if (xhr.status >= 200 && xhr.status < 300 && typeof body?.offset === 'number') resolve(body.offset);
+      else reject(new UploadError(xhr.status, body?.error ?? `Upload failed (${xhr.status})`, body?.offset));
     };
-    xhr.onerror = () => reject(new Error('Upload failed: the connection was lost'));
-    const form = new FormData();
-    // The name alone: from a folder, Chrome would send its path in it.
-    form.append('files', file, file.name);
-    xhr.send(form);
+    xhr.onerror = () => reject(new UploadError(0, 'Upload failed: the connection was lost'));
+    xhr.send(chunk);
   });
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+interface UploadOptions {
+  importId: string;
+  allowDeleted: boolean;
+  /** An upload started before, to resume. */
+  uploadId?: string;
+  onStart: (uploadId: string) => void;
+  onProgress: (sent: number) => void;
+}
+
+/**
+ * One file through `/api/uploads`, in chunks: a chunk that fails is tried again from
+ * what the server has, and an upload started before (`uploadId`) resumes where it
+ * stopped. Answers like `POST /api/photos`.
+ */
+async function upload(file: File, o: UploadOptions): Promise<UploadResult> {
+  let id = o.uploadId;
+  let offset = 0;
+  if (id) {
+    const state = await call<{ offset: number }>('GET', `/api/uploads/${id}`).catch(() => null);
+    if (state) offset = state.offset;
+    else id = undefined;
+  }
+  if (!id) {
+    const started = await call<{ id?: string; skipped?: UploadResult['skipped'][number] }>('POST', '/api/uploads', {
+      // The name alone: from a folder, Chrome gives its path too.
+      name: file.name,
+      size: file.size,
+      // With its name and size, finds it again without hashing (`/api/photos/check`).
+      modified: file.lastModified,
+      import: o.importId,
+      allowDeleted: o.allowDeleted,
+    });
+    if (started.skipped) return { created: [], skipped: [started.skipped] };
+    id = started.id!;
+    o.onStart(id);
+  }
+  o.onProgress(offset);
+  let failures = 0;
+  while (offset < file.size) {
+    const from = offset;
+    try {
+      offset = await putChunk(id, from, file.slice(from, from + CHUNK), (n) => o.onProgress(from + n));
+      failures = 0;
+    } catch (err) {
+      if (!(err instanceof UploadError) || err.status === 404 || err.status === 413) throw err;
+      // Not where the server is (a chunk that arrived though its answer was lost).
+      if (err.status === 409 && err.offset !== undefined) {
+        offset = err.offset;
+        continue;
+      }
+      if (++failures >= CHUNK_TRIES) throw err;
+      await wait(1000 * 2 ** (failures - 1));
+      // What arrived of the failed chunk is kept.
+      offset = (await call<{ offset: number }>('GET', `/api/uploads/${id}`).catch(() => ({ offset: from }))).offset;
+    }
+    o.onProgress(offset);
+  }
+  return call<UploadResult>('POST', `/api/uploads/${id}/complete`);
 }
 
 /** For tests and the UI page: a run as it would be, without sending anything. */

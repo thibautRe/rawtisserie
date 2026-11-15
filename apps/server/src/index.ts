@@ -5,6 +5,7 @@ import { db } from './db.ts';
 import { collectLuts } from './luts/storage.ts';
 import { migrate } from './migrate.ts';
 import { startTrashPurge } from './photos/trash.ts';
+import { startUploadSweep } from './photos/uploads.ts';
 
 if (config.migrateOnStart) await migrate(db);
 
@@ -14,6 +15,7 @@ await renderQueue.enqueuePending();
 await deleteExpiredSessions();
 await collectLuts(db);
 startTrashPurge(app.log);
+startUploadSweep(app.log);
 // Transfers to other instances that were running when the server stopped.
 transfers.kick();
 

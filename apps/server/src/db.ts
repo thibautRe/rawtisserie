@@ -19,4 +19,5 @@ export const {
   history_entries: historyEntries,
   presets,
   export_presets: exportPresets,
+  uploads,
 } = tables<DatabaseSchema>({ databaseSchema });

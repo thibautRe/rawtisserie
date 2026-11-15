@@ -62,6 +62,10 @@ See README.md for the architecture overview and commands.
   versions get the import's id (`import_id`, the library's `?import=` filter), and an
   original deleted for good leaves only its hash in `deleted_originals`, so it's skipped
   unless uploaded with `allowDeleted`. The upload route checks all of it again.
+  Every import is reviewed first (`ImportReview`): `findKnown` asks by name, size and
+  modification time (`photos.file_modified_at`), without hashing. The app uploads in
+  chunks (`photos/uploads.ts`: `/api/uploads`, resumable, taken in by `ingestReceived`
+  like `POST /api/photos`, which stays for single requests).
 - Sending to another instance (`apps/server/src/transfer/`): the sender's server posts
   `SentVersion`s (`protocol.ts`) to the receiver's `/api/transfer/…`, authorised by an
   access token that can only add. Anything new a version carries (a column, a photo

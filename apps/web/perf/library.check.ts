@@ -100,6 +100,11 @@ let knownHashes: Record<string, { status: string; filename: string }> = {};
 /** File names `/api/photos/check` finds by name, size and date. */
 let knownNames = new Set<string>();
 let failUploads = new Set<string>();
+/** Chunks (by their number, from 0) whose connection is cut, once. */
+let cutChunks = new Set<number>();
+let chunks = 0;
+/** Uploads started (`/api/uploads`), by id: what's been received. */
+let received = new Map<string, { name: string; size: number; offset: number }>();
 
 let server: PreviewServer;
 let browser: Browser;
@@ -129,12 +134,16 @@ async function open(path: string) {
   knownHashes = {};
   knownNames = new Set();
   failUploads = new Set();
+  received = new Map();
+  cutChunks = new Set();
+  chunks = 0;
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const json = (body: unknown) => route.fulfill({ json: body });
     const method = route.request().method();
-    if (method !== 'GET' && path !== '/api/photos') sent.push({ path, body: route.request().postDataJSON() });
+    // Chunks are bytes: recorded by their upload below.
+    if (method !== 'GET' && method !== 'PUT') sent.push({ path, body: route.request().postDataJSON() });
     if (path === '/api/photos/check') {
       const { hashes = [], files = [] } = route.request().postDataJSON() as {
         hashes?: string[];
@@ -145,14 +154,26 @@ async function open(path: string) {
         named: files.flatMap((f, index) => (knownNames.has(f.name) ? [{ index, status: 'library' }] : [])),
       });
     }
-    if (path === '/api/photos' && method === 'POST') {
-      const name = /filename="([^"]+)"/.exec(route.request().postDataBuffer()!.toString('latin1'))?.[1] ?? '';
-      sent.push({ path, body: { file: name, query: url.search } });
+    if (path === '/api/uploads' && method === 'POST') {
+      const { name, size } = route.request().postDataJSON() as { name: string; size: number };
+      const id = `up-${received.size}`;
+      received.set(id, { name, size, offset: 0 });
+      return json({ id, offset: 0 });
+    }
+    const upload = /^\/api\/uploads\/([^/]+)(\/complete)?$/.exec(path);
+    if (upload) {
+      const u = received.get(upload[1]!)!;
+      if (method === 'PUT') {
+        if (cutChunks.delete(chunks++)) return route.abort('connectionreset');
+        u.offset += route.request().postDataBuffer()!.length;
+        return json({ offset: u.offset });
+      }
+      if (method === 'GET') return json({ offset: u.offset, size: u.size });
       // Slow enough to see the files waiting.
       return new Promise<void>((resolve) =>
         setTimeout(() => {
-          if (failUploads.delete(name)) resolve(route.fulfill({ status: 500, json: { error: 'disk full' } }));
-          else resolve(json({ created: [{ ...PHOTOS[0], id: `new-${name}` }], skipped: [] }));
+          if (failUploads.delete(u.name)) resolve(route.fulfill({ status: 500, json: { error: 'disk full' } }));
+          else resolve(json({ created: [{ ...PHOTOS[0], id: `new-${u.name}` }], skipped: [] }));
         }, 400),
       );
     }
@@ -494,12 +515,17 @@ test('an import shows its files waiting, then what happened to each, and retries
   assert.match(text, /1 file not imported \(not RAW files\)/);
   // Only the new files were sent, as part of this import; the duplicate wasn't.
   const uploads = () =>
-    sent.filter((s) => s.path === '/api/photos').map((s) => s.body as { file: string; query: string });
+    sent
+      .filter((s) => s.path.endsWith('/complete'))
+      .map((s) => ({
+        file: received.get(s.path.split('/')[3]!)!.name,
+        ...started().find((u) => u.name === received.get(s.path.split('/')[3]!)!.name)!,
+      }));
   assert.deepEqual(
     uploads().map((u) => u.file),
     ['a.ARW', 'c.ARW'],
   );
-  assert.ok(uploads().every((u) => u.query.includes(`import=${importId}`)));
+  assert.ok(uploads().every((u) => u.import === importId));
 
   // It stays until closed; Retry sends the failed one again.
   await page.waitForTimeout(600);
@@ -551,12 +577,12 @@ test("a card: its folders walked through, what the library has and what isn't RA
   await done.waitFor({ timeout: 20_000 });
   assert.match(await done.innerText(), /1 file already in your library/);
   // Only the new one was sent, with its date.
-  const uploads = sent.filter((s) => s.path === '/api/photos').map((s) => s.body as { file: string; query: string });
+  const sentFiles = started();
   assert.deepEqual(
-    uploads.map((u) => u.file),
+    sentFiles.map((u) => u.name),
     ['DSC00001.ARW'],
   );
-  assert.match(uploads[0]!.query, /modified=\d+/);
+  assert.equal(typeof sentFiles[0]!.modified, 'number');
   await done.getByRole('button', { name: 'Close' }).click();
 });
 
@@ -572,8 +598,38 @@ test('nothing new on a card: the review says so', async () => {
   assert.match(await review.innerText(), /Nothing new to import/);
   await review.getByRole('button', { name: 'Close' }).first().click();
   await review.waitFor({ state: 'detached' });
-  assert.equal(sent.filter((s) => s.path === '/api/photos').length, 0);
+  assert.equal(started().length, 0);
 });
+
+test('a large file goes in chunks, and a lost connection costs one chunk', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  cutChunks = new Set([1]);
+  await page
+    .locator('input[type=file]:not([webkitdirectory])')
+    .setInputFiles([
+      { name: 'big.ARW', mimeType: 'application/octet-stream', buffer: Buffer.alloc(20 * 1024 * 1024, 7) },
+    ]);
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  await review.getByRole('button', { name: 'Import 1 photo' }).click();
+  const done = page.locator('[data-import-state=done]');
+  await done.waitFor({ timeout: 30_000 });
+  assert.match(await done.innerText(), /Imported 1 photo/);
+  // Three chunks of 8, 8 and 4 MiB, the second sent again; all of it received once.
+  assert.equal(chunks, 4);
+  assert.deepEqual(
+    [...received.values()].map((u) => u.offset),
+    [20 * 1024 * 1024],
+  );
+  assert.equal(started().length, 1);
+});
+
+/** The uploads started, by what the app said of each file. */
+const started = () =>
+  sent
+    .filter((s) => s.path === '/api/uploads')
+    .map((s) => s.body as { name: string; import: string; modified: number });
 
 /** Whether leaving the page now would ask first. */
 const leavingAsks = () =>

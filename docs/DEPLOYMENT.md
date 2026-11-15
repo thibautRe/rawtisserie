@@ -85,7 +85,11 @@ files under `STORAGE_DIR` by default, or an S3-compatible bucket when `S3_BUCKET
 (`S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and
 `S3_PATH_STYLE=true` for servers that need it). `STORAGE_DIR` then only holds uploads in
 progress (written there while being hashed, so a duplicate never reaches the bucket)
-and the web app's built files (`web-assets/`, see [Caching](#on-a-vps-deploy)).
+and the web app's built files (`web-assets/`, see [Caching](#on-a-vps-deploy)). The
+app's imports send files in 8 MiB chunks (`/api/uploads`, rows in `uploads`), appended
+to `tmp/uploads/<id>` until complete, so an interrupted upload resumes; the server
+deletes those untouched for a day, at start and every hour. Keep `tmp/` on the volume:
+uploads resume across a restart.
 
 - **Served through the server**, not by redirecting to presigned URLs: everything stays
   on one origin, which cross-origin isolation (roadmap P.5) needs, and browsers cache
@@ -221,8 +225,8 @@ used to be `max-age=0`, fetched by every worker) left Firefox with corrupted cac
 entries (`NS_ERROR_FILE_CORRUPTED`) behind Caddy's zstd compression.
 
 **Proxy:** `deploy/Caddyfile`. Caddy sets `X-Forwarded-*`, which the server reads, and
-has no request body limit: the server enforces its own (400 MB per upload). A proxy
-with a default limit (nginx: 1 MB) would break uploads.
+has no request body limit: the server enforces its own (400 MB per file, 16 MiB per
+chunk). A proxy with a default limit (nginx: 1 MB) would break uploads.
 
 **Backups** (`deploy/backup/`, the `backup` service: Postgres's image with rclone): once
 a day from `BACKUP_HOUR` (UTC), `pg_dump --format=custom` to

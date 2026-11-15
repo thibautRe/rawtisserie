@@ -10,7 +10,14 @@ import type { Readable } from 'node:stream';
 import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { db, photos, sql, versions } from '../db.ts';
 import type Versions from '../__generated__/versions.ts';
-import { RAW_EXTENSIONS, commitUpload, deleteOriginal, discardUpload, receiveUpload } from './storage.ts';
+import {
+  RAW_EXTENSIONS,
+  type StoredUpload,
+  commitUpload,
+  deleteOriginal,
+  discardUpload,
+  receiveUpload,
+} from './storage.ts';
 
 /** Why a file wasn't taken in (the web app groups them by this). */
 export type SkipKind = 'unsupported' | 'tooLarge' | 'duplicate' | 'deleted' | 'quota';
@@ -36,10 +43,9 @@ export async function ingestFile(
   userId: string,
   filename: string,
   file: Readable & { truncated?: boolean },
-  { allowDeleted, version = {}, modifiedAt = null }: IngestOptions,
+  options: IngestOptions,
 ): Promise<Ingested> {
-  const ext = path.extname(filename).toLowerCase();
-  if (!RAW_EXTENSIONS.has(ext)) {
+  if (!isRawName(filename)) {
     file.resume();
     return { status: 'skipped', kind: 'unsupported', reason: 'Not a supported RAW file' };
   }
@@ -48,6 +54,16 @@ export async function ingestFile(
     await discardUpload(upload);
     return { status: 'skipped', kind: 'tooLarge', reason: 'File too large' };
   }
+  return ingestReceived(userId, filename, upload, options);
+}
+
+/** Take in a file received already (`upload`, removed from local disk either way). */
+export async function ingestReceived(
+  userId: string,
+  filename: string,
+  upload: StoredUpload,
+  { allowDeleted, version = {}, modifiedAt = null }: IngestOptions,
+): Promise<Ingested> {
   const existing = await photos(db).findOne({ owner_id: userId, sha256: upload.sha256 });
   if (existing) {
     await discardUpload(upload);
@@ -73,7 +89,7 @@ export async function ingestFile(
     return { status: 'skipped', kind: 'quota', reason: quotaExceeded(before) };
   }
   const id = randomUUID();
-  const storageKey = `${userId}/${id}${ext}`;
+  const storageKey = `${userId}/${id}${path.extname(filename).toLowerCase()}`;
   await commitUpload(upload, storageKey);
   const inserted = await db.tx(async (tx) => {
     // …and again under the user's row lock, so concurrent uploads can't all take the
@@ -99,4 +115,25 @@ export async function ingestFile(
     return { status: 'skipped', kind: 'quota', reason: quotaExceeded(inserted.usage) };
   }
   return { status: 'created', photoId: id, versionId: inserted.versionId };
+}
+
+export const isRawName = (filename: string) => RAW_EXTENSIONS.has(path.extname(filename).toLowerCase());
+
+/**
+ * What an upload brought: the version created (a new one on the photo, for a file only
+ * in the trash), or why there's none. `importId` marks the version.
+ */
+export async function versionFor(
+  result: Ingested,
+  filename: string,
+  importId: string | null,
+): Promise<{ versionId: string } | { skipped: { filename: string; kind: SkipKind; reason: string } }> {
+  if (result.status === 'skipped') return { skipped: { filename, kind: result.kind, reason: result.reason } };
+  if (result.status === 'created') return { versionId: result.versionId };
+  if (result.inLibrary)
+    return { skipped: { filename, kind: 'duplicate', reason: `Already in your library as ${result.filename}` } };
+  // Only in the trash: the file is stored already, so it comes back as a new version
+  // (the trashed ones stay there, to restore or not).
+  const [version] = await versions(db).insert({ photo_id: result.photoId, import_id: importId });
+  return { versionId: version!.id };
 }

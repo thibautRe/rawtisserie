@@ -21,7 +21,7 @@ import { ZoomError, type ZoomRenderer } from '../render/zoom.ts';
 import { ZOOM_TILE } from '../render/zoomTypes.ts';
 import { storage } from '../storage/index.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
-import { type SkipKind, ingestFile } from './ingest.ts';
+import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
 import { RENDER_SIZES, originalKey, renderKey, type RenderSize } from './storage.ts';
 
@@ -612,23 +612,13 @@ export async function photoRoutes(
         version: { import_id: importId },
         modifiedAt: query.modified === undefined ? null : new Date(query.modified),
       });
-      if (result.status === 'skipped') {
-        skipped.push({ filename, kind: result.kind, reason: result.reason });
+      const taken = await versionFor(result, filename, importId);
+      if ('skipped' in taken) {
+        skipped.push(taken.skipped);
         continue;
       }
-      let versionId: string;
-      if (result.status === 'existing') {
-        if (result.inLibrary) {
-          skipped.push({ filename, kind: 'duplicate', reason: `Already in your library as ${result.filename}` });
-          continue;
-        }
-        // Only in the trash: the file is stored already, so it comes back as a new version
-        // (the trashed ones stay there, to restore or not).
-        const [version] = await versions(db).insert({ photo_id: result.photoId, import_id: importId });
-        versionId = version!.id;
-      } else versionId = result.versionId;
-      created.push(versionDto(await findVersion(user.id, versionId)));
-      renderQueue.enqueue(versionId);
+      created.push(versionDto(await findVersion(user.id, taken.versionId)));
+      renderQueue.enqueue(taken.versionId);
     }
     return reply.code(created.length ? 201 : 200).send({ created, skipped });
   });
