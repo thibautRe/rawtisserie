@@ -19,6 +19,7 @@ import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
 import { type TagNode, isUnder, tagTree } from '../lib/tags.ts';
+import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
@@ -447,7 +448,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
         title="Tags"
         actions={
           <Button asChild size="2xs" variant="ghost" color="fg.muted">
-            <Link to="/tags">Manage</Link>
+            <Link to={TAG_MANAGER_PATH}>Manage</Link>
           </Button>
         }
       >

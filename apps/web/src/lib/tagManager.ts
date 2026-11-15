@@ -1,7 +1,10 @@
 /** The tag manager's view of the tags (`pages/TagsPage.tsx`), and what its changes will do, in words. */
-import type { TagManagerData } from '../api/hooks.ts';
-import type { Shortcut } from './keys.ts';
-import { type TagNode, displayTag, tagName, tagParent, tagTree } from './tags.ts';
+import type { TagChange, TagManagerData } from '../api/hooks.ts';
+import { type Shortcut, formatShortcut, samePress, shortcutConflict } from './keys.ts';
+import { SEPARATOR, type TagNode, displayTag, isUnder, normalizeTag, tagName, tagParent, tagTree } from './tags.ts';
+
+/** Where the tag manager is (a tab of the settings). */
+export const TAG_MANAGER_PATH = '/settings/tags';
 
 /** What the manager knows of a tag, besides the tree. */
 export interface TagInfo {
@@ -77,4 +80,68 @@ export function describeDelete(tag: string, info: ReadonlyMap<string, TagInfo>) 
   if (i.shortcut) parts.push('Its shortcut goes with it.');
   parts.push('The photos stay; this can’t be undone.');
   return parts.join(' ');
+}
+
+/** What the tag editor has: a new tag (`tag` null) or an existing one, as edited. */
+export interface TagEdit {
+  /** The tag edited, or null for a new one. */
+  tag: string | null;
+  /** Where it goes: a tag, or '' for the top level. */
+  parent: string;
+  name: string;
+  shortcut: Shortcut | null;
+}
+
+const sameShortcut = (a: Shortcut | null, b: Shortcut | null) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((k, i) => samePress(k, b[i]!)));
+
+/**
+ * What saving `edit` will do: why it can't (`problem`; '' when there's just nothing to
+ * save yet), in words (`effects`), its button (`action`), and the changes to make, in
+ * order (a rename first, then the shortcut on the tag's new path).
+ */
+export function planEdit(edit: TagEdit, info: ReadonlyMap<string, TagInfo>) {
+  const name = edit.name.trim();
+  const current = edit.tag === null ? undefined : info.get(edit.tag);
+  const plan = (problem: string | null, effects: string[], changes: TagChange[], action: string) => ({
+    problem,
+    effects,
+    changes,
+    action,
+  });
+  const action = edit.tag === null ? 'Create' : 'Save';
+  if (!name) return plan('', [], [], action);
+  if (name.includes(SEPARATOR))
+    return plan(`A name can’t contain ${SEPARATOR}: choose where the tag goes with Parent.`, [], [], action);
+  const path = normalizeTag(edit.parent ? `${edit.parent}${SEPARATOR}${name}` : name);
+  const effects: string[] = [];
+  const changes: TagChange[] = [];
+  let button = action;
+
+  if (edit.tag === null) {
+    if (info.has(path)) return plan(`${displayTag(path)} exists already.`, [], [], action);
+    effects.push(`Creates ${displayTag(path)}. No photo has it yet: it’s suggested when tagging.`);
+    changes.push({ type: 'create', tag: path });
+  } else if (path !== edit.tag) {
+    if (isUnder(path, edit.tag)) return plan('A tag can’t go inside itself.', [], [], action);
+    effects.push(describeRename(edit.tag, path, info).text);
+    changes.push({ type: 'rename', from: edit.tag, to: path });
+    if (info.has(path)) button = 'Merge';
+  }
+
+  if (!sameShortcut(edit.shortcut, current?.shortcut ?? null)) {
+    if (edit.shortcut) {
+      const others = [...info].flatMap(([tag, i]) =>
+        tag !== edit.tag && tag !== path ? [{ tag, shortcut: i.shortcut }] : [],
+      );
+      const conflict = shortcutConflict(edit.shortcut, others, displayTag);
+      if (conflict) return plan(conflict, effects, [], button);
+      effects.push(
+        `${formatShortcut(edit.shortcut)} will add or remove ${displayTag(path)}: on the selected photos in the library, on the photo shown when culling.`,
+      );
+    } else effects.push('Its shortcut is removed.');
+    changes.push({ type: 'shortcut', tag: path, shortcut: edit.shortcut });
+  }
+  // An existing tag as it was: nothing to save.
+  return plan(changes.length ? null : '', effects, changes, button);
 }

@@ -21,7 +21,7 @@ import {
 } from '@chakra-ui/react';
 import { Copy, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router';
+import { Link, Outlet } from 'react-router';
 import {
   type NewInvitation,
   useAdminStats,
@@ -33,7 +33,7 @@ import {
   useUpdateAdminUser,
 } from '../api/hooks.ts';
 import type { AdminUser, Invitation, InvitationStatus } from '../api/types.ts';
-import { AppMenu } from '../components/AppMenu.tsx';
+import { TabbedPage } from '../components/PageLayout.tsx';
 import { StorageMeter } from '../components/StorageMeter.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { GB, formatBytes, formatDuration } from '../lib/format.ts';
@@ -67,45 +67,9 @@ export function AdminLayout() {
   const { data: me } = useMe();
   if (!me?.isAdmin) return <NotFoundPage />;
   return (
-    <Flex direction="column" h="full">
-      <HStack px="3" gap="4" borderBottomWidth="1px">
-        <HStack gap="2" py="2">
-          <AppMenu />
-          <Heading size="sm">Admin</Heading>
-        </HStack>
-        {/* Pages, not panels: a nav of links (styled like line tabs), the current one marked. */}
-        <HStack as="nav" aria-label="Admin pages" gap="0" alignSelf="stretch">
-          {TABS.map((t) => (
-            <Box
-              key={t.value}
-              asChild
-              display="flex"
-              alignItems="center"
-              h="full"
-              px="3"
-              textStyle="sm"
-              fontWeight="medium"
-              color="fg.muted"
-              borderBottomWidth="2px"
-              borderColor="transparent"
-              mb="-1px"
-              _hover={{ color: 'fg' }}
-              _currentPage={{ color: 'fg', borderColor: 'fg' }}
-              focusRing="inside"
-            >
-              <NavLink to={adminPath(t.value)} end>
-                {t.label}
-              </NavLink>
-            </Box>
-          ))}
-        </HStack>
-      </HStack>
-      <Box flex="1" overflowY="auto">
-        <Box p="6" maxW="6xl" mx="auto">
-          <Outlet />
-        </Box>
-      </Box>
-    </Flex>
+    <TabbedPage title="Admin" label="Admin pages" tabs={TABS.map((t) => ({ label: t.label, to: adminPath(t.value) }))}>
+      <Outlet />
+    </TabbedPage>
   );
 }
 

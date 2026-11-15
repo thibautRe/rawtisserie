@@ -378,8 +378,10 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   assert.deepEqual(sent.at(-1)?.body, { tags: ['Family|Alice'] });
 });
 
-test('the tag manager renames, moves, merges and deletes, saying first what will happen', async () => {
+test('the tag manager (Settings › Tags) edits, merges, creates and deletes, saying first what will happen', async () => {
+  // Its old address leads there.
   await open('/tags');
+  await page.waitForURL(/\/settings\/tags$/);
   const row = (tag: string) => page.locator(`[data-managed-tag="${tag}"]`);
   await row('People|Alice').waitFor();
   const act = async (tag: string, item: string) => {
@@ -389,24 +391,45 @@ test('the tag manager renames, moves, merges and deletes, saying first what will
     await page.getByRole('menuitem', { name: item }).click();
   };
   const effect = page.locator('[data-tag-effect]');
+  const editor = page.locator('[data-tag-editor]');
+  const button = (name: string) => editor.getByRole('button', { name, exact: true });
 
-  await act('People|Alice', 'Rename…');
+  await act('People|Alice', 'Edit…');
+  // Its button says what it does, even before anything changed.
+  assert.equal(await button('Save').isDisabled(), true);
+  // `|` doesn't move it: Parent does.
+  await page.locator('[data-tag-name]').fill('Family|Alice');
+  await page.getByText('A name can’t contain |: choose where the tag goes with Parent.').waitFor();
   await page.locator('[data-tag-name]').fill('Alicia');
   assert.equal(
     await effect.innerText(),
     'People › Alice becomes People › Alicia on 2 photos (and 1 version in the trash).',
   );
-  await page.getByRole('button', { name: 'Rename', exact: true }).click();
-  await page.getByText('Renamed to People › Alicia on 3 photos').waitFor();
+  await button('Save').click();
+  await page.getByText('Saved People › Alicia: 3 photos changed').waitFor();
   assert.deepEqual(sent.at(-1), { path: '/api/tags/rename', body: { from: 'People|Alice', to: 'People|Alicia' } });
 
-  // Moved onto a tag that exists: a merge, said so.
-  await act('People|Alice', 'Move…');
-  await page.getByLabel('Move under').selectOption('Family');
+  // Put inside a tag where one has its name: a merge, said so.
+  await act('People|Alice', 'Edit…');
+  await editor.getByLabel('Parent').selectOption('Family');
   assert.match(await effect.innerText(), /Family › Alice exists already: they’ll be one tag\./);
-  await page.getByRole('button', { name: 'Merge', exact: true }).click();
-  await page.getByText('Moved to Family › Alice on 3 photos').waitFor();
+  await button('Merge').click();
+  await page.getByText('Saved Family › Alice: 3 photos changed').waitFor();
   assert.deepEqual(sent.at(-1)?.body, { from: 'People|Alice', to: 'Family|Alice' });
+
+  // A new tag, inside another, with a shortcut: created, then given it.
+  await act('Places', 'New tag inside it…');
+  assert.equal(await editor.getByLabel('Parent').inputValue(), 'Places');
+  await page.locator('[data-tag-name]').fill('Lyon');
+  await editor.locator('[data-shortcut-recorder]').click();
+  await page.keyboard.press('Control+Alt+KeyL');
+  assert.match(await effect.innerText(), /Creates Places › Lyon\.[\s\S]*Ctrl\+Alt\+L will add or remove Places › Lyon/);
+  await button('Create').click();
+  await page.getByText('Created Places › Lyon').waitFor();
+  assert.deepEqual(sent.slice(-2), [
+    { path: '/api/tags', body: { tag: 'Places|Lyon' } },
+    { path: '/api/tags/shortcut', body: { tag: 'Places|Lyon', shortcut: [press('KeyL', 'l', 'ctrl+alt')] } },
+  ]);
 
   await act('People', 'Delete…');
   const dialog = page.getByRole('alertdialog');
@@ -817,14 +840,15 @@ function press(code: string, key: string, mods = '') {
 }
 
 test("a tag's shortcut is recorded in the tag manager, refused if the library has its keys", async () => {
-  await open('/tags');
+  await open('/settings/tags');
   await page
     .locator('[data-managed-tag="Places|Paris"]')
     .getByRole('button', { name: /^Change/ })
     .click();
   await page.getByRole('menuitem', { name: 'Shortcut…' }).click();
+  // Opened on the shortcut: the keys go to it at once.
   const recorder = page.locator('[data-shortcut-recorder]');
-  await recorder.click();
+  await page.waitForFunction(() => document.activeElement?.hasAttribute('data-shortcut-recorder'));
   await page.keyboard.press('p');
   await page.getByText('P is one of the library’s keys').waitFor();
   // A pause: a new shortcut. Then a sequence of two, released in between.
@@ -839,7 +863,7 @@ test("a tag's shortcut is recorded in the tag manager, refused if the library ha
   assert.equal(await recorder.innerText(), 'Ctrl+Alt+O, Ctrl+Alt+P');
   await page.getByText(/Ctrl\+Alt\+O, Ctrl\+Alt\+P will add or remove Places › Paris/).waitFor();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByText('Ctrl+Alt+O, Ctrl+Alt+P toggles Places › Paris').waitFor();
+  await page.getByText('Saved Places › Paris').waitFor();
   assert.deepEqual(sent.at(-1), {
     path: '/api/tags/shortcut',
     body: { tag: 'Places|Paris', shortcut: [press('KeyO', 'o', 'ctrl+alt'), press('KeyP', 'p', 'ctrl+alt')] },

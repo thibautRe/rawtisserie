@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router';
+import { Navigate, createBrowserRouter } from 'react-router';
 import { AppShell } from './components/AppShell.tsx';
 import { RequireAuth } from './components/RequireAuth.tsx';
 import { LibraryDevelopPage, LocalDevelopPage } from './develop/DevelopPage.tsx';
@@ -20,12 +20,20 @@ export const router = createBrowserRouter([
         children: [
           { path: '/', element: <LibraryPage /> },
           { path: '/versions/:id/develop', element: <LibraryDevelopPage /> },
-          // The tag manager: the tags as a tree, to rename, move, merge, delete, give shortcuts.
-          { path: '/tags', lazy: async () => ({ Component: (await import('./pages/TagsPage.tsx')).TagsPage }) },
+          // The tag manager moved to the settings.
+          { path: '/tags', element: <Navigate to="/settings/tags" replace /> },
           // The user's account, storage and trash.
           {
             path: '/settings',
-            lazy: async () => ({ Component: (await import('./pages/SettingsPage.tsx')).SettingsPage }),
+            lazy: async () => ({ Component: (await import('./pages/SettingsPage.tsx')).SettingsLayout }),
+            children: [
+              {
+                index: true,
+                lazy: async () => ({ Component: (await import('./pages/SettingsPage.tsx')).ProfileSettings }),
+              },
+              // The tag manager: the tags as a tree, to create, edit (name, place, shortcut), merge, delete.
+              { path: 'tags', lazy: async () => ({ Component: (await import('./pages/TagsPage.tsx')).TagsSettings }) },
+            ],
           },
           {
             path: '/settings/trash',

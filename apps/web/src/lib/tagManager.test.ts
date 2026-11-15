@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describeDelete, describeRename, managedTags } from './tagManager.ts';
+import { describeDelete, describeRename, managedTags, planEdit } from './tagManager.ts';
 
 const { tree, info } = managedTags({
   levels: [
@@ -46,4 +46,46 @@ test('what a delete will do, in words', () => {
     describeDelete('Places|Paris', info),
     'Places › Paris will be removed. Its shortcut goes with it. The photos stay; this can’t be undone.',
   );
+});
+
+const key = (code: string) => ({
+  code,
+  key: code.slice(3).toLowerCase(),
+  ctrl: true,
+  alt: true,
+  shift: false,
+  meta: false,
+});
+
+test('the editor says what saving will do, and its button says it too', () => {
+  const edit = (e: Partial<Parameters<typeof planEdit>[0]>) =>
+    planEdit({ tag: 'People|Alice', parent: 'People', name: 'Alice', shortcut: null, ...e }, info);
+  // As it was: nothing to save, the button still says what it'd do.
+  assert.deepEqual(edit({}), { problem: '', effects: [], changes: [], action: 'Save' });
+  // `|` isn't a way to move it: Parent is.
+  assert.equal(
+    edit({ name: 'Family|Alice' }).problem,
+    'A name can’t contain |: choose where the tag goes with Parent.',
+  );
+  assert.equal(edit({ name: ' ' }).problem, '');
+  const merged = edit({ parent: 'Family' });
+  assert.equal(merged.action, 'Merge');
+  assert.deepEqual(merged.changes, [{ type: 'rename', from: 'People|Alice', to: 'Family|Alice' }]);
+  assert.equal(edit({ parent: 'People|Alice|Kid' }).problem, 'A tag can’t go inside itself.');
+
+  // Renamed and given a shortcut: the rename first, then the shortcut on its new path.
+  const both = edit({ name: 'Alicia', shortcut: [key('KeyA')] });
+  assert.deepEqual(
+    both.changes.map((c) => c.type),
+    ['rename', 'shortcut'],
+  );
+  assert.deepEqual(both.changes[1], { type: 'shortcut', tag: 'People|Alicia', shortcut: [key('KeyA')] });
+  assert.match(both.effects[1]!, /^Ctrl\+Alt\+A will add or remove People › Alicia/);
+  // Another tag's shortcut.
+  assert.equal(edit({ shortcut: [key('KeyO')] }).problem, 'Places › Paris has Ctrl+Alt+O');
+
+  const fresh = planEdit({ tag: null, parent: 'Places', name: 'Paris', shortcut: null }, info);
+  assert.equal(fresh.problem, 'Places › Paris exists already.');
+  const created = planEdit({ tag: null, parent: 'Places', name: 'Lyon', shortcut: null }, info);
+  assert.deepEqual([created.action, created.changes], ['Create', [{ type: 'create', tag: 'Places|Lyon' }]]);
 });

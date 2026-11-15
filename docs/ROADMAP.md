@@ -56,7 +56,7 @@ restored for 30 days.
 resolved), a fix for duplicated cards in the library grid during imports, and 8.2 done:
 folders and cards, a review before sending, chunked resumable uploads, and imports that
 survive a reload. Then tags: a tree (levels separated by `|`, `/` tags migrated), a tag
-manager (`/tags`: rename, move, merge, delete, each saying first what it'll do) and
+manager (Settings › Tags: one editor for a tag's parent, name and shortcut; merge, delete; each saying first what it'll do) and
 shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and the loupe.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple

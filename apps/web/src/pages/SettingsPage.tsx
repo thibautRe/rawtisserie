@@ -17,7 +17,7 @@ import {
 } from '@chakra-ui/react';
 import { ChevronRight, Copy, KeyRound, Send, Server, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, Outlet } from 'react-router';
 import {
   useAccessTokens,
   useChangePassword,
@@ -33,28 +33,35 @@ import {
 import type { AccessToken, RemoteInstance } from '../api/types.ts';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { hostOf, startTransfer } from '../components/transfer.tsx';
-import { AppMenu } from '../components/AppMenu.tsx';
+import { TabbedPage } from '../components/PageLayout.tsx';
 import { StorageBreakdown } from '../components/StorageMeter.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { TRASH_PATH } from '../components/trash.tsx';
 import { formatBytes, formatDateTime } from '../lib/format.ts';
 
 /** The user's own settings: their account and password, their storage, and the trash. */
-export function SettingsPage() {
+export const SETTINGS_TABS = [
+  { label: 'Profile', to: '/settings' },
+  { label: 'Tags', to: '/settings/tags' },
+];
+
+/** The user's settings, in tabs (`Outlet`): their profile and storage, their tags. */
+export function SettingsLayout() {
   return (
-    <Flex direction="column" h="full">
-      <HStack px="3" py="2" gap="2" borderBottomWidth="1px">
-        <AppMenu />
-        <Heading size="sm">Settings</Heading>
-      </HStack>
-      <Box flex="1" overflowY="auto">
-        <Stack p="6" maxW="3xl" mx="auto" gap="6">
-          <StorageSection />
-          <AccountSection />
-          <InstancesSection />
-        </Stack>
-      </Box>
-    </Flex>
+    <TabbedPage title="Settings" label="Settings pages" tabs={SETTINGS_TABS} maxW="3xl">
+      <Outlet />
+    </TabbedPage>
+  );
+}
+
+/** Storage, account, other instances. */
+export function ProfileSettings() {
+  return (
+    <Stack gap="6">
+      <StorageSection />
+      <AccountSection />
+      <InstancesSection />
+    </Stack>
   );
 }
 
