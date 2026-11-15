@@ -6,6 +6,7 @@ import type { StorageUsage } from '../api/types.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ImportSummary } from './ImportToast.tsx';
 import { type ImportDeps, retryFailed, startImport, uploadDeleted, useImportRun } from './imports.ts';
+import { type PickedFile, sortPicked } from './pickedFiles.ts';
 
 /** The library showing one import's photos. */
 export const importPath = (id: string) => `/?import=${id}`;
@@ -42,9 +43,11 @@ export function useImporter() {
     }),
     [qc, navigate],
   );
-  return (files: File[]) => {
-    if (!files.length) return;
-    navigate(importPath(startImport(files, deps)));
+  /** Import files picked or dropped (a drop's folders are walked through first). */
+  return async (source: PickedFile[] | Promise<PickedFile[]>) => {
+    const picked = sortPicked(await source);
+    if (!picked.files.length && !picked.refused.length) return;
+    navigate(importPath(startImport(picked, deps)));
   };
 }
 

@@ -457,7 +457,7 @@ test('an import shows its files waiting, then what happened to each, and retries
   const { createHash } = await import('node:crypto');
   knownHashes = { [createHash('sha256').update(raw(2)).digest('hex')]: { status: 'library', filename: 'old.ARW' } };
   failUploads = new Set(['c.ARW']);
-  await page.locator('input[type=file]').setInputFiles([
+  await page.locator('input[type=file]:not([webkitdirectory])').setInputFiles([
     { name: 'a.ARW', mimeType: 'application/octet-stream', buffer: raw(1) },
     { name: 'b.ARW', mimeType: 'application/octet-stream', buffer: raw(2) },
     { name: 'c.ARW', mimeType: 'application/octet-stream', buffer: raw(3) },

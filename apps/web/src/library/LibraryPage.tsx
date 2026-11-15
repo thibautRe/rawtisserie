@@ -1,19 +1,23 @@
 import {
   Box,
   Button,
+  ButtonGroup,
   Center,
   Flex,
   HStack,
   Heading,
+  IconButton,
   Input,
   InputGroup,
+  Menu,
   NativeSelect,
+  Portal,
   Spinner,
   Stack,
   Text,
 } from '@chakra-ui/react';
 import type { EditParams } from '@rawtisserie/pipeline';
-import { Maximize, Search, Upload } from 'lucide-react';
+import { ChevronDown, FolderInput, Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos } from '../api/hooks.ts';
@@ -43,6 +47,7 @@ import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
 import { useImporter } from './useImporter.tsx';
+import { fromDrop, fromInput } from './pickedFiles.ts';
 import { useLibrarySearch } from './useLibrarySearch.ts';
 
 const SORTS = [
@@ -286,6 +291,7 @@ export function LibraryPage() {
 
   // ── Import (button or drag & drop) ──
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const trash = (versions: Photo[]) =>
@@ -306,7 +312,8 @@ export function LibraryPage() {
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        startImport([...e.dataTransfer.files]);
+        // Taken now: the drop's items are gone after the event.
+        void startImport(fromDrop(e.dataTransfer));
       }}
       position="relative"
     >
@@ -346,9 +353,30 @@ export function LibraryPage() {
           >
             <Maximize /> Cull
           </Button>
-          <Button size="sm" colorPalette="orange" onClick={() => fileInput.current?.click()}>
-            <Upload /> Import
-          </Button>
+          <ButtonGroup size="sm" colorPalette="orange" attached>
+            <Button onClick={() => fileInput.current?.click()} title="Import RAW files">
+              <Upload /> Import
+            </Button>
+            <Menu.Root positioning={{ placement: 'bottom-end' }}>
+              <Menu.Trigger asChild>
+                <IconButton aria-label="More ways to import" borderStartWidth="1px" borderColor="orange.emphasized">
+                  <ChevronDown />
+                </IconButton>
+              </Menu.Trigger>
+              <Portal>
+                <Menu.Positioner>
+                  <Menu.Content>
+                    <Menu.Item value="files" onSelect={() => fileInput.current?.click()}>
+                      <Upload /> Files…
+                    </Menu.Item>
+                    <Menu.Item value="folder" onSelect={() => folderInput.current?.click()}>
+                      <FolderInput /> Folder or card…
+                    </Menu.Item>
+                  </Menu.Content>
+                </Menu.Positioner>
+              </Portal>
+            </Menu.Root>
+          </ButtonGroup>
           <input
             ref={fileInput}
             type="file"
@@ -356,7 +384,20 @@ export function LibraryPage() {
             accept={RAW_ACCEPT}
             hidden
             onChange={(e) => {
-              startImport([...(e.target.files ?? [])]);
+              void startImport(fromInput(e.target.files ?? []));
+              e.target.value = '';
+            }}
+          />
+          <input
+            // Not a React prop: set on the element.
+            ref={(el) => {
+              folderInput.current = el;
+              el?.setAttribute('webkitdirectory', '');
+            }}
+            type="file"
+            hidden
+            onChange={(e) => {
+              void startImport(fromInput(e.target.files ?? []));
               e.target.value = '';
             }}
           />

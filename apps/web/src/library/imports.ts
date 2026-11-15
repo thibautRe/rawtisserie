@@ -11,7 +11,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { Photo, StorageUsage } from '../api/types.ts';
-import { RAW_ACCEPT, formatBytes } from '../lib/format.ts';
+import { formatBytes } from '../lib/format.ts';
+import type { Picked } from './pickedFiles.ts';
 
 export type ImportStatus = 'waiting' | 'uploading' | 'imported' | 'skipped' | 'failed';
 /** Why a file wasn't imported (the server's `SkipKind`). */
@@ -20,6 +21,8 @@ export type SkipKind = 'unsupported' | 'tooLarge' | 'duplicate' | 'deleted' | 'q
 export interface ImportItem {
   key: string;
   name: string;
+  /** Inside what was picked (`DCIM/100MSDCF/DSC01234.ARW`), or the name. */
+  path: string;
   size: number;
   status: ImportStatus;
   /** Bytes sent, while uploading. */
@@ -36,6 +39,8 @@ export interface ImportItem {
 export interface ImportRun {
   id: string;
   startedAt: number;
+  /** The folder it's from, if one was picked alone. */
+  label: string | null;
   items: ImportItem[];
   /** Nothing left to send (until a retry). */
   done: boolean;
@@ -104,32 +109,39 @@ export interface ImportDeps {
 }
 
 /**
- * Import `list`: added to the run still going, if any (same id), else a new run. Returns
- * the run's id.
+ * Import what was picked: added to the run still going, if any (same id), else a new
+ * run. Returns the run's id.
  */
-export function startImport(list: File[], deps: ImportDeps): string {
-  const items = list.map((file): ImportItem => {
-    const key = crypto.randomUUID();
+export function startImport(picked: Picked, deps: ImportDeps): string {
+  const refused = picked.refused.map((f): ImportItem => ({
+    key: crypto.randomUUID(),
+    name: f.file.name,
+    path: f.path,
+    size: 0,
     // Not sent at all (the server would refuse it after the upload).
-    if (!isRaw(file.name))
-      return {
-        key,
-        name: file.name,
-        size: 0,
-        status: 'skipped',
-        sent: 0,
-        kind: 'unsupported',
-        reason: 'Not a supported RAW file',
-      };
-    files.set(key, file);
-    return { key, name: file.name, size: file.size, status: 'waiting', sent: 0 };
+    status: 'skipped',
+    sent: 0,
+    kind: 'unsupported',
+    reason: 'Not a supported RAW file',
+  }));
+  const items = picked.files.map((f): ImportItem => {
+    const key = crypto.randomUUID();
+    files.set(key, f.file);
+    return { key, name: f.file.name, path: f.path, size: f.file.size, status: 'waiting', sent: 0 };
   });
+  const all = [...items, ...refused];
   const active = runs.findLast((r) => !r.done);
   if (active) {
-    update(active.id, (r) => ({ ...r, items: [...r.items, ...items] }));
+    update(active.id, (r) => ({ ...r, items: [...r.items, ...all] }));
     return active.id;
   }
-  const run: ImportRun = { id: crypto.randomUUID(), startedAt: Date.now(), items, done: false };
+  const run: ImportRun = {
+    id: crypto.randomUUID(),
+    startedAt: Date.now(),
+    label: picked.label,
+    items: all,
+    done: false,
+  };
   runs = [...runs, run];
   emit();
   deps.onStart(run);
@@ -162,9 +174,6 @@ const LOOKAHEAD = 3;
 /** Most hashes asked about at once. */
 const CHECK_BATCH = 100;
 const REFRESH_MS = 1500;
-
-const RAW_EXTENSIONS = new Set(RAW_ACCEPT.split(','));
-const isRaw = (name: string) => RAW_EXTENSIONS.has(name.slice(name.lastIndexOf('.')).toLowerCase());
 
 async function process(runId: string, deps: ImportDeps) {
   running.add(runId);
@@ -339,10 +348,12 @@ export function sampleRun(items: Partial<ImportItem>[], done: boolean): ImportRu
   return {
     id: 'sample',
     startedAt: Date.UTC(2026, 10, 14, 14, 2),
+    label: null,
     done,
     items: items.map((i, n) => ({
       key: `k${n}`,
       name: `DSC0${1000 + n}.ARW`,
+      path: `DSC0${1000 + n}.ARW`,
       size: 42e6,
       status: 'waiting',
       sent: 0,
