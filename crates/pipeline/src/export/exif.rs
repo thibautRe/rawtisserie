@@ -261,7 +261,7 @@ pub fn xmp(meta: &ExportMetadata, mode: MetadataMode) -> Option<String> {
         if let Some(description) = non_empty(&meta.description) {
             body += &alt("dc:description", description);
         }
-        // Tags are paths, levels separated by `|` (`People|Gwen`): as Lightroom and
+        // Tags are paths, levels separated by `|` (`People|Alice`): as Lightroom and
         // darktable write them, every level in `dc:subject` and the paths in
         // `lr:hierarchicalSubject`, so other apps read the tree back.
         let tags: Vec<&str> = meta.tags.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect();

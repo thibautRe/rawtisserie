@@ -5,10 +5,10 @@ import { describeDelete, describeRename, managedTags } from './tagManager.ts';
 const { tree, info } = managedTags({
   levels: [
     { value: 'People', photos: 120, trashed: 2 },
-    { value: 'People|Gwen', photos: 119, trashed: 2 },
-    { value: 'People|Gwen|Kid', photos: 3, trashed: 0 },
+    { value: 'People|Alice', photos: 119, trashed: 2 },
+    { value: 'People|Alice|Kid', photos: 3, trashed: 0 },
     { value: 'Family', photos: 5, trashed: 0 },
-    { value: 'Family|Gwen', photos: 5, trashed: 0 },
+    { value: 'Family|Alice', photos: 5, trashed: 0 },
   ],
   own: [
     { tag: 'Places|Paris', shortcut: [{ code: 'KeyO', key: 'o', ctrl: true, alt: true, shift: false, meta: false }] },
@@ -25,14 +25,14 @@ test("the manager's tree has the user's own tags, and what's under each", () => 
 });
 
 test('what a rename, a move or a merge will do, in words', () => {
-  assert.deepEqual(describeRename('People|Gwen', 'People|Gwendolyn', info), {
-    text: 'People › Gwen becomes People › Gwendolyn on 119 photos (and 2 versions in the trash). The tag under it follows.',
+  assert.deepEqual(describeRename('People|Alice', 'People|Alicia', info), {
+    text: 'People › Alice becomes People › Alicia on 119 photos (and 2 versions in the trash). The tag under it follows.',
     action: 'Rename',
   });
-  assert.equal(describeRename('People|Gwen|Kid', 'Kid', info).action, 'Move');
-  const merge = describeRename('People|Gwen', 'Family|Gwen', info);
+  assert.equal(describeRename('People|Alice|Kid', 'Kid', info).action, 'Move');
+  const merge = describeRename('People|Alice', 'Family|Alice', info);
   assert.equal(merge.action, 'Merge');
-  assert.match(merge.text, /Family › Gwen exists already: they’ll be one tag\./);
+  assert.match(merge.text, /Family › Alice exists already: they’ll be one tag\./);
   // Nothing has it yet: no photos to speak of.
   assert.equal(describeRename('Places', 'Travel', info).text, 'Places becomes Travel. The tag under it follows.');
 });

@@ -195,9 +195,9 @@ export function TagsPage() {
       <Box flex="1" overflowY="auto">
         <Stack maxW="3xl" mx="auto" p="4" gap="3">
           <Text textStyle="sm" color="fg.muted">
-            Tags are a tree: a photo tagged People › Gwen is found under People too. Type <b>|</b> between levels when
-            tagging (People|Gwen). Renaming, moving or deleting a tag changes it on every photo, the trash included, and
-            the tags under it with it.
+            Tags are a tree: a photo tagged People › Alice is found under People too. Type <b>|</b> between levels when
+            tagging (People|Alice). Renaming, moving or deleting a tag changes it on every photo, the trash included,
+            and the tags under it with it.
           </Text>
           {isPending ? (
             <Center py="10">

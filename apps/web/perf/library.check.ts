@@ -186,14 +186,14 @@ async function open(path: string) {
       return json({
         levels: [
           { value: 'People', photos: 3, trashed: 1 },
-          { value: 'People|Gwen', photos: 2, trashed: 1 },
-          { value: 'People|Nova', photos: 1, trashed: 0 },
+          { value: 'People|Alice', photos: 2, trashed: 1 },
+          { value: 'People|Bob', photos: 1, trashed: 0 },
           { value: 'Family', photos: 1, trashed: 0 },
-          { value: 'Family|Gwen', photos: 1, trashed: 0 },
+          { value: 'Family|Alice', photos: 1, trashed: 0 },
         ],
         own: [
           { tag: 'Places|Paris', shortcut: null },
-          { tag: 'People|Nova', shortcut: [press('KeyO', 'o', 'ctrl+alt'), press('KeyN', 'n', 'ctrl+alt')] },
+          { tag: 'People|Bob', shortcut: [press('KeyO', 'o', 'ctrl+alt'), press('KeyN', 'n', 'ctrl+alt')] },
           { tag: 'beach', shortcut: [press('KeyB', 'b', 'ctrl+alt')] },
         ],
       });
@@ -239,8 +239,8 @@ async function open(path: string) {
         // Each level, counting the photos under it.
         tags: [
           { value: 'People', count: 3 },
-          { value: 'People|Gwen', count: 2 },
-          { value: 'People|Nova', count: 1 },
+          { value: 'People|Alice', count: 2 },
+          { value: 'People|Bob', count: 1 },
           { value: 'beach', count: 4 },
         ],
         ratings: [],
@@ -358,8 +358,8 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), [
     'beach',
     'People',
-    'People|Gwen',
-    'People|Nova',
+    'People|Alice',
+    'People|Bob',
   ]);
   await page.locator('[data-tag="People"]').getByText('People').click();
   await page.waitForURL(/[?&]tag=People(&|$)/);
@@ -371,17 +371,17 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   await page.locator('#library-tag-input').waitFor();
   await page.keyboard.press('t');
   await page.waitForFunction(() => document.activeElement?.id === 'library-tag-input');
-  await page.keyboard.type(' Family | Gwen ');
+  await page.keyboard.type(' Family | Alice ');
   await page.keyboard.press('Escape');
   await page.keyboard.press('Enter');
-  await page.getByText('Family › Gwen').waitFor();
-  assert.deepEqual(sent.at(-1)?.body, { tags: ['Family|Gwen'] });
+  await page.getByText('Family › Alice').waitFor();
+  assert.deepEqual(sent.at(-1)?.body, { tags: ['Family|Alice'] });
 });
 
 test('the tag manager renames, moves, merges and deletes, saying first what will happen', async () => {
   await open('/tags');
   const row = (tag: string) => page.locator(`[data-managed-tag="${tag}"]`);
-  await row('People|Gwen').waitFor();
+  await row('People|Alice').waitFor();
   const act = async (tag: string, item: string) => {
     await row(tag)
       .getByRole('button', { name: /^Change/ })
@@ -390,23 +390,23 @@ test('the tag manager renames, moves, merges and deletes, saying first what will
   };
   const effect = page.locator('[data-tag-effect]');
 
-  await act('People|Gwen', 'Rename…');
-  await page.locator('[data-tag-name]').fill('Gwendolyn');
+  await act('People|Alice', 'Rename…');
+  await page.locator('[data-tag-name]').fill('Alicia');
   assert.equal(
     await effect.innerText(),
-    'People › Gwen becomes People › Gwendolyn on 2 photos (and 1 version in the trash).',
+    'People › Alice becomes People › Alicia on 2 photos (and 1 version in the trash).',
   );
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
-  await page.getByText('Renamed to People › Gwendolyn on 3 photos').waitFor();
-  assert.deepEqual(sent.at(-1), { path: '/api/tags/rename', body: { from: 'People|Gwen', to: 'People|Gwendolyn' } });
+  await page.getByText('Renamed to People › Alicia on 3 photos').waitFor();
+  assert.deepEqual(sent.at(-1), { path: '/api/tags/rename', body: { from: 'People|Alice', to: 'People|Alicia' } });
 
   // Moved onto a tag that exists: a merge, said so.
-  await act('People|Gwen', 'Move…');
+  await act('People|Alice', 'Move…');
   await page.getByLabel('Move under').selectOption('Family');
-  assert.match(await effect.innerText(), /Family › Gwen exists already: they’ll be one tag\./);
+  assert.match(await effect.innerText(), /Family › Alice exists already: they’ll be one tag\./);
   await page.getByRole('button', { name: 'Merge', exact: true }).click();
-  await page.getByText('Moved to Family › Gwen on 3 photos').waitFor();
-  assert.deepEqual(sent.at(-1)?.body, { from: 'People|Gwen', to: 'Family|Gwen' });
+  await page.getByText('Moved to Family › Alice on 3 photos').waitFor();
+  assert.deepEqual(sent.at(-1)?.body, { from: 'People|Alice', to: 'Family|Alice' });
 
   await act('People', 'Delete…');
   const dialog = page.getByRole('alertdialog');
@@ -831,8 +831,8 @@ test("a tag's shortcut is recorded in the tag manager, refused if the library ha
   await page.waitForTimeout(1600);
   await page.keyboard.press('Control+Alt+KeyO');
   await page.keyboard.press('Control+Alt+KeyN');
-  // People › Nova has it.
-  await page.getByText('People › Nova has Ctrl+Alt+O, Ctrl+Alt+N').waitFor();
+  // People › Bob has it.
+  await page.getByText('People › Bob has Ctrl+Alt+O, Ctrl+Alt+N').waitFor();
   await page.waitForTimeout(1600);
   await page.keyboard.press('Control+Alt+KeyO');
   await page.keyboard.press('Control+Alt+KeyP');
@@ -862,11 +862,11 @@ test('tag shortcuts toggle a tag on the selection; keys within a sequence do not
   assert.deepEqual(bulkSent(), []);
   await page.keyboard.press('Control+Alt+KeyO');
   await page.keyboard.press('Control+Alt+KeyN');
-  await page.getByText('Tagged 1 photo People › Nova').waitFor();
+  await page.getByText('Tagged 1 photo People › Bob').waitFor();
   await page.keyboard.press('Control+Alt+KeyB');
   await waitFor(() => bulkSent().length === 2);
   assert.deepEqual(bulkSent(), [
-    { ids: [PHOTOS[0]!.id], patch: { addTags: ['People|Nova'] } },
+    { ids: [PHOTOS[0]!.id], patch: { addTags: ['People|Bob'] } },
     { ids: [PHOTOS[0]!.id], patch: { addTags: ['beach'] } },
   ]);
 

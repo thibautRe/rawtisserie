@@ -71,7 +71,7 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   }
   if (f.camera?.length) c.push(sql`p.camera_model = ANY(${f.camera})`);
   if (f.lens?.length) c.push(sql`p.lens = ANY(${f.lens})`);
-  // Each tag asked for, or one under it (`People` finds `People|Gwen`).
+  // Each tag asked for, or one under it (`People` finds `People|Alice`).
   for (const tag of f.tag ?? [])
     c.push(sql`EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE t = ${tag} OR starts_with(t, ${`${tag}|`}))`);
   if (f.colorLabel?.length) c.push(sql`v.color_label = ANY(${f.colorLabel})`);

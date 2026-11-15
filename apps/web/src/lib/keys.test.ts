@@ -18,16 +18,16 @@ const s = (...specs: string[]) => specs.map(k);
 
 test('a sequence waits for its next key, and keys meanwhile are its own', () => {
   const m = new ShortcutMatcher([
-    { shortcut: s('Ctrl+Alt+O', 'Ctrl+Alt+A'), value: 'People|Atlas' },
-    { shortcut: s('Ctrl+Alt+O', 'Ctrl+Alt+N'), value: 'People|Nova' },
-    { shortcut: s('Ctrl+Alt+G'), value: 'People|Gwen' },
+    { shortcut: s('Ctrl+Alt+O', 'Ctrl+Alt+A'), value: 'People|Carol' },
+    { shortcut: s('Ctrl+Alt+O', 'Ctrl+Alt+N'), value: 'People|Bob' },
+    { shortcut: s('Ctrl+Alt+G'), value: 'People|Alice' },
   ]);
   assert.deepEqual(m.feed(k('Ctrl+Alt+O'), 0), { type: 'pending', sofar: s('Ctrl+Alt+O') });
-  // Ctrl+Alt+G would be Gwen's, but a sequence is going on and it doesn't continue it.
+  // Ctrl+Alt+G would be Alice's, but a sequence is going on and it doesn't continue it.
   assert.deepEqual(m.feed(k('Ctrl+Alt+G'), 100), { type: 'cancelled' });
-  assert.deepEqual(m.feed(k('Ctrl+Alt+G'), 200), { type: 'match', value: 'People|Gwen' });
+  assert.deepEqual(m.feed(k('Ctrl+Alt+G'), 200), { type: 'match', value: 'People|Alice' });
   m.feed(k('Ctrl+Alt+O'), 1000);
-  assert.deepEqual(m.feed(k('Ctrl+Alt+N'), 1500), { type: 'match', value: 'People|Nova' });
+  assert.deepEqual(m.feed(k('Ctrl+Alt+N'), 1500), { type: 'match', value: 'People|Bob' });
   // Too late: the sequence was forgotten, and the key alone isn't a shortcut.
   m.feed(k('Ctrl+Alt+O'), 5000);
   assert.deepEqual(m.feed(k('Ctrl+Alt+A'), 5001 + SEQUENCE_TIMEOUT), { type: 'none' });
@@ -46,13 +46,13 @@ test('the physical key counts, whatever the layout shows', () => {
 });
 
 test("a shortcut can't take the app's keys, or hide another tag's", () => {
-  const others = [{ tag: 'People|Nova', shortcut: s('Ctrl+Alt+O', 'Ctrl+Alt+N') }];
+  const others = [{ tag: 'People|Bob', shortcut: s('Ctrl+Alt+O', 'Ctrl+Alt+N') }];
   assert.equal(shortcutConflict(s('Ctrl+Alt+O', 'Ctrl+Alt+A'), others), null);
   assert.equal(
     shortcutConflict(s('Ctrl+Alt+O'), others),
-    'People|Nova has Ctrl+Alt+O, Ctrl+Alt+N: one would hide the other',
+    'People|Bob has Ctrl+Alt+O, Ctrl+Alt+N: one would hide the other',
   );
-  assert.equal(shortcutConflict(s('Ctrl+Alt+O', 'Ctrl+Alt+N'), others), 'People|Nova has Ctrl+Alt+O, Ctrl+Alt+N');
+  assert.equal(shortcutConflict(s('Ctrl+Alt+O', 'Ctrl+Alt+N'), others), 'People|Bob has Ctrl+Alt+O, Ctrl+Alt+N');
   assert.equal(shortcutConflict(s('p'), []), 'P is one of the library’s keys');
   assert.equal(shortcutConflict(s('Shift+p'), []), 'Shift+P is one of the library’s keys');
   assert.equal(shortcutConflict(s('Ctrl+c'), []), 'Ctrl+C is one of the library’s keys');

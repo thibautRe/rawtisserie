@@ -1,6 +1,6 @@
 /**
  * Tags are paths: levels separated by `|`, as XMP's `lr:hierarchicalSubject` has them
- * (`People|Gwen`, shown as People › Gwen). A version's tags are its `tags` array; a tag
+ * (`People|Alice`, shown as People › Alice). A version's tags are its `tags` array; a tag
  * counts under each of its ancestors (filters, counts), without them being stored.
  */
 import type { FastifyInstance } from 'fastify';
@@ -33,7 +33,7 @@ export const Tag = z
   );
 
 /**
- * Each level of tag `t` (in scope, from `unnest(… ) t`) as `n`: `People`, `People|Gwen`.
+ * Each level of tag `t` (in scope, from `unnest(… ) t`) as `n`: `People`, `People|Alice`.
  * Use as a lateral join.
  */
 export const TAG_LEVELS = sql`LATERAL (
@@ -68,7 +68,7 @@ const moved = (from: string, to: string) => sql`${to} || substr(t, length(${from
 
 /**
  * The tag manager's routes. Renaming a tag renames those under it too (`People` to
- * `Family` makes `People|Gwen` `Family|Gwen`); renaming onto an existing tag merges
+ * `Family` makes `People|Alice` `Family|Alice`); renaming onto an existing tag merges
  * them; moving is renaming its path. Deleting removes the tags under it too. Both apply
  * to every version, trashed ones included, so nothing comes back with a restore.
  */

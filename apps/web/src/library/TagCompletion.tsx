@@ -18,7 +18,7 @@ export function focusTagInput(): boolean {
 
 /**
  * Suggests the library's tags matching what's typed (fuzzy: typos and accents are
- * forgiven), most used first. Tags are paths (`People|Gwen`, typed with `|`). Arrows move through them, Enter picks one; the last
+ * forgiven), most used first. Tags are paths (`People|Alice`, typed with `|`). Arrows move through them, Enter picks one; the last
  * option creates the tag as typed. Spread `inputProps` on the input (they make it an
  * ARIA combobox, which also tells Chakra's TagsInput to leave Enter to us) and render
  * `list` just below it, in a `position: relative` box.
@@ -37,7 +37,7 @@ export function useTagCompletion({
   const [highlight, setHighlight] = useState(0);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  // Levels separated by `|`, matched as shown (`People › Gwen`) too.
+  // Levels separated by `|`, matched as shown (`People › Alice`) too.
   const typed = normalizeTag(input);
 
   const matches = useMemo(() => {
