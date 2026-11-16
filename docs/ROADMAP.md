@@ -61,7 +61,8 @@ shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and
 2026-11-16: added 8.11 (JPEG and other non-RAW images), 8.12 (boolean tag filters and
 rating ranges), 8.13 (select everything the filters match), 7.11 (AVIF renders) and
 M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope. 8.11 done the
-same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic.
+same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic. Then 7.11:
+renders stored as AVIF, encoded by sharp (native) in the render worker.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1399,7 +1400,17 @@ Ceph or Garage) can cost several times less per TB than managed object storage, 
 price of operating it (disk replacement, monitoring, on-call). Only once 7.1 makes the
 backend a configuration choice and the volume justifies it.
 
-### 7.11 AVIF renders (S–M)
+### 7.11 AVIF renders (S–M) — done
+
+> **Done** 2026-11-16. New renders are AVIF, encoded by `sharp` (libvips + libaom,
+> prebuilt) in the render worker from the pipeline's RGBA (`renderFinal` in wasm):
+> previews q60 and thumbnails q65, effort 2, 4:2:0, about 45 % and 65 % of the JPEGs'
+> size at the same SSIM. ravif in wasm was measured first and was twice as slow (3.2 s
+> per preview) and 0.9 MB more wasm for the browser; figures in `docs/PERFORMANCE.md`.
+> `versions.render_format` records what a version's renders are (`renderKey` takes it);
+> a version rendered again as AVIF loses its JPEGs, and the route serves either with
+> its type. Existing JPEGs stay until then. Loupe tiles stay JPEG. Not done: converting
+> old renders in bulk (re-render them if storage matters).
 
 The server stores its renders (480 px thumbnails, 2048 px previews) and the loupe's
 100 % tiles as JPEG (`renderJpeg`, `renderKey`'s `.jpg`). AVIF is roughly half the size
@@ -1417,7 +1428,9 @@ at the same quality: less storage per version and less bandwidth on every grid s
   there: keep them JPEG unless AVIF is fast enough at 512 px.
 - Browsers: every current one decodes AVIF; check the web app's `<img>`s and the
   `ImageBitmap` paths take it.
-- Pairs with 8.4's "Left for later: AVIF/JPEG XL" for exports (same encoder).
+- Pairs with 8.4's "Left for later: AVIF/JPEG XL" for exports. Not the same encoder
+  after all: exports run in the browser, where sharp isn't available (ravif in wasm is
+  the option there, at the cost above).
 
 ---
 
@@ -2012,8 +2025,7 @@ Required before 1.0, on top of what's done:
 - **UI:** 4.13 mask UI redesign; 10.1 the library and settings on phones.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway; 7.11 AVIF renders is cheap and best
-  before many renders exist), 4.2 auto-apply rules, 8.12 boolean tag filters, 8.13
+  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 8.12 boolean tag filters, 8.13
   selecting everything the filters match.
 
 ## Suggested order
@@ -2031,7 +2043,7 @@ Required before 1.0, on top of what's done:
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
-   and done 2026-11-16), then 7.11 AVIF renders, 10.1 responsive library, 8.13 and
+   and done 2026-11-16), then ~~7.11 AVIF renders~~, 10.1 responsive library, 8.13 and
    8.12. 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

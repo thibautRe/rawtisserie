@@ -87,6 +87,11 @@ See README.md for the architecture overview and commands.
 - Storage quotas count original files only (`accounts/quota.ts`); anything new that
   stores user files must decide whether it counts, and check `fits` before storing.
   Admin-only routes use `requireAdmin` (and the page checks `isAdmin` too).
+- Library renders are AVIF, encoded by `sharp` (native) in the render worker from wasm's
+  `renderFinal`; `versions.render_format` says what a version's stored renders are
+  (older ones stay JPEG until rendered again), so build keys with `renderKey(…, format)`.
+  Loupe tiles stay JPEG. sharp is imported by the render queue on the main thread too,
+  before any worker: keep it that way, workers stop when idle.
 - Files (originals, renders, uploaded LUTs) go through the object store
   (`apps/server/src/storage/`: local disk or S3, by key), never `fs` directly, so both
   work; worker threads use it too. Uploads in progress stay on local disk.

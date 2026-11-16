@@ -24,6 +24,7 @@
     "@fastify/static": "^10.1.7",
     "@rawtisserie/pipeline": "*",
     "fastify": "^5.12.7",
+    "sharp": "^0.35.5",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -43,6 +44,7 @@
         "versions.flag": "'picked' | 'rejected'",
         "versions.color_label": "'red' | 'yellow' | 'green' | 'blue' | 'purple'",
         "versions.render_status": "'pending' | 'ready' | 'failed'",
+        "versions.render_format": "'jpeg' | 'avif'",
         "history_entries.recipe": "import('@rawtisserie/pipeline').EditParams",
         "presets.kind": "'module' | 'style'",
         "presets.module_kind": "import('@rawtisserie/pipeline').ModuleKind",

@@ -29,14 +29,16 @@ terminates HTTPS. It ships as a [container image](#container-image), run on a VP
    │  on start: migrations (MIGRATE_ON_START),          │
    │            collectLuts                             │
    │  render queue ─▶ RENDER_CONCURRENCY worker threads │  thumbnails, previews,
-   │                  (wasm), stopped after 2 min idle  │  auto-tune write-back
+   │                  (wasm, AVIF by sharp), stopped    │  auto-tune write-back
+   │                  after 2 min idle                  │
    │  zoom worker ─▶ 1 thread, last RAW kept decoded    │  loupe tiles at 100 %
    └─────────────┬──────────────────────┬───────────────┘
                  │ DATABASE_URL         │ S3_BUCKET, or STORAGE_DIR
    ┌─────────────▼─────────┐  ┌─────────▼───────────────────────────┐
    │ Postgres 18           │  │ object store (apps/server/storage)  │
    │ users, photos,        │  │ originals/<storage_key>             │
-   │ versions, history,    │  │ renders/<xx>/<version>-<size>.jpg   │
+   │ versions, history,    │  │ renders/<xx>/<version>-<size>.avif  │
+   │                       │  │   (.jpg: made before AVIF)          │
    │ presets, LUT rows     │  │ luts/<xx>/<id>.clut                 │
    └───────────────────────┘  └─────────────────────────────────────┘
 ```
@@ -121,7 +123,11 @@ uploads resume across a restart.
    LUTs, wasm), the server's sources and migrations, and `apps/web/dist`. Runs as `node`.
 
 Anything the server imports at run time must be in its `dependencies`, not
-`devDependencies`, or the image fails to start.
+`devDependencies`, or the image fails to start. The one native dependency is `sharp`
+(libvips with libaom, encoding the renders as AVIF): npm installs its prebuilt binaries
+for the platform it runs on (`@img/sharp-linux-x64` or `-arm64`, glibc), from the
+optional dependencies the lockfile lists, so the runtime stage must not omit optional
+dependencies.
 
 ```sh
 podman build -t rawtisserie .

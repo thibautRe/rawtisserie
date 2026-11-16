@@ -1303,6 +1303,13 @@
         "typeName": "TEXT"
       },
       {
+        "name": "render_format",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
         "name": "render_status",
         "isNullable": false,
         "hasDefault": true,

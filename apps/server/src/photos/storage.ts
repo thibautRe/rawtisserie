@@ -18,9 +18,19 @@ export const RENDER_SIZES: Record<RenderSize, number> = { thumb: 480, preview: 2
 
 export const originalKey = (storageKey: string) => `originals/${storageKey}`;
 
+/**
+ * What a version's renders are stored as (`versions.render_format`): new renders are
+ * AVIF (roadmap 7.11), those made before stay JPEG until the version renders again.
+ */
+export type RenderFormat = 'jpeg' | 'avif';
+export const RENDER_FORMATS: Record<RenderFormat, { extension: string; mimeType: string }> = {
+  jpeg: { extension: 'jpg', mimeType: 'image/jpeg' },
+  avif: { extension: 'avif', mimeType: 'image/avif' },
+};
+
 /** Renders are per version (a version's first id may equal its photo's, see migration 00003). */
-export const renderKey = (versionId: string, size: RenderSize) =>
-  `renders/${versionId.slice(0, 2)}/${versionId}-${size}.jpg`;
+export const renderKey = (versionId: string, size: RenderSize, format: RenderFormat) =>
+  `renders/${versionId.slice(0, 2)}/${versionId}-${size}.${RENDER_FORMATS[format].extension}`;
 
 export interface StoredUpload {
   tempPath: string;
@@ -67,8 +77,13 @@ export async function deleteOriginal(storageKey: string): Promise<void> {
   await storage.delete(originalKey(storageKey));
 }
 
-export async function deleteRenders(versionId: string): Promise<void> {
-  await Promise.all((Object.keys(RENDER_SIZES) as RenderSize[]).map((s) => storage.delete(renderKey(versionId, s))));
+/** Delete a version's renders, in these formats (all by default). */
+export async function deleteRenders(
+  versionId: string,
+  formats = Object.keys(RENDER_FORMATS) as RenderFormat[],
+): Promise<void> {
+  const sizes = Object.keys(RENDER_SIZES) as RenderSize[];
+  await Promise.all(formats.flatMap((f) => sizes.map((s) => storage.delete(renderKey(versionId, s, f)))));
 }
 
 /**

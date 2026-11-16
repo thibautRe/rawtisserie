@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
@@ -23,7 +24,7 @@ import { storage } from '../storage/index.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
 import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
-import { RENDER_SIZES, originalKey, renderKey, type RenderSize } from './storage.ts';
+import { RENDER_FORMATS, RENDER_SIZES, originalKey, renderKey, type RenderFormat, type RenderSize } from './storage.ts';
 import { TAG_LEVELS, Tag } from './tags.ts';
 
 const Id = z.object({ id: z.uuid() });
@@ -454,13 +455,25 @@ export async function photoRoutes(
     const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(request.params);
     // Also for the trash page's thumbnails.
     const version = await findVersion(currentUser(request).id, id, { inTrash: true });
-    const file = await storage.get(renderKey(version.id, size));
-    if (!file) throw notFound('Not rendered yet');
-    const versioned = (request.query as Record<string, string>).v === String(version.render_version);
+    // In the format recorded, or the other one: a render that just changed format deletes
+    // the old files right after recording the new one, and this may have read either.
+    const formats = [version.render_format, ...(Object.keys(RENDER_FORMATS) as RenderFormat[])];
+    let found: { file: Readable; format: RenderFormat } | null = null;
+    for (const format of new Set(formats)) {
+      const file = await storage.get(renderKey(version.id, size, format));
+      if (file) {
+        found = { file, format };
+        break;
+      }
+    }
+    if (!found) throw notFound('Not rendered yet');
+    const versioned =
+      (request.query as Record<string, string>).v === String(version.render_version) &&
+      found.format === version.render_format;
     return reply
-      .header('content-type', 'image/jpeg')
+      .header('content-type', RENDER_FORMATS[found.format].mimeType)
       .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
-      .send(file);
+      .send(found.file);
   });
 
   // ── Zoomed-in views (culling loupe) ──────────────────────────────────────

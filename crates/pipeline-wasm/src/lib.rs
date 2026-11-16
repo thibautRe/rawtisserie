@@ -384,8 +384,18 @@ impl Developer {
     }
 
     /// Final-quality render within `max_width × max_height` (or only `region` of it, as
-    /// for `render`), encoded as a JPEG file (sRGB, no metadata): library previews and
-    /// the culling loupe's zoomed-in tiles.
+    /// for `render`), as RGBA8 pixels (sRGB, opaque): the library's renders, encoded by
+    /// the server (AVIF, roadmap 7.11).
+    #[wasm_bindgen(js_name = renderFinal)]
+    pub fn render_final(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<RenderedImage, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let img = self.inner.render(&params, render_size(max_width, max_height, region)?, Quality::Final);
+        Ok(RenderedImage { width: img.width as u32, height: img.height as u32, data: img.data })
+    }
+
+    /// Final-quality render within `max_width × max_height` (or only `region` of it, as
+    /// for `render`), encoded as a JPEG file (sRGB, no metadata): the culling loupe's
+    /// zoomed-in tiles.
     #[wasm_bindgen(js_name = renderJpeg)]
     pub fn render_jpeg(&mut self, params_json: &str, max_width: u32, max_height: u32, quality: u8, region: Option<Vec<u32>>) -> Result<Vec<u8>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;

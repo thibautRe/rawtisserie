@@ -6,17 +6,25 @@
  * large RAW keeps that memory until it exits.
  */
 import { Worker } from 'node:worker_threads';
+// Loaded here too, before any worker: a native addon loaded only in workers can be
+// unloaded when one exits, which crashes the others (and workers stop when idle).
+import 'sharp';
 import type { Queryable } from '@databases/pg';
 import type { FastifyBaseLogger } from 'fastify';
 import { AUTO_RECIPE_LABEL, type EditParams, type PhotoMetadata } from '@rawtisserie/pipeline';
 import { config } from '../config.ts';
 import { db, photos, sql, versions } from '../db.ts';
-import { RENDER_SIZES, deleteRenders, renderKey, type RenderSize } from '../photos/storage.ts';
+import { RENDER_SIZES, deleteRenders, renderKey, type RenderFormat, type RenderSize } from '../photos/storage.ts';
 import { renderSource } from './source.ts';
 import { RenderStats, writeRenderStats } from './stats.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
 const IDLE_MS = 2 * 60_000;
+
+/** What renders are made as now, and at what quality (sharp's AVIF scale, roadmap 7.11). */
+const FORMAT: RenderFormat = 'avif';
+/** As good as the JPEGs before (q82 and q88, by SSIM) at about 65 % and 45 % of their size. */
+const QUALITY: Record<RenderSize, number> = { thumb: 65, preview: 60 };
 
 interface PoolWorker {
   worker: Worker | null;
@@ -173,9 +181,9 @@ export class RenderQueue {
       extractMetadata: job.needsMetadata,
       luts: job.luts,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
-        key: renderKey(versionId, size),
+        key: renderKey(versionId, size, FORMAT),
         maxSize,
-        quality: size === 'thumb' ? 82 : 88,
+        quality: QUALITY[size],
       })),
     });
 
@@ -187,10 +195,12 @@ export class RenderQueue {
     }
     this.log.info({ versionId, ms: Date.now() - started }, 'rendered');
     const stored = await db.tx(async (tx) => {
-      const updated = await tx.query(sql`
-        UPDATE versions SET render_status = 'ready', render_error = NULL, render_version = render_version + 1
-        WHERE id = ${versionId} RETURNING id`);
-      if (!updated.length) return false;
+      const [before] = await tx.query(sql`SELECT render_format FROM versions WHERE id = ${versionId} FOR UPDATE`);
+      if (!before) return false;
+      await tx.query(sql`
+        UPDATE versions
+        SET render_status = 'ready', render_error = NULL, render_version = render_version + 1, render_format = ${FORMAT}
+        WHERE id = ${versionId}`);
       if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
       if (result.resolvedRecipe && job.params) await resolveEntry(tx, versionId, job.params, result.resolvedRecipe);
       if (result.metadata) {
@@ -199,10 +209,12 @@ export class RenderQueue {
         const rating = Math.min(5, Math.max(0, result.metadata.rating ?? 0));
         if (rating) await versions(tx).update({ photo_id: job.photoId, rating: 0 }, { rating });
       }
-      return true;
+      return { previous: before.render_format as RenderFormat };
     });
     // Deleted while it rendered (e.g. from the trash): what it wrote has nothing left to show.
     if (!stored) await deleteRenders(versionId);
+    // Rendered in another format than before (JPEG, before 7.11): those files are stale.
+    else if (stored.previous !== FORMAT) await deleteRenders(versionId, [stored.previous]);
   }
 }
 

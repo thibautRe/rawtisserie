@@ -144,6 +144,28 @@ hardware threads. Re-measure on other machines before changing it.
   straight into the DOM): no measurable `mainBusy` change, so it was reverted. Frame
   commits are not where the main thread's time goes; pointer-move renders are.
 
+## AVIF renders (2026-11-16)
+
+The library's renders (roadmap 7.11), on the Sony golden RAW, matched to the JPEGs they
+replace by SSIM (ffmpeg's `ssim` against a lossless render):
+
+|                  | JPEG                           | AVIF (sharp 0.35, effort 2, 4:2:0) |
+| ---------------- | ------------------------------ | ---------------------------------- |
+| 2048 px preview  | q88, 1.14 MB, 0.35 s (in wasm) | q60, 517 KB, ~1.4 s on one core    |
+| 480 px thumbnail | q82, 43 KB                     | q65, 28 KB, ~70 ms                 |
+
+- **ravif (rav1e) in wasm**, the pure-Rust option: about as fast as native without asm
+  (simd128 helps), but 3.2 s for the preview at speed 10 (8.6 s at speed 8), and 0.9 MB
+  more wasm, which the browser downloads too. Rejected for sharp.
+- **sharp's effort 4** (its default) takes ten times longer than effort 2 for a file
+  about 5 % smaller. 4:4:4 at the same quality is ~2× the size for the same SSIM gain.
+- **Loupe tiles** stay JPEG: they're rendered on demand, a 512 px tile renders and
+  encodes as JPEG in 57 ms in wasm, and AVIF would add ~95 ms; they're cached in the
+  browser, not stored.
+- The render queue's figures (`render_stats`) are what to watch: a version took 2.4 s
+  on average locally before; AVIF adds the encode time above (~1.1 s more per preview
+  than JPEG on one core).
+
 ## How to measure
 
 - Native: `cargo run --release --example bench -- photo.ARW 2400`. It's noisy on a

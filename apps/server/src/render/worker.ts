@@ -1,8 +1,10 @@
 /**
- * Worker thread: develops RAW files with the WebAssembly pipeline and writes JPEG
- * previews. Runs off the main thread because decoding a 60MP file takes a while.
+ * Worker thread: develops RAW files with the WebAssembly pipeline and writes AVIF
+ * renders (encoded natively by sharp: rav1e in wasm was twice as slow, see roadmap
+ * 7.11). Runs off the main thread because decoding a 60MP file takes a while.
  */
 import { parentPort } from 'node:worker_threads';
+import sharp from 'sharp';
 import {
   defaultRecipe as recipeFor,
   developerMeasures,
@@ -41,8 +43,17 @@ parentPort!.on('message', async (job: RenderJob) => {
       const params = JSON.stringify(defaultRecipe ?? resolvedRecipe ?? job.params ?? {});
       // Largest first, so the smaller renders can reuse the cached base image.
       for (const output of [...job.outputs].sort((a, b) => b.maxSize - a.maxSize)) {
-        const jpeg = dev.renderJpeg(params, output.maxSize, output.maxSize, output.quality);
-        await storage.put(output.key, jpeg);
+        const img = dev.renderFinal(params, output.maxSize, output.maxSize);
+        const { width, height } = img;
+        const pixels = img.takeData();
+        img.free();
+        const avif = await sharp(pixels, { raw: { width, height, channels: 4 } })
+          .removeAlpha()
+          // Effort 2: ~1.4 s for a 2048 px preview on one core; 4 takes ten times longer
+          // for a file barely smaller. 4:2:0 like the JPEGs it replaces.
+          .avif({ quality: output.quality, effort: 2, chromaSubsampling: '4:2:0' })
+          .toBuffer();
+        await storage.put(output.key, avif);
       }
     } finally {
       dev.free();

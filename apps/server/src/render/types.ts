@@ -10,7 +10,7 @@ export interface RenderJob {
   extractMetadata: boolean;
   /** Ids of the LUTs the recipe may use (built-in, or the owner's). */
   luts: string[];
-  /** Renders to store, by object key. */
+  /** Renders to store as AVIF (`quality` on sharp's 1–100 scale), by object key. */
   outputs: { key: string; maxSize: number; quality: number }[];
 }
 
