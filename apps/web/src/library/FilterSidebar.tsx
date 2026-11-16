@@ -17,8 +17,9 @@ import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
+import { TagSearch } from '../components/TagSearch.tsx';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
-import { type TagNode, isUnder, tagTree } from '../lib/tags.ts';
+import { type TagNode, filterTagTree, isUnder, tagTree } from '../lib/tags.ts';
 import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import type { LibrarySearch } from './useLibrarySearch.ts';
@@ -61,11 +62,14 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
 
 /**
  * The tags as a tree: a tag picks the photos with it or one under it (`People`: all of
- * People's). Folded below the top, except where a tag is picked.
+ * People's). Folded below the top, except where a tag is picked, and while searching:
+ * then it shows the tags found and the way to them.
  */
 function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySearch }) {
   const selected = search.params.getAll('tag');
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const [query, setQuery] = useState('');
+  const searching = query.trim() !== '';
   // Picked tags stay listed even when the other filters leave no photo with them.
   const tree = tagTree([
     ...values,
@@ -85,8 +89,8 @@ function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySear
     });
   const rows = (nodes: TagNode[], depth: number): React.ReactNode[] =>
     nodes.flatMap((n) => {
-      // Open by the user, or holding a picked tag.
-      const unfolded = open.has(n.path) || selected.some((s) => s !== n.path && isUnder(s, n.path));
+      // Open by the user, holding a picked tag, or searched.
+      const unfolded = searching || open.has(n.path) || selected.some((s) => s !== n.path && isUnder(s, n.path));
       return [
         <HStack key={n.path} gap="1" ps={`${depth * 14}px`} data-tag={n.path}>
           {n.children.length ? (
@@ -96,6 +100,7 @@ function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySear
               minW="4"
               h="4"
               aria-label={unfolded ? `Fold ${n.name}` : `Unfold ${n.name}`}
+              disabled={searching}
               onClick={() => toggle(n.path)}
             >
               {unfolded ? <ChevronDown /> : <ChevronRight />}
@@ -123,9 +128,19 @@ function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySear
         ...(unfolded ? rows(n.children, depth + 1) : []),
       ];
     });
+  const found = filterTagTree(tree, query);
   return (
-    <Stack gap="1" maxH="60" overflowY="auto">
-      {rows(tree, 0)}
+    <Stack gap="2">
+      <TagSearch size="xs" value={query} onChange={setQuery} />
+      {found.length ? (
+        <Stack gap="1" maxH="60" overflowY="auto">
+          {rows(found, 0)}
+        </Stack>
+      ) : (
+        <Text textStyle="xs" color="fg.subtle">
+          No tag matches
+        </Text>
+      )}
     </Stack>
   );
 }

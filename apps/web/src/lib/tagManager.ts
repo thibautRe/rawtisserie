@@ -1,7 +1,17 @@
 /** The tag manager's view of the tags (`pages/TagsPage.tsx`), and what its changes will do, in words. */
 import type { TagChange, TagManagerData } from '../api/hooks.ts';
 import { type Shortcut, formatShortcut, samePress, shortcutConflict } from './keys.ts';
-import { SEPARATOR, type TagNode, displayTag, isUnder, normalizeTag, tagName, tagParent, tagTree } from './tags.ts';
+import {
+  SEPARATOR,
+  type TagNode,
+  displayTag,
+  isUnder,
+  normalizeTag,
+  tagLevels,
+  tagName,
+  tagParent,
+  tagTree,
+} from './tags.ts';
 
 /** Where the tag manager is (a tab of the settings). */
 export const TAG_MANAGER_PATH = '/settings/tags';
@@ -86,10 +96,20 @@ export function describeDelete(tag: string, info: ReadonlyMap<string, TagInfo>) 
 export interface TagEdit {
   /** The tag edited, or null for a new one. */
   tag: string | null;
-  /** Where it goes: a tag, or '' for the top level. */
-  parent: string;
-  name: string;
+  /** Its whole path as typed, levels separated by `|`: missing ones are created with it. */
+  path: string;
   shortcut: Shortcut | null;
+}
+
+/** The levels of `path` as typed (`People|Family|Alice`), each with whether it's new: not a tag yet. */
+export function pathLevels(path: string, info: ReadonlyMap<string, TagInfo>) {
+  const normal = normalizeTag(path);
+  if (!normal) return [];
+  const levels = tagLevels(normal);
+  return levels.map((name, i) => {
+    const at = levels.slice(0, i + 1).join(SEPARATOR);
+    return { path: at, name, isNew: !info.has(at) };
+  });
 }
 
 const sameShortcut = (a: Shortcut | null, b: Shortcut | null) =>
@@ -101,7 +121,7 @@ const sameShortcut = (a: Shortcut | null, b: Shortcut | null) =>
  * order (a rename first, then the shortcut on the tag's new path).
  */
 export function planEdit(edit: TagEdit, info: ReadonlyMap<string, TagInfo>) {
-  const name = edit.name.trim();
+  const path = normalizeTag(edit.path);
   const current = edit.tag === null ? undefined : info.get(edit.tag);
   const plan = (problem: string | null, effects: string[], changes: TagChange[], action: string) => ({
     problem,
@@ -110,10 +130,7 @@ export function planEdit(edit: TagEdit, info: ReadonlyMap<string, TagInfo>) {
     action,
   });
   const action = edit.tag === null ? 'Create' : 'Save';
-  if (!name) return plan('', [], [], action);
-  if (name.includes(SEPARATOR))
-    return plan(`A name can’t contain ${SEPARATOR}: choose where the tag goes with Parent.`, [], [], action);
-  const path = normalizeTag(edit.parent ? `${edit.parent}${SEPARATOR}${name}` : name);
+  if (!path) return plan('', [], [], action);
   const effects: string[] = [];
   const changes: TagChange[] = [];
   let button = action;

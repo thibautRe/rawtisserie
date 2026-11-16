@@ -30,6 +30,7 @@ import { Circle, Download, Hexagon, MoreHorizontal, Pencil, RotateCcw, Square, T
 import { Fragment, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { CompactTab, CompactTabs } from '../components/CompactTabs.tsx';
+import { TagSearch } from '../components/TagSearch.tsx';
 import { Module, PageTabs } from '../develop/ModulePanel.tsx';
 import { ParamSlider, fmt } from '../develop/ParamSlider.tsx';
 import { tracks } from '../develop/slider.ts';
@@ -215,6 +216,7 @@ export function UiPage() {
   const [managed, setManaged] = useState(MANAGED);
   const [managing, setManaging] = useState(false);
   const [tags, setTags] = useState(['beach', 'golden hour']);
+  const [tagQuery, setTagQuery] = useState('ali');
 
   return (
     <Box h="full" overflowY="auto" bg="bg">
@@ -649,6 +651,9 @@ export function UiPage() {
                   <TagsInput.Input placeholder="Add tag…" />
                 </TagsInput.Control>
               </TagsInput.Root>
+            </Example>
+            <Example label="Tag search (tag manager, filters)">
+              <TagSearch size="xs" value={tagQuery} onChange={setTagQuery} />
             </Example>
             <Example label="Checkbox and switch">
               <HStack gap="6">

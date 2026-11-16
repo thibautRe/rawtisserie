@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describeDelete, describeRename, managedTags, planEdit } from './tagManager.ts';
+import { describeDelete, describeRename, managedTags, pathLevels, planEdit } from './tagManager.ts';
 
 const { tree, info } = managedTags({
   levels: [
@@ -59,22 +59,23 @@ const key = (code: string) => ({
 
 test('the editor says what saving will do, and its button says it too', () => {
   const edit = (e: Partial<Parameters<typeof planEdit>[0]>) =>
-    planEdit({ tag: 'People|Alice', parent: 'People', name: 'Alice', shortcut: null, ...e }, info);
+    planEdit({ tag: 'People|Alice', path: 'People|Alice', shortcut: null, ...e }, info);
   // As it was: nothing to save, the button still says what it'd do.
   assert.deepEqual(edit({}), { problem: '', effects: [], changes: [], action: 'Save' });
-  // `|` isn't a way to move it: Parent is.
-  assert.equal(
-    edit({ name: 'Family|Alice' }).problem,
-    'A name can’t contain |: choose where the tag goes with Parent.',
-  );
-  assert.equal(edit({ name: ' ' }).problem, '');
-  const merged = edit({ parent: 'Family' });
+  // As typed: levels trimmed, empty ones dropped.
+  assert.equal(edit({ path: ' People | Alice |' }).problem, '');
+  assert.equal(edit({ path: ' | ' }).problem, '');
+  const merged = edit({ path: 'Family|Alice' });
   assert.equal(merged.action, 'Merge');
   assert.deepEqual(merged.changes, [{ type: 'rename', from: 'People|Alice', to: 'Family|Alice' }]);
-  assert.equal(edit({ parent: 'People|Alice|Kid' }).problem, 'A tag can’t go inside itself.');
+  assert.equal(edit({ path: 'People|Alice|Kid|Alice' }).problem, 'A tag can’t go inside itself.');
+  // Into levels that don't exist yet: a move, they come with it.
+  assert.deepEqual(edit({ path: 'People|Friends|Alice' }).changes, [
+    { type: 'rename', from: 'People|Alice', to: 'People|Friends|Alice' },
+  ]);
 
   // Renamed and given a shortcut: the rename first, then the shortcut on its new path.
-  const both = edit({ name: 'Alicia', shortcut: [key('KeyA')] });
+  const both = edit({ path: 'People|Alicia', shortcut: [key('KeyA')] });
   assert.deepEqual(
     both.changes.map((c) => c.type),
     ['rename', 'shortcut'],
@@ -84,8 +85,20 @@ test('the editor says what saving will do, and its button says it too', () => {
   // Another tag's shortcut.
   assert.equal(edit({ shortcut: [key('KeyO')] }).problem, 'Places › Paris has Ctrl+Alt+O');
 
-  const fresh = planEdit({ tag: null, parent: 'Places', name: 'Paris', shortcut: null }, info);
+  const fresh = planEdit({ tag: null, path: 'Places|Paris', shortcut: null }, info);
   assert.equal(fresh.problem, 'Places › Paris exists already.');
-  const created = planEdit({ tag: null, parent: 'Places', name: 'Lyon', shortcut: null }, info);
+  const created = planEdit({ tag: null, path: 'Places|Lyon', shortcut: null }, info);
   assert.deepEqual([created.action, created.changes], ['Create', [{ type: 'create', tag: 'Places|Lyon' }]]);
+  // A whole new hierarchy at once.
+  const deep = planEdit({ tag: null, path: 'Events|2026|Wedding', shortcut: null }, info);
+  assert.deepEqual(deep.changes, [{ type: 'create', tag: 'Events|2026|Wedding' }]);
+});
+
+test('the levels of a path typed in the editor, the new ones said so', () => {
+  assert.deepEqual(pathLevels(' People | Friends |Alice|', info), [
+    { path: 'People', name: 'People', isNew: false },
+    { path: 'People|Friends', name: 'Friends', isNew: true },
+    { path: 'People|Friends|Alice', name: 'Alice', isNew: true },
+  ]);
+  assert.deepEqual(pathLevels(' | ', info), []);
 });

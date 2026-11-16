@@ -4,6 +4,8 @@
  * `photos/tags.ts`. A tag counts under each of its ancestors (filters, counts).
  */
 
+import { fold } from './fuzzy.ts';
+
 export const SEPARATOR = '|';
 
 /** As typed: levels trimmed, empty ones dropped (`People | Alice|` → `People|Alice`). */
@@ -61,4 +63,18 @@ export function tagTree(values: readonly { value: string; count: number }[]): Ta
   };
   sort(roots);
   return roots;
+}
+
+/**
+ * The tags of `nodes` whose path has `query` (folded: case and accents aside), with the
+ * way to them: their ancestors, and what's under them. All of them for an empty query.
+ */
+export function filterTagTree(nodes: readonly TagNode[], query: string): TagNode[] {
+  const q = fold(query);
+  if (!q) return [...nodes];
+  return nodes.flatMap((n) => {
+    if (fold(n.path).includes(q)) return [n];
+    const children = filterTagTree(n.children, q);
+    return children.length ? [{ ...n, children }] : [];
+  });
 }

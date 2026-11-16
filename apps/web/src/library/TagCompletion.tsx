@@ -1,13 +1,12 @@
 import { Box, HStack, Text } from '@chakra-ui/react';
 import { useMemo, useState } from 'react';
 import { useAllTags } from '../api/hooks.ts';
+import type { FacetValue } from '../api/types.ts';
 import { fold, fuzzyFilter } from '../lib/fuzzy.ts';
 import { displayTag, normalizeTag } from '../lib/tags.ts';
 
 /** The info panel's tag input (one photo or several): T focuses it. */
 export const TAG_INPUT_ID = 'library-tag-input';
-const LIST_ID = `${TAG_INPUT_ID}-suggestions`;
-const optionId = (i: number) => `${LIST_ID}-${i}`;
 
 /** Focus the info panel's tag input, if it's shown. */
 export function focusTagInput(): boolean {
@@ -27,13 +26,25 @@ export function useTagCompletion({
   input,
   exclude,
   onPick,
+  id = TAG_INPUT_ID,
+  tags: given,
+  create: offerCreate = true,
 }: {
   input: string;
   /** Tags already there: not suggested. */
   exclude: readonly string[];
   onPick: (tag: string) => void;
+  /** The input's id (the info panel's by default). */
+  id?: string;
+  /** The tags suggested, by default the library's. */
+  tags?: readonly FacetValue[];
+  /** Whether the last option adds the tag as typed. */
+  create?: boolean;
 }) {
-  const { data: tags } = useAllTags();
+  const library = useAllTags();
+  const tags = given ?? library.data;
+  const listId = `${id}-suggestions`;
+  const optionId = (i: number) => `${listId}-${i}`;
   const [highlight, setHighlight] = useState(0);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -50,7 +61,10 @@ export function useTagCompletion({
     );
   }, [typed, tags, exclude]);
   const create =
-    typed && !matches.some((m) => fold(m.value) === fold(typed)) && !exclude.some((t) => fold(t) === fold(typed));
+    offerCreate &&
+    typed &&
+    !matches.some((m) => fold(m.value) === fold(typed)) &&
+    !exclude.some((t) => fold(t) === fold(typed));
   const options = [...matches.map((m) => m.value), ...(create ? [typed] : [])];
   const open = focused && !dismissed && matches.length > 0;
   const active = Math.min(highlight, options.length - 1);
@@ -61,11 +75,11 @@ export function useTagCompletion({
   };
 
   const inputProps = {
-    id: TAG_INPUT_ID,
+    id,
     role: 'combobox',
     autoComplete: 'off',
     'aria-autocomplete': 'list',
-    'aria-controls': LIST_ID,
+    'aria-controls': listId,
     'aria-expanded': open,
     'aria-activedescendant': open ? optionId(active) : undefined,
     onFocus: () => setFocused(true),
@@ -79,15 +93,18 @@ export function useTagCompletion({
       const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
       if (step) setHighlight((active + step + options.length) % options.length);
       else if (e.key === 'Enter') pick(options[active]!);
-      else if (e.key === 'Escape') setDismissed(true);
-      else return;
+      else if (e.key === 'Escape') {
+        setDismissed(true);
+        // Closes the list, not the dialog it's in.
+        e.stopPropagation();
+      } else return;
       e.preventDefault();
     },
   } as const;
 
   const list = open && (
     <Box
-      id={LIST_ID}
+      id={listId}
       role="listbox"
       position="absolute"
       top="100%"

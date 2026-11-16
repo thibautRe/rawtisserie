@@ -1,7 +1,9 @@
 import {
+  Badge,
   Box,
   Button,
   Center,
+  Code,
   CloseButton,
   Dialog,
   Field,
@@ -9,34 +11,22 @@ import {
   Heading,
   IconButton,
   Input,
-  InputGroup,
   Menu,
-  NativeSelect,
   Portal,
   Spinner,
   Stack,
   Text,
 } from '@chakra-ui/react';
-import {
-  ChevronDown,
-  ChevronRight,
-  CornerDownRight,
-  Ellipsis,
-  Keyboard,
-  Pencil,
-  Plus,
-  Search,
-  Tag,
-  Trash2,
-} from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, CornerDownRight, Ellipsis, Pencil, Plus, Tag, Trash2 } from 'lucide-react';
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTagChange, useTagManager } from '../api/hooks.ts';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
+import { TagSearch } from '../components/TagSearch.tsx';
 import { toaster } from '../components/toaster.tsx';
-import { fold } from '../lib/fuzzy.ts';
 import { type Shortcut, formatShortcut, pressOf } from '../lib/keys.ts';
-import { type TagInfo, describeDelete, managedTags, planEdit, plural } from '../lib/tagManager.ts';
-import { type TagNode, displayTag, isUnder, tagName, tagParent } from '../lib/tags.ts';
+import { type TagInfo, describeDelete, managedTags, pathLevels, planEdit, plural } from '../lib/tagManager.ts';
+import { SEPARATOR, type TagNode, displayTag, filterTagTree, isUnder, tagName } from '../lib/tags.ts';
+import { useTagCompletion } from '../library/TagCompletion.tsx';
 
 /**
  * What the tag editor opens on: a tag to edit, or a new one (under `parent`), and the
@@ -47,7 +37,7 @@ export interface EditorTarget {
   tag?: string;
   /** For a new one: where it goes. */
   parent?: string | null;
-  focus?: 'name' | 'shortcut';
+  focus?: 'path' | 'shortcut';
 }
 
 /**
@@ -68,13 +58,13 @@ export function TagsSettings() {
     [data],
   );
 
-  // Searching shows the tags matching and the way to them.
-  const q = fold(query.trim());
-  const shown = (n: TagNode): boolean => !q || fold(n.path).includes(q) || n.children.some(shown);
+  // Searching shows the tags matching and the way to them, unfolded.
+  const searching = query.trim() !== '';
+  const found = useMemo(() => filterTagTree(tree, query), [tree, query]);
   const rows = (nodes: TagNode[], depth: number): ReactNode[] =>
-    nodes.filter(shown).flatMap((n) => {
+    nodes.flatMap((n) => {
       const i = info.get(n.path)!;
-      const open = q ? true : !folded.has(n.path);
+      const open = searching || !folded.has(n.path);
       return [
         <HStack
           key={n.path}
@@ -144,11 +134,8 @@ export function TagsSettings() {
                   <Menu.Item value="edit" onSelect={() => setEditing({ tag: n.path })}>
                     <Pencil /> Edit…
                   </Menu.Item>
-                  <Menu.Item value="shortcut" onSelect={() => setEditing({ tag: n.path, focus: 'shortcut' })}>
-                    <Keyboard /> Shortcut…
-                  </Menu.Item>
                   <Menu.Item value="create" onSelect={() => setEditing({ parent: n.path })}>
-                    <CornerDownRight /> New tag inside it…
+                    <CornerDownRight /> New child tag…
                   </Menu.Item>
                   <Menu.Separator />
                   <Menu.Item value="delete" color="fg.error" onSelect={() => setDeleting(n.path)}>
@@ -173,20 +160,11 @@ export function TagsSettings() {
           <Plus /> New tag
         </Button>
       </HStack>
-      <Stack gap="2" textStyle="sm" color="fg.muted">
-        <Text>
-          Tags can contain other tags: <b>People › Alice</b> is the tag Alice, inside People. Filtering the library by
-          People shows the photos tagged People or any tag inside it.
-        </Text>
-        <Text>
-          When tagging a photo, type <b>|</b> between the levels: <b>People|Alice</b>. A tag can also get a keyboard
-          shortcut, to add it to the selected photos or remove it.
-        </Text>
-        <Text>Changes made here apply to every photo with the tag, those in the trash too.</Text>
-      </Stack>
-      <InputGroup startElement={<Search size={14} />} maxW="xs">
-        <Input size="sm" placeholder="Find a tag…" value={query} onChange={(e) => setQuery(e.target.value)} />
-      </InputGroup>
+      <Text textStyle="sm" color="fg.muted">
+        Tags can contain other tags: <b>People › Alice</b> is the tag Alice, inside People. When tagging a photo, type{' '}
+        <b>|</b> between the levels: <Code size="sm">People|Alice</Code>
+      </Text>
+      <TagSearch value={query} onChange={setQuery} maxW="xs" />
       {isPending ? (
         <Center py="10">
           <Spinner color="orange.solid" />
@@ -195,8 +173,12 @@ export function TagsSettings() {
         <Text textStyle="sm" color="fg.subtle" py="6" textAlign="center">
           No tags yet: add some to photos in the library, or create one here.
         </Text>
+      ) : found.length === 0 ? (
+        <Text textStyle="sm" color="fg.subtle" py="6" textAlign="center">
+          No tag matches “{query.trim()}”.
+        </Text>
       ) : (
-        <Box borderTopWidth="1px">{rows(tree, 0)}</Box>
+        <Box borderTopWidth="1px">{rows(found, 0)}</Box>
       )}
       <TagEditor target={editing} info={info} onClose={() => setEditing(null)} />
       <ConfirmDialog
@@ -224,9 +206,14 @@ export function TagsSettings() {
   );
 }
 
+/** The editor's path input. */
+const PATH_INPUT_ID = 'tag-editor-path';
+const NONE: readonly string[] = [];
+
 /**
- * Creating a tag or editing one: where it goes (Parent), its name, its shortcut. What
- * saving will do is said below, as it's edited (`planEdit`), before the button doing it.
+ * Creating a tag or editing one: its path (levels separated by `|`, missing ones created
+ * with it) and its shortcut. What saving will do is said below, as it's edited
+ * (`planEdit`), before the button doing it.
  */
 export function TagEditor({
   target,
@@ -247,7 +234,7 @@ export function TagEditor({
       onOpenChange={(e) => !e.open && onClose()}
       // The field it was opened for (the dialog moves the focus as it opens).
       initialFocusEl={() =>
-        document.querySelector<HTMLElement>(t?.focus === 'shortcut' ? '[data-shortcut-recorder]' : '[data-tag-name]')
+        document.querySelector<HTMLElement>(t?.focus === 'shortcut' ? '[data-shortcut-recorder]' : `#${PATH_INPUT_ID}`)
       }
     >
       <Portal>
@@ -272,13 +259,37 @@ function EditorForm({
 }) {
   const change = useTagChange();
   const tag = target.tag ?? null;
-  const [parent, setParent] = useState((tag === null ? target.parent : tagParent(tag)) ?? '');
-  const [name, setName] = useState(tag === null ? '' : tagName(tag));
+  // A new one inside another starts after it: `People|`.
+  const [path, setPath] = useState(tag ?? (target.parent ? target.parent + SEPARATOR : ''));
   const [shortcut, setShortcut] = useState<Shortcut | null>(tag === null ? null : (info.get(tag)?.shortcut ?? null));
   const [saving, setSaving] = useState(false);
-  const plan = planEdit({ tag, parent, name, shortcut }, info);
-  // Where it can go: anywhere but inside itself.
-  const parents = [...info.keys()].filter((p) => tag === null || !isUnder(p, tag)).sort((a, b) => a.localeCompare(b));
+  const plan = planEdit({ tag, path, shortcut }, info);
+  const levels = pathLevels(path, info);
+  // Suggested as it's typed: where it can go, anywhere but inside itself. Picking one
+  // goes on inside it.
+  const places = useMemo(
+    () => [...info].flatMap(([value, i]) => (tag !== null && isUnder(value, tag) ? [] : [{ value, count: i.photos }])),
+    [info, tag],
+  );
+  const completion = useTagCompletion({
+    input: path,
+    exclude: NONE,
+    onPick: (p) => setPath(p + SEPARATOR),
+    id: PATH_INPUT_ID,
+    tags: places,
+    create: false,
+  });
+  // Editing a tag starts with its name selected (typing renames it), a new one after
+  // where it goes (typing names it). After the dialog's focus, which selects it all.
+  const placed = useRef(false);
+  const place = (e: React.FocusEvent<HTMLInputElement>) => {
+    completion.inputProps.onFocus();
+    if (placed.current) return;
+    placed.current = true;
+    const el = e.currentTarget;
+    const end = el.value.length;
+    requestAnimationFrame(() => el.setSelectionRange(tag === null ? end : end - tagName(tag).length, end));
+  };
 
   const save = async () => {
     if (plan.problem !== null || saving) return;
@@ -318,22 +329,38 @@ function EditorForm({
       <Dialog.Body>
         <Stack gap="4">
           <Field.Root>
-            <Field.Label>Parent</Field.Label>
-            <NativeSelect.Root size="sm">
-              <NativeSelect.Field value={parent} onChange={(e) => setParent(e.target.value)} aria-label="Parent">
-                <option value="">None (top level)</option>
-                {parents.map((p) => (
-                  <option key={p} value={p}>
-                    {displayTag(p)}
-                  </option>
+            <Field.Label>Tag</Field.Label>
+            <Box position="relative" w="full">
+              <Input
+                size="sm"
+                placeholder="People|Friends|Alice"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                {...completion.inputProps}
+                onFocus={place}
+              />
+              {completion.list}
+            </Box>
+            <Field.HelperText>
+              Type <b>|</b> between the levels; those that don’t exist yet are created with it.
+            </Field.HelperText>
+            {levels.length > 0 && (
+              <HStack gap="1" wrap="wrap" textStyle="sm" data-tag-levels>
+                {levels.map((l, i) => (
+                  <Fragment key={l.path}>
+                    {i > 0 && <Text color="fg.subtle">›</Text>}
+                    <HStack gap="1" data-new={l.isNew || undefined}>
+                      <Text fontWeight={i === levels.length - 1 ? 'semibold' : undefined}>{l.name}</Text>
+                      {l.isNew && (
+                        <Badge size="xs" colorPalette="orange" variant="subtle">
+                          new
+                        </Badge>
+                      )}
+                    </HStack>
+                  </Fragment>
                 ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
-          </Field.Root>
-          <Field.Root>
-            <Field.Label>Name</Field.Label>
-            <Input size="sm" value={name} onChange={(e) => setName(e.target.value)} data-tag-name />
+              </HStack>
+            )}
           </Field.Root>
           <ShortcutRecorder value={shortcut} onChange={setShortcut} />
           {plan.problem ? (

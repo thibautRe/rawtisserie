@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { displayTag, isUnder, normalizeTag, retag, tagParent, tagTree } from './tags.ts';
+import { displayTag, isUnder, normalizeTag, retag, tagParent, tagTree, filterTagTree } from './tags.ts';
 
 test('tags are paths', () => {
   assert.equal(normalizeTag(' People | Alice |'), 'People|Alice');
@@ -27,4 +27,17 @@ test('a tree of the levels, by name, missing ones added', () => {
       ['People', 3, ['Alice', 'Bob']],
     ],
   );
+});
+
+test('searching the tree keeps the matches, the way to them and what is under them', () => {
+  const tree = tagTree([
+    { value: 'People|Alice|Kid', count: 1 },
+    { value: 'People|Bob', count: 1 },
+    { value: 'Places|Paris', count: 1 },
+  ]);
+  const paths = (nodes: ReturnType<typeof tagTree>): string[] => nodes.flatMap((n) => [n.path, ...paths(n.children)]);
+  assert.deepEqual(paths(filterTagTree(tree, 'alíce')), ['People', 'People|Alice', 'People|Alice|Kid']);
+  assert.deepEqual(paths(filterTagTree(tree, 'peo')), ['People', 'People|Alice', 'People|Alice|Kid', 'People|Bob']);
+  assert.deepEqual(paths(filterTagTree(tree, ' ')), paths(tree));
+  assert.deepEqual(filterTagTree(tree, 'nowhere'), []);
 });

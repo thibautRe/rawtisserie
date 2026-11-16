@@ -361,6 +361,15 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
     'People|Alice',
     'People|Bob',
   ]);
+  // Searched: what's found and the way to it, unfolded.
+  await page.getByRole('button', { name: 'Fold People' }).click();
+  await page.getByLabel('Find a tag').fill('bob');
+  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), [
+    'People',
+    'People|Bob',
+  ]);
+  await page.getByLabel('Find a tag').press('Escape');
+  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), ['beach', 'People']);
   await page.locator('[data-tag="People"]').getByText('People').click();
   await page.waitForURL(/[?&]tag=People(&|$)/);
   // The list is read again for the filter: the photo picked once it's in.
@@ -394,13 +403,23 @@ test('the tag manager (Settings › Tags) edits, merges, creates and deletes, sa
   const editor = page.locator('[data-tag-editor]');
   const button = (name: string) => editor.getByRole('button', { name, exact: true });
 
+  const path = page.locator('#tag-editor-path');
   await act('People|Alice', 'Edit…');
   // Its button says what it does, even before anything changed.
   assert.equal(await button('Save').isDisabled(), true);
-  // `|` doesn't move it: Parent does.
-  await page.locator('[data-tag-name]').fill('Family|Alice');
-  await page.getByText('A name can’t contain |: choose where the tag goes with Parent.').waitFor();
-  await page.locator('[data-tag-name]').fill('Alicia');
+  // Opened on its name, selected: typing renames it.
+  await page.waitForFunction(() => document.activeElement?.id === 'tag-editor-path');
+  assert.equal(
+    await path.evaluate((i: HTMLInputElement) => i.value.slice(i.selectionStart!, i.selectionEnd!)),
+    'Alice',
+  );
+  // Levels that don't exist yet are said so.
+  await path.fill('People|Friends|Alice');
+  assert.deepEqual(
+    await page.locator('[data-tag-levels] [data-new]').evaluateAll((els) => els.map((e) => e.textContent)),
+    ['Friendsnew', 'Alicenew'],
+  );
+  await path.fill('People|Alicia');
   assert.equal(
     await effect.innerText(),
     'People › Alice becomes People › Alicia on 2 photos (and 1 version in the trash).',
@@ -409,18 +428,22 @@ test('the tag manager (Settings › Tags) edits, merges, creates and deletes, sa
   await page.getByText('Saved People › Alicia: 3 photos changed').waitFor();
   assert.deepEqual(sent.at(-1), { path: '/api/tags/rename', body: { from: 'People|Alice', to: 'People|Alicia' } });
 
-  // Put inside a tag where one has its name: a merge, said so.
+  // Put inside a tag where one has its name: a merge, said so. The tags are suggested,
+  // picking one goes on inside it.
   await act('People|Alice', 'Edit…');
-  await editor.getByLabel('Parent').selectOption('Family');
+  await path.fill('fam');
+  await page.getByRole('option', { name: /^Family\s*\d+$/ }).click();
+  assert.equal(await path.inputValue(), 'Family|');
+  await page.keyboard.type('Alice');
   assert.match(await effect.innerText(), /Family › Alice exists already: they’ll be one tag\./);
   await button('Merge').click();
   await page.getByText('Saved Family › Alice: 3 photos changed').waitFor();
   assert.deepEqual(sent.at(-1)?.body, { from: 'People|Alice', to: 'Family|Alice' });
 
   // A new tag, inside another, with a shortcut: created, then given it.
-  await act('Places', 'New tag inside it…');
-  assert.equal(await editor.getByLabel('Parent').inputValue(), 'Places');
-  await page.locator('[data-tag-name]').fill('Lyon');
+  await act('Places', 'New child tag…');
+  assert.equal(await path.inputValue(), 'Places|');
+  await page.keyboard.type('Lyon');
   await editor.locator('[data-shortcut-recorder]').click();
   await page.keyboard.press('Control+Alt+KeyL');
   assert.match(await effect.innerText(), /Creates Places › Lyon\.[\s\S]*Ctrl\+Alt\+L will add or remove Places › Lyon/);
@@ -845,10 +868,9 @@ test("a tag's shortcut is recorded in the tag manager, refused if the library ha
     .locator('[data-managed-tag="Places|Paris"]')
     .getByRole('button', { name: /^Change/ })
     .click();
-  await page.getByRole('menuitem', { name: 'Shortcut…' }).click();
-  // Opened on the shortcut: the keys go to it at once.
+  await page.getByRole('menuitem', { name: 'Edit…' }).click();
   const recorder = page.locator('[data-shortcut-recorder]');
-  await page.waitForFunction(() => document.activeElement?.hasAttribute('data-shortcut-recorder'));
+  await recorder.click();
   await page.keyboard.press('p');
   await page.getByText('P is one of the library’s keys').waitFor();
   // A pause: a new shortcut. Then a sequence of two, released in between.

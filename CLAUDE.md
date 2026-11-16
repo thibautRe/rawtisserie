@@ -69,7 +69,7 @@ See README.md for the architecture overview and commands.
 - Tags are paths, levels separated by `|` (`People|Alice`, shown People › Alice; `lib/tags.ts`
   ↔ server `photos/tags.ts`), counted under their ancestors (filters, the tree's counts,
   `TAG_LEVELS`; exports write each level to `dc:subject` and the paths to
-  `lr:hierarchicalSubject`). The tag manager (Settings › Tags, `pages/TagsPage.tsx`; its editor sets a tag's parent, name and shortcut) renames, moves, merges and deletes
+  `lr:hierarchicalSubject`). The tag manager (Settings › Tags, `pages/TagsPage.tsx`; its editor sets a tag's path, missing levels created with it, and shortcut; its search (`TagSearch`, `filterTagTree`) is the filters' too) renames, moves, merges and deletes
   across every version, trashed ones included, the tags under it too; `user_tags` holds
   tags no photo has yet and the tags' shortcuts. Anything that stores tag names must
   follow a rename there. Tag shortcuts (`useTagShortcuts`, `lib/keys.ts`) may be sequences
