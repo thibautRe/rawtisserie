@@ -58,6 +58,9 @@ folders and cards, a review before sending, chunked resumable uploads, and impor
 survive a reload. Then tags: a tree (levels separated by `|`, `/` tags migrated), a tag
 manager (Settings › Tags: one editor for a tag's parent, name and shortcut; merge, delete; each saying first what it'll do) and
 shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and the loupe.
+2026-11-16: added 8.11 (JPEG and other non-RAW images), 8.12 (boolean tag filters and
+rating ranges), 8.13 (select everything the filters match), 7.11 (AVIF renders) and
+M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -75,6 +78,7 @@ M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipp
 M6 Cloud processing ── independent; can start any time (native renderer first)
 M7 Hosted service ──── storage, quotas, history size, local originals; 7.1 before a public launch
 M9 Branding ────────── independent; logo, typography, spinner, /develop page
+M10 Responsive ─────── library and settings on phones before 1.0; the developer after M6
 ```
 
 Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or more.
@@ -1394,6 +1398,26 @@ Ceph or Garage) can cost several times less per TB than managed object storage, 
 price of operating it (disk replacement, monitoring, on-call). Only once 7.1 makes the
 backend a configuration choice and the volume justifies it.
 
+### 7.11 AVIF renders (S–M)
+
+The server stores its renders (480 px thumbnails, 2048 px previews) and the loupe's
+100 % tiles as JPEG (`renderJpeg`, `renderKey`'s `.jpg`). AVIF is roughly half the size
+at the same quality: less storage per version and less bandwidth on every grid scroll.
+
+- **New renders only:** existing JPEG renders stay as they are; they're replaced as
+  versions are re-rendered (an edit, a migration). So a render's format must be known
+  without guessing from the key: record it (a column on `versions`, or the key itself),
+  and serve the right `Content-Type`.
+- **Encoder:** in the pipeline crate, for the server's wasm build: `ravif` (rav1e, pure
+  Rust) builds for wasm32 but is slow; measure it at both sizes in the render worker
+  (speed setting, 8-bit, 4:2:0 for thumbnails) against the render queue's figures
+  (`render_stats`). If it's too slow, encode with a native library in the worker instead.
+- **Tiles:** the loupe's tiles are rendered on demand, so encoding time is latency
+  there: keep them JPEG unless AVIF is fast enough at 512 px.
+- Browsers: every current one decodes AVIF; check the web app's `<img>`s and the
+  `ImageBitmap` paths take it.
+- Pairs with 8.4's "Left for later: AVIF/JPEG XL" for exports (same encoder).
+
 ---
 
 ## M8 — Library workflow (L overall, before 1.0)
@@ -1700,6 +1724,62 @@ of the image.
   to motion blur vs. defocus), whether the maker-notes AF point is worth it beyond Sony
   first, and the overlay's look.
 
+### 8.11 JPEG and other non-RAW images (L, before 1.0)
+
+So a whole existing library can come in, not just its RAWs: JPEG first, then TIFF,
+PNG and WebP. Such photos are already developed (display-referred), and their owners
+mostly want to keep, find and share them, with light touches at most.
+
+- **Decoding:** pure Rust, so it runs in the browser and the server's wasm build: the
+  `image` crate (JPEG through zune-jpeg, already a dependency of rawler's; PNG, TIFF,
+  WebP), the embedded ICC profile through moxcms (iPhone JPEGs are Display P3), EXIF
+  through rawler's TIFF reader. AVIF and HEIC need C decoders (dav1d, libheif) that
+  don't build for wasm32-unknown-unknown: later, separately.
+- **Pipeline:** display-referred. No filmic: the image goes through the pipeline
+  linearised (its profile's transfer curve and primaries to linear Rec.2020) and comes out
+  clipped to the output space, so an unedited photo round-trips. The base is a plain RGB
+  layout (as linear DNGs have), kept 8 or 16 bits per sample with a lookup table, not
+  as floats (a 24 MP JPEG is 72 MB that way, 288 MB as floats).
+- **Modules:** a reduced set: geometry (crop, rotation, straighten, perspective),
+  retouch, creative LUTs, and simple colour and contrast adjustments; none of the
+  scene-referred ones (filmic, lens correction, colour calibration's white balance).
+  A style or preset applied to a mix of RAW and JPEG photos skips the modules a JPEG
+  doesn't have.
+- **Library:** the same photos, versions, history, culling, tags and export. Filters
+  get the file type. RAW+JPEG pairs from cameras: decide whether the JPEG is skipped,
+  imported or grouped with its RAW.
+- **Open questions:** the simple colour module (what it shows, and whether it's a new
+  kind or existing ones restricted), which modules are hidden versus just not in the
+  default recipe, and whether a JPEG can be "developed" with the RAW modules anyway.
+
+### 8.12 Boolean tag filters and rating ranges (M)
+
+- **Tags:** today every selected tag must match (AND). Allow AND, OR and NOT between
+  tags, e.g. `sunset` AND `People|Alice` AND NOT any other `People|…` tag. A parent
+  matches its children, as the counts do, so that last one needs "any child of
+  `People` but `Alice`" to be expressible. Only for tags: the other filters stay ANDed with each other. To decide: the UI
+  (per tag include/exclude states in the tree, plus an any/all switch per group, rather
+  than a query language), how it reads back in the filter summary, and the URL format
+  (the library's state is in the URL).
+- **Rating:** today "at least N stars". Allow exactly N and a range (2–3 stars). The
+  stars widget shows the selected set by highlighting its stars: click for "at least",
+  Ctrl+click to toggle the star under the pointer (any set of ratings, so a range or a
+  single value), Shift+click for a range from the last one clicked. Keyboard
+  equivalents too, and the shortcut stays listed in `reservedPress`.
+- The server's filter (`whereClause`) and the counts must follow both.
+
+### 8.13 Select everything the filters match (M, from NOTES.md)
+
+Ctrl+A selects the loaded page of the grid, not all the photos the filters match. It
+should select all of them (a "selection by filter" rather than a list of ids), and every
+action on the selection should apply to all of them: trash, ratings, flags, labels, tags,
+presets and styles, export, sending.
+
+- The server takes either ids or the filter (with the ids excluded by hand since) for
+  each bulk route, and resolves it in one query, so nothing loads every id in the browser.
+- Above 200 photos, actions ask first, with the number ("Move 320 photos to the trash?").
+- The status bar shows the count ("All 1,240 selected").
+
 ---
 
 ### 8.5 Export options (M, before 1.0) — done
@@ -1768,6 +1848,19 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
     instead of separator lines (a bar on the side, coloured by state, was tried and
     dropped: too busy). Titles 12 px bold; the switch is always rightmost. The other
     panels (library sidebars, scopes and history) could follow the same surfaces.
+
+## M10 — Responsive design (before 1.0 for the library and settings)
+
+The app is unusable on a phone today: the library's sidebars, grid and loupe, and the
+developer's panels, assume a wide window.
+
+- **10.1 Library and settings (M–L, before 1.0):** the grid in fewer columns, the filters
+  and info panel as drawers, the loupe with swipe and pinch (its 100 % tiles already come
+  from the server), culling by touch (rate, flag, label), import from the phone's picker,
+  and every Settings page (tags, tokens, instances, admin) in one column. Touch targets
+  and `test:ui`/`test:library` at a phone viewport.
+- **10.2 Developer (after M6):** phones can't develop full RAWs in wasm at an acceptable
+  speed, so wait for cloud processing; then the panels as a bottom sheet over the image.
 
 ---
 
@@ -1883,10 +1976,13 @@ Required before 1.0, on top of what's done:
 - **Library:** 8.1 presets on a selection, ~~8.2 folder/SD import skipping known files~~,
   8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
   export options (colour space/ICC at least).
-- **UI:** 4.13 mask UI redesign.
+- **Library:** 8.11 JPEG and other non-RAW images.
+- **UI:** 4.13 mask UI redesign; 10.1 the library and settings on phones.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules.
+  (7.1 is needed for a public hosted launch anyway; 7.11 AVIF renders is cheap and best
+  before many renders exist), 4.2 auto-apply rules, 8.12 boolean tag filters, 8.13
+  selecting everything the filters match.
 
 ## Suggested order
 
@@ -1902,7 +1998,9 @@ Required before 1.0, on top of what's done:
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
-   browser)~~ (server-side jobs after M6 step 1). 4.13 mask UI redesign once prototyped,
+   browser)~~ (server-side jobs after M6 step 1). 8.11 JPEG and other images (added
+   2026-11-16, started first), then 7.11 AVIF renders, 10.1 responsive library, 8.13 and
+   8.12. 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
 7. M5 compare.
