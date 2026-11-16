@@ -60,7 +60,8 @@ manager (Settings › Tags: one editor for a tag's parent, name and shortcut; me
 shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and the loupe.
 2026-11-16: added 8.11 (JPEG and other non-RAW images), 8.12 (boolean tag filters and
 rating ranges), 8.13 (select everything the filters match), 7.11 (AVIF renders) and
-M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope.
+M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope. 8.11 done the
+same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1726,31 +1727,44 @@ of the image.
 
 ### 8.11 JPEG and other non-RAW images (L, before 1.0)
 
-So a whole existing library can come in, not just its RAWs: JPEG first, then TIFF,
-PNG and WebP. Such photos are already developed (display-referred), and their owners
-mostly want to keep, find and share them, with light touches at most.
+So a whole existing library can come in, not just its RAWs. Such photos are already
+developed (display-referred), and their owners mostly want to keep, find and share
+them, with light touches at most.
 
-- **Decoding:** pure Rust, so it runs in the browser and the server's wasm build: the
-  `image` crate (JPEG through zune-jpeg, already a dependency of rawler's; PNG, TIFF,
-  WebP), the embedded ICC profile through moxcms (iPhone JPEGs are Display P3), EXIF
-  through rawler's TIFF reader. AVIF and HEIC need C decoders (dav1d, libheif) that
-  don't build for wasm32-unknown-unknown: later, separately.
-- **Pipeline:** display-referred. No filmic: the image goes through the pipeline
-  linearised (its profile's transfer curve and primaries to linear Rec.2020) and comes out
-  clipped to the output space, so an unedited photo round-trips. The base is a plain RGB
-  layout (as linear DNGs have), kept 8 or 16 bits per sample with a lookup table, not
-  as floats (a 24 MP JPEG is 72 MB that way, 288 MB as floats).
-- **Modules:** a reduced set: geometry (crop, rotation, straighten, perspective),
-  retouch, creative LUTs, and simple colour and contrast adjustments; none of the
-  scene-referred ones (filmic, lens correction, colour calibration's white balance).
-  A style or preset applied to a mix of RAW and JPEG photos skips the modules a JPEG
-  doesn't have.
-- **Library:** the same photos, versions, history, culling, tags and export. Filters
-  get the file type. RAW+JPEG pairs from cameras: decide whether the JPEG is skipped,
-  imported or grouped with its RAW.
-- **Open questions:** the simple colour module (what it shows, and whether it's a new
-  kind or existing ones restricted), which modules are hidden versus just not in the
-  default recipe, and whether a JPEG can be "developed" with the RAW modules anyway.
+> **Done** (2026-11-16): JPEG, PNG, TIFF and WebP, imported and developed like RAW
+> files. As built:
+>
+> - **Decoding** (`crates/pipeline/src/bitmap.rs`): pure Rust, so it runs in the browser
+>   and in the server's wasm build: the `image` crate, the embedded ICC profile through
+>   moxcms (matrix and curves profiles directly, the others converted to sRGB first;
+>   sRGB without one), EXIF through rawler's TIFF reader. A TIFF counts as an image only
+>   when it doesn't look like a RAW file's container (`bitmap::detect`; no golden RAW
+>   does). Costs ~400 KB more wasm, gzipped (+20 %).
+> - **Pipeline:** the same one, without filmic. The image is a plain RGB (or grey)
+>   layout, its samples kept as stored (8 or 16 bits) and linearised by lookup tables
+>   when read, its profile's primaries as the camera matrix; no white balance, no
+>   as-shot light. It comes out clipped to the output space, so an unedited image comes
+>   out as it went in (`tests/bitmap.rs`, and `images.test.ts` through wasm).
+> - **Modules:** all of them except filmic and lens correction (`RAW_ONLY_KINDS`, hidden
+>   in the developer). An image starts with an empty recipe and its original is empty
+>   (`originalRecipe`), so its modules start neutral (no +0.7 EV push, no white balance).
+>   Styles, pasted edits and batch edits drop what an image doesn't have (`forPhoto`).
+> - **Import:** a JPEG next to a RAW file of the same name in the same folder (a camera
+>   shooting both) is set apart; the review offers to import those too.
+> - Photos carry their format in their metadata (`PhotoMetadata.imageFormat`, absent
+>   for RAW files).
+
+Left:
+
+- **AVIF and HEIC** (iPhones' default): they need C decoders (dav1d, libheif) that don't
+  build for wasm32-unknown-unknown. Options: a Rust AV1 decoder (rav1d) for AVIF; for
+  HEIC, decode in the browser where it can (Safari) and convert on import, or a native
+  decoder on the server once M6's native renderer exists.
+- **Filters:** the file type (RAW / JPEG / …) in the library's filters.
+- **Simpler colour tools** for images, if the full modules prove too much: e.g. one
+  "Adjust" module (contrast, saturation, warmth) shown first for them.
+- **RAW + JPEG pairs:** imported both, they're two photos; grouping them (the JPEG as
+  the RAW's sidecar) is possible later.
 
 ### 8.12 Boolean tag filters and rating ranges (M)
 
@@ -1976,7 +1990,7 @@ Required before 1.0, on top of what's done:
 - **Library:** 8.1 presets on a selection, ~~8.2 folder/SD import skipping known files~~,
   8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
   export options (colour space/ICC at least).
-- **Library:** 8.11 JPEG and other non-RAW images.
+- **Library:** ~~8.11 JPEG and other non-RAW images~~.
 - **UI:** 4.13 mask UI redesign; 10.1 the library and settings on phones.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
@@ -1998,8 +2012,8 @@ Required before 1.0, on top of what's done:
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
-   browser)~~ (server-side jobs after M6 step 1). 8.11 JPEG and other images (added
-   2026-11-16, started first), then 7.11 AVIF renders, 10.1 responsive library, 8.13 and
+   browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
+   and done 2026-11-16), then 7.11 AVIF renders, 10.1 responsive library, 8.13 and
    8.12. 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

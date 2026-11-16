@@ -5,7 +5,8 @@
 RAWtisserie is a web-based photo library and RAW developer, inspired by
 [Ansel](https://ansel.photos) and [darktable](https://www.darktable.org).
 
-- **Library**: every photo you own, filterable by EXIF metadata (camera, lens, ISO,
+- **Library**: every photo you own (RAW files, and JPEG, PNG, TIFF and WebP images),
+  filterable by EXIF metadata (camera, lens, ISO,
   focal length, aperture, date), tags, rating, flags and colour labels. Cull with the
   keyboard (rate, pick/reject, label, delete), in the grid or in a full-window loupe
   that zooms to 100 % (tiles rendered by the server), and correct metadata. Going back from the
@@ -68,6 +69,11 @@ RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera →
     ─▶ exposure ─▶ colour calibration ─▶ colour balance
     ─▶ colour primaries ─▶ filmic (AgX) ─▶ creative LUTs ─▶ sRGB            one fused pass, always re-run
 ```
+
+Images that aren't RAW files (JPEG, PNG, TIFF, WebP: `bitmap.rs`) take the same path as
+a plain RGB "sensor": their samples are linearised through their ICC profile (sRGB without
+one) and converted to Rec.2020, with nothing to white balance. They have no filmic or lens
+correction and start with an empty recipe, so an unedited image comes out as it went in.
 
 Each cached stage is keyed by the parameters it depends on, so a slider only re-runs
 the stages after it. Exposure, white balance, colour and tone sliders only re-run the

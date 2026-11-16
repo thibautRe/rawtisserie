@@ -180,6 +180,15 @@ See README.md for the architecture overview and commands.
   (`MixerTarget` in `ModulePanel`). Its per-pixel grading is split into short branch-free
   loops over 64-pixel chunks so they vectorise: keep it that way. The tone curve and the contrast equalizer draw with `curveAt` (`develop/curve.ts`), which mirrors `equalizer::curve`. Upstream sources:
   github.com/aurelienpierreeng/ansel, `src/iop/` and `src/pixel/colorequal_shared.c`.
+- Images that aren't RAW files (JPEG, PNG, TIFF, WebP; `bitmap.rs`, roadmap 8.11) are a
+  `RawPhoto` too, read as a plain RGB/grey layout and linearised by tables from their ICC
+  profile. Their metadata has `imageFormat`. They start with an empty recipe and their
+  original is empty (`originalRecipe`, not `originalEditParams`: pass the photo's to
+  anything that compares or resets modules), and they have no filmic or lens correction
+  (`RAW_ONLY_KINDS`; whatever applies a recipe fragment to a photo goes through
+  `forPhoto`). Accepted extensions: the server's `IMAGE_EXTENSIONS` ↔ web `IMAGE_ACCEPT`.
+  `bitmap::detect` tells a TIFF image from a TIFF-based RAW file; `tests/bitmap.rs`
+  checks the golden RAWs aren't taken for images.
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance
   adapting from the as-shot light. A recipe without it renders D65-balanced colours.
