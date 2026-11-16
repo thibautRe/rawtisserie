@@ -1,6 +1,6 @@
 /**
  * Taking in an original file: from an upload (`POST /api/photos`) or from another
- * instance (`transfer/receive.ts`). Checks that it's a RAW file, not too large, not
+ * instance (`transfer/receive.ts`). Checks that it's a RAW file or an image, not too large, not
  * already there, not deleted for good before (unless allowed) and within the quota; then
  * stores it, with a photo and its first version.
  */
@@ -11,6 +11,7 @@ import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { db, photos, sql, versions } from '../db.ts';
 import type Versions from '../__generated__/versions.ts';
 import {
+  IMAGE_EXTENSIONS,
   RAW_EXTENSIONS,
   type StoredUpload,
   commitUpload,
@@ -45,9 +46,9 @@ export async function ingestFile(
   file: Readable & { truncated?: boolean },
   options: IngestOptions,
 ): Promise<Ingested> {
-  if (!isRawName(filename)) {
+  if (!isSupportedName(filename)) {
     file.resume();
-    return { status: 'skipped', kind: 'unsupported', reason: 'Not a supported RAW file' };
+    return { status: 'skipped', kind: 'unsupported', reason: UNSUPPORTED };
   }
   const upload = await receiveUpload(file);
   if (file.truncated) {
@@ -117,7 +118,13 @@ export async function ingestReceived(
   return { status: 'created', photoId: id, versionId: inserted.versionId };
 }
 
-export const isRawName = (filename: string) => RAW_EXTENSIONS.has(path.extname(filename).toLowerCase());
+/** A RAW file, or an image (JPEG, PNG, TIFF, WebP), by its name. */
+export function isSupportedName(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase();
+  return RAW_EXTENSIONS.has(ext) || IMAGE_EXTENSIONS.has(ext);
+}
+
+export const UNSUPPORTED = 'Not a RAW file or an image we read (JPEG, PNG, TIFF, WebP)';
 
 /**
  * What an upload brought: the version created (a new one on the photo, for a file only

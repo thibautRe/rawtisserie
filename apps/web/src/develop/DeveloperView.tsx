@@ -10,6 +10,7 @@ import {
   AUTO_TUNE_KINDS,
   AUTO_RECIPE_LABELS,
   applyStyle,
+  forPhoto,
   clearAutoTunes,
   exportFilename,
   exportOptions,
@@ -929,17 +930,23 @@ export function DeveloperView({
     (p) => store.setLive(p),
   );
   const onPreviewStyle = useStableCallback((style: Style | 'paste' | null, appendAll: boolean) => {
-    if (style !== 'paste') return stylePreview.preview(style && ((p) => applyStyle(p, style.payload, appendAll)));
+    if (style !== 'paste')
+      return stylePreview.preview(style && ((p) => forPhoto(applyStyle(p, style.payload, appendAll), metadata)));
     const clip = readClipboard();
-    stylePreview.preview(clip && pasteEdit(clip, appendAll).apply);
+    stylePreview.preview(clip && ((p) => forPhoto(pasteEdit(clip, appendAll).apply(p), metadata)));
   });
   const onApplyStyle = useStableCallback((style: Style, appendAll: boolean) => {
     setCropDraft(null);
     setGuides(null);
     const before = stylePreview.end();
-    commit(applyStyle(before, style.payload, appendAll), `Style: ${style.name}${appendAll ? ' (appended)' : ''}`);
+    commit(
+      forPhoto(applyStyle(before, style.payload, appendAll), metadata),
+      `Style: ${style.name}${appendAll ? ' (appended)' : ''}`,
+    );
   });
-  const onStyleRecipe = useStableCallback((style: Style) => applyStyle(stylePreview.before(), style.payload, false));
+  const onStyleRecipe = useStableCallback((style: Style) =>
+    forPhoto(applyStyle(stylePreview.before(), style.payload, false), metadata),
+  );
   const onCreateStyle = useStableCallback(() => setCreatingStyle(true));
 
   // ── Copy and paste (roadmap 8.6) ──
@@ -970,7 +977,7 @@ export function DeveloperView({
     setCropDraft(null);
     setGuides(null);
     const edit = pasteEdit(clip, appendAll);
-    commit(edit.apply(stylePreview.end()), edit.label);
+    commit(forPhoto(edit.apply(stylePreview.end()), metadata), edit.label);
   });
 
   const stylesNode = useMemo(
@@ -1313,6 +1320,8 @@ export function DeveloperView({
             params={params}
             lensCorrection={metadata.lensCorrection ?? null}
             asShotIlluminant={metadata.asShotIlluminant ?? null}
+            imageFormat={metadata.imageFormat ?? null}
+            original={original}
             onChange={onLiveChange}
             onCommit={onPanelCommit}
             presets={presets.modulePresets}

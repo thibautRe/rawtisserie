@@ -71,6 +71,12 @@ export async function deleteRenders(versionId: string): Promise<void> {
   await Promise.all((Object.keys(RENDER_SIZES) as RenderSize[]).map((s) => storage.delete(renderKey(versionId, s))));
 }
 
+/**
+ * File extensions of images that aren't RAW files, developed already (roadmap 8.11;
+ * decoded by the pipeline's `bitmap`). Mirrors `IMAGE_ACCEPT` in the web app.
+ */
+export const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp']);
+
 /** File extensions of RAW formats we accept (decoding support comes from rawler). */
 export const RAW_EXTENSIONS = new Set([
   '.3fr',

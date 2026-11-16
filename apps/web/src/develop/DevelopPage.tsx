@@ -4,7 +4,7 @@ import {
   type PhotoMetadata,
   defaultRecipe,
   normalizeEditParams,
-  originalEditParams,
+  originalRecipe,
 } from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -15,7 +15,7 @@ import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
-import { RAW_ACCEPT } from '../lib/format.ts';
+import { PHOTO_ACCEPT } from '../lib/format.ts';
 import { DeveloperView } from './DeveloperView.tsx';
 import { FilmRoll } from './FilmRoll.tsx';
 import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
@@ -113,7 +113,7 @@ export function LocalDevelopPage() {
     <input
       ref={input}
       type="file"
-      accept={RAW_ACCEPT}
+      accept={PHOTO_ACCEPT}
       hidden
       onChange={(e) => {
         const f = e.target.files?.[0];
@@ -133,7 +133,7 @@ export function LocalDevelopPage() {
           filename={loaded.file.name}
           metadata={loaded.metadata}
           exportInfo={fileExportInfo(loaded.file.name, loaded.metadata)}
-          original={originalEditParams}
+          original={originalRecipe(loaded.metadata)}
           initialHistory={autoApplied(loaded.metadata)}
           actions={(history) => (
             <>
@@ -198,7 +198,8 @@ export function LocalDevelopPage() {
         <Heading size="2xl">Develop a RAW file</Heading>
         <Text color="fg.muted">
           Drop a RAW file here (ARW, CR2, CR3, NEF, DNG, RAF, ORF, RW2…) to develop it: exposure, white balance, tone
-          mapping, colour, sharpening, crop & straighten. Export the result as a JPEG.
+          mapping, colour, sharpening, crop & straighten. Export the result as a JPEG. JPEG, PNG, TIFF and WebP
+          images open too, for lighter touches.
         </Text>
         <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!backend}>
           <FolderOpen /> Open a RAW file
@@ -301,7 +302,7 @@ function LibraryDeveloper({ id }: { id: string }) {
       filename={photo.filename}
       metadata={metadata}
       exportInfo={photoExportInfo(photo, metadata)}
-      original={originalEditParams}
+      original={originalRecipe(metadata)}
       initialHistory={{
         entries: photo.history.map((h) => ({ ...h, recipe: normalizeEditParams(h.recipe) })),
         end: photo.historyEnd,

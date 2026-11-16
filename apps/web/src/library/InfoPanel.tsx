@@ -523,7 +523,7 @@ function SinglePanel({
           onCommit={(v) => save({ copyright: textOrNull(v) })}
         />
         <Text textStyle="2xs" color="fg.subtle">
-          Metadata edits are stored in your library; the original RAW file is never modified.
+          Metadata edits are stored in your library; the original file is never modified.
         </Text>
       </PanelBlock>
     </Stack>

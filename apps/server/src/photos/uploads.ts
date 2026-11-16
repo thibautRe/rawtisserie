@@ -23,7 +23,7 @@ import { db, sql, uploads } from '../db.ts';
 import type Uploads from '../__generated__/uploads.ts';
 import type { RenderQueue } from '../render/queue.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDto } from './dto.ts';
-import { type SkipKind, ingestReceived, isRawName, versionFor } from './ingest.ts';
+import { type SkipKind, UNSUPPORTED, ingestReceived, isSupportedName, versionFor } from './ingest.ts';
 
 /** The most a chunk may hold (the app sends 8 MiB). */
 export const MAX_CHUNK = 16 * 1024 * 1024;
@@ -81,7 +81,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
       .parse(request.body);
     const filename = path.basename(body.name);
     const skip = (kind: SkipKind, reason: string) => reply.send({ skipped: { filename, kind, reason } });
-    if (!isRawName(filename)) return skip('unsupported', 'Not a supported RAW file');
+    if (!isSupportedName(filename)) return skip('unsupported', UNSUPPORTED);
     if (body.size > config.maxUploadBytes) return skip('tooLarge', 'File too large');
     const usage = await storageUsage(db, user.id);
     // Files only in the trash are counted already, but that's only known once hashed:

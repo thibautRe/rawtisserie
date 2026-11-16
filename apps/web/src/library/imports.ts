@@ -135,7 +135,7 @@ export function startImport(
     status: 'skipped',
     sent: 0,
     kind: 'unsupported',
-    reason: 'Not a supported RAW file',
+    reason: 'Not a RAW file or an image we read',
   }));
   const items = picked.files.map((f): ImportItem => {
     const key = crypto.randomUUID();

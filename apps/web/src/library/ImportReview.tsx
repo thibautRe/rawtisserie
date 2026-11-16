@@ -1,42 +1,54 @@
-import { Box, Button, CloseButton, Dialog, HStack, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
-import { Ban, Copy, FileImage, FolderMinus } from 'lucide-react';
+import { Box, Button, Checkbox, CloseButton, Dialog, HStack, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
+import { Ban, Copy, FileImage, FolderMinus, Image } from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { formatBytes } from '../lib/format.ts';
-import type { Picked, PickedFile } from './pickedFiles.ts';
+import { type Picked, type PickedFile, isRaw, withPairs } from './pickedFiles.ts';
 
-/** What an import is about to do, while it's being looked at, then once it's known. */
+/**
+ * What an import is about to do, while it's being looked at, then once it's known.
+ * `includePairs`: whether the JPEGs next to their RAW files are imported too.
+ */
 export type Review =
-  { phase: 'scanning'; label: string | null } | { phase: 'ready'; picked: Picked; known: ReadonlySet<PickedFile> };
+  | { phase: 'scanning'; label: string | null }
+  | { phase: 'ready'; picked: Picked; known: ReadonlySet<PickedFile>; includePairs: boolean };
+
+/** What a ready review imports: its files, and the JPEGs next to their RAWs if asked for. */
+export const reviewedFiles = (r: Extract<Review, { phase: 'ready' }>) => withPairs(r.picked, r.includePairs);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 const bytes = (files: readonly PickedFile[]) => formatBytes(files.reduce((s, f) => s + f.file.size, 0));
 
-/** The counts the review shows. */
+/** The counts the review shows (`picked` with the pairs it imports, if any, in its files). */
 export function reviewCounts(picked: Picked, known: ReadonlySet<PickedFile>) {
   const fresh = picked.files.filter((f) => !known.has(f));
-  return { raw: picked.files, fresh, known: picked.files.length - fresh.length };
+  const raw = picked.files.filter((f) => isRaw(f.path));
+  const images = picked.files.filter((f) => !isRaw(f.path));
+  return { raw, images, fresh, known: picked.files.length - fresh.length };
 }
 
 /**
- * Before anything is sent: how many RAW files were found, how many the library has
- * already (by name, size and date), and how many are new. Open while `review` is
- * non-null; the last one stays while it closes.
+ * Before anything is sent: how many RAW files and images were found, how many the
+ * library has already (by name, size and date), and how many are new. JPEGs next to
+ * their RAW files are left out unless asked for. Open while `review` is non-null; the
+ * last one stays while it closes.
  */
 export function ImportReview({
   review,
   onImport,
+  onIncludePairs,
   onClose,
 }: {
   review: Review | null;
   onImport: () => void;
+  onIncludePairs: (include: boolean) => void;
   onClose: () => void;
 }) {
   const shown = useRef(review);
   if (review) shown.current = review;
   const r = shown.current;
   const label = r?.phase === 'ready' ? r.picked.label : (r?.label ?? null);
-  const counts = r?.phase === 'ready' ? reviewCounts(r.picked, r.known) : null;
-  const picked = r?.phase === 'ready' ? r.picked : null;
+  const picked = r?.phase === 'ready' ? reviewedFiles(r) : null;
+  const counts = r?.phase === 'ready' ? reviewCounts(picked!, r.known) : null;
   const title = label
     ? `Import from ${label}`
     : picked
@@ -53,7 +65,7 @@ export function ImportReview({
               <Dialog.Title>{title}</Dialog.Title>
             </Dialog.Header>
             <Dialog.Body>
-              <ReviewBody review={r} />
+              <ReviewBody review={r} onIncludePairs={onIncludePairs} />
             </Dialog.Body>
             <Dialog.Footer>
               <Dialog.ActionTrigger asChild>
@@ -76,7 +88,13 @@ export function ImportReview({
 }
 
 /** The dialog's body: what's being looked through, then what will be imported. */
-export function ReviewBody({ review }: { review: Review | null }) {
+export function ReviewBody({
+  review,
+  onIncludePairs,
+}: {
+  review: Review | null;
+  onIncludePairs?: (include: boolean) => void;
+}) {
   if (review?.phase !== 'ready')
     return (
       <HStack gap="2" color="fg.muted" textStyle="sm">
@@ -84,27 +102,56 @@ export function ReviewBody({ review }: { review: Review | null }) {
         Looking through {review?.label ?? 'the files'}…
       </HStack>
     );
-  const { picked } = review;
+  const picked = reviewedFiles(review);
+  const pairs = review.picked.pairs;
   const counts = reviewCounts(picked, review.known);
   return (
     <Stack gap="2" textStyle="sm">
-      <Line icon={<FileImage size={14} />}>
-        {plural(counts.raw.length, 'RAW file')}
-        <Muted>{bytes(counts.raw)}</Muted>
-      </Line>
+      {(counts.raw.length > 0 || !counts.images.length) && (
+        <Line icon={<FileImage size={14} />}>
+          {plural(counts.raw.length, 'RAW file')}
+          <Muted>{bytes(counts.raw)}</Muted>
+        </Line>
+      )}
+      {counts.images.length > 0 && (
+        <Line icon={<Image size={14} />}>
+          {plural(counts.images.length, 'image')} (JPEG, PNG, TIFF, WebP)
+          <Muted>{bytes(counts.images)}</Muted>
+        </Line>
+      )}
       {counts.known > 0 && (
         <Line icon={<Copy size={14} />} muted>
           {counts.known.toLocaleString()} already in your library
         </Line>
       )}
+      {pairs.length > 0 && (
+        <Checkbox.Root
+          size="sm"
+          checked={review.includePairs}
+          disabled={!onIncludePairs}
+          onCheckedChange={(e) => onIncludePairs?.(!!e.checked)}
+          alignItems="flex-start"
+        >
+          <Checkbox.HiddenInput />
+          <Checkbox.Control mt="0.5" />
+          <Checkbox.Label fontWeight="normal">
+            {pairs.length === 1
+              ? 'Also import the JPEG next to its RAW file'
+              : `Also import the ${pairs.length.toLocaleString()} JPEGs next to their RAW files`}
+            <Text as="span" display="block" color="fg.muted" textStyle="xs">
+              Same name, same folder: the camera’s own rendering of the RAW
+            </Text>
+          </Checkbox.Label>
+        </Checkbox.Root>
+      )}
       {picked.refused.length > 0 && (
         <Line icon={<Ban size={14} />} muted>
-          {plural(picked.refused.length, 'file')} not RAW (not imported)
+          {plural(picked.refused.length, 'file')} not a RAW file or an image (not imported)
         </Line>
       )}
       {picked.ignored > 0 && (
         <Line icon={<FolderMinus size={14} />} muted>
-          {plural(picked.ignored, 'other file')} left out (JPEGs, videos…)
+          {plural(picked.ignored, 'other file')} left out (videos…)
         </Line>
       )}
       <Text fontWeight="semibold" pt="1">
@@ -116,18 +163,27 @@ export function ReviewBody({ review }: { review: Review | null }) {
   );
 }
 
-/** A review of `n` files from a card, `known` of them in the library already (for `/ui`). */
-export function sampleReview(n: number, known: number, ignored: number): Review {
+/**
+ * A review of `n` files from a card, `known` of them in the library already, with
+ * `pairs` JPEGs next to their RAWs (for `/ui`).
+ */
+export function sampleReview(n: number, known: number, ignored: number, pairs = 0): Review {
   const files = Array.from({ length: n }, (_, i) => ({
     path: `DCIM/100MSDCF/DSC0${1000 + i}.ARW`,
     file: new File([], `DSC0${1000 + i}.ARW`),
   }));
+  const jpegs = files.slice(0, pairs).map((f) => ({
+    path: f.path.replace('.ARW', '.JPG'),
+    file: new File([], f.file.name.replace('.ARW', '.JPG')),
+  }));
   // Sizes without the bytes: what the review adds up.
   for (const f of files) Object.defineProperty(f.file, 'size', { value: 36e6 });
+  for (const f of jpegs) Object.defineProperty(f.file, 'size', { value: 9e6 });
   return {
     phase: 'ready',
-    picked: { files, refused: [], ignored, label: 'DCIM' },
+    picked: { files, pairs: jpegs, refused: [], ignored, label: 'DCIM' },
     known: new Set(files.slice(0, known)),
+    includePairs: false,
   };
 }
 

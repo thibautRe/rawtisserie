@@ -87,6 +87,7 @@ import {
   defaultModuleParams,
   filmicAutoHardness,
   instanceDefaults,
+  hasKind,
   isInstanceModified,
   moveInstance,
   removeInstance,
@@ -148,6 +149,10 @@ interface Props {
   params: EditParams;
   /** Source of the file's embedded lens correction data (`PhotoMetadata.lensCorrection`). */
   lensCorrection: string | null;
+  /** The photo's format if it isn't a RAW file: it has no filmic or lens correction (`RAW_ONLY_KINDS`). */
+  imageFormat: string | null;
+  /** The photo's original (history at 0): what modules compare with and reset to. */
+  original: EditParams;
   /** The file's as-shot light (`PhotoMetadata.asShotIlluminant`). */
   asShotIlluminant: Xy | null;
   onChange: (p: EditParams) => void;
@@ -1041,7 +1046,8 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * (`useStableCallback`); they are read through `latest` anyway.
  */
 export const ModulePanel = memo(function ModulePanel(props: Props) {
-  const { params, lensCorrection, asShotIlluminant, cropping, aspect, autoTuning, detecting, shapeUi } = props;
+  const { params, lensCorrection, asShotIlluminant, imageFormat, original, cropping, aspect, autoTuning, detecting, shapeUi } =
+    props;
   const { guides, fittingPerspective } = props;
   const { toneInputs, fittingTone, toneView, rangeView } = props;
   const { luts, missingLuts } = props;
@@ -1092,12 +1098,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
 
   /** Lets the content of one instance read and edit it. Without an instance, this is its future one. */
   function editor<K extends ModuleKind>(kind: K, m: ModuleInstance<K> | undefined, position: number) {
-    const defaults = instanceDefaults(kind, position);
+    const defaults = instanceDefaults(kind, position, original);
     const id = m?.id ?? kind;
-    const values = m?.params ?? defaultModuleParams[kind];
-    // Editing a module switches it on, as in Ansel.
+    const values = m?.params ?? defaults;
+    // Editing a module switches it on, as in Ansel. Its future instance starts from its defaults.
     const edit = (patch: Partial<ModuleParams[K]>) =>
-      updateInstance(latest.current.params, kind, id, { enabled: true, params: patch });
+      updateInstance(latest.current.params, kind, id, { enabled: true, params: { ...current(), ...patch } });
     /** Props for a slider bound to a numeric parameter. */
     const bind = (key: keyof ModuleParams[K] & string) => {
       const with_ = (v: number) => edit({ [key]: v } as Partial<ModuleParams[K]>);
@@ -1110,8 +1116,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     };
     /** The parameters now, for handlers (sliders keep their first ones). */
     const current = () =>
-      (latest.current.params.modules.find((x) => x.id === id) as ModuleInstance<K> | undefined)?.params ??
-      defaultModuleParams[kind];
+      (latest.current.params.modules.find((x) => x.id === id) as ModuleInstance<K> | undefined)?.params ?? defaults;
     const setView = (patch: Partial<InstanceView>) =>
       setViews((v) => ({ ...v, [id]: { ...DEFAULT_VIEW, ...v[id], ...patch } }));
     return {
@@ -1139,6 +1144,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     content: (e: ReturnType<typeof editor<K>>) => React.ReactNode,
     actions?: (e: ReturnType<typeof editor<K>>) => React.ReactNode,
   ) {
+    if (!hasKind({ imageFormat }, kind)) return null;
     const list = params.modules.filter((m) => m.kind === kind) as ModuleInstance<K>[];
     const count = list.length;
     const presets = props.presets[kind] ?? NO_PRESETS;
@@ -1161,7 +1167,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       return (
         <Section
           key={id}
-          deps={[m, position, count, title, views[id], presets, canSave, ...maskDeps, ...deps]}
+          deps={[m, position, count, title, views[id], presets, canSave, original, ...maskDeps, ...deps]}
           render={() => {
             const e = editor(kind, m, position);
             const mask = m?.mask;
@@ -1184,9 +1190,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               <Module
                 title={title}
                 enabled={m?.enabled ?? false}
-                modified={isInstanceModified(params, kind, id)}
-                onToggle={(on) => commit((p) => updateInstance(p, kind, id, { enabled: on }))}
-                onReset={() => commit((p) => resetInstance(p, kind, id))}
+                modified={isInstanceModified(params, kind, id, original)}
+                onToggle={(on) =>
+                  commit((p) => updateInstance(p, kind, id, { enabled: on, params: m ? undefined : e.defaults }))
+                }
+                onReset={() => commit((p) => resetInstance(p, kind, id, original))}
                 menu={
                   <>
                     {PRESET_KINDS.includes(kind) && (

@@ -27,7 +27,7 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { startTransfer } from '../components/transfer.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
-import { RAW_ACCEPT } from '../lib/format.ts';
+import { PHOTO_ACCEPT } from '../lib/format.ts';
 import {
   copyEdits,
   lastSelection,
@@ -411,7 +411,7 @@ export function LibraryPage() {
             ref={fileInput}
             type="file"
             multiple
-            accept={RAW_ACCEPT}
+            accept={PHOTO_ACCEPT}
             hidden
             onChange={(e) => {
               void startImport(fromInput(e.target.files ?? []));

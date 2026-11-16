@@ -1455,11 +1455,17 @@ export function updateInstance<K extends ModuleKind>(
 /**
  * Default parameters of the instance at `position` among its kind. Only the first
  * exposure carries the +0.7 EV push and only the first colour calibration does the
- * white balance: other ones start neutral, so that adding them doesn't change the image.
+ * white balance, and only where the photo's original (`originalRecipe`) has them: other
+ * ones start neutral, so that adding them doesn't change the image. An image that
+ * isn't a RAW file has neither, so its instances all start neutral.
  */
-export function instanceDefaults<K extends ModuleKind>(kind: K, position: number): ModuleParams[K] {
+export function instanceDefaults<K extends ModuleKind>(
+  kind: K,
+  position: number,
+  original = originalEditParams,
+): ModuleParams[K] {
   const defaults = structuredClone(defaultModuleParams[kind]);
-  if (position === 0) return defaults;
+  if (position === 0 && original.modules.some((m) => m.kind === kind)) return defaults;
   if (kind === 'exposure') return { ...defaults, ev: 0 };
   if (kind === 'colorCalibration') return { ...defaults, adaptation: 'none', gamut: 0, clip: false };
   return defaults;
@@ -1530,7 +1536,7 @@ export function resetInstance(
   return withUsedShapes(
     updateInstance(params, kind, id, {
       enabled: true,
-      params: instanceDefaults(kind, positionOf(params, kind, id)),
+      params: instanceDefaults(kind, positionOf(params, kind, id), original),
       mask: null,
     }),
   );
@@ -1549,7 +1555,7 @@ export function isInstanceModified(
     !!m &&
     (!m.enabled ||
       !!m.mask ||
-      JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id))))
+      JSON.stringify(m.params) !== JSON.stringify(instanceDefaults(kind, positionOf(params, kind, id), original)))
   );
 }
 

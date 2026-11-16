@@ -26,10 +26,10 @@ export function describeDeletion(selected: TrashItem[], all: TrashItem[]) {
     title: `Delete ${plural(n, 'item', 'items')} permanently?`,
     body:
       (originals
-        ? `${plural(originals, 'original RAW file', 'original RAW files')} will be deleted, with ` +
+        ? `${plural(originals, 'original file', 'original files')} will be deleted, with ` +
           `${n === 1 ? 'its edits and metadata' : 'the edits and metadata'}. `
         : `The edit history and curation of ${n === 1 ? 'this version' : 'these versions'} will be deleted. ` +
-          'Their original RAW files stay, with their other versions. ') + 'This can’t be undone.',
+          'Their original files stay, with their other versions. ') + 'This can’t be undone.',
   };
 }
 

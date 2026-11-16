@@ -68,6 +68,13 @@ export function toDateTimeLocal(iso: string | null): string {
 
 export const RAW_ACCEPT =
   '.3fr,.ari,.arw,.cr2,.cr3,.crw,.dcr,.dcs,.dng,.erf,.fff,.iiq,.kdc,.mef,.mos,.mrw,.nef,.nrw,.orf,.ori,.pef,.raf,.raw,.rw2,.rwl,.sr2,.srf,.srw,.x3f';
+/**
+ * Images that aren't RAW files, developed already (roadmap 8.11). Mirrors the server's
+ * `IMAGE_EXTENSIONS`.
+ */
+export const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.tif,.tiff,.webp';
+/** Everything that can be imported or developed: RAW files and images. */
+export const PHOTO_ACCEPT = `${RAW_ACCEPT},${IMAGE_ACCEPT}`;
 
 /** "B&W", or "Version 2" for an unnamed version. */
 export const versionLabel = (v: { name: string | null; index: number }) => v.name ?? `Version ${v.index}`;

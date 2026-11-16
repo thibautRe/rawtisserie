@@ -174,8 +174,8 @@ export function AdminOverview() {
             value={formatBytes(storage.used)}
             detail={
               storage.trash
-                ? `RAW files, across all users · ${formatBytes(storage.trash)} in the trash`
-                : 'RAW files, across all users'
+                ? `Original files, across all users · ${formatBytes(storage.trash)} in the trash`
+                : 'Original files, across all users'
             }
           />
           <StatTile
@@ -350,7 +350,7 @@ function QuotaFields({ initial }: { initial: number | null }) {
           defaultValue={initial === null ? 50 : Number((initial / GB).toFixed(2))}
           {...NUMERIC}
         />
-        <Field.HelperText>Original RAW files only; previews don’t count.</Field.HelperText>
+        <Field.HelperText>Original files only (RAW files and images); previews don’t count.</Field.HelperText>
       </Field.Root>
       <Checkbox.Root name="unlimited" checked={unlimited} onCheckedChange={(e) => setUnlimited(!!e.checked)}>
         <Checkbox.HiddenInput />

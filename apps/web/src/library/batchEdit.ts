@@ -11,6 +11,7 @@ import {
   applyModulePreset,
   applyStyle,
   findModule,
+  forPhoto,
 } from '@rawtisserie/pipeline';
 import type { HistoryOp } from '../develop/history.ts';
 import { MODULE_TITLES } from '../develop/changes.ts';
@@ -48,6 +49,8 @@ interface CurrentRecipe {
   historyEnd: number;
   revision: number;
   recipe: EditParams;
+  /** The photo's, if it isn't a RAW file: what its recipe may hold (`forPhoto`). */
+  imageFormat?: string | null;
 }
 
 interface HistoryChange {
@@ -80,7 +83,8 @@ const ATTEMPTS = 3;
  * entries are dropped, as in the developer). Null when it doesn't change the recipe.
  */
 export function appendChange(current: CurrentRecipe, edit: BatchEdit): HistoryChange | null {
-  const recipe = edit.apply(current.recipe);
+  // A style from a RAW file's recipe leaves out what a JPEG doesn't have.
+  const recipe = forPhoto(edit.apply(current.recipe), current);
   if (JSON.stringify(recipe) === JSON.stringify(current.recipe)) return null;
   const end = current.historyEnd + 1;
   return {

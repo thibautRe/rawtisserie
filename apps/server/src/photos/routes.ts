@@ -6,7 +6,7 @@ import {
   AUTO_RECIPE_LABELS,
   defaultRecipe,
   normalizeEditParams,
-  originalEditParams,
+  originalRecipe,
 } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
@@ -329,7 +329,7 @@ export async function photoRoutes(
         // has its data), now rather than after its first render, which the developer
         // opening it right away would miss. Its auto-tunes run when it's rendered (or opened).
         const photo = await photos(tx).findOne({ id: photo_id });
-        const recipe = photo?.exif && defaultRecipe({ lensCorrection: photo.exif.lensCorrection ?? null });
+        const recipe = photo?.exif && defaultRecipe(photo.exif);
         if (recipe) {
           await historyEntries(tx).insert({ version_id: copy!.id, seq: 1, label: AUTO_RECIPE_LABEL, recipe });
           await versions(tx).update({ id: copy!.id }, { history_end: 1 });
@@ -406,11 +406,9 @@ export async function photoRoutes(
           id: r.id,
           historyEnd: r.history_end,
           revision: r.revision,
-          recipe: r.recipe
-            ? normalizeEditParams(r.recipe)
-            : r.no_history
-              ? defaultRecipe({ lensCorrection: r.exif?.lensCorrection ?? null })
-              : originalEditParams,
+          recipe: r.recipe ? normalizeEditParams(r.recipe) : r.no_history ? defaultRecipe(r.exif ?? {}) : originalRecipe(r.exif),
+          // What the recipe may hold (`forPhoto`).
+          imageFormat: r.exif?.imageFormat ?? null,
         })),
       notReady: rows.filter(notReady).map((r) => r.id),
     };

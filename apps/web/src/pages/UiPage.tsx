@@ -851,6 +851,7 @@ const TRANSFER_TOASTS = [
 const IMPORT_REVIEWS: [string, Review][] = [
   ['Review: looking through', { phase: 'scanning', label: 'DCIM' }],
   ['Review: a card', sampleReview(412, 380, 415)],
+  ['Review: RAW + JPEG', sampleReview(212, 0, 3, 212)],
   ['Review: nothing new', sampleReview(24, 24, 0)],
 ];
 
@@ -884,7 +885,7 @@ const IMPORT_TOASTS = [
         ...Array(3).fill({ status: 'skipped', kind: 'duplicate', reason: 'Already in your library as DSC00412.ARW' }),
         { status: 'skipped', kind: 'deleted', reason: 'You deleted this file before' },
         { status: 'failed', reason: 'Upload failed: the connection was lost' },
-        { status: 'skipped', kind: 'unsupported', reason: 'Not a supported RAW file' },
+        { status: 'skipped', kind: 'unsupported', reason: 'Not a RAW file or an image we read' },
         { status: 'skipped', kind: 'quota', reason: 'Not enough storage: 49.8 GB of 50 GB used' },
       ],
       true,

@@ -105,7 +105,7 @@ export function ImportSummary({ run, onShow, onRetry, onUploadDeleted, onClose }
 function refusedWhy(items: ImportItem[]) {
   const kinds = new Set(items.map((i) => i.kind));
   return [
-    kinds.has('unsupported') && 'not RAW files',
+    kinds.has('unsupported') && 'not RAW files or images',
     kinds.has('tooLarge') && 'too large',
     kinds.has('quota') && 'storage full',
   ]

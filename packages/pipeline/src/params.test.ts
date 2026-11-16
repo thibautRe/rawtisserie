@@ -37,6 +37,7 @@ import {
   toneRangeWeights,
   forPhoto,
   hasKind,
+  instanceDefaults,
   originalRecipe,
 } from './params.ts';
 import type { EllipseShape as Shape } from './shapes.ts';
@@ -78,6 +79,10 @@ test('an image that is not a RAW file starts empty and has no filmic or lens cor
   assert.ok(isModuleModified(exposed, 'exposure', originalRecipe(jpeg)));
   assert.deepEqual(resetModule(exposed, 'exposure', originalRecipe(jpeg)).modules, []);
   assert.ok(isDefaultEdit(defaultRecipe(jpeg), originalRecipe(jpeg)));
+  // Its modules start neutral: no +0.7 EV push, no white balance.
+  assert.equal(instanceDefaults('exposure', 0, originalRecipe(jpeg)).ev, 0);
+  assert.equal(instanceDefaults('colorCalibration', 0, originalRecipe(jpeg)).adaptation, 'none');
+  assert.equal(instanceDefaults('exposure', 0).ev, defaultModuleParams.exposure.ev);
 });
 
 /** Recipes on which TypeScript and Rust must agree. */

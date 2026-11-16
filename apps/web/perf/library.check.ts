@@ -663,7 +663,7 @@ test('an import shows its files waiting, then what happened to each, and retries
   // Reviewed first: nothing known by name, so all three RAW files are new.
   const review = page.locator('[data-import-review=ready]');
   await review.waitFor();
-  assert.match(await review.innerText(), /3 RAW files[\s\S]*1 file not RAW[\s\S]*3 new photos/);
+  assert.match(await review.innerText(), /3 RAW files[\s\S]*1 file not a RAW file or an image[\s\S]*3 new photos/);
   await review.getByRole('button', { name: 'Import 3 photos' }).click();
   // The library shows this import.
   await page.waitForURL(/[?&]import=[0-9a-f-]{36}/);
@@ -679,7 +679,7 @@ test('an import shows its files waiting, then what happened to each, and retries
   assert.match(text, /1 photo imported/);
   assert.match(text, /1 file already in your library/);
   assert.match(text, /1 file failed/);
-  assert.match(text, /1 file not imported \(not RAW files\)/);
+  assert.match(text, /1 file not imported \(not RAW files or images\)/);
   // Only the new files were sent, as part of this import; the duplicate wasn't.
   const uploads = () =>
     sent
@@ -713,7 +713,7 @@ test('an import shows its files waiting, then what happened to each, and retries
   await page.waitForURL((u) => !u.searchParams.has('import'));
 });
 
-test("a card: its folders walked through, what the library has and what isn't RAW left out", async () => {
+test("a card: its folders walked through, what the library has, JPEGs next to their RAWs and what isn't a photo left out", async () => {
   await open('/');
   await cards().first().waitFor();
   const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
@@ -727,6 +727,7 @@ test("a card: its folders walked through, what the library has and what isn't RA
     ['DSC00002.ARW', 2],
     ['DSC00002.JPG', 3],
     ['._DSC00001.ARW', 4],
+    ['C0001.MP4', 5],
   ] as const)
     await writeFile(join(dir, name), Buffer.alloc(1024, n));
   knownNames = new Set(['DSC00002.ARW']);
@@ -739,15 +740,20 @@ test("a card: its folders walked through, what the library has and what isn't RA
   assert.match(text, /2 RAW files/);
   assert.match(text, /1 already in your library/);
   assert.match(text, /2 other files left out/);
-  await review.getByRole('button', { name: 'Import 1 photo' }).click();
+  // The camera's JPEG of a RAW: left out unless asked for.
+  assert.match(text, /Also import the JPEG next to its RAW file/);
+  await review.getByRole('button', { name: 'Import 1 photo' }).waitFor();
+  await review.getByText('Also import the JPEG next to its RAW file').click();
+  assert.match(await review.innerText(), /1 image/);
+  await review.getByRole('button', { name: 'Import 2 photos' }).click();
   const done = page.locator('[data-import-state=done]');
   await done.waitFor({ timeout: 20_000 });
   assert.match(await done.innerText(), /1 file already in your library/);
-  // Only the new one was sent, with its date.
+  // Only the new ones were sent, with their dates.
   const sentFiles = started();
   assert.deepEqual(
     sentFiles.map((u) => u.name),
-    ['DSC00001.ARW'],
+    ['DSC00001.ARW', 'DSC00002.JPG'],
   );
   assert.equal(typeof sentFiles[0]!.modified, 'number');
   await done.getByRole('button', { name: 'Close' }).click();

@@ -1,10 +1,11 @@
 /**
  * Files picked for an import (roadmap 8.2): from a file or folder picker, or dropped
  * (files, folders, a card's `DCIM`), with their path inside what was picked. Folders are
- * walked through, and what isn't a RAW file is left out (cards hold JPEGs, videos and
- * macOS's `._` files next to the RAWs).
+ * walked through, and what isn't a RAW file or an image is left out (cards hold videos
+ * and macOS's `._` files next to the RAWs). A JPEG next to a RAW file of the same name
+ * (a camera shooting both) is set apart: imported only if asked for.
  */
-import { RAW_ACCEPT } from '../lib/format.ts';
+import { IMAGE_ACCEPT, PHOTO_ACCEPT, RAW_ACCEPT } from '../lib/format.ts';
 
 export interface PickedFile {
   file: File;
@@ -14,36 +15,64 @@ export interface PickedFile {
 
 /** What was picked, sorted out. */
 export interface Picked {
-  /** The RAW files to import, by path. */
+  /** The RAW files and images to import, by path. */
   files: PickedFile[];
-  /** Files picked one by one that aren't RAW files (reported, as the user chose them). */
+  /**
+   * Images next to a RAW file of the same name, in the same folder (RAW + JPEG): left
+   * out unless asked for (`withPairs`).
+   */
+  pairs: PickedFile[];
+  /** Files picked one by one that aren't RAW files or images (reported, as the user chose them). */
   refused: PickedFile[];
-  /** Files in the folders that aren't RAW files, or are hidden: left out quietly. */
+  /** Files in the folders that aren't RAW files or images, or are hidden: left out quietly. */
   ignored: number;
   /** A name for it: the folder, if one was picked alone. */
   label: string | null;
 }
 
+const extension = (name: string) => name.slice(name.lastIndexOf('.')).toLowerCase();
 const RAW_EXTENSIONS = new Set(RAW_ACCEPT.split(','));
-export const isRaw = (name: string) => RAW_EXTENSIONS.has(name.slice(name.lastIndexOf('.')).toLowerCase());
+const IMAGE_EXTENSIONS = new Set(IMAGE_ACCEPT.split(','));
+export const isRaw = (name: string) => RAW_EXTENSIONS.has(extension(name));
+/** An image that isn't a RAW file (JPEG, PNG, TIFF, WebP). */
+export const isImage = (name: string) => IMAGE_EXTENSIONS.has(extension(name));
+/** What can be imported: a RAW file or an image. */
+export const isPhoto = (name: string) => isRaw(name) || isImage(name);
+/** A file's path without its extension, for matching a JPEG with its RAW. */
+const stem = (path: string) => path.slice(0, path.lastIndexOf('.')).toLowerCase();
 /** Hidden files and folders (`.Trashes`, macOS's `._DSC01234.ARW`). */
 const isHidden = (path: string) => path.split('/').some((part) => part.startsWith('.'));
 
 /** Sort out `list`: files in folders have a `/` in their path. */
 export function sortPicked(list: readonly PickedFile[]): Picked {
-  const files: PickedFile[] = [];
+  const photos: PickedFile[] = [];
   const refused: PickedFile[] = [];
   let ignored = 0;
   for (const f of list) {
     const inFolder = f.path.includes('/');
-    if (isRaw(f.path) && !isHidden(f.path)) files.push(f);
+    if (isPhoto(f.path) && !isHidden(f.path)) photos.push(f);
     else if (inFolder) ignored++;
     else refused.push(f);
   }
-  files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+  const raws = new Set(photos.filter((f) => isRaw(f.path)).map((f) => stem(f.path)));
+  const paired = (f: PickedFile) => isImage(f.path) && raws.has(stem(f.path));
   const tops = new Set(list.map((f) => f.path.split('/')[0]!));
   const top = tops.size === 1 ? [...tops][0]! : null;
-  return { files, refused, ignored, label: top && list.every((f) => f.path.includes('/')) ? top : null };
+  return {
+    files: byPath(photos.filter((f) => !paired(f))),
+    pairs: byPath(photos.filter(paired)),
+    refused,
+    ignored,
+    label: top && list.every((f) => f.path.includes('/')) ? top : null,
+  };
+}
+
+const byPath = (files: PickedFile[]) => files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+
+/** `picked` with the images next to their RAW files imported too, if `include`. */
+export function withPairs(picked: Picked, include: boolean): Picked {
+  if (!include || !picked.pairs.length) return picked;
+  return { ...picked, files: byPath([...picked.files, ...picked.pairs]), pairs: [] };
 }
 
 /** From an `<input type="file">`, with `webkitdirectory` or not. */
@@ -159,13 +188,13 @@ export async function pickFolder(): Promise<{ files: Promise<PickedFile[]>; from
   }
 }
 
-/** RAW files, through the browser's picker: null if cancelled. */
+/** RAW files and images, through the browser's picker: null if cancelled. */
 export async function pickFiles(): Promise<{ files: Promise<PickedFile[]>; from: PickedFrom } | null> {
   try {
     const handles = await pickers.showOpenFilePicker!({
       id: 'import',
       multiple: true,
-      types: [{ description: 'RAW files', accept: { 'application/octet-stream': RAW_ACCEPT.split(',') } }],
+      types: [{ description: 'RAW files and images', accept: { 'application/octet-stream': PHOTO_ACCEPT.split(',') } }],
     });
     return { files: walkHandles(handles), from: { kind: 'files', handles } };
   } catch (err) {

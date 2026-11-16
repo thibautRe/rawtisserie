@@ -16,8 +16,8 @@ import {
   uploadDeleted,
   useImportRun,
 } from './imports.ts';
-import { ImportReview, type Review } from './ImportReview.tsx';
-import { type PickedFile, type PickedFrom, fromInput, reopen, sortPicked, walkHandles } from './pickedFiles.ts';
+import { ImportReview, type Review, reviewedFiles } from './ImportReview.tsx';
+import { type PickedFile, type PickedFrom, fromInput, reopen, sortPicked, walkHandles, withPairs } from './pickedFiles.ts';
 
 /** The library showing one import's photos. */
 export const importPath = (id: string) => `/?import=${id}`;
@@ -86,13 +86,14 @@ export function useImporter() {
     setReview({ phase: 'scanning', label: null });
     const picked = sortPicked(await Promise.resolve(source).catch(() => []));
     if (token !== latest.current) return;
-    if (!picked.files.length && !picked.refused.length) {
+    if (!picked.files.length && !picked.pairs.length && !picked.refused.length) {
       setReview(null);
-      toaster.create({ type: 'info', title: 'No RAW files there', description: 'Nothing to import.' });
+      toaster.create({ type: 'info', title: 'No photos there', description: 'Nothing to import.' });
       return;
     }
-    const known = await findKnown(picked.files);
-    if (token === latest.current) setReview({ phase: 'ready', picked, known });
+    // The pairs too: they may be asked for.
+    const known = await findKnown(withPairs(picked, true).files);
+    if (token === latest.current) setReview({ phase: 'ready', picked, known, includePairs: false });
   };
   const close = () => {
     latest.current++;
@@ -101,9 +102,14 @@ export function useImporter() {
   const confirm = () => {
     if (review?.phase !== 'ready') return;
     close();
-    navigate(importPath(startImport(review.picked, deps, review.known, from.current)));
+    navigate(importPath(startImport(reviewedFiles(review), deps, review.known, from.current)));
   };
-  return { start, review: <ImportReview review={review} onImport={confirm} onClose={close} /> };
+  const includePairs = (include: boolean) =>
+    setReview((r) => (r?.phase === 'ready' ? { ...r, includePairs: include } : r));
+  return {
+    start,
+    review: <ImportReview review={review} onImport={confirm} onIncludePairs={includePairs} onClose={close} />,
+  };
 }
 
 const toastId = (runId: string) => `import-${runId}`;
