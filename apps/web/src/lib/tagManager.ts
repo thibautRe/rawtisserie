@@ -131,6 +131,8 @@ export function planEdit(edit: TagEdit, info: ReadonlyMap<string, TagInfo>) {
   });
   const action = edit.tag === null ? 'Create' : 'Save';
   if (!path) return plan('', [], [], action);
+  // Renamed or deleted since the editor opened (here, or in another tab).
+  if (edit.tag !== null && !current) return plan(`${displayTag(edit.tag)} doesn’t exist anymore.`, [], [], action);
   const effects: string[] = [];
   const changes: TagChange[] = [];
   let button = action;

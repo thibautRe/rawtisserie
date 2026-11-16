@@ -84,6 +84,9 @@ test('the editor says what saving will do, and its button says it too', () => {
   assert.match(both.effects[1]!, /^Ctrl\+Alt\+A will add or remove People › Alicia/);
   // Another tag's shortcut.
   assert.equal(edit({ shortcut: [key('KeyO')] }).problem, 'Places › Paris has Ctrl+Alt+O');
+  // Gone since the editor opened (renamed, as the list refreshes after a save): said, not a crash.
+  const gone = planEdit({ tag: 'People|Bob', path: 'Works|Portrait', shortcut: null }, info);
+  assert.deepEqual([gone.problem, gone.changes], ['People › Bob doesn’t exist anymore.', []]);
 
   const fresh = planEdit({ tag: null, path: 'Places|Paris', shortcut: null }, info);
   assert.equal(fresh.problem, 'Places › Paris exists already.');

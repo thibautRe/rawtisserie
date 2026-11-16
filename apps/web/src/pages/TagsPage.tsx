@@ -250,7 +250,7 @@ export function TagEditor({
 
 function EditorForm({
   target,
-  info,
+  info: liveInfo,
   onDone,
 }: {
   target: EditorTarget;
@@ -259,6 +259,10 @@ function EditorForm({
 }) {
   const change = useTagChange();
   const tag = target.tag ?? null;
+  // From a save on, the tags as they were: the list refreshes as each change lands, and
+  // the tag renamed is gone from it while the dialog closes.
+  const frozen = useRef<ReadonlyMap<string, TagInfo> | null>(null);
+  const info = frozen.current ?? liveInfo;
   // A new one inside another starts after it: `People|`.
   const [path, setPath] = useState(tag ?? (target.parent ? target.parent + SEPARATOR : ''));
   const [shortcut, setShortcut] = useState<Shortcut | null>(tag === null ? null : (info.get(tag)?.shortcut ?? null));
@@ -293,6 +297,7 @@ function EditorForm({
 
   const save = async () => {
     if (plan.problem !== null || saving) return;
+    frozen.current = info;
     setSaving(true);
     try {
       let photos = 0;
@@ -308,6 +313,8 @@ function EditorForm({
       });
       onDone();
     } catch (err) {
+      // What did land shows: the dialog stays open on the tags as they are now.
+      frozen.current = null;
       toaster.create({ type: 'error', title: 'Could not save the tag', description: (err as Error).message });
     } finally {
       setSaving(false);
