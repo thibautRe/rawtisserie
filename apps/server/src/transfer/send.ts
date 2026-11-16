@@ -14,6 +14,7 @@ import { type EditParams, isBuiltinLut, lutIds } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import { badRequest, notFound } from '../errors.ts';
+import { Target, targetClause } from '../photos/query.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
 import { readLut } from '../luts/files.ts';
@@ -73,13 +74,11 @@ export async function sendRoutes(app: FastifyInstance, { runner }: { runner: Tra
     return { ok: true };
   });
 
-  /** Send versions (`ids`), or everything, to an instance: a transfer, run here. */
+  /** Send versions (a `Target`: ids or a filter), or everything, to an instance: a transfer, run here. */
   app.post('/api/instances/:id/send', async (request, reply) => {
     const { id } = Id.parse(request.params);
     const user = currentUser(request);
-    const body = z
-      .union([z.object({ ids: z.array(z.uuid()).min(1).max(5000) }), z.object({ everything: z.literal(true) })])
-      .parse(request.body);
+    const body = z.union([Target, z.object({ everything: z.literal(true) })]).parse(request.body);
     const [remote] = await db.query(sql`
       SELECT id FROM remote_instances WHERE id = ${id} AND owner_id = ${user.id}`);
     if (!remote) throw notFound('Instance not found');
@@ -94,8 +93,7 @@ export async function sendRoutes(app: FastifyInstance, { runner }: { runner: Tra
         INSERT INTO transfer_items (transfer_id, version_id, position)
         SELECT ${t!.id}, v.id, row_number() OVER (ORDER BY p.created_at, p.id, v.position, v.id)
         FROM versions v JOIN photos p ON p.id = v.photo_id
-        WHERE p.owner_id = ${user.id} AND v.trashed_at IS NULL
-          AND (${everything} OR v.id = ANY(${'ids' in body ? body.ids : []}::uuid[]))`);
+        WHERE ${'everything' in body ? sql`p.owner_id = ${user.id} AND v.trashed_at IS NULL` : targetClause(user.id, body)}`);
       return t!.id;
     });
     runner.kick();

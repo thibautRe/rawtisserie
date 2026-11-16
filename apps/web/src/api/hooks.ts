@@ -38,6 +38,7 @@ import type {
   RemoteInstance,
   StorageUsage,
   Transfer,
+  Target,
   TrashPage,
   User,
 } from './types.ts';
@@ -119,6 +120,26 @@ interface PhotoPage {
 type CachedPhotos = InfiniteData<PhotoPage> | PhotoPage;
 const mapPages = (data: CachedPhotos | undefined, f: (page: PhotoPage) => PhotoPage) =>
   !data ? data : 'pages' in data ? { ...data, pages: data.pages.map(f) } : f(data);
+
+/** The ids of the versions a selection by filter holds, in the library's order (roadmap 8.13). */
+export async function fetchTargetIds(target: Target): Promise<string[]> {
+  if ('ids' in target) return target.ids;
+  return (await api.post<{ ids: string[] }>('/api/versions/ids', target)).ids;
+}
+
+/** The photos a selection by filter holds, in the library's order: pages of the most the server gives. */
+export async function fetchTargetPhotos(target: Extract<Target, { filter: string }>): Promise<Photo[]> {
+  const except = new Set(target.except);
+  const photos: Photo[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const params = new URLSearchParams(target.filter);
+    params.set('limit', '500');
+    params.set('offset', String(offset));
+    const page = await api.get<PhotoPage>(`/api/versions?${params}`);
+    photos.push(...page.versions.filter((p) => !except.has(p.id)));
+    if (!page.versions.length || offset + page.versions.length >= page.total) return photos;
+  }
+}
 
 const fetchPage = (search: string, offset: number) => {
   const params = new URLSearchParams(search);
@@ -358,11 +379,15 @@ export function useUpdatePhoto() {
   });
 }
 
+/**
+ * Rate, flag, label or tag versions: `ids`, changed in the cache at once, or with `target`
+ * all a filter matches (`ids` are then those of them the library shows).
+ */
 export function useBulkUpdate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ ids, patch }: { ids: string[]; patch: BulkPatch }) =>
-      api.post<{ versions: Photo[] }>('/api/versions/bulk', { ids, patch }),
+    mutationFn: ({ ids, target, patch }: { ids: string[]; target?: Target; patch: BulkPatch }) =>
+      api.post<{ versions: Photo[]; count: number }>('/api/versions/bulk', { ...(target ?? { ids }), patch }),
     onMutate: ({ ids, patch }) => {
       // A list being read again (after the last change) would bring the old values back
       // over this one: a second toggle would then undo the first again. Cancelled now,
@@ -387,7 +412,7 @@ export function useBulkUpdate() {
 export function useMoveToTrash() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) => api.post<{ trashed: string[] }>('/api/versions/delete', { ids }),
+    mutationFn: (target: Target) => api.post<{ trashed: string[] }>('/api/versions/delete', target),
     onSuccess: ({ trashed }) => {
       const gone = new Set(trashed);
       qc.setQueriesData<CachedPhotos>({ queryKey: ['photos'] }, (data) =>
@@ -783,7 +808,7 @@ export function useDisconnectInstance() {
 }
 
 /** Start sending versions (`ids`) or everything to an instance. */
-export const sendToInstance = (instanceId: string, what: { ids: string[] } | { everything: true }) =>
+export const sendToInstance = (instanceId: string, what: Target | { everything: true }) =>
   api.post<Transfer>(`/api/instances/${instanceId}/send`, what);
 
 /** A transfer, polled while it runs. */

@@ -35,8 +35,10 @@ import {
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useBulkUpdate, useInstances, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
+import { useInstances, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
+import { photoCount } from './selectionText.ts';
 import {
+  type BulkPatch,
   COLOR_LABELS,
   type ColorLabel,
   type Flag,
@@ -71,7 +73,10 @@ export const PANEL_PROPS = { as: 'aside', w: '80', flexShrink: 0, borderLeftWidt
 export const PREVIEW_SIZE = 295;
 
 interface Actions {
+  /** Move the selection to the trash (`versions`: those of it shown). */
   onDelete: (versions: Photo[]) => void;
+  /** Rate, flag, label or tag the whole selection (several photos). */
+  onPatch: (patch: BulkPatch) => void;
   /** Duplicate the selected versions. */
   onDuplicate: (fromOriginal: boolean) => void;
   /** Apply a preset or style to the selected versions. */
@@ -111,8 +116,17 @@ export function DuplicateMenu({
   );
 }
 
-export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Actions) {
-  if (selected.length === 0) {
+export function InfoPanel({
+  selected,
+  count = selected.length,
+  ...actions
+}: {
+  /** The selected photos shown (loaded). */
+  selected: Photo[];
+  /** How many are selected, shown or not (roadmap 8.13: all the filters match). */
+  count?: number;
+} & Actions) {
+  if (count === 0) {
     return (
       <Stack {...PANEL_PROPS} bg="bg.panel" p="4" justify="center" align="center" color="fg.muted" textAlign="center">
         <Text>Select a photo to see and edit its metadata.</Text>
@@ -125,8 +139,8 @@ export function InfoPanel({ selected, ...actions }: { selected: Photo[] } & Acti
       </Stack>
     );
   }
-  if (selected.length > 1) return <BulkPanel photos={selected} {...actions} />;
-  return <SinglePanel photo={selected[0]!} {...actions} />;
+  if (count > 1 || !selected[0]) return <BulkPanel photos={selected} count={count} {...actions} />;
+  return <SinglePanel photo={selected[0]} {...actions} />;
 }
 
 // ── Shared culling controls ─────────────────────────────────────────────────
@@ -689,27 +703,43 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
 
 // ── Several photos ──────────────────────────────────────────────────────────
 
-function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport, onSend }: { photos: Photo[] } & Actions) {
+/**
+ * Several photos: what they have in common (among those shown: a selection by filter may
+ * hold photos not loaded yet), and what to do with all of them.
+ */
+function BulkPanel({
+  photos,
+  count,
+  onDelete,
+  onPatch,
+  onDuplicate,
+  onApplyEdit,
+  onExport,
+  onSend,
+}: { photos: Photo[]; count: number } & Actions) {
   const { data: instances = [] } = useInstances();
-  const bulk = useBulkUpdate();
-  const ids = photos.map((p) => p.id);
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
-    const first = get(photos[0]!);
+    if (!photos[0]) return undefined;
+    const first = get(photos[0]);
     return photos.every((p) => get(p) === first) ? first : undefined;
   };
-  const commonTags = photos[0]!.tags.filter((t) => photos.every((p) => p.tags.includes(t)));
+  const commonTags = (photos[0]?.tags ?? []).filter((t) => photos.every((p) => p.tags.includes(t)));
+  const n = count.toLocaleString('en-US');
 
   return (
     <Stack {...PANEL_PROPS} {...BLOCKS_PROPS}>
-      <PanelBlock title={`${photos.length} photos selected`}>
+      <PanelBlock title={`${photoCount(count)} selected`}>
         <Culling
           rating={same((p) => p.rating) ?? null}
           flag={same((p) => p.flag)}
           colorLabel={same((p) => p.colorLabel)}
-          onChange={(patch) => bulk.mutate({ ids, patch })}
+          onChange={onPatch}
         />
       </PanelBlock>
-      <PanelBlock title="Tags in common" actions={<ManageTags />}>
+      <PanelBlock
+        title={count > photos.length ? 'Tags in common (of those shown)' : 'Tags in common'}
+        actions={<ManageTags />}
+      >
         <HStack wrap="wrap" gap="1">
           {commonTags.length === 0 && (
             <Text textStyle="xs" color="fg.muted">
@@ -717,39 +747,34 @@ function BulkPanel({ photos, onDelete, onDuplicate, onApplyEdit, onExport, onSen
             </Text>
           )}
           {commonTags.map((t) => (
-            <Button
-              key={t}
-              size="2xs"
-              variant="subtle"
-              onClick={() => bulk.mutate({ ids, patch: { removeTags: [t] } })}
-            >
+            <Button key={t} size="2xs" variant="subtle" onClick={() => onPatch({ removeTags: [t] })}>
               {displayTag(t)} <X />
             </Button>
           ))}
         </HStack>
-        <BulkTagInput exclude={commonTags} onAdd={(t) => bulk.mutate({ ids, patch: { addTags: [t] } })} />
+        <BulkTagInput exclude={commonTags} onAdd={(t) => onPatch({ addTags: [t] })} />
       </PanelBlock>
       <PanelBlock title="Actions">
         <ApplyMenu onApply={onApplyEdit}>
           <Button size="xs" variant="outline">
-            <Palette /> Apply a preset or style to {photos.length}
+            <Palette /> Apply a preset or style to {n}
           </Button>
         </ApplyMenu>
         <Button size="xs" variant="outline" onClick={onExport} title="Export (Ctrl+E)">
-          <ImageDown /> Export {photos.length} photos
+          <ImageDown /> Export {photoCount(count)}
         </Button>
         <DuplicateMenu onDuplicate={onDuplicate}>
           <Button size="xs" variant="outline">
-            <Copy /> Duplicate {photos.length}
+            <Copy /> Duplicate {n}
           </Button>
         </DuplicateMenu>
         {instances.map((i) => (
           <Button key={i.id} size="xs" variant="outline" onClick={() => onSend(i)}>
-            <Send /> Send {photos.length} to {hostOf(i.url)}
+            <Send /> Send {n} to {hostOf(i.url)}
           </Button>
         ))}
         <Button size="xs" variant="outline" colorPalette="red" onClick={() => onDelete(photos)}>
-          <Trash2 /> Move {photos.length} to trash
+          <Trash2 /> Move {n} to trash
         </Button>
       </PanelBlock>
     </Stack>

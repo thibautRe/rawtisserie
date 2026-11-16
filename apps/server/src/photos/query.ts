@@ -93,3 +93,35 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.import?.length) c.push(sql`v.import_id = ANY(${f.import})`);
   return sql.join(c, sql` AND `);
 }
+
+/** The library's own query string (filters and sort, as in its address), parsed like `/api/versions`'s. */
+export function parseLibraryQuery(query: string) {
+  const params = new URLSearchParams(query);
+  const fields: Record<string, string | string[]> = {};
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key);
+    fields[key] = values.length > 1 ? values : values[0]!;
+  }
+  return PhotoListQuery.omit({ limit: true, offset: true }).parse(fields);
+}
+
+/**
+ * What a library action applies to (roadmap 8.13): versions by id, or every version the
+ * library's filters match (its query string), but those unticked by hand since. Resolved
+ * on the server in the same query as the action, so the browser never lists them all.
+ */
+export const Target = z.union([
+  z.object({ ids: z.array(z.uuid()).min(1).max(5000) }),
+  z.object({ filter: z.string().max(20_000), except: z.array(z.uuid()).max(5000).default([]) }),
+]);
+export type Target = z.infer<typeof Target>;
+
+/**
+ * The target's versions among the owner's outside the trash: a condition over
+ * `versions v JOIN photos p` (`VERSIONS_FROM`).
+ */
+export function targetClause(ownerId: string, target: Target): SQLQuery {
+  if ('ids' in target)
+    return sql`p.owner_id = ${ownerId} AND v.trashed_at IS NULL AND v.id = ANY(${target.ids}::uuid[])`;
+  return sql`${whereClause(ownerId, parseLibraryQuery(target.filter))} AND v.id <> ALL(${target.except}::uuid[])`;
+}

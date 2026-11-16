@@ -64,6 +64,7 @@ M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope. 8.11 do
 same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic. Then 7.11:
 renders stored as AVIF, encoded by sharp (native) in the render worker. Then 10.1: the
 library, trash and settings on phones.
+2026-11-17: 8.13, Ctrl+A selects everything the filters match.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1814,7 +1815,19 @@ Left:
   equivalents too, and the shortcut stays listed in `reservedPress`.
 - The server's filter (`whereClause`) and the counts must follow both.
 
-### 8.13 Select everything the filters match (M, from NOTES.md)
+### 8.13 Select everything the filters match (M, from NOTES.md) — done
+
+> **Done** 2026-11-17. Select all (Ctrl+A, or the phone's selection bar) selects by filter
+> (`useGridSelection` with `scope`): the library's query string, minus the photos unticked
+> with Ctrl+click since; a plain click, a range or another filter goes back to ids. Actions
+> send a `Target` (`{ ids }` or `{ filter, except }`, `photos/query.ts`), resolved by the
+> server in the same query: `/api/versions/bulk` (ratings, flags, labels, tags; it answers
+> a count for a filter), `/api/versions/delete` (with Undo: restore takes up to 100,000
+> ids) and sending. What the browser does photo by photo (presets and styles, pasted
+> settings, duplicates) asks `/api/versions/ids` first; export pages through the list. Above
+> 200 photos every action asks first (`useConfirmLarge`, "Rate 599 photos 3 stars?").
+> The status bar says "All 1,240 photos selected". The info panel's "in common" values are
+> those of the photos loaded. The trash keeps selecting what's loaded.
 
 Ctrl+A selects the loaded page of the grid, not all the photos the filters match. It
 should select all of them (a "selection by filter" rather than a list of ids), and every
@@ -2033,8 +2046,7 @@ Required before 1.0, on top of what's done:
 - **UI:** 4.13 mask UI redesign; ~~10.1 the library and settings on phones~~.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 8.12 boolean tag filters, 8.13
-  selecting everything the filters match.
+  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 8.12 boolean tag filters.
 
 ## Suggested order
 
@@ -2051,7 +2063,7 @@ Required before 1.0, on top of what's done:
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
-   and done 2026-11-16), then ~~7.11 AVIF renders~~, ~~10.1 responsive library~~, 8.13 and
+   and done 2026-11-16), then ~~7.11 AVIF renders~~, ~~10.1 responsive library~~, ~~8.13~~ and
    8.12. 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

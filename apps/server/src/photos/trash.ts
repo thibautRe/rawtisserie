@@ -21,7 +21,8 @@ const DAY = 86_400_000;
 /** How often trash older than `TRASH_DAYS` is looked for. */
 const PURGE_EVERY = 3600_000;
 
-const Ids = z.object({ ids: z.array(z.uuid()).min(1).max(5000) });
+// Many: undoing a selection by filter moved to the trash (roadmap 8.13) restores all of it.
+const Ids = z.object({ ids: z.array(z.uuid()).min(1).max(100_000) });
 const Page = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(200),
   offset: z.coerce.number().int().min(0).default(0),

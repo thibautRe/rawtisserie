@@ -78,6 +78,12 @@ See README.md for the architecture overview and commands.
   (Ctrl+Alt+O, Ctrl+Alt+A), matched by physical key (`code`); they listen first (capture)
   and, while a sequence goes on, its keys do nothing else. A new app shortcut must go
   into `reservedPress`'s lists, or a tag's could hide it.
+- Library actions on a selection take a `Target` (roadmap 8.13): ids, or `{ filter, except }`
+  when Ctrl+A selected everything the filters match (`useGridSelection`'s `target()`).
+  Server routes resolve it with `targetClause` (`photos/query.ts`) in their own query; a
+  new bulk action must too, or it only reaches the photos loaded. Work done in the browser
+  per photo gets the ids from `/api/versions/ids`. Above `LARGE_SELECTION` (200) actions
+  ask first (`useConfirmLarge`).
 - Sending to another instance (`apps/server/src/transfer/`): the sender's server posts
   `SentVersion`s (`protocol.ts`) to the receiver's `/api/transfer/…`, authorised by an
   access token that can only add. Anything new a version carries (a column, a photo

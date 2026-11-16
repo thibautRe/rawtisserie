@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { sendToInstance, useCancelTransfer, useRetryTransfer, useTransfer } from '../api/hooks.ts';
-import type { RemoteInstance, Transfer } from '../api/types.ts';
+import type { RemoteInstance, Target, Transfer } from '../api/types.ts';
 import { toaster } from './toaster.tsx';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -22,7 +22,7 @@ export const hostOf = (url: string) => new URL(url).host;
  * Send versions (or everything) to another instance: the server does it, this toast
  * follows it until closed.
  */
-export async function startTransfer(instance: RemoteInstance, what: { ids: string[] } | { everything: true }) {
+export async function startTransfer(instance: RemoteInstance, what: Target | { everything: true }) {
   try {
     const transfer = await sendToInstance(instance.id, what);
     toaster.create({

@@ -23,7 +23,7 @@ import { ZOOM_TILE } from '../render/zoomTypes.ts';
 import { storage } from '../storage/index.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
 import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
-import { PhotoFilters, PhotoListQuery, SORTS, whereClause } from './query.ts';
+import { PhotoFilters, PhotoListQuery, SORTS, Target, parseLibraryQuery, targetClause, whereClause } from './query.ts';
 import { RENDER_FORMATS, RENDER_SIZES, originalKey, renderKey, type RenderFormat, type RenderSize } from './storage.ts';
 import { TAG_LEVELS, Tag } from './tags.ts';
 
@@ -104,13 +104,15 @@ export function toColumns<T>(patch: VersionPatch, fields: Partial<Record<keyof V
   return out as Partial<T>;
 }
 
-const Bulk = z.object({
-  ids: z.array(z.uuid()).min(1).max(5000),
-  patch: VersionPatch.pick({ rating: true, flag: true, colorLabel: true }).extend({
-    addTags: z.array(Tag).optional(),
-    removeTags: z.array(Tag).optional(),
-  }),
-});
+/** A change to the curation of the versions of a `Target` (ids, or what a filter matches). */
+const Bulk = z
+  .object({
+    patch: VersionPatch.pick({ rating: true, flag: true, colorLabel: true }).extend({
+      addTags: z.array(Tag).optional(),
+      removeTags: z.array(Tag).optional(),
+    }),
+  })
+  .and(Target);
 
 const Duplicate = z.object({
   /** Start from the original (an empty history) instead of copying the history. */
@@ -255,9 +257,13 @@ export async function photoRoutes(
     return versionDetail(user.id, id);
   });
 
+  /**
+   * Rate, flag, label or tag a selection. Versions picked by id come back changed; for a
+   * filter (it may be thousands), only how many changed.
+   */
   app.post('/api/versions/bulk', async (request) => {
     const user = currentUser(request);
-    const { ids, patch } = Bulk.parse(request.body);
+    const { patch, ...target } = Bulk.parse(request.body);
     const { addTags, removeTags, ...simple } = patch;
     const sets = [sql`updated_at = now()`];
     for (const [key, value] of Object.entries(toColumns<Versions>(simple, VERSION_FIELDS))) {
@@ -269,22 +275,41 @@ export async function photoRoutes(
         WHERE t <> ALL(${removeTags ?? []}::text[]) ORDER BY 1)`);
     const updated = await db.query(sql`
       UPDATE versions SET ${sql.join(sets, sql`, `)}
-      WHERE id = ANY(${ids}) AND trashed_at IS NULL AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
+      WHERE id IN (SELECT v.id FROM ${VERSIONS_FROM} WHERE ${targetClause(user.id, target)})
       RETURNING id`);
+    if (!('ids' in target)) return { versions: [], count: updated.length };
     const rows = (await db.query(sql`
       SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ANY(${updated.map((r) => r.id)})`)) as VersionRow[];
-    return { versions: rows.map(versionDto) };
+    return { versions: rows.map(versionDto), count: rows.length };
   });
 
-  /** Move versions to the trash (`trash.ts`): restorable for `TRASH_DAYS`. */
+  /** Move versions (a `Target`) to the trash (`trash.ts`): restorable for `TRASH_DAYS`. */
   app.post('/api/versions/delete', async (request) => {
     const user = currentUser(request);
-    const { ids } = Ids.parse(request.body);
+    const target = Target.parse(request.body);
     const trashed = await db.query(sql`
       UPDATE versions SET trashed_at = now(), updated_at = now()
-      WHERE id = ANY(${ids}) AND trashed_at IS NULL AND photo_id IN (SELECT id FROM photos WHERE owner_id = ${user.id})
+      WHERE id IN (SELECT v.id FROM ${VERSIONS_FROM} WHERE ${targetClause(user.id, target)})
       RETURNING id`);
     return { trashed: trashed.map((v) => v.id as string) };
+  });
+
+  /**
+   * The ids of the versions a filter matches (but `except`), in the library's order: for
+   * what the browser does one photo at a time over a selection by filter (roadmap 8.13:
+   * presets and styles, pasted settings, duplicates).
+   */
+  app.post('/api/versions/ids', async (request) => {
+    const user = currentUser(request);
+    const { filter, except } = z
+      .object({ filter: z.string().max(20_000), except: z.array(z.uuid()).max(5000).default([]) })
+      .parse(request.body);
+    const query = parseLibraryQuery(filter);
+    const rows = await db.query(sql`
+      SELECT v.id FROM ${VERSIONS_FROM}
+      WHERE ${whereClause(user.id, query)} AND v.id <> ALL(${except}::uuid[])
+      ORDER BY ${SORTS[query.sort]}`);
+    return { ids: rows.map((r) => r.id as string) };
   });
 
   /**

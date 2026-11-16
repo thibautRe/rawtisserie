@@ -275,3 +275,10 @@ export interface Transfer {
   extrasSent: number;
   failures: { versionId: string; filename: string; error: string | null }[];
 }
+
+/**
+ * What a library action applies to (roadmap 8.13): versions by id, or every version the
+ * library's filters match (its query string), but those unticked since. The server
+ * resolves a filter itself.
+ */
+export type Target = { ids: string[] } | { filter: string; except: string[] };

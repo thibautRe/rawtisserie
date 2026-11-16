@@ -22,11 +22,18 @@ import type { EditParams } from '@rawtisserie/pipeline';
 import { ChevronDown, Filter, FolderInput, Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos } from '../api/hooks.ts';
-import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
+import {
+  fetchTargetIds,
+  fetchTargetPhotos,
+  useBatchEdit,
+  useBulkUpdate,
+  useDuplicateVersion,
+  useLibraryPhotos,
+} from '../api/hooks.ts';
+import { COLOR_LABELS, type BulkPatch, type Photo, type RemoteInstance } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { PanelDrawer } from '../components/PanelDrawer.tsx';
-import { startTransfer } from '../components/transfer.tsx';
+import { hostOf, startTransfer } from '../components/transfer.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { PHOTO_ACCEPT } from '../lib/format.ts';
@@ -40,7 +47,9 @@ import {
 } from '../develop/editClipboard.ts';
 import { CopyEditsDialog } from '../develop/presets.tsx';
 import { LibraryExportDialog } from '../export/LibraryExportDialog.tsx';
-import { fetchRecipe } from './batchEdit.ts';
+import { type BatchEdit, fetchRecipe } from './batchEdit.ts';
+import { patchQuestion, photoCount } from './selectionText.ts';
+import { useConfirmLarge } from './useConfirmLarge.tsx';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
@@ -86,7 +95,9 @@ export function LibraryPage() {
     const selection = same && (!focus || view.selection.includes(focus)) ? view.selection : focus ? [focus] : [];
     return { scrollTop: same ? view.scrollTop : 0, selection, focusedId: focus ?? (same ? view.focusedId : null) };
   });
-  const grid = useGridSelection(items, restored);
+  // Select all (Ctrl+A) selects every photo the filters match (roadmap 8.13).
+  const grid = useGridSelection(items, restored, { scope: search.search, total });
+  const [ask, askDialog] = useConfirmLarge();
   const { photos, selection, focusedId, focusedIndex, selectOne } = grid;
   const selectedPhotos = grid.selected;
   const scrollTop = useRef(restored.scrollTop);
@@ -107,8 +118,8 @@ export function LibraryPage() {
   useEffect(() => () => latestSave.current(), []);
   const [columns, setColumns, columnRange] = useColumns(narrow);
   useEffect(() => {
-    if (!selection.size) setInfoOpen(false);
-  }, [selection.size]);
+    if (!grid.count) setInfoOpen(false);
+  }, [grid.count]);
   /** The photo the culling loupe opened on, while it's open. */
   const [loupe, setLoupe] = useState<string | null>(null);
   const loupeStart = focusedId ?? [...selection][0] ?? null;
@@ -143,28 +154,65 @@ export function LibraryPage() {
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
   // Phones: a tap opens the loupe, or while photos are selected adds or removes one.
   const tap = useStableCallback((_e: React.MouseEvent, photo: Photo) =>
-    selection.size ? grid.toggle(photo.id) : setLoupe(photo.id),
+    grid.count ? grid.toggle(photo.id) : setLoupe(photo.id),
   );
   const longPress = useCallback((photo: Photo) => grid.toggle(photo.id), [grid.toggle]);
 
+  /** The selection's ids, in the library's order: asked to the server for a selection by filter. */
+  const selectionIds = async () => {
+    const target = grid.target();
+    if ('ids' in target) return photos.filter((p) => selection.has(p.id)).map((p) => p.id);
+    return fetchTargetIds(target);
+  };
+  const failed = (title: string) => (err: unknown) =>
+    toaster.create({ type: 'error', title, description: err instanceof Error ? err.message : undefined });
+
   /** Duplicate each selected version, then select the copies. */
-  const duplicateSelection = useCallback(
-    async (fromOriginal: boolean) => {
-      const ids = photos.filter((p) => selection.has(p.id)).map((p) => p.id);
-      if (!ids.length) return;
-      try {
-        const copies = await Promise.all(ids.map((id) => duplicate.mutateAsync({ id, fromOriginal })));
-        grid.selectMany(copies.map((c) => c.id));
-      } catch (err) {
-        toaster.create({
-          type: 'error',
-          title: 'Could not duplicate',
-          description: err instanceof Error ? err.message : undefined,
-        });
-      }
-    },
-    [photos, selection, duplicate, grid.selectMany],
-  );
+  const duplicateSelection = (fromOriginal: boolean) => {
+    if (!grid.count) return;
+    ask(
+      grid.count,
+      { title: `Duplicate ${photoCount(grid.count)}?`, confirm: 'Duplicate' },
+      () =>
+        void selectionIds()
+          .then((ids) => Promise.all(ids.map((id) => duplicate.mutateAsync({ id, fromOriginal }))))
+          .then((copies) => grid.selectMany(copies.map((c) => c.id)))
+          .catch(failed('Could not duplicate')),
+    );
+  };
+
+  /** Apply a preset, a style or pasted settings to the selection, one photo at a time. */
+  const editSelection = (edit: BatchEdit) => {
+    if (!grid.count) return;
+    ask(
+      grid.count,
+      { title: `${edit.label}: ${photoCount(grid.count)}?`, confirm: 'Apply' },
+      () =>
+        void selectionIds()
+          .then((ids) => batchEdit(ids, edit))
+          .catch(failed('Could not edit')),
+    );
+  };
+
+  /** Export the selection (all the photos a selection by filter holds, asked to the server). */
+  const exportSelection = () => {
+    if (!grid.count) return;
+    const target = grid.target();
+    ask(grid.count, { title: `Export ${photoCount(grid.count)}?`, confirm: 'Export' }, () =>
+      'ids' in target
+        ? setExporting(selectedPhotos)
+        : void fetchTargetPhotos(target).then(setExporting).catch(failed('Could not list the photos')),
+    );
+  };
+
+  const sendSelection = (instance: RemoteInstance) => {
+    if (!grid.count) return;
+    ask(
+      grid.count,
+      { title: `Send ${photoCount(grid.count)} to ${hostOf(instance.url)}?`, confirm: 'Send' },
+      () => void startTransfer(instance, grid.target()),
+    );
+  };
 
   // ── Export (roadmap 8.4): the selection, in the grid's order ──
   const [exporting, setExporting] = useState<Photo[] | null>(null);
@@ -213,32 +261,36 @@ export function LibraryPage() {
         description: 'Copy settings with Ctrl+C',
         duration: 2500,
       });
-    else void batchEdit([...selection], pasteEdit(clip, appendAll));
+    else editSelection(pasteEdit(clip, appendAll));
   };
-  const latestCopy = useRef({ copyFrom, pasteToSelection });
-  latestCopy.current = { copyFrom, pasteToSelection };
+  // For the keys, which listen across renders.
+  const latest = useRef({ copyFrom, pasteToSelection, exportSelection, duplicateSelection, trashSelection: () => {} });
 
-  const applyToSelection = useCallback(
-    (patch: BulkPatch) => {
-      if (selection.size) bulk.mutate({ ids: [...selection], patch });
-    },
-    [bulk, selection],
-  );
+  /** Rate, flag, label or tag the selection (`then` once it's going: a large one asks first). */
+  const applyToSelection = useStableCallback((patch: BulkPatch, then?: () => void) => {
+    if (!grid.count) return;
+    ask(grid.count, patchQuestion(patch, grid.count), () => {
+      bulk.mutate({ ids: [...selection], target: grid.allMatching ? grid.target() : undefined, patch });
+      then?.();
+    });
+  });
 
   // The tags' shortcuts (tag manager) toggle a tag on the selection, as P does a flag.
   const toggleTag = (tag: string) => {
-    if (!selectedPhotos.length) {
+    if (!grid.count) {
       toaster.create({ type: 'info', title: 'Select photos to tag first', duration: 2000 });
       return;
     }
-    const all = selectedPhotos.every((p) => p.tags.includes(tag));
-    applyToSelection(all ? { removeTags: [tag] } : { addTags: [tag] });
-    const n = selectedPhotos.length === 1 ? '1 photo' : `${selectedPhotos.length} photos`;
-    toaster.create({
-      type: 'success',
-      title: all ? `Removed ${displayTag(tag)} from ${n}` : `Tagged ${n} ${displayTag(tag)}`,
-      duration: 2000,
-    });
+    // Of a selection by filter, the photos shown say whether they all have it.
+    const all = selectedPhotos.length > 0 && selectedPhotos.every((p) => p.tags.includes(tag));
+    const n = photoCount(grid.count);
+    applyToSelection(all ? { removeTags: [tag] } : { addTags: [tag] }, () =>
+      toaster.create({
+        type: 'success',
+        title: all ? `Removed ${displayTag(tag)} from ${n}` : `Tagged ${n} ${displayTag(tag)}`,
+        duration: 2000,
+      }),
+    );
   };
   const tagSequence = useTagShortcuts(loupe ? null : toggleTag);
 
@@ -261,22 +313,22 @@ export function LibraryPage() {
       // Copy and paste settings, unless there's text selected to copy.
       if ((e.metaKey || e.ctrlKey) && key === 'c' && !window.getSelection()?.toString()) {
         e.preventDefault();
-        void latestCopy.current.copyFrom(e.shiftKey);
+        void latest.current.copyFrom(e.shiftKey);
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && key === 'v' && selection.size) {
+      if ((e.metaKey || e.ctrlKey) && key === 'v' && grid.count) {
         e.preventDefault();
-        latestCopy.current.pasteToSelection(e.shiftKey);
+        latest.current.pasteToSelection(e.shiftKey);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && key === 'e') {
         e.preventDefault();
-        if (selection.size) setExporting(selectedPhotos);
+        latest.current.exportSelection();
         return;
       }
       if ((e.metaKey || e.ctrlKey) && key === 'd') {
         e.preventDefault();
-        void duplicateSelection(e.shiftKey);
+        latest.current.duplicateSelection(e.shiftKey);
         return;
       }
       if (e.metaKey || e.ctrlKey) return;
@@ -299,7 +351,7 @@ export function LibraryPage() {
       else if (key === 'arrowup') move(-columns);
       else if ((key === 'd' || key === 'enter') && focusedId) navigate(`/versions/${focusedId}/develop`);
       else if ((key === ' ' || key === 'e') && (loupeStart ?? photos[0])) setLoupe(loupeStart ?? photos[0]!.id);
-      else if ((key === 'delete' || key === 'backspace') && selection.size) trash(selectedPhotos);
+      else if ((key === 'delete' || key === 'backspace') && grid.count) latest.current.trashSelection();
       else if (key === 'escape') grid.clear();
       else return;
       e.preventDefault();
@@ -330,7 +382,6 @@ export function LibraryPage() {
     selection,
     selectedPhotos,
     applyToSelection,
-    duplicateSelection,
     navigate,
   ]);
 
@@ -339,10 +390,23 @@ export function LibraryPage() {
   const folderInput = useRef<HTMLInputElement | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  const trash = (versions: Photo[]) =>
-    void moveToTrash(versions).catch((err: Error) =>
-      toaster.create({ type: 'error', title: 'Could not move to the trash', description: err.message }),
+  /** Move the selection to the trash (with Undo); a large one asks first. */
+  const trashSelection = () => {
+    if (!grid.count) return;
+    const target = grid.allMatching ? grid.target() : undefined;
+    const versions = selectedPhotos;
+    ask(
+      grid.count,
+      {
+        title: `Move ${photoCount(grid.count)} to the trash?`,
+        body: 'They can be restored from the trash for 30 days.',
+        confirm: 'Move to trash',
+        danger: true,
+      },
+      () => void moveToTrash(versions, target).catch(failed('Could not move to the trash')),
     );
+  };
+  latest.current = { copyFrom, pasteToSelection, exportSelection, duplicateSelection, trashSelection };
 
   const sortSelect = (
     <NativeSelect.Root size="sm" w={{ base: 'full', md: '44' }}>
@@ -385,6 +449,7 @@ export function LibraryPage() {
       position="relative"
     >
       {importReview}
+      {askDialog}
       {tagSequence}
       <PanelDrawer
         narrow={narrow}
@@ -556,9 +621,9 @@ export function LibraryPage() {
             onLongPress={narrow ? longPress : undefined}
           />
         )}
-        {narrow && selection.size > 0 ? (
+        {narrow && grid.count > 0 ? (
           <SelectionBar
-            selected={selection.size}
+            selected={grid.count}
             total={photos.length}
             onSelectAll={grid.selectAll}
             onDetails={() => setInfoOpen(true)}
@@ -566,7 +631,8 @@ export function LibraryPage() {
           />
         ) : (
           <LibraryStatusBar
-            selected={selection.size}
+            selected={grid.count}
+            allMatching={grid.allMatching}
             total={total}
             developing={photos.filter((p) => p.renderStatus === 'pending').length}
             loading={library.isFetching && !library.isPending}
@@ -586,12 +652,14 @@ export function LibraryPage() {
       >
         <InfoPanel
           selected={selectedPhotos}
-          onDelete={trash}
-          onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
-          onApplyEdit={(edit) => batchEdit([...selection], edit)}
+          count={grid.count}
+          onPatch={applyToSelection}
+          onDelete={trashSelection}
+          onDuplicate={duplicateSelection}
+          onApplyEdit={editSelection}
           onCopy={() => void copyFrom(true)}
-          onExport={() => setExporting(selectedPhotos)}
-          onSend={(instance) => void startTransfer(instance, { ids: selectedPhotos.map((p) => p.id) })}
+          onExport={exportSelection}
+          onSend={sendSelection}
         />
       </PanelDrawer>
       <LibraryExportDialog photos={exporting} preview={exportPreview} onClose={() => setExporting(null)} />

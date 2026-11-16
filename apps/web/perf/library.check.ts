@@ -207,8 +207,9 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
     }
     if (path === '/api/versions/bulk') {
       // Tags are kept, as the server would: the library reads them back.
-      const { ids, patch } = route.request().postDataJSON() as {
-        ids: string[];
+      // A selection by filter (`filter`, `except`) has no ids: nothing to keep here.
+      const { ids = [], patch } = route.request().postDataJSON() as {
+        ids?: string[];
         patch: { addTags?: string[]; removeTags?: string[] };
       };
       for (const id of ids) {
@@ -258,6 +259,12 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
     if (path === '/api/luts') return json({ luts: [] });
     if (path === '/api/export-settings')
       return json({ settings: { format: 'jpeg', size: { mode: 'longEdge', longEdge: 256 } }, presets: [] });
+    if (path === '/api/versions/delete') {
+      const body = route.request().postDataJSON() as { ids?: string[]; filter?: string; except?: string[] };
+      const q = new URLSearchParams(body.filter ?? '').get('q') ?? '';
+      const matched = body.ids ?? MANY.filter((p) => p.filename.includes(q)).map((p) => p.id);
+      return json({ trashed: matched.filter((id) => !body.except?.includes(id)) });
+    }
     if (path === '/api/versions/recipes') {
       const { ids } = route.request().postDataJSON() as { ids: string[] };
       return json({
@@ -480,13 +487,14 @@ test('T focuses the tag input of several photos too', async () => {
   await page.getByRole('option', { name: /city/ }).click();
   assert.deepEqual(sent.at(-1), {
     path: '/api/versions/bulk',
-    body: { ids: PHOTOS.map((p) => p.id), patch: { addTags: ['city'] } },
+    // Ctrl+A selects by filter (roadmap 8.13): the whole library here.
+    body: { filter: '', except: [], patch: { addTags: ['city'] } },
   });
   // Nothing matches: the form adds it as typed.
   await page.keyboard.type('dusk');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => (document.activeElement as HTMLInputElement).value === '');
-  assert.deepEqual(sent.at(-1)?.body, { ids: PHOTOS.map((p) => p.id), patch: { addTags: ['dusk'] } });
+  assert.deepEqual(sent.at(-1)?.body, { filter: '', except: [], patch: { addTags: ['dusk'] } });
 });
 
 /** A golden-test RAW (`scripts/fetch-golden-raws.sh`). */
@@ -1113,4 +1121,58 @@ test('on a phone: filters in a drawer, a tap opens the loupe and a swipe moves o
   await open('/settings/tags', PHONE);
   await page.getByRole('heading', { name: 'Tags', exact: true }).waitFor();
   assert.equal(await overflow(), 0, 'the tag manager is wider than the phone');
+});
+
+test('Ctrl+A selects every photo the filters match, loaded or not; actions on it ask first and go by filter', async () => {
+  await open('/?q=many');
+  await page.locator('[data-photo-id]').first().waitFor();
+  await page.keyboard.press('Control+a');
+  await page.getByText('All 600 photos selected').waitFor();
+
+  // One unticked by hand: the server is told which.
+  const first = await page.locator('[data-photo-id]').first().getAttribute('data-photo-id');
+  await page.locator(`[data-photo-id="${first}"]`).click({ modifiers: ['ControlOrMeta'] });
+  await page.getByText('599 of 600 photos selected').waitFor();
+  assert.equal(await page.locator(`[data-photo-id="${first}"][data-selected]`).count(), 0);
+
+  // A rating asks first, with the number, and is sent as the filter.
+  await page.keyboard.press('3');
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByText('Rate 599 photos 3 stars?').waitFor();
+  assert.equal(sent.filter((r) => r.path === '/api/versions/bulk').length, 0, 'sent before confirming');
+  await dialog.getByRole('button', { name: 'Rate' }).click();
+  await page.waitForTimeout(300);
+  assert.deepEqual(sent.find((r) => r.path === '/api/versions/bulk')?.body, {
+    filter: 'q=many',
+    except: [first],
+    patch: { rating: 3 },
+  });
+
+  // Cancelling sends nothing.
+  await page.keyboard.press('x');
+  await dialog.getByText('Reject 599 photos?').waitFor();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal(sent.filter((r) => r.path === '/api/versions/bulk').length, 1);
+  await page.getByText('599 of 600 photos selected').waitFor();
+
+  // A plain click goes back to selecting by id; another filter drops a selection by filter.
+  await page.locator('[data-photo-id]').nth(2).click();
+  await page.getByText('1 of 600 photos').waitFor();
+  await page.keyboard.press('Control+a');
+  await page.getByText('All 600 photos selected').waitFor();
+  await page.getByPlaceholder('Search filename').fill('many-5');
+  await page.getByText('111 photos', { exact: true }).waitFor();
+
+  // The trash too, with an Undo for all of them.
+  await page.getByPlaceholder('Search filename').fill('many');
+  await page.getByText('600 photos', { exact: true }).waitFor();
+  // Not the search's text: the grid's.
+  await page.getByPlaceholder('Search filename').blur();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Delete');
+  await dialog.getByText('Move 600 photos to the trash?').waitFor();
+  await dialog.getByRole('button', { name: 'Move to trash' }).click();
+  await page.getByText('Moved 600 photos to the trash').waitFor();
+  assert.deepEqual(sent.find((r) => r.path === '/api/versions/delete')?.body, { filter: 'q=many', except: [] });
 });

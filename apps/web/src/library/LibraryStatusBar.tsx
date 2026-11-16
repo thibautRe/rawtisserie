@@ -1,6 +1,7 @@
 import { Button, CloseButton, HStack, Separator, Slider, Spinner, Text } from '@chakra-ui/react';
 import { Grid3x3, Info } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
+import { photoCount } from './selectionText.ts';
 
 /** Photos per row: the range and default, and where it's remembered, on wide screens and phones. */
 export const COLUMNS = {
@@ -42,6 +43,7 @@ const NUMERIC = { fontFamily: 'numeric', fontVariantNumeric: 'tabular-nums' } as
 /** A slim bar under the library's grid, as the developer's: counts, and the grid's size. */
 export const LibraryStatusBar = memo(function LibraryStatusBar({
   selected,
+  allMatching = false,
   total,
   developing,
   loading,
@@ -50,6 +52,8 @@ export const LibraryStatusBar = memo(function LibraryStatusBar({
   onColumnsChange,
 }: {
   selected: number;
+  /** The selection is every photo the filters match, but those unticked (roadmap 8.13). */
+  allMatching?: boolean;
   total: number;
   /** Photos in the pages that are in whose previews are being rendered. */
   developing: number;
@@ -62,9 +66,10 @@ export const LibraryStatusBar = memo(function LibraryStatusBar({
 }) {
   return (
     <HStack h="7" px="3" gap="2" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
-      <Text textStyle="2xs" color="fg.muted" {...NUMERIC}>
-        {selected ? `${selected} of ` : ''}
-        {total} photo{total === 1 ? '' : 's'}
+      <Text textStyle="2xs" color={allMatching ? 'fg' : 'fg.muted'} {...NUMERIC}>
+        {allMatching && selected === total
+          ? `All ${photoCount(total)} selected`
+          : `${selected ? `${selected.toLocaleString('en-US')} of ` : ''}${photoCount(total)}${allMatching ? ' selected' : ''}`}
       </Text>
       {developing > 0 && (
         <>
@@ -128,7 +133,7 @@ export function SelectionBar({
     <HStack h="12" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
       <CloseButton size="sm" aria-label="Clear the selection" onClick={onDone} />
       <Text textStyle="sm" fontWeight="medium" flex="1" {...NUMERIC}>
-        {selected} selected
+        {selected === total ? `All ${selected.toLocaleString('en-US')}` : selected.toLocaleString('en-US')} selected
       </Text>
       {selected < total && (
         <Button size="sm" variant="ghost" onClick={onSelectAll}>

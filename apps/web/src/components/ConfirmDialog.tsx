@@ -2,18 +2,22 @@ import { Button, CloseButton, Dialog, Portal, Text } from '@chakra-ui/react';
 import { useRef } from 'react';
 
 /**
- * Asking before something that can't be undone: open while `text` is non-null. The text
- * stays while it closes, so it doesn't empty during the animation.
+ * Asking before something that can't be undone (`danger`, red), or that's large (orange):
+ * open while `text` is non-null. The text stays while it closes, so it doesn't empty
+ * during the animation.
  */
 export function ConfirmDialog({
   text,
   confirm,
   onConfirm,
   onClose,
+  danger = true,
 }: {
-  text: { title: string; body: string } | null;
-  /** The button doing it (red). */
+  text: { title: string; body?: string } | null;
+  /** The button doing it. */
   confirm: string;
+  /** Red, for what can't be undone or loses something; else the app's orange. */
+  danger?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -28,14 +32,16 @@ export function ConfirmDialog({
             <Dialog.Header>
               <Dialog.Title>{shown.current?.title}</Dialog.Title>
             </Dialog.Header>
-            <Dialog.Body>
-              <Text>{shown.current?.body}</Text>
-            </Dialog.Body>
+            {shown.current?.body && (
+              <Dialog.Body>
+                <Text>{shown.current.body}</Text>
+              </Dialog.Body>
+            )}
             <Dialog.Footer>
               <Dialog.ActionTrigger asChild>
                 <Button variant="outline">Cancel</Button>
               </Dialog.ActionTrigger>
-              <Button colorPalette="red" onClick={onConfirm}>
+              <Button colorPalette={danger ? 'red' : 'orange'} onClick={onConfirm}>
                 {confirm}
               </Button>
             </Dialog.Footer>
