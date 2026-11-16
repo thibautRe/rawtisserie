@@ -39,6 +39,7 @@ const photo: PhotoMetadata = {
   gpsAltitude: 35,
   lensCorrection: 'sony',
   asShotIlluminant: [0.3127, 0.329],
+  imageFormat: null,
 };
 
 const settings: ExportSettings[] = [

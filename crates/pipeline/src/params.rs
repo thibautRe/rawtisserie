@@ -239,9 +239,13 @@ impl Default for EditParams {
 
 impl EditParams {
     /// The recipe a new image starts with, given what its file contains: the default
-    /// recipe, plus lens correction when the file embeds correction data. Must match
+    /// recipe, plus lens correction when the file embeds correction data; nothing for
+    /// an image that isn't a RAW file (it's developed already). Must match
     /// `defaultRecipe` in TS.
     pub fn default_for(metadata: &PhotoMetadata) -> Self {
+        if metadata.image_format.is_some() {
+            return Self { modules: Vec::new(), ..Self::default() };
+        }
         let mut params = Self::default();
         if metadata.lens_correction.is_some() {
             params.add(Lens::default());

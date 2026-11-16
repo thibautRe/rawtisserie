@@ -15,6 +15,7 @@
 //! The crate is plain Rust with no platform dependencies so that it can be compiled
 //! natively (tests, CLI) and to WebAssembly (browser developer and Node thumbnailer).
 
+pub mod bitmap;
 pub mod color;
 pub mod decode;
 pub mod demosaic;

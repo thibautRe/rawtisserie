@@ -427,6 +427,18 @@ export const MODULE_KINDS = [
   'lut',
 ] as const satisfies readonly ModuleKind[];
 
+/**
+ * Kinds an image that isn't a RAW file (a JPEG…, `PhotoMetadata.imageFormat`) doesn't
+ * have: it's display-referred already, and its lens was corrected (or not) when it was
+ * made. Recipes for one leave them out (`forPhoto`), and the developer doesn't show them.
+ */
+export const RAW_ONLY_KINDS: readonly ModuleKind[] = ['lens', 'filmic'];
+
+/** Whether a photo with this metadata has `kind` (see `RAW_ONLY_KINDS`). */
+export function hasKind(metadata: Pick<PhotoMetadata, 'imageFormat'> | null | undefined, kind: ModuleKind): boolean {
+  return !metadata?.imageFormat || !RAW_ONLY_KINDS.includes(kind);
+}
+
 /** Kinds whose extra instances are dropped on load. */
 export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry', 'filmic'];
 
@@ -896,14 +908,40 @@ export const AUTO_RECIPE_LABEL = 'Defaults (auto)';
 /** `AUTO_RECIPE_LABEL`, and what it used to be (when only lens correction made one). */
 export const AUTO_RECIPE_LABELS: readonly string[] = [AUTO_RECIPE_LABEL, 'Lens correction (auto)'];
 
+/** What an image that isn't a RAW file starts with, and its original: nothing. */
+export const emptyEditParams: EditParams = Object.freeze({ version: EDIT_PARAMS_VERSION, modules: [] });
+
+type RecipeMetadata = Pick<PhotoMetadata, 'lensCorrection' | 'imageFormat'>;
+
 /**
  * The recipe a new image starts with, given what its file contains: the default
- * recipe, plus lens correction when the file embeds correction data. Mirrors
- * `EditParams::default_for`.
+ * recipe, plus lens correction when the file embeds correction data; nothing for an
+ * image that isn't a RAW file (developed already). Mirrors `EditParams::default_for`.
  */
-export function defaultRecipe(metadata: Pick<PhotoMetadata, 'lensCorrection'>): EditParams {
+export function defaultRecipe(metadata: Partial<RecipeMetadata>): EditParams {
+  if (metadata.imageFormat) return emptyEditParams;
   if (!metadata.lensCorrection) return defaultEditParams;
   return { ...defaultEditParams, modules: [instance('lens', 'lens'), ...structuredClone(defaultEditParams.modules)] };
+}
+
+/**
+ * A version's original (history at 0) for a file with this metadata (`null` when it's
+ * not known yet): `originalEditParams`, or nothing for an image that isn't a RAW file.
+ */
+export function originalRecipe(metadata: Partial<RecipeMetadata> | null | undefined): EditParams {
+  return metadata?.imageFormat ? emptyEditParams : originalEditParams;
+}
+
+/**
+ * `recipe` for a photo with this metadata: without the kinds it doesn't have (a style
+ * or a pasted edit from a RAW file applied to a JPEG). The same recipe if nothing goes.
+ */
+export function forPhoto(recipe: EditParams, metadata: Pick<PhotoMetadata, 'imageFormat'> | null | undefined): EditParams {
+  if (recipe.modules.every((m) => hasKind(metadata, m.kind))) return recipe;
+  return normalize(
+    recipe.modules.filter((m) => hasKind(metadata, m.kind)),
+    recipe.shapes,
+  );
 }
 
 const rank = (kind: ModuleKind) => MODULE_KINDS.indexOf(kind);
@@ -1462,16 +1500,19 @@ export function moveInstance(params: EditParams, id: string, delta: -1 | 1): Edi
   return { ...params, modules };
 }
 
-/** Put the instances of a kind back as in the original (removing them if it has none). */
-export function resetModule(params: EditParams, kind: ModuleKind): EditParams {
-  const defaults = structuredClone(originalEditParams.modules.filter((m) => m.kind === kind));
+/**
+ * Put the instances of a kind back as in the original (removing them if it has none):
+ * `originalEditParams`, or the photo's (`originalRecipe`).
+ */
+export function resetModule(params: EditParams, kind: ModuleKind, original = originalEditParams): EditParams {
+  const defaults = structuredClone(original.modules.filter((m) => m.kind === kind));
   return normalize([...params.modules.filter((m) => m.kind !== kind), ...defaults], params.shapes);
 }
 
 /** Whether the instances of a kind differ from the original's (ids aside). */
-export function isModuleModified(params: EditParams, kind: ModuleKind): boolean {
+export function isModuleModified(params: EditParams, kind: ModuleKind, original = originalEditParams): boolean {
   const strip = (p: EditParams) => JSON.stringify(p.modules.filter((m) => m.kind === kind).map(({ id: _, ...m }) => m));
-  return strip(params) !== strip(originalEditParams);
+  return strip(params) !== strip(original);
 }
 
 /**
@@ -1479,8 +1520,13 @@ export function isModuleModified(params: EditParams, kind: ModuleKind): boolean 
  * (`resetModule`); with several, it keeps its place and label and gets default parameters
  * and no mask.
  */
-export function resetInstance(params: EditParams, kind: ModuleKind, id: string): EditParams {
-  if (params.modules.filter((m) => m.kind === kind).length <= 1) return resetModule(params, kind);
+export function resetInstance(
+  params: EditParams,
+  kind: ModuleKind,
+  id: string,
+  original = originalEditParams,
+): EditParams {
+  if (params.modules.filter((m) => m.kind === kind).length <= 1) return resetModule(params, kind, original);
   return withUsedShapes(
     updateInstance(params, kind, id, {
       enabled: true,
@@ -1491,8 +1537,13 @@ export function resetInstance(params: EditParams, kind: ModuleKind, id: string):
 }
 
 /** Whether `resetInstance` would change anything. */
-export function isInstanceModified(params: EditParams, kind: ModuleKind, id: string): boolean {
-  if (params.modules.filter((m) => m.kind === kind).length <= 1) return isModuleModified(params, kind);
+export function isInstanceModified(
+  params: EditParams,
+  kind: ModuleKind,
+  id: string,
+  original = originalEditParams,
+): boolean {
+  if (params.modules.filter((m) => m.kind === kind).length <= 1) return isModuleModified(params, kind, original);
   const m = params.modules.find((m) => m.id === id);
   return (
     !!m &&
@@ -1502,8 +1553,8 @@ export function isInstanceModified(params: EditParams, kind: ModuleKind, id: str
   );
 }
 
-export function isDefaultEdit(params: EditParams): boolean {
-  return MODULE_KINDS.every((kind) => !isModuleModified(params, kind));
+export function isDefaultEdit(params: EditParams, original = originalEditParams): boolean {
+  return MODULE_KINDS.every((kind) => !isModuleModified(params, kind, original));
 }
 
 // ── Retouch spots ──

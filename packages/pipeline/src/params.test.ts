@@ -35,6 +35,9 @@ import {
   updateMask,
   lutIds,
   toneRangeWeights,
+  forPhoto,
+  hasKind,
+  originalRecipe,
 } from './params.ts';
 import type { EllipseShape as Shape } from './shapes.ts';
 import { initPipeline, defaultParams, defaultRecipeWasm, normalizeParams } from './node.ts';
@@ -46,7 +49,7 @@ test('TypeScript defaults match the Rust defaults', () => {
 
 test('defaultRecipe matches Rust', () => {
   initPipeline();
-  for (const metadata of [{}, { lensCorrection: null }, { lensCorrection: 'sony' }]) {
+  for (const metadata of [{}, { lensCorrection: null }, { lensCorrection: 'sony' }, { imageFormat: 'jpeg' }]) {
     assert.deepEqual(
       defaultRecipe(metadata),
       JSON.parse(defaultRecipeWasm(JSON.stringify(metadata))),
@@ -54,6 +57,27 @@ test('defaultRecipe matches Rust', () => {
     );
   }
   assert.equal(defaultRecipe({ lensCorrection: null }), defaultEditParams);
+});
+
+test('an image that is not a RAW file starts empty and has no filmic or lens correction', () => {
+  const jpeg = { imageFormat: 'jpeg' };
+  assert.deepEqual(defaultRecipe(jpeg).modules, []);
+  assert.equal(originalRecipe(jpeg), defaultRecipe(jpeg));
+  assert.equal(originalRecipe(null), originalEditParams);
+  assert.ok(!hasKind(jpeg, 'filmic') && !hasKind(jpeg, 'lens') && hasKind(jpeg, 'exposure'));
+  assert.ok(hasKind({ imageFormat: null }, 'filmic'));
+
+  const raw = defaultRecipe({ lensCorrection: 'sony' });
+  assert.equal(forPhoto(raw, {}), raw);
+  assert.deepEqual(
+    forPhoto(raw, jpeg).modules.map((m) => m.kind),
+    raw.modules.map((m) => m.kind).filter((k) => k !== 'lens' && k !== 'filmic'),
+  );
+  // Compared with the photo's original.
+  const exposed = updateModule(defaultRecipe(jpeg), 'exposure', { params: { ev: 1 } });
+  assert.ok(isModuleModified(exposed, 'exposure', originalRecipe(jpeg)));
+  assert.deepEqual(resetModule(exposed, 'exposure', originalRecipe(jpeg)).modules, []);
+  assert.ok(isDefaultEdit(defaultRecipe(jpeg), originalRecipe(jpeg)));
 });
 
 /** Recipes on which TypeScript and Rust must agree. */

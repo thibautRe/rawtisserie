@@ -7,6 +7,7 @@ use rawler::rawimage::RawPhotometricInterpretation;
 use rawler::rawsource::RawSource;
 use rawler::{CFA, RawImage, RawImageData};
 
+use crate::bitmap::{self, Bitmap};
 use crate::color::{self, Mat3};
 use crate::lens::LensProfile;
 use crate::metadata::{self, PhotoMetadata};
@@ -68,19 +69,31 @@ impl Orient {
     }
 }
 
+/// Where the samples come from.
+enum Source {
+    /// A RAW file's sensor data, with its levels.
+    Sensor {
+        raw: RawImage,
+        /// Black level per position in the black level repeat pattern.
+        black: Vec<f32>,
+        black_width: usize,
+        black_height: usize,
+        white: f32,
+    },
+    /// An image developed already (JPEG, PNG, TIFF, WebP), linearised as it's read.
+    Bitmap(Bitmap),
+}
+
+/// A decoded file: a RAW file's sensor data, or an image developed already (see
+/// [`crate::bitmap`]) read the same way, as a plain RGB or grey layout.
 pub struct RawPhoto {
-    pub(crate) raw: RawImage,
+    source: Source,
     pub layout: Layout,
     /// Usable area of the sensor, in raw pixel coordinates.
     pub origin_x: usize,
     pub origin_y: usize,
     pub width: usize,
     pub height: usize,
-    /// Black level per position in the black level repeat pattern.
-    black: Vec<f32>,
-    black_width: usize,
-    black_height: usize,
-    white: f32,
     /// As-shot white balance multipliers, normalised to green = 1.
     pub wb: [f32; 3],
     /// Multipliers applied in the base stage: the "camera reference" ones, which make
@@ -99,6 +112,10 @@ pub struct RawPhoto {
 }
 
 pub fn decode(bytes: &[u8]) -> Result<RawPhoto> {
+    if let Some(format) = bitmap::detect(bytes) {
+        let (image, metadata) = bitmap::decode(bytes, format)?;
+        return Ok(RawPhoto::from_bitmap(image, metadata));
+    }
     let source = RawSource::new_from_slice(bytes);
     let params = RawDecodeParams::default();
     let raw = rawler::decode(&source, &params).map_err(|e| Error::Decode(e.to_string()))?;
@@ -149,16 +166,12 @@ impl RawPhoto {
         let orientation = Orient::from_exif(metadata.orientation.unwrap_or(1));
 
         Ok(Self {
-            raw,
+            source: Source::Sensor { raw, black, black_width, black_height, white },
             layout,
             origin_x,
             origin_y,
             width,
             height,
-            black,
-            black_width,
-            black_height,
-            white,
             wb,
             wb_reference,
             as_shot_illuminant,
@@ -169,21 +182,52 @@ impl RawPhoto {
         })
     }
 
-    /// Normalised sample (0 = black, 1 = sensor saturation) at usable-area coordinates.
-    /// `channel` is only relevant for 3-samples-per-pixel layouts.
+    /// An image developed already: plain RGB (or grey) in its own primaries, nothing to
+    /// white balance, no as-shot light.
+    fn from_bitmap(image: Bitmap, metadata: PhotoMetadata) -> Self {
+        let layout = if image.channels == 1 { Layout::Mono } else { Layout::Rgb };
+        Self {
+            layout,
+            origin_x: 0,
+            origin_y: 0,
+            width: image.width,
+            height: image.height,
+            wb: [1.0; 3],
+            wb_reference: [1.0; 3],
+            as_shot_illuminant: None,
+            working_from_camera: image.working_from_image,
+            orientation: Orient::from_exif(metadata.orientation.unwrap_or(1)),
+            metadata,
+            lens: None,
+            source: Source::Bitmap(image),
+        }
+    }
+
+    /// Whether this is an image developed already rather than a RAW file.
+    pub fn is_bitmap(&self) -> bool {
+        matches!(self.source, Source::Bitmap(_))
+    }
+
+    /// Normalised sample (0 = black, 1 = sensor saturation, or linear light for an
+    /// image) at usable-area coordinates. `channel` is only relevant for
+    /// 3-samples-per-pixel layouts.
     #[inline]
     pub fn sample(&self, x: usize, y: usize, channel: usize) -> f32 {
+        let (raw, black, black_width, black_height, white) = match &self.source {
+            Source::Sensor { raw, black, black_width, black_height, white } => (raw, black, *black_width, *black_height, *white),
+            Source::Bitmap(image) => return image.sample(x, y, channel),
+        };
         let (rx, ry) = (x + self.origin_x, y + self.origin_y);
-        let cpp = self.raw.cpp;
-        let idx = (ry * self.raw.width + rx) * cpp + channel;
-        let v = match &self.raw.data {
+        let cpp = raw.cpp;
+        let idx = (ry * raw.width + rx) * cpp + channel;
+        let v = match &raw.data {
             RawImageData::Integer(d) => d[idx] as f32,
             RawImageData::Float(d) => d[idx],
         };
-        let bcpp = if self.black.len() >= self.black_width * self.black_height * cpp { cpp } else { 1 };
-        let bi = ((ry % self.black_height) * self.black_width + (rx % self.black_width)) * bcpp + channel.min(bcpp - 1);
-        let black = self.black.get(bi).copied().unwrap_or(0.0);
-        ((v - black) / (self.white - black)).max(0.0)
+        let bcpp = if black.len() >= black_width * black_height * cpp { cpp } else { 1 };
+        let bi = ((ry % black_height) * black_width + (rx % black_width)) * bcpp + channel.min(bcpp - 1);
+        let black = black.get(bi).copied().unwrap_or(0.0);
+        ((v - black) / (white - black)).max(0.0)
     }
 
     /// CFA colour (0 = R, 1 = G, 2 = B) of the photosite at usable-area coordinates.

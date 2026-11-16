@@ -1,4 +1,4 @@
-/** Metadata extracted from a RAW file. Mirrors `PhotoMetadata` in `crates/pipeline/src/metadata.rs`. */
+/** Metadata extracted from a RAW file (or an image: `imageFormat`). Mirrors `PhotoMetadata` in `crates/pipeline/src/metadata.rs`. */
 export interface PhotoMetadata {
   make: string | null;
   model: string | null;
@@ -31,6 +31,12 @@ export interface PhotoMetadata {
   lensCorrection?: string | null;
   /** CIE 1931 xy chromaticity of the light the camera's white balance was set for (colour calibration's "as shot"). */
   asShotIlluminant?: [number, number] | null;
+  /**
+   * For an image that isn't a RAW file (developed already: `"jpeg"`, `"png"`, `"tiff"`,
+   * `"webp"`), its format. Such a photo starts with an empty recipe and has no filmic or
+   * lens correction (`RAW_ONLY_KINDS`).
+   */
+  imageFormat?: string | null;
 }
 
 /** `0.004` → `"1/250"`, `2.5` → `"2.5″"`. */

@@ -48,10 +48,16 @@ pub struct PhotoMetadata {
     /// CIE 1931 xy chromaticity of the light the camera's white balance was set for
     /// (colour calibration's "as shot" illuminant), if the file has colour.
     pub as_shot_illuminant: Option<[f64; 2]>,
+    /// For an image that isn't a RAW file (developed already: `"jpeg"`, `"png"`,
+    /// `"tiff"`, `"webp"`), its format. See [`crate::bitmap`].
+    pub image_format: Option<String>,
 }
 
 /// Read metadata without decoding (decompressing) the sensor data.
 pub fn read(bytes: &[u8]) -> Result<PhotoMetadata> {
+    if let Some(format) = crate::bitmap::detect(bytes) {
+        return crate::bitmap::read_metadata(bytes, format);
+    }
     let source = RawSource::new_from_slice(bytes);
     let raw = rawler::decode_dummy(&source).map_err(|e| Error::Decode(e.to_string()))?;
     Ok(extract_with_lens(&source, &raw).0)
@@ -111,7 +117,7 @@ pub(crate) fn extract_with_lens(source: &RawSource, raw: &RawImage) -> (PhotoMet
     (meta, profile)
 }
 
-fn apply_exif(meta: &mut PhotoMetadata, exif: &Exif) {
+pub(crate) fn apply_exif(meta: &mut PhotoMetadata, exif: &Exif) {
     meta.iso = exif
         .iso_speed_ratings
         .map(u32::from)
@@ -188,7 +194,7 @@ fn srational(r: SRational) -> Option<f64> {
     (r.d != 0).then(|| r.n as f64 / r.d as f64)
 }
 
-fn non_empty(s: &str) -> Option<String> {
+pub(crate) fn non_empty(s: &str) -> Option<String> {
     let s = s.trim_matches(|c: char| c == '\0' || c.is_whitespace());
     (!s.is_empty()).then(|| s.to_string())
 }
