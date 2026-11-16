@@ -122,7 +122,7 @@ export function LibraryPage() {
   const importFrom = (kind: 'files' | 'folder') => {
     if (!keepsHandles()) return (kind === 'files' ? fileInput : folderInput).current?.click();
     void (kind === 'files' ? pickFiles() : pickFolder())
-      .then((picked) => picked && startImport(picked.files, picked.from))
+      .then((picked) => picked && startImport(picked.files, picked.from, picked.listing))
       .catch((err: Error) => toaster.create({ type: 'error', title: 'Could not open that', description: err.message }));
   };
   const importIds = search.params.getAll('import');
@@ -341,7 +341,10 @@ export function LibraryPage() {
         // Taken now: the drop's items are gone after the event.
         // With handles where the browser gives them, so the import survives a reload.
         const withHandles = fromDropHandles(e.dataTransfer);
-        void (withHandles ? startImport(withHandles.files, withHandles.from) : startImport(fromDrop(e.dataTransfer)));
+        const listing = { found: 0 };
+        void (withHandles
+          ? startImport(withHandles.files, withHandles.from, withHandles.listing)
+          : startImport(fromDrop(e.dataTransfer, listing), undefined, listing));
       }}
       position="relative"
     >

@@ -16,9 +16,10 @@ import {
   uploadDeleted,
   useImportRun,
 } from './imports.ts';
-import { readFileTags } from './fileTags.ts';
-import { ImportReview, type Review, reviewedFiles } from './ImportReview.tsx';
+import { photosToRead, readFileTags } from './fileTags.ts';
+import { ImportReview, type Review, type ScanProgress, reviewedFiles } from './ImportReview.tsx';
 import {
+  type Listing,
   type PickedFile,
   type PickedFrom,
   fromInput,
@@ -66,8 +67,10 @@ export function useImporter() {
     [qc, navigate],
   );
   const [review, setReview] = useState<Review | null>(null);
-  // The latest pick wins: an earlier one still being looked through is dropped.
+  // The latest pick wins: an earlier one still being looked through is dropped (and
+  // stops reading its files).
   const latest = useRef(0);
+  const reading = useRef<AbortController | null>(null);
   const from = useRef<PickedFrom | undefined>(undefined);
 
   // Imports interrupted before (a reload, the browser closed): offered to resume, once.
@@ -86,26 +89,57 @@ export function useImporter() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * Review files picked or dropped (a drop's folders are walked through first). `origin`
-   * says where they came from, to open them again after a reload.
+   * Review files picked or dropped (a drop's folders are walked through first, counted
+   * in `listing`). `origin` says where they came from, to open them again after a reload.
+   * How it goes is shown a few times a second: a large folder takes minutes.
    */
-  const start = async (source: PickedFile[] | Promise<PickedFile[]>, origin?: PickedFrom) => {
+  const start = async (source: PickedFile[] | Promise<PickedFile[]>, origin?: PickedFrom, listing?: Listing) => {
     const token = ++latest.current;
+    reading.current?.abort();
+    const abort = (reading.current = new AbortController());
     from.current = origin;
-    setReview({ phase: 'scanning', label: null });
-    const picked = sortPicked(await Promise.resolve(source).catch(() => []));
-    if (token !== latest.current) return;
-    if (!picked.files.length && !picked.pairs.length && !picked.refused.length) {
-      setReview(null);
-      toaster.create({ type: 'info', title: 'No photos there', description: 'Nothing to import.' });
-      return;
+    const read = { done: 0 };
+    let step: ScanProgress['step'] = 'listing';
+    let total = 0;
+    const show = () => {
+      if (token !== latest.current) return;
+      const progress: ScanProgress =
+        step === 'listing'
+          ? { step, found: listing?.found ?? 0 }
+          : step === 'checking'
+            ? { step, photos: total }
+            : { step, done: read.done, total };
+      setReview({ phase: 'scanning', label: null, progress });
+    };
+    show();
+    const timer = setInterval(show, 250);
+    try {
+      const picked = sortPicked(await Promise.resolve(source).catch(() => []));
+      if (token !== latest.current) return;
+      if (!picked.files.length && !picked.pairs.length && !picked.refused.length) {
+        setReview(null);
+        toaster.create({ type: 'info', title: 'No photos there', description: 'Nothing to import.' });
+        return;
+      }
+      // The pairs too: they may be asked for.
+      step = 'checking';
+      total = picked.files.length + picked.pairs.length;
+      show();
+      const known = await findKnown(withPairs(picked, true).files);
+      if (token !== latest.current) return;
+      // Then the files' tags, for the new photos only: what the library has is skipped.
+      step = 'reading';
+      total = photosToRead(picked, known).length;
+      show();
+      const fileTags = await readFileTags(picked, { skip: known, progress: read, signal: abort.signal });
+      if (token === latest.current) setReview({ phase: 'ready', picked, known, includePairs: false, fileTags });
+    } finally {
+      clearInterval(timer);
     }
-    // The pairs too: they may be asked for.
-    const [known, fileTags] = await Promise.all([findKnown(withPairs(picked, true).files), readFileTags(picked)]);
-    if (token === latest.current) setReview({ phase: 'ready', picked, known, includePairs: false, fileTags });
   };
   const close = () => {
     latest.current++;
+    reading.current?.abort();
     setReview(null);
   };
   const confirm = () => {

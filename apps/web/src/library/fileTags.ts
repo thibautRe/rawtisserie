@@ -159,15 +159,48 @@ function text(raw: Uint8Array): string {
   }
 }
 
-/** Metadata is near the start of an image, XMP sometimes at the end (TIFF). */
+/**
+ * Where a JPEG's metadata ends in `bytes`: the start of scan, all of it before. Past
+ * `bytes.length` when it goes on further: how many bytes are needed to know more.
+ */
+export function jpegMetadataEnd(bytes: Uint8Array): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let at = 2;
+  while (at + 4 <= bytes.length) {
+    // Not a marker: nothing more to read as metadata.
+    if (bytes[at] !== 0xff || bytes[at + 1] === 0xda) return at;
+    at += 2 + view.getUint16(at + 2);
+  }
+  return Math.max(at + 4, bytes.length + 1);
+}
+
+/** A JPEG's metadata is all before its image: this much is read first, more if it goes on. */
+const JPEG_HEAD = 128 * 1024;
+
+/** The start of a JPEG up to its image (its metadata), or null if it isn't one. */
+async function jpegHead(file: Blob): Promise<Uint8Array | null> {
+  for (let size = JPEG_HEAD; ;) {
+    const bytes = new Uint8Array(await file.slice(0, size).arrayBuffer());
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+    const end = jpegMetadataEnd(bytes);
+    // All there, or the file ends (cut short: what there is).
+    if (end <= bytes.length || bytes.length < size) return bytes.subarray(0, Math.min(end, bytes.length));
+    // The segment going on, and some for the next ones.
+    size = Math.max(end + 64 * 1024, size * 2);
+  }
+}
+
+/** Other images: metadata near the start, XMP sometimes at the end (TIFF, WebP). */
 const HEAD = 1024 * 1024;
 const TAIL = 256 * 1024;
 
 /** What an image file carries in its XMP, or else its IPTC keywords. */
 export async function readEmbedded(file: Blob): Promise<FileTags> {
-  const head = new Uint8Array(await file.slice(0, HEAD).arrayBuffer());
+  // A JPEG: only its metadata, never its image (a few hundred KB less from each file).
+  const jpeg = await jpegHead(file);
+  const head = jpeg ?? new Uint8Array(await file.slice(0, HEAD).arrayBuffer());
   let xmp = findXmp(head);
-  if (!xmp && file.size > HEAD) xmp = findXmp(new Uint8Array(await file.slice(-TAIL).arrayBuffer()));
+  if (!xmp && !jpeg && file.size > HEAD) xmp = findXmp(new Uint8Array(await file.slice(-TAIL).arrayBuffer()));
   const found = xmp ? parseXmp(xmp) : {};
   if (!found.tags) {
     const keywords = combine([], iptcKeywords(head));
@@ -191,12 +224,24 @@ export function mergeTags(all: readonly FileTags[]): FileTags {
 
 export const isEmpty = (t: FileTags) => !t.tags && !t.rating && !t.label && !t.rejected;
 
+/** Files read at a time: a disk's seeks overlap (a USB hard disk: 3.5 times faster than one by one). */
+const READS = 8;
+
 /**
  * What each photo picked (files and pairs) gets from its files: its sidecars first, then
  * what it carries itself (images), then, for a RAW file, the JPEGs next to it. Only
- * photos that get something are in the map.
+ * photos that get something are in the map. Photos in `skip` (the library has them)
+ * aren't read; `progress.done` counts the photos read, out of `photosToRead`. Stops
+ * reading when `signal` aborts (what it has then is all it gives).
  */
-export async function readFileTags(picked: Picked): Promise<Map<PickedFile, FileTags>> {
+export async function readFileTags(
+  picked: Picked,
+  {
+    skip,
+    progress,
+    signal,
+  }: { skip?: ReadonlySet<PickedFile>; progress?: { done: number }; signal?: AbortSignal } = {},
+): Promise<Map<PickedFile, FileTags>> {
   const embedded = new Map<PickedFile, Promise<FileTags>>();
   const own = (f: PickedFile) => {
     if (!embedded.has(f))
@@ -207,19 +252,30 @@ export async function readFileTags(picked: Picked): Promise<Map<PickedFile, File
     return embedded.get(f)!;
   };
   const sidecar = async (f: PickedFile) => parseXmp(await f.file.text());
-  const photos = [...picked.files, ...picked.pairs];
+  const all = [...picked.files, ...picked.pairs];
   const images = new Map<string, PickedFile[]>();
-  for (const f of photos.filter((f) => isImage(f.path)))
+  for (const f of all.filter((f) => isImage(f.path)))
     images.set(stem(f.path), [...(images.get(stem(f.path)) ?? []), f]);
+  const photos = photosToRead(picked, skip);
   const out = new Map<PickedFile, FileTags>();
-  for (const f of photos) {
-    const sources = await Promise.all([
-      ...sidecarsOf(picked, f.path).map((s) => sidecar(s).catch(() => ({}))),
-      ...(isImage(f.path) ? [own(f)] : []),
-      ...(isRaw(f.path) ? (images.get(stem(f.path)) ?? []).map(own) : []),
-    ]);
-    const merged = mergeTags(sources);
-    if (!isEmpty(merged)) out.set(f, merged);
-  }
+  let next = 0;
+  const reader = async () => {
+    while (next < photos.length && !signal?.aborted) {
+      const f = photos[next++]!;
+      const sources = await Promise.all([
+        ...sidecarsOf(picked, f.path).map((s) => sidecar(s).catch(() => ({}))),
+        ...(isImage(f.path) ? [own(f)] : []),
+        ...(isRaw(f.path) ? (images.get(stem(f.path)) ?? []).map(own) : []),
+      ]);
+      const merged = mergeTags(sources);
+      if (!isEmpty(merged)) out.set(f, merged);
+      if (progress) progress.done++;
+    }
+  };
+  await Promise.all(Array.from({ length: READS }, reader));
   return out;
 }
+
+/** The photos `readFileTags` reads (files and pairs, but those in `skip`). */
+export const photosToRead = (picked: Picked, skip?: ReadonlySet<PickedFile>) =>
+  [...picked.files, ...picked.pairs].filter((f) => !skip?.has(f));

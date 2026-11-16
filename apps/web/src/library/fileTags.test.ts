@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { findXmp, iptcKeywords, mergeTags, parseXmp, readEmbedded, readFileTags } from './fileTags.ts';
+import { findXmp, iptcKeywords, jpegMetadataEnd, mergeTags, parseXmp, readEmbedded, readFileTags } from './fileTags.ts';
 import { type PickedFile, sortPicked } from './pickedFiles.ts';
 
 /** As Lightroom writes it: every level in `dc:subject` too, the rating as an attribute. */
@@ -29,7 +29,16 @@ test('XMP: digiKam tags, darktable labels, a rejected photo, elements rather tha
 });
 
 /** A JPEG's start: SOI, an APP1 XMP segment, an APP13 IPTC one, then SOS. */
-function jpeg({ xmp, keywords }: { xmp?: string; keywords?: string[] }): Uint8Array<ArrayBuffer> {
+function jpeg({
+  xmp,
+  keywords,
+  thumbnail = 0,
+}: {
+  xmp?: string;
+  keywords?: string[];
+  /** Bytes of an EXIF segment before the XMP (a camera's thumbnail). */
+  thumbnail?: number;
+}): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder();
   const segment = (marker: number, data: Uint8Array) => {
     const out = new Uint8Array(4 + data.length);
@@ -38,6 +47,9 @@ function jpeg({ xmp, keywords }: { xmp?: string; keywords?: string[] }): Uint8Ar
     return out;
   };
   const parts: Uint8Array[] = [new Uint8Array([0xff, 0xd8])];
+  // At most 64 KB a segment.
+  for (let left = thumbnail; left > 0; left -= 60_000)
+    parts.push(segment(0xe1, new Uint8Array(Math.min(left, 60_000))));
   if (xmp) parts.push(segment(0xe1, enc.encode(`http://ns.adobe.com/xap/1.0/\0${xmp}`)));
   if (keywords) {
     const records = keywords.flatMap((k) => {
@@ -75,6 +87,26 @@ test('embedded: XMP found in a JPEG, IPTC keywords when there is no XMP', async 
   assert.deepEqual(await readEmbedded(new Blob([jpeg({})])), {});
 });
 
+test('a JPEG: only its metadata is read, however far it goes; not its image', async () => {
+  // Past the first read (128 KB): read on.
+  const far = jpeg({ xmp: LIGHTROOM, thumbnail: 300_000 });
+  assert.ok(jpegMetadataEnd(far.subarray(0, 128 * 1024)) > 128 * 1024);
+  assert.equal(jpegMetadataEnd(far), far.length - 7);
+  assert.deepEqual((await readEmbedded(new Blob([far]))).rating, 4);
+  // The image after it: never read (an XMP packet there isn't the file's).
+  const image = new Uint8Array(4 * 1024 * 1024);
+  image.set(new TextEncoder().encode(LIGHTROOM), image.length - 2000);
+  const read: [number, number][] = [];
+  const blob = new Blob([jpeg({}), image]);
+  // What `readEmbedded` uses of a file, slices noted.
+  const spied = {
+    size: blob.size,
+    slice: (start?: number, end?: number) => (read.push([start ?? 0, end ?? blob.size]), blob.slice(start, end)),
+  } as Blob;
+  assert.deepEqual(await readEmbedded(spied), {});
+  assert.deepEqual(read, [[0, 128 * 1024]]);
+});
+
 test('merged: tags together, the first rating and label; a rating wins over a rejection', () => {
   assert.deepEqual(
     mergeTags([{ tags: ['a'], label: 'red' }, { tags: ['a', 'b'], rating: 2, label: 'blue' }, { rejected: true }]),
@@ -109,4 +141,14 @@ test('a RAW file gets the tags of the JPEG next to it, and of its sidecar', asyn
   assert.deepEqual(of('DCIM/DSC2.ARW'), { tags: ['dog'], rating: 5 });
   assert.equal(of('DCIM/DSC3.ARW'), undefined);
   assert.deepEqual(of('DCIM/IMG4.jpg'), { tags: ['cat'] });
+
+  // What the library has isn't read; the others are counted as they are.
+  const progress = { done: 0 };
+  const known = new Set(picked.files.filter((f) => f.path !== 'DCIM/DSC2.ARW'));
+  const fresh = await readFileTags(picked, { skip: known, progress });
+  assert.deepEqual(
+    [...fresh.keys()].map((f) => f.path),
+    ['DCIM/DSC2.ARW', 'DCIM/DSC1.JPG'],
+  );
+  assert.equal(progress.done, 2);
 });

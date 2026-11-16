@@ -1,4 +1,16 @@
-import { Box, Button, Checkbox, CloseButton, Dialog, HStack, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  Checkbox,
+  CloseButton,
+  Dialog,
+  HStack,
+  Portal,
+  Progress,
+  Spinner,
+  Stack,
+  Text,
+} from '@chakra-ui/react';
 import { Ban, Copy, FileImage, FolderMinus, Image, Tags } from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { formatBytes } from '../lib/format.ts';
@@ -6,11 +18,20 @@ import type { FileTags } from './fileTags.ts';
 import { type Picked, type PickedFile, isRaw, withPairs } from './pickedFiles.ts';
 
 /**
+ * How looking through what was picked goes: the folders walked through (files found so
+ * far), what the library has asked, then the new photos' files read for their tags.
+ */
+export type ScanProgress =
+  | { step: 'listing'; found: number }
+  | { step: 'checking'; photos: number }
+  | { step: 'reading'; done: number; total: number };
+
+/**
  * What an import is about to do, while it's being looked at, then once it's known.
  * `includePairs`: whether the JPEGs next to their RAW files are imported too.
  */
 export type Review =
-  | { phase: 'scanning'; label: string | null }
+  | { phase: 'scanning'; label: string | null; progress: ScanProgress }
   | {
       phase: 'ready';
       picked: Picked;
@@ -108,13 +129,7 @@ export function ReviewBody({
   review: Review | null;
   onIncludePairs?: (include: boolean) => void;
 }) {
-  if (review?.phase !== 'ready')
-    return (
-      <HStack gap="2" color="fg.muted" textStyle="sm">
-        <Spinner size="sm" />
-        Looking through {review?.label ?? 'the files'}…
-      </HStack>
-    );
+  if (review?.phase !== 'ready') return <Scanning label={review?.label ?? null} progress={review?.progress} />;
   const picked = reviewedFiles(review);
   const pairs = review.picked.pairs;
   const counts = reviewCounts(picked, review.known, review.fileTags);
@@ -205,6 +220,42 @@ export function sampleReview(n: number, known: number, ignored: number, pairs = 
     includePairs: false,
     fileTags: new Map(files.slice(known, known + pairs).map((f) => [f, { tags: ['Holidays'] }])),
   };
+}
+
+/** While it's looked through: the step, and how far it is (a bar, once there's a total). */
+function Scanning({ label, progress }: { label: string | null; progress?: ScanProgress }) {
+  const what =
+    progress?.step === 'checking'
+      ? `Checking ${plural(progress.photos, 'photo')} against your library…`
+      : progress?.step === 'reading'
+        ? 'Reading the files’ tags…'
+        : `Looking through ${label ?? 'the files'}…`;
+  return (
+    <Stack gap="2" textStyle="sm">
+      <HStack gap="2" color="fg.muted">
+        <Spinner size="sm" />
+        <Text flex="1">{what}</Text>
+        {progress?.step === 'listing' && progress.found > 0 && <Muted>{plural(progress.found, 'file')} found</Muted>}
+        {progress?.step === 'reading' && (
+          <Muted>
+            {progress.done.toLocaleString()} / {progress.total.toLocaleString()}
+          </Muted>
+        )}
+      </HStack>
+      {progress?.step === 'reading' && (
+        <Progress.Root
+          size="xs"
+          colorPalette="orange"
+          value={progress.total ? (100 * progress.done) / progress.total : 0}
+          aria-label="Reading the files"
+        >
+          <Progress.Track>
+            <Progress.Range />
+          </Progress.Track>
+        </Progress.Root>
+      )}
+    </Stack>
+  );
 }
 
 function Line({ icon, muted, children }: { icon: ReactNode; muted?: boolean; children: ReactNode }) {

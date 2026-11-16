@@ -26,11 +26,15 @@ const folder = (name: string, children: Entry[], batch = 100): Entry => ({
 
 test('folders are walked through, in batches, hidden ones left out', async () => {
   const many = Array.from({ length: 250 }, (_, i) => file(`DSC${String(i).padStart(5, '0')}.ARW`));
-  const picked = await walk([
-    folder('DCIM', [folder('100MSDCF', many, 100), folder('.Trashes', [file('old.ARW')])]),
-    file('loose.NEF'),
-  ]);
+  const listing = { found: 0 };
+  const picked = await walk(
+    [folder('DCIM', [folder('100MSDCF', many, 100), folder('.Trashes', [file('old.ARW')])]), file('loose.NEF')],
+    '',
+    listing,
+  );
   assert.equal(picked.length, 251);
+  // Counted as they're found, for the review.
+  assert.equal(listing.found, 251);
   assert.equal(picked[0]!.path, 'DCIM/100MSDCF/DSC00000.ARW');
   assert.equal(picked.at(-1)!.path, 'loose.NEF');
 });

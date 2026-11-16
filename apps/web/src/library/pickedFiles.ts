@@ -91,6 +91,11 @@ export function withPairs(picked: Picked, include: boolean): Picked {
   return { ...picked, files: byPath([...picked.files, ...picked.pairs]), pairs: [] };
 }
 
+/** How a walk through folders goes: files found so far (read while it goes on, for the review). */
+export interface Listing {
+  found: number;
+}
+
 /** From an `<input type="file">`, with `webkitdirectory` or not. */
 export function fromInput(list: FileList | readonly File[]): PickedFile[] {
   return [...list].map((file) => ({ file, path: file.webkitRelativePath || file.name }));
@@ -100,14 +105,14 @@ export function fromInput(list: FileList | readonly File[]): PickedFile[] {
  * From a drop. The entries must be taken during the drop event (the list is emptied
  * after it), so call this synchronously in the handler; the walk goes on after.
  */
-export function fromDrop(data: DataTransfer): Promise<PickedFile[]> {
+export function fromDrop(data: DataTransfer, listing?: Listing): Promise<PickedFile[]> {
   const entries = [...data.items].flatMap((item) => {
     const entry = item.kind === 'file' ? item.webkitGetAsEntry?.() : null;
     return entry ? [entry] : [];
   });
   // Without entries (an old browser), only files: a folder would be an empty one.
   if (!entries.length) return Promise.resolve(fromInput(data.files));
-  return walk(entries);
+  return walk(entries, '', listing);
 }
 
 /** The minimal part of `FileSystemEntry` used (tests fake it). */
@@ -119,15 +124,27 @@ export interface Entry {
   createReader?(): { readEntries(success: (entries: Entry[]) => void, error?: (err: unknown) => void): void };
 }
 
-/** The files in `entries`, folders walked through. */
-export async function walk(entries: readonly Entry[], prefix = ''): Promise<PickedFile[]> {
+/**
+ * The files in `entries`, folders walked through, counted in `listing` as they're found.
+ * A folder's files are asked for together (one by one, a large folder took minutes).
+ */
+export async function walk(entries: readonly Entry[], prefix = '', listing?: Listing): Promise<PickedFile[]> {
   const out: PickedFile[] = [];
-  for (const entry of entries) {
+  // Asked for at once, taken in order.
+  const files = entries.map((entry) =>
+    entry.isFile
+      ? new Promise<File>((resolve, reject) => entry.file!(resolve, reject)).then((file) => {
+          if (listing) listing.found++;
+          return file;
+        })
+      : null,
+  );
+  // A rejection is the walk's, when it gets to it (not an unhandled one before).
+  for (const f of files) f?.catch(() => {});
+  for (const [i, entry] of entries.entries()) {
     const path = prefix + entry.name;
-    if (entry.isFile) {
-      const file = await new Promise<File>((resolve, reject) => entry.file!(resolve, reject));
-      out.push({ file, path });
-    } else if (entry.isDirectory) {
+    if (files[i]) out.push({ file: await files[i], path });
+    else if (entry.isDirectory) {
       // Hidden folders (`.Trashes`, `.Spotlight-V100`) aren't walked at all.
       if (entry.name.startsWith('.')) continue;
       const reader = entry.createReader!();
@@ -135,7 +152,7 @@ export async function walk(entries: readonly Entry[], prefix = ''): Promise<Pick
       for (;;) {
         const batch = await new Promise<Entry[]>((resolve, reject) => reader.readEntries(resolve, reject));
         if (!batch.length) break;
-        out.push(...(await walk(batch, `${path}/`)));
+        out.push(...(await walk(batch, `${path}/`, listing)));
       }
     }
   }
@@ -163,16 +180,29 @@ export interface PickedFrom {
   handles: Handle[] | null;
 }
 
-/** The files in `handles`, folders walked through (hidden ones left out), with their paths. */
-export async function walkHandles(handles: readonly Handle[], prefix = ''): Promise<PickedFile[]> {
+/**
+ * The files in `handles`, folders walked through (hidden ones left out), with their
+ * paths, counted in `listing` as they're found. A folder's files are opened together.
+ */
+export async function walkHandles(handles: readonly Handle[], prefix = '', listing?: Listing): Promise<PickedFile[]> {
   const out: PickedFile[] = [];
-  for (const h of handles) {
+  // Opened at once, taken in order.
+  const files = handles.map((h) =>
+    h.kind === 'file'
+      ? h.getFile!().then((file) => {
+          if (listing) listing.found++;
+          return file;
+        })
+      : null,
+  );
+  for (const f of files) f?.catch(() => {});
+  for (const [i, h] of handles.entries()) {
     const path = prefix + h.name;
-    if (h.kind === 'file') out.push({ file: await h.getFile!(), path });
+    if (files[i]) out.push({ file: await files[i], path });
     else if (!h.name.startsWith('.')) {
       const children: Handle[] = [];
       for await (const [, child] of h.entries!()) children.push(child);
-      out.push(...(await walkHandles(children, `${path}/`)));
+      out.push(...(await walkHandles(children, `${path}/`, listing)));
     }
   }
   return out;
@@ -193,11 +223,19 @@ export const keepsHandles = () => typeof pickers.showDirectoryPicker === 'functi
 
 const cancelled = (err: unknown) => err instanceof DOMException && err.name === 'AbortError';
 
+/** Files being picked: walked through (`files`), counted as they're found (`listing`). */
+export interface Picking {
+  files: Promise<PickedFile[]>;
+  from: PickedFrom;
+  listing: Listing;
+}
+
 /** A folder, through the browser's picker: null if cancelled. */
-export async function pickFolder(): Promise<{ files: Promise<PickedFile[]>; from: PickedFrom } | null> {
+export async function pickFolder(): Promise<Picking | null> {
   try {
     const dir = await pickers.showDirectoryPicker!({ id: 'import', mode: 'read' });
-    return { files: walkHandles([dir]), from: { kind: 'folder', handles: [dir] } };
+    const listing = { found: 0 };
+    return { files: walkHandles([dir], '', listing), from: { kind: 'folder', handles: [dir] }, listing };
   } catch (err) {
     if (cancelled(err)) return null;
     throw err;
@@ -205,14 +243,15 @@ export async function pickFolder(): Promise<{ files: Promise<PickedFile[]>; from
 }
 
 /** RAW files and images, through the browser's picker: null if cancelled. */
-export async function pickFiles(): Promise<{ files: Promise<PickedFile[]>; from: PickedFrom } | null> {
+export async function pickFiles(): Promise<Picking | null> {
   try {
     const handles = await pickers.showOpenFilePicker!({
       id: 'import',
       multiple: true,
       types: [{ description: 'RAW files and images', accept: { 'application/octet-stream': PHOTO_ACCEPT.split(',') } }],
     });
-    return { files: walkHandles(handles), from: { kind: 'files', handles } };
+    const listing = { found: 0 };
+    return { files: walkHandles(handles, '', listing), from: { kind: 'files', handles }, listing };
   } catch (err) {
     if (cancelled(err)) return null;
     throw err;
@@ -223,7 +262,7 @@ export async function pickFiles(): Promise<{ files: Promise<PickedFile[]>; from:
  * A drop's handles, where the browser gives them: like `fromDrop`, taken during the
  * event. Null where it doesn't (then `fromDrop`).
  */
-export function fromDropHandles(data: DataTransfer): { files: Promise<PickedFile[]>; from: PickedFrom } | null {
+export function fromDropHandles(data: DataTransfer): Picking | null {
   const items = [...data.items].filter((i) => i.kind === 'file') as (DataTransferItem & {
     getAsFileSystemHandle?(): Promise<Handle | null>;
   })[];
@@ -232,13 +271,15 @@ export function fromDropHandles(data: DataTransfer): { files: Promise<PickedFile
     hs.filter((h): h is Handle => !!h),
   );
   const from: PickedFrom = { kind: 'files', handles: [] };
+  const listing = { found: 0 };
   return {
     files: handles.then((hs) => {
       from.handles = hs;
       if (hs.some((h) => h.kind === 'directory')) from.kind = 'folder';
-      return walkHandles(hs);
+      return walkHandles(hs, '', listing);
     }),
     from,
+    listing,
   };
 }
 
