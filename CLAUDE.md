@@ -162,6 +162,11 @@ See README.md for the architecture overview and commands.
   `npm run test:library -w @rawtisserie/web` goes between the library and the developer (API
   mocked): run it after changing what they share (`library/libraryView.ts`, the film roll),
   or the library export (`export/`; it exports a golden RAW, skipped without them).
+- Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
+  trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press
+  selects (`longPress.ts`; closing the loupe doesn't select there). Layout-only changes
+  go in responsive style props; touch targets are `{ base: 'sm', md: '2xs' }`. A new
+  side panel or toolbar must work at 390 px: `test:library` has a phone case.
 - `/ui` (`pages/UiPage.tsx`) shows the UI's building blocks on one page, with static data
   and a dark/light toggle: add new shared components and patterns there. Fonts are tokens (`theme.ts`): `heading`, `body`, `label` (small uppercase
   labels) and `numeric` (values that change as you edit, with `tabular-nums`). `npm run test:ui -w @rawtisserie/web` renders it in every mode

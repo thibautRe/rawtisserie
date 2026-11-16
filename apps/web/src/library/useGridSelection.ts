@@ -49,6 +49,18 @@ export function useGridSelection<T extends Photo>(
     anchorRef.current = last;
   }, []);
 
+  /** Add the photo to the selection, or take it out (Ctrl+click, a long press on phones). */
+  const toggle = useCallback((id: string) => {
+    setSelection((sel) => {
+      const next = new Set(sel);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setFocusedId(id);
+    anchorRef.current = id;
+  }, []);
+
   // Stable: the grid's cards are memoised, and would all render again when a page comes in.
   const onClick = useStableCallback((e: React.MouseEvent, photo: Photo) => {
     if (e.shiftKey && anchorRef.current) {
@@ -57,14 +69,7 @@ export function useGridSelection<T extends Photo>(
       setSelection(new Set(ids.slice(a, b! + 1)));
       setFocusedId(photo.id);
     } else if (e.metaKey || e.ctrlKey) {
-      setSelection((sel) => {
-        const next = new Set(sel);
-        if (next.has(photo.id)) next.delete(photo.id);
-        else next.add(photo.id);
-        return next;
-      });
-      setFocusedId(photo.id);
-      anchorRef.current = photo.id;
+      toggle(photo.id);
     } else {
       selectOne(photo.id);
     }
@@ -98,6 +103,7 @@ export function useGridSelection<T extends Photo>(
     focusedId,
     focusedIndex,
     onClick,
+    toggle,
     selectOne,
     selectMany,
     step,

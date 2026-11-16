@@ -36,6 +36,8 @@ import { ParamSlider, fmt } from '../develop/ParamSlider.tsx';
 import { tracks } from '../develop/slider.ts';
 import { PanelBlock } from '../library/PanelBlock.tsx';
 import { Culling } from '../library/InfoPanel.tsx';
+import { SelectionBar } from '../library/LibraryStatusBar.tsx';
+import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import { TransferSummary } from '../components/transfer.tsx';
@@ -208,6 +210,7 @@ export function UiPage() {
   const [enabled, setEnabled] = useState(true);
   const [range, setRange] = useState<'global' | 'shadows' | 'midtones' | 'highlights'>('shadows');
   const [blockOpen, setBlockOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [culling, setCulling] = useState<{ rating: number; flag: Flag | null; colorLabel: ColorLabel | null }>({
     rating: 3,
     flag: 'picked',
@@ -710,6 +713,33 @@ export function UiPage() {
           <Panel w="80">
             <Culling {...culling} onChange={(patch) => setCulling((c) => ({ ...c, ...patch }))} />
           </Panel>
+        </Block>
+
+        <Block
+          title="Phones"
+          guide="Below md (768 px, `useNarrow`), the library's side panels open as drawers (`PanelDrawer`: filters from the start, the info panel as a sheet from the bottom), a tap opens the loupe and a long press selects. While photos are selected, the selection bar replaces the status bar. Touch targets grow to sm there (`size={{ base: 'sm', md: '2xs' }}`)."
+        >
+          <HStack gap="6" align="start" wrap="wrap">
+            <Box w="96" maxW="full" borderWidth="1px" rounded="l2" overflow="hidden">
+              <SelectionBar
+                selected={3}
+                total={42}
+                onSelectAll={() => {}}
+                onDetails={() => setSheetOpen(true)}
+                onDone={() => {}}
+              />
+            </Box>
+            <Button size="sm" variant="outline" onClick={() => setSheetOpen(true)}>
+              Open a panel as a sheet
+            </Button>
+          </HStack>
+          <PanelDrawer narrow open={sheetOpen} onClose={() => setSheetOpen(false)} placement="bottom" title="Details">
+            <Stack as="aside" gap="1.5" py="1.5" bg="bg">
+              <PanelBlock title="3 photos selected">
+                <Culling {...culling} onChange={(patch) => setCulling((c) => ({ ...c, ...patch }))} />
+              </PanelBlock>
+            </Stack>
+          </PanelDrawer>
         </Block>
 
         <Block

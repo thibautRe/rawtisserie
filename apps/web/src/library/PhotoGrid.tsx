@@ -26,6 +26,8 @@ interface Props {
   onClick: (e: React.MouseEvent, photo: Photo) => void;
   /** Double-click (none: nothing happens). */
   onOpen?: (photo: Photo) => void;
+  /** Held down (phones). */
+  onLongPress?: (photo: Photo) => void;
 }
 
 /**
@@ -44,6 +46,7 @@ export function PhotoGrid({
   onScroll,
   onClick,
   onOpen,
+  onLongPress,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   // `top` is always the scroller's: rows are rendered around it, so it must never be
@@ -166,6 +169,7 @@ export function PhotoGrid({
                 joinRight={(i + 1) % columns > 0 && items[i + 1]?.photoId === photo.photoId}
                 onClick={onClick}
                 onOpen={onOpen}
+                onLongPress={onLongPress}
                 onHover={onHover}
               />
             );

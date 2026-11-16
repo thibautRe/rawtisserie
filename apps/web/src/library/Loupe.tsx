@@ -43,6 +43,9 @@ const ZOOM_INFO_DELAY_MS = 300;
 /** Load the next page once the loupe is this close to the end of the list. */
 const LOAD_MORE_AHEAD = 5;
 
+/** The culling buttons: big enough for a finger on phones, small beside the keys on wider screens. */
+const TOUCH_SIZE = { base: 'sm', md: 'xs' } as const;
+
 const stored = (key: string, fallback: boolean) => {
   const v = localStorage.getItem(key);
   return v === null ? fallback : v === 'true';
@@ -122,7 +125,11 @@ export function Loupe({
   const [win, size] = useElementSize<HTMLDivElement>();
   const stage = useRef<HTMLDivElement>(null);
   const layoutRef = useRef<ZoomLayout | null>(null);
-  const { view: zoom, zoomTo } = useZoom(win, stage, layoutRef, true, { clickToggles: true });
+  // A swipe goes to the next or previous photo (phones), as the arrow keys do.
+  const { view: zoom, zoomTo } = useZoom(win, stage, layoutRef, true, {
+    clickToggles: true,
+    onSwipe: (direction) => go(index + direction),
+  });
   const [dwelled, setDwelled] = useState<string | null>(null);
   useEffect(() => {
     const t = setTimeout(() => setDwelled(id), ZOOM_INFO_DELAY_MS);
@@ -244,7 +251,7 @@ export function Loupe({
           </Text>
           <Box flex="1" />
           {scale !== undefined && (
-            <Text color="whiteAlpha.700" textStyle="sm" minW="12" textAlign="right">
+            <Text color="whiteAlpha.700" textStyle="sm" minW="12" textAlign="right" hideBelow="md">
               {zoom ? `${Math.round(scale * 100)} %` : 'Fit'}
             </Text>
           )}
@@ -258,7 +265,7 @@ export function Loupe({
             >
               <Switch.HiddenInput />
               <Switch.Control />
-              <Switch.Label>Auto-advance</Switch.Label>
+              <Switch.Label hideBelow="md">Auto-advance</Switch.Label>
             </Switch.Root>
           )}
           {onDevelop && (
@@ -364,14 +371,23 @@ export function Loupe({
         <FilmRoll items={roll} current={index} onRange={onRollRange} onSelect={(p) => setId(p.id)} badges dark />
       )}
       {showInfo && (
-        <HStack px="3" py="2" gap="4" bg="blackAlpha.800" flexShrink="0" textStyle="sm">
+        <HStack
+          px="3"
+          py="2"
+          gap={{ base: '2', md: '4' }}
+          bg="blackAlpha.800"
+          flexShrink="0"
+          textStyle="sm"
+          wrap={{ base: 'wrap', md: 'nowrap' }}
+          justify={{ base: 'space-between', md: 'flex-start' }}
+        >
           {onChange && (
             <>
               <HStack gap="0.5" title="Rating (0–5)">
                 {[1, 2, 3, 4, 5].map((n) => (
                   <IconButton
                     key={n}
-                    size="xs"
+                    size={TOUCH_SIZE}
                     variant="ghost"
                     color={n <= photo.rating ? 'orange.300' : 'whiteAlpha.500'}
                     aria-label={`${n} star${n === 1 ? '' : 's'}`}
@@ -383,7 +399,7 @@ export function Loupe({
               </HStack>
               <HStack gap="1">
                 <IconButton
-                  size="xs"
+                  size={TOUCH_SIZE}
                   variant={photo.flag === 'picked' ? 'solid' : 'ghost'}
                   colorPalette="green"
                   color={photo.flag === 'picked' ? undefined : 'whiteAlpha.700'}
@@ -394,7 +410,7 @@ export function Loupe({
                   <Check />
                 </IconButton>
                 <IconButton
-                  size="xs"
+                  size={TOUCH_SIZE}
                   variant={rejected ? 'solid' : 'ghost'}
                   colorPalette="red"
                   color={rejected ? undefined : 'whiteAlpha.700'}
@@ -405,12 +421,12 @@ export function Loupe({
                   <X />
                 </IconButton>
               </HStack>
-              <HStack gap="1.5">
+              <HStack gap={{ base: '3', md: '1.5' }}>
                 {COLOR_LABELS.map((label, i) => (
                   <Circle
                     key={label}
                     as="button"
-                    size="3.5"
+                    size={{ base: '6', md: '3.5' }}
                     bg={LABEL_COLORS[label]}
                     opacity={photo.colorLabel === label ? 1 : 0.3}
                     borderWidth={photo.colorLabel === label ? '2px' : 0}
@@ -424,7 +440,13 @@ export function Loupe({
               </HStack>
             </>
           )}
-          <Text color="whiteAlpha.800" truncate flex="1">
+          <Text
+            color="whiteAlpha.800"
+            truncate
+            flex="1"
+            flexBasis={{ base: 'full', md: 'auto' }}
+            order={{ base: -1, md: 0 }}
+          >
             {exifLine(photo)}
           </Text>
           <Text color="whiteAlpha.600" whiteSpace="nowrap" hideBelow="lg">

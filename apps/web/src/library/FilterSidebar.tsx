@@ -299,7 +299,7 @@ function FlagFilter({ search }: { search: LibrarySearch }) {
     search.setAll('flag', next.length === FLAG_FILTERS.length ? [] : next);
   };
   return (
-    <ButtonGroup size="xs" variant="outline" attached w="full">
+    <ButtonGroup size={{ base: 'sm', md: 'xs' }} variant="outline" attached w="full">
       {FLAG_FILTERS.map((f) => {
         const on = shown.includes(f.value);
         return (
@@ -380,14 +380,14 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
           )
         }
       >
-        <HStack justify="space-between">
+        <HStack justify="space-between" rowGap="2" wrap="wrap">
           <HStack gap="0">
             {[1, 2, 3, 4, 5].map((n) => (
               <IconButton
                 key={n}
                 aria-label={`At least ${n} stars`}
                 title={n === ratingMin ? 'Any rating' : `${n} stars and up`}
-                size="2xs"
+                size={{ base: 'sm', md: '2xs' }}
                 variant="ghost"
                 color={n <= ratingMin ? 'orange.fg' : 'fg.subtle'}
                 onClick={() => search.set('ratingMin', n === ratingMin ? null : String(n))}
@@ -396,14 +396,14 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
               </IconButton>
             ))}
           </HStack>
-          <HStack gap="1.5">
+          <HStack gap={{ base: '3', md: '1.5' }}>
             {COLOR_LABELS.map((c) => {
               const active = p.getAll('colorLabel').includes(c);
               return (
                 <Circle
                   key={c}
                   as="button"
-                  size="4"
+                  size={{ base: '6', md: '4' }}
                   bg={LABEL_COLORS[c]}
                   opacity={active ? 1 : 0.35}
                   outline={active ? '2px solid' : 'none'}

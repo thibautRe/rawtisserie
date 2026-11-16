@@ -157,7 +157,7 @@ function AccountSection() {
 
   return (
     <Section title="Account">
-      <HStack justify="space-between" gap="4">
+      <HStack justify="space-between" gap="4" wrap="wrap">
         <Box>
           <Text fontWeight="medium">{me?.displayName}</Text>
           <Text textStyle="sm" color="fg.muted">

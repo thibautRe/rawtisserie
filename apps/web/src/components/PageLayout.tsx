@@ -30,12 +30,12 @@ export function TabbedPage({
 }) {
   return (
     <Flex direction="column" h="full">
-      <HStack px="3" gap="4" borderBottomWidth="1px">
+      <HStack px="3" gap={{ base: '2', md: '4' }} borderBottomWidth="1px">
         <HStack gap="2" py="2">
           <AppMenu />
           <Heading size="sm">{title}</Heading>
         </HStack>
-        <HStack as="nav" aria-label={label} gap="0" alignSelf="stretch">
+        <HStack as="nav" aria-label={label} gap="0" alignSelf="stretch" minW="0" overflowX="auto" scrollbarWidth="none">
           {tabs.map((t) => (
             <Box
               key={t.to}
@@ -43,7 +43,8 @@ export function TabbedPage({
               display="flex"
               alignItems="center"
               h="full"
-              px="3"
+              px={{ base: '2', md: '3' }}
+              flexShrink={0}
               textStyle="sm"
               fontWeight="medium"
               color="fg.muted"
@@ -62,7 +63,7 @@ export function TabbedPage({
         </HStack>
       </HStack>
       <Box flex="1" overflowY="auto">
-        <Box p="6" maxW={maxW} mx="auto">
+        <Box p={{ base: '4', md: '6' }} maxW={maxW} mx="auto">
           {children}
         </Box>
       </Box>

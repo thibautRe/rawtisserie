@@ -1,30 +1,40 @@
-import { HStack, Separator, Slider, Spinner, Text } from '@chakra-ui/react';
-import { Grid3x3 } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { Button, CloseButton, HStack, Separator, Slider, Spinner, Text } from '@chakra-ui/react';
+import { Grid3x3, Info } from 'lucide-react';
+import { memo, useCallback, useState } from 'react';
 
-export const MIN_COLUMNS = 3;
-export const MAX_COLUMNS = 12;
-const KEY = 'library.columns';
+/** Photos per row: the range and default, and where it's remembered, on wide screens and phones. */
+export const COLUMNS = {
+  wide: { min: 3, max: 12, initial: 6, key: 'library.columns' },
+  narrow: { min: 2, max: 6, initial: 3, key: 'library.columns.narrow' },
+} as const;
 
-/** Photos per row in the library's grid, remembered across sessions. */
-export function useColumns() {
-  const [columns, setColumns] = useState(() => {
-    let n = NaN;
-    try {
-      n = Number(localStorage.getItem(KEY));
-    } catch {
-      // Unavailable: the default.
-    }
-    return n >= MIN_COLUMNS && n <= MAX_COLUMNS ? n : 6;
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(KEY, String(columns));
-    } catch {
-      // Not remembered.
-    }
-  }, [columns]);
-  return [columns, setColumns] as const;
+const storedColumns = (narrow: boolean) => {
+  const { min, max, initial, key } = COLUMNS[narrow ? 'narrow' : 'wide'];
+  let n = NaN;
+  try {
+    n = Number(localStorage.getItem(key));
+  } catch {
+    // Unavailable: the default.
+  }
+  return n >= min && n <= max ? n : initial;
+};
+
+/** Photos per row in the library's grid, remembered across sessions (apart on phones). */
+export function useColumns(narrow = false) {
+  const [columns, setColumns] = useState(() => ({ wide: storedColumns(false), narrow: storedColumns(true) }));
+  const mode = narrow ? 'narrow' : 'wide';
+  const set = useCallback(
+    (n: number) => {
+      setColumns((c) => ({ ...c, [mode]: n }));
+      try {
+        localStorage.setItem(COLUMNS[mode].key, String(n));
+      } catch {
+        // Not remembered.
+      }
+    },
+    [mode],
+  );
+  return [columns[mode], set, COLUMNS[mode]] as const;
 }
 
 const NUMERIC = { fontFamily: 'numeric', fontVariantNumeric: 'tabular-nums' } as const;
@@ -36,6 +46,7 @@ export const LibraryStatusBar = memo(function LibraryStatusBar({
   developing,
   loading,
   columns,
+  range = COLUMNS.wide,
   onColumnsChange,
 }: {
   selected: number;
@@ -45,6 +56,8 @@ export const LibraryStatusBar = memo(function LibraryStatusBar({
   /** Pages being fetched. */
   loading: boolean;
   columns: number;
+  /** The slider's limits (`useColumns`'s third value). */
+  range?: { min: number; max: number };
   onColumnsChange: (columns: number) => void;
 }) {
   return (
@@ -68,10 +81,10 @@ export const LibraryStatusBar = memo(function LibraryStatusBar({
       <HStack gap="2" ms="auto" color="fg.muted" title="Photos per row">
         <Grid3x3 size={14} />
         <Slider.Root
-          w="28"
+          w={{ base: '20', md: '28' }}
           size="sm"
-          min={MIN_COLUMNS}
-          max={MAX_COLUMNS}
+          min={range.min}
+          max={range.max}
           step={1}
           value={[columns]}
           onValueChange={(e) => onColumnsChange(e.value[0]!)}
@@ -91,3 +104,40 @@ export const LibraryStatusBar = memo(function LibraryStatusBar({
     </HStack>
   );
 });
+
+/**
+ * Phones, while photos are selected (a long press starts it, taps add or remove): in
+ * place of the status bar, how many, and what to do with them (`details` opens the
+ * info panel's drawer: culling, tags, export…).
+ */
+export function SelectionBar({
+  selected,
+  total,
+  onSelectAll,
+  onDetails,
+  onDone,
+}: {
+  selected: number;
+  total: number;
+  onSelectAll: () => void;
+  onDetails: () => void;
+  /** Clear the selection. */
+  onDone: () => void;
+}) {
+  return (
+    <HStack h="12" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
+      <CloseButton size="sm" aria-label="Clear the selection" onClick={onDone} />
+      <Text textStyle="sm" fontWeight="medium" flex="1" {...NUMERIC}>
+        {selected} selected
+      </Text>
+      {selected < total && (
+        <Button size="sm" variant="ghost" onClick={onSelectAll}>
+          Select all
+        </Button>
+      )}
+      <Button size="sm" variant="subtle" onClick={onDetails}>
+        <Info /> Details
+      </Button>
+    </HStack>
+  );
+}

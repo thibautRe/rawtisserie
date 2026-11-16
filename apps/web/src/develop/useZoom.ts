@@ -9,6 +9,8 @@ const CLICK_SLOP = 4;
 const WHEEL_PER_OCTAVE = 300;
 /** The same for a touchpad pinch, which comes as wheel events with `ctrlKey` and small deltas. */
 const PINCH_PER_E = 100;
+/** Horizontal finger travel (CSS pixels) at fit that's a swipe to the next or previous photo. */
+const SWIPE_MIN = 60;
 
 type Settle = 'now' | 'later';
 
@@ -24,6 +26,8 @@ interface GestureEvent extends UIEvent {
  * pinch zoom around the pointer, a middle click (or a left one with `clickToggles`)
  * toggles between fit and 100 % centred on the point clicked, and dragging (left or middle button) pans once zoomed in. A left
  * button press on an element marked `data-no-pan` (shapes being edited) is left to it.
+ * On touch screens, two fingers pinch and pan, and with `onSwipe` a horizontal swipe at
+ * fit goes to the next (1) or previous (-1) photo.
  *
  * Moving the view writes `stageRef`'s transform directly, without rendering React, so
  * the main thread stays free while the wheel turns. What it returns, the view to render
@@ -37,8 +41,10 @@ export function useZoom(
   layoutRef: RefObject<ZoomLayout | null>,
   enabled: boolean,
   /** A left click (without dragging) toggles too, as a middle click does. */
-  { clickToggles = false }: { clickToggles?: boolean } = {},
+  { clickToggles = false, onSwipe }: { clickToggles?: boolean; onSwipe?: (direction: 1 | -1) => void } = {},
 ) {
+  const swipe = useRef(onSwipe);
+  swipe.current = onSwipe;
   const [settled, setSettled] = useState<ZoomView | null>(null);
   const state = useRef({
     view: null as ZoomView | null,
@@ -103,6 +109,15 @@ export function useZoom(
       zoomBy(Math.min(2, Math.max(0.5, factor)), e, 'later');
     };
 
+    // Fingers on the window (touch pointers), and the pinch while two are.
+    const touches = new Map<number, { x: number; y: number }>();
+    let pinch: { distance: number; x: number; y: number } | null = null;
+    const pinchState = () => {
+      const [a, b] = [...touches.values()] as [{ x: number; y: number }, { x: number; y: number }];
+      return { distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
+
+    // Safari's pinch: a touchpad's on macOS; on iOS the pointers do it (below).
     let gestureScale = 1;
     const gestureStart = (e: Event) => {
       e.preventDefault();
@@ -110,20 +125,67 @@ export function useZoom(
     };
     const gestureChange = (e: Event) => {
       e.preventDefault();
+      if (touches.size) return;
       const g = e as GestureEvent;
       zoomBy(g.scale / gestureScale, g, 'later');
       gestureScale = g.scale;
     };
 
-    let drag: { id: number; button: number; x: number; y: number; moved: boolean } | null = null;
+    let drag: {
+      id: number;
+      button: number;
+      x: number;
+      y: number;
+      moved: boolean;
+      /** Where it started, and whether at fit (a swipe, with a finger). */
+      x0: number;
+      y0: number;
+      swipes: boolean;
+    } | null = null;
     const down = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) {
+          // A second finger: a pinch, not a drag or a tap.
+          e.preventDefault();
+          win.setPointerCapture(e.pointerId);
+          drag = null;
+          pinch = pinchState();
+          return;
+        }
+        if (touches.size > 2) return;
+      }
       if (drag || !(e.button === 1 || (e.button === 0 && (s.view || clickToggles)))) return;
       if (e.button === 0 && e.target instanceof Element && e.target.closest('[data-no-pan]')) return;
       e.preventDefault();
-      drag = { id: e.pointerId, button: e.button, x: e.clientX, y: e.clientY, moved: false };
+      drag = {
+        id: e.pointerId,
+        button: e.button,
+        x: e.clientX,
+        y: e.clientY,
+        moved: false,
+        x0: e.clientX,
+        y0: e.clientY,
+        swipes: e.pointerType === 'touch' && !s.view && !!swipe.current,
+      };
       win.setPointerCapture(e.pointerId);
     };
     const move = (e: PointerEvent) => {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && touches.size === 2 && touches.has(e.pointerId) && s.layout) {
+        const now = pinchState();
+        const [x, y] = local({ clientX: now.x, clientY: now.y });
+        const zoomed = zoomAround(
+          s.layout,
+          s.view,
+          zoomScale(s.layout, s.view) * (now.distance / pinch.distance),
+          x,
+          y,
+        );
+        show(panView(s.layout, zoomed, now.x - pinch.x, now.y - pinch.y), 'later');
+        pinch = now;
+        return;
+      }
       if (!drag || e.pointerId !== drag.id || !s.layout) return;
       const dx = e.clientX - drag.x;
       const dy = e.clientY - drag.y;
@@ -133,10 +195,23 @@ export function useZoom(
       show(panView(s.layout, s.view, dx, dy), 'later');
     };
     const end = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
+      if (pinch) {
+        // The pinch is over; the finger left on doesn't start a drag.
+        if (touches.size < 2) pinch = null;
+        return;
+      }
       if (!drag || e.pointerId !== drag.id) return;
       const click = e.type === 'pointerup' && (drag.button === 1 || clickToggles) && !drag.moved;
+      const [dx, dy] = [e.clientX - drag.x0, e.clientY - drag.y0];
+      const swiped =
+        e.type === 'pointerup' && drag.swipes && Math.abs(dx) > SWIPE_MIN && Math.abs(dx) > 1.5 * Math.abs(dy);
       drag = null;
       s.panning = false;
+      if (swiped) {
+        apply();
+        return swipe.current?.(dx < 0 ? 1 : -1);
+      }
       if (!click || !s.layout) return apply();
       if (s.view) return show(null, 'now');
       const [x, y] = local(e);

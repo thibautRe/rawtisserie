@@ -124,9 +124,12 @@ after(async () => {
 });
 
 /** A fresh tab (its own session storage) on the mocked API. */
-async function open(path: string) {
+/** A phone's viewport (roadmap 10.1), with a touch screen. */
+const PHONE = { width: 390, height: 844 };
+
+async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   await page?.close();
-  page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page = await browser.newPage({ viewport, hasTouch: viewport.width < 768 });
   page.on('pageerror', (e) => assert.fail(`page error: ${e.message}`));
   sent = [];
   patched = new Map();
@@ -1046,4 +1049,68 @@ test('back from the developer, the library is where it was, and a filter then sh
   await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 1);
   await page.waitForTimeout(300);
   assert.equal(await cardsOnScreen(), 1);
+});
+
+test('on a phone: filters in a drawer, a tap opens the loupe and a swipe moves on, a long press selects', async () => {
+  await open('/', PHONE);
+  await page.locator('[data-photo-id="v2"]').waitFor();
+  const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.equal(await overflow(), 0, 'the library is wider than the phone');
+  assert.equal(await page.getByText('Filters', { exact: true }).count(), 0, 'the filters are docked');
+
+  // Sort and filters in a drawer.
+  await page.getByRole('button', { name: 'Sort and filter' }).tap();
+  const drawer = page.getByRole('dialog', { name: 'Sort and filter' });
+  await drawer.getByRole('combobox', { name: 'Sort' }).waitFor();
+  await drawer.getByRole('button', { name: 'Close' }).tap();
+  await drawer.waitFor({ state: 'hidden' });
+
+  // A tap opens the loupe (no developer on phones); a swipe goes to the next photo.
+  await page.locator('[data-photo-id="v2"]').tap();
+  await page.getByText('2 / 6').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Develop (D)' }).count(), 0);
+  // Touch moves need Chromium's DevTools protocol.
+  if (process.env.BROWSER !== 'firefox') {
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: [number, number][]) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+    await touch('touchStart', [[300, 400]]);
+    for (let x = 300; x >= 100; x -= 25) await touch('touchMove', [[x, 405]]);
+    await touch('touchEnd', []);
+    await page.getByText('3 / 6').waitFor();
+  }
+  // A click: Chrome takes a tap right after a swipe's fling as stopping the fling (no click).
+  await page.getByRole('button', { name: 'Close (Esc)' }).click();
+  await page.getByRole('button', { name: 'Close (Esc)' }).waitFor({ state: 'detached' });
+
+  // A long press selects, then taps add to the selection rather than opening the loupe.
+  const card = (await page.locator('[data-photo-id="v1"]').boundingBox())!;
+  await page.mouse.move(card.x + card.width / 2, card.y + card.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.getByText('1 selected').waitFor();
+  await page.locator('[data-photo-id="v3"]').tap();
+  await page.getByText('2 selected').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Close (Esc)' }).count(), 0, 'a tap opened the loupe');
+
+  // Their details in a sheet: rate both; Escape closes it and keeps the selection.
+  await page.getByRole('button', { name: 'Details' }).tap();
+  const sheet = page.getByRole('dialog', { name: 'Details' });
+  await sheet.getByText('2 photos selected').waitFor();
+  await sheet.getByRole('radio', { name: '3 stars (3)' }).tap();
+  await page.waitForTimeout(300);
+  const rated = sent.find((r) => r.path === '/api/versions/bulk')?.body as { ids: string[]; patch: unknown };
+  assert.deepEqual([...rated.ids].sort(), ['v1', 'v3']);
+  assert.deepEqual(rated.patch, { rating: 3 });
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({ state: 'hidden' });
+  await page.getByText('2 selected').waitFor();
+  await page.getByRole('button', { name: 'Clear the selection' }).tap();
+  await page.getByText('6 photos').waitFor();
+
+  // The settings fit too.
+  await open('/settings/tags', PHONE);
+  await page.getByRole('heading', { name: 'Tags', exact: true }).waitFor();
+  assert.equal(await overflow(), 0, 'the tag manager is wider than the phone');
 });

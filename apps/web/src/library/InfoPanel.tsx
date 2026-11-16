@@ -143,14 +143,14 @@ export function Culling({
   onChange: (patch: { rating?: number; flag?: Flag | null; colorLabel?: ColorLabel | null }) => void;
 }) {
   return (
-    <HStack justify="space-between" gap="1">
+    <HStack justify="space-between" gap="1" rowGap="2" wrap="wrap">
       <HStack gap="0" role="radiogroup" aria-label="Rating">
         {[1, 2, 3, 4, 5].map((n) => {
           const on = n <= (rating ?? 0);
           return (
             <IconButton
               key={n}
-              size="2xs"
+              size={{ base: 'sm', md: '2xs' }}
               variant="ghost"
               role="radio"
               aria-checked={n === rating}
@@ -166,7 +166,7 @@ export function Culling({
       </HStack>
       <HStack gap="0.5">
         <IconButton
-          size="2xs"
+          size={{ base: 'sm', md: '2xs' }}
           variant={flag === 'picked' ? 'solid' : 'ghost'}
           colorPalette={flag === 'picked' ? 'green' : 'gray'}
           aria-label="Pick (P)"
@@ -176,7 +176,7 @@ export function Culling({
           <Check />
         </IconButton>
         <IconButton
-          size="2xs"
+          size={{ base: 'sm', md: '2xs' }}
           variant={flag === 'rejected' ? 'solid' : 'ghost'}
           colorPalette={flag === 'rejected' ? 'red' : 'gray'}
           aria-label="Reject (X)"
@@ -186,12 +186,12 @@ export function Culling({
           <X />
         </IconButton>
       </HStack>
-      <HStack gap="1.5">
+      <HStack gap={{ base: '3', md: '1.5' }}>
         {COLOR_LABELS.map((c) => (
           <Circle
             key={c}
             as="button"
-            size="3.5"
+            size={{ base: '6', md: '3.5' }}
             bg={LABEL_COLORS[c]}
             opacity={colorLabel === c ? 1 : 0.35}
             outline={colorLabel === c ? '2px solid' : 'none'}

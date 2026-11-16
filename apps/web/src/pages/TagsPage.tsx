@@ -78,7 +78,7 @@ export function TagsSettings() {
         >
           {n.children.length ? (
             <IconButton
-              size="2xs"
+              size={{ base: 'xs', md: '2xs' }}
               variant="ghost"
               aria-label={open ? `Fold ${n.name}` : `Unfold ${n.name}`}
               onClick={() =>
@@ -107,8 +107,18 @@ export function TagsSettings() {
           >
             {n.name}
           </Text>
+          {/* Keyboard shortcuts: not on phones, where they'd squeeze the name out. */}
           {i.shortcut && (
-            <Text as="kbd" textStyle="xs" fontFamily="numeric" px="1.5" borderWidth="1px" rounded="l1" color="fg.muted">
+            <Text
+              as="kbd"
+              hideBelow="md"
+              textStyle="xs"
+              fontFamily="numeric"
+              px="1.5"
+              borderWidth="1px"
+              rounded="l1"
+              color="fg.muted"
+            >
               {formatShortcut(i.shortcut)}
             </Text>
           )}
@@ -124,7 +134,7 @@ export function TagsSettings() {
           </Text>
           <Menu.Root positioning={{ placement: 'bottom-end' }}>
             <Menu.Trigger asChild>
-              <IconButton size="2xs" variant="ghost" aria-label={`Change ${n.name}`}>
+              <IconButton size={{ base: 'sm', md: '2xs' }} variant="ghost" aria-label={`Change ${n.name}`}>
                 <Ellipsis />
               </IconButton>
             </Menu.Trigger>

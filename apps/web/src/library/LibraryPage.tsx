@@ -1,5 +1,6 @@
 import { isTyping } from '../lib/keys.ts';
 import {
+  Badge,
   Box,
   Button,
   ButtonGroup,
@@ -18,12 +19,13 @@ import {
   Text,
 } from '@chakra-ui/react';
 import type { EditParams } from '@rawtisserie/pipeline';
-import { ChevronDown, FolderInput, Maximize, Search, Upload } from 'lucide-react';
+import { ChevronDown, Filter, FolderInput, Maximize, Search, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useBatchEdit, useBulkUpdate, useDuplicateVersion, useLibraryPhotos } from '../api/hooks.ts';
 import { COLOR_LABELS, type BulkPatch, type Photo } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
+import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { startTransfer } from '../components/transfer.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
@@ -44,7 +46,7 @@ import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
-import { LibraryStatusBar, useColumns } from './LibraryStatusBar.tsx';
+import { LibraryStatusBar, SelectionBar, useColumns } from './LibraryStatusBar.tsx';
 import { focusTagInput } from './TagCompletion.tsx';
 import { useGridSelection } from './useGridSelection.ts';
 import { useImporter } from './useImporter.tsx';
@@ -52,6 +54,8 @@ import { useTagShortcuts } from './useTagShortcuts.tsx';
 import { displayTag } from '../lib/tags.ts';
 import { fromDrop, fromDropHandles, fromInput, keepsHandles, pickFiles, pickFolder } from './pickedFiles.ts';
 import { useLibrarySearch } from './useLibrarySearch.ts';
+import { useNarrow } from '../lib/useNarrow.ts';
+import { useStableCallback } from '../develop/useStableCallback.ts';
 
 const SORTS = [
   { value: 'capturedDesc', label: 'Newest first' },
@@ -63,6 +67,11 @@ const SORTS = [
 
 export function LibraryPage() {
   const search = useLibrarySearch();
+  // Phones (roadmap 10.1): the filters and the info panel in drawers, a tap opens the
+  // loupe (a long press selects), and no developer (10.2).
+  const narrow = useNarrow();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const navigate = useNavigate();
   const library = useLibraryPhotos(search.search);
   const { items, total } = library;
@@ -96,7 +105,10 @@ export function LibraryPage() {
   useEffect(() => latestSave.current(), [search.search, selection, focusedId]);
   // The scroll position only matters when coming back: saved on the way out.
   useEffect(() => () => latestSave.current(), []);
-  const [columns, setColumns] = useColumns();
+  const [columns, setColumns, columnRange] = useColumns(narrow);
+  useEffect(() => {
+    if (!selection.size) setInfoOpen(false);
+  }, [selection.size]);
   /** The photo the culling loupe opened on, while it's open. */
   const [loupe, setLoupe] = useState<string | null>(null);
   const loupeStart = focusedId ?? [...selection][0] ?? null;
@@ -129,6 +141,11 @@ export function LibraryPage() {
   const batchEdit = useBatchEdit();
 
   const openDevelop = useCallback((photo: Photo) => navigate(`/versions/${photo.id}/develop`), [navigate]);
+  // Phones: a tap opens the loupe, or while photos are selected adds or removes one.
+  const tap = useStableCallback((_e: React.MouseEvent, photo: Photo) =>
+    selection.size ? grid.toggle(photo.id) : setLoupe(photo.id),
+  );
+  const longPress = useCallback((photo: Photo) => grid.toggle(photo.id), [grid.toggle]);
 
   /** Duplicate each selected version, then select the copies. */
   const duplicateSelection = useCallback(
@@ -226,6 +243,7 @@ export function LibraryPage() {
   const tagSequence = useTagShortcuts(loupe ? null : toggleTag);
 
   // Culling shortcuts, Lightroom/darktable style.
+  const overlayKeys = useRef(new WeakSet<KeyboardEvent>());
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (loupe || isTyping(e.target) || e.altKey || forOverlay.has(e)) return;
@@ -288,8 +306,9 @@ export function LibraryPage() {
     };
     // Keys pressed in an open dialog (confirmations are alert dialogs) or menu are theirs:
     // Escape closes it and mustn't also clear the selection, Space presses its button.
-    // Checked before they handle it (a menu closes on Escape at once).
-    const forOverlay = new WeakSet<KeyboardEvent>();
+    // Checked before they handle it (a menu closes on Escape at once). Kept across runs
+    // of this effect: closing a drawer renders the page again during the same key press.
+    const forOverlay = overlayKeys.current;
     const claim = (e: KeyboardEvent) => {
       const overlay = '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"]';
       if (document.querySelector(overlay)) forOverlay.add(e);
@@ -325,6 +344,23 @@ export function LibraryPage() {
       toaster.create({ type: 'error', title: 'Could not move to the trash', description: err.message }),
     );
 
+  const sortSelect = (
+    <NativeSelect.Root size="sm" w={{ base: 'full', md: '44' }}>
+      <NativeSelect.Field
+        aria-label="Sort"
+        value={search.params.get('sort') ?? 'capturedDesc'}
+        onChange={(e) => search.set('sort', e.target.value === 'capturedDesc' ? null : e.target.value)}
+      >
+        {SORTS.map((s) => (
+          <option key={s.value} value={s.value}>
+            {s.label}
+          </option>
+        ))}
+      </NativeSelect.Field>
+      <NativeSelect.Indicator />
+    </NativeSelect.Root>
+  );
+
   return (
     <Flex
       h="full"
@@ -350,12 +386,25 @@ export function LibraryPage() {
     >
       {importReview}
       {tagSequence}
-      <FilterSidebar search={search} />
+      <PanelDrawer
+        narrow={narrow}
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        placement="start"
+        title="Sort and filter"
+      >
+        {narrow && (
+          <Box px="3" pt="3" pb="1.5" bg="bg.panel">
+            {sortSelect}
+          </Box>
+        )}
+        <FilterSidebar search={search} />
+      </PanelDrawer>
 
       <Flex direction="column" flex="1" minW="0">
-        <HStack px="3" py="2" borderBottomWidth="1px" gap="3">
+        <HStack px="3" py="2" borderBottomWidth="1px" gap={{ base: '2', md: '3' }}>
           <AppMenu />
-          <InputGroup startElement={<Search size={14} />} maxW="xs">
+          <InputGroup startElement={<Search size={14} />} maxW={{ md: 'xs' }} flex={{ base: '1', md: 'initial' }}>
             <Input
               size="sm"
               placeholder="Search filename, title, tags…"
@@ -363,53 +412,75 @@ export function LibraryPage() {
               onChange={(e) => search.set('q', e.target.value)}
             />
           </InputGroup>
-          <NativeSelect.Root size="sm" w="44">
-            <NativeSelect.Field
-              value={search.params.get('sort') ?? 'capturedDesc'}
-              onChange={(e) => search.set('sort', e.target.value === 'capturedDesc' ? null : e.target.value)}
+          {narrow ? (
+            <IconButton
+              size="sm"
+              variant="outline"
+              aria-label="Sort and filter"
+              onClick={() => setFiltersOpen(true)}
+              position="relative"
             >
-              {SORTS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </NativeSelect.Field>
-            <NativeSelect.Indicator />
-          </NativeSelect.Root>
-          <Box flex="1" />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!photos.length}
-            onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
-            title="Culling view (Space)"
-          >
-            <Maximize /> Cull
-          </Button>
-          <ButtonGroup size="sm" colorPalette="orange" attached>
-            <Button onClick={() => importFrom('files')} title="Import RAW files">
-              <Upload /> Import
-            </Button>
-            <Menu.Root positioning={{ placement: 'bottom-end' }}>
-              <Menu.Trigger asChild>
-                <IconButton aria-label="More ways to import" borderStartWidth="1px" borderColor="orange.emphasized">
-                  <ChevronDown />
-                </IconButton>
-              </Menu.Trigger>
-              <Portal>
-                <Menu.Positioner>
-                  <Menu.Content>
-                    <Menu.Item value="files" onSelect={() => importFrom('files')}>
-                      <Upload /> Files…
-                    </Menu.Item>
-                    <Menu.Item value="folder" onSelect={() => importFrom('folder')}>
-                      <FolderInput /> Folder or card…
-                    </Menu.Item>
-                  </Menu.Content>
-                </Menu.Positioner>
-              </Portal>
-            </Menu.Root>
-          </ButtonGroup>
+              <Filter />
+              {search.activeFilterCount > 0 && (
+                <Badge
+                  size="xs"
+                  colorPalette="orange"
+                  variant="solid"
+                  position="absolute"
+                  top="-1.5"
+                  insetEnd="-1.5"
+                  rounded="full"
+                  fontFamily="numeric"
+                >
+                  {search.activeFilterCount}
+                </Badge>
+              )}
+            </IconButton>
+          ) : (
+            <>
+              {sortSelect}
+              <Box flex="1" />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!photos.length}
+                onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
+                title="Culling view (Space)"
+              >
+                <Maximize /> Cull
+              </Button>
+            </>
+          )}
+          {narrow ? (
+            <IconButton size="sm" colorPalette="orange" aria-label="Import photos" onClick={() => importFrom('files')}>
+              <Upload />
+            </IconButton>
+          ) : (
+            <ButtonGroup size="sm" colorPalette="orange" attached>
+              <Button onClick={() => importFrom('files')} title="Import RAW files">
+                <Upload /> Import
+              </Button>
+              <Menu.Root positioning={{ placement: 'bottom-end' }}>
+                <Menu.Trigger asChild>
+                  <IconButton aria-label="More ways to import" borderStartWidth="1px" borderColor="orange.emphasized">
+                    <ChevronDown />
+                  </IconButton>
+                </Menu.Trigger>
+                <Portal>
+                  <Menu.Positioner>
+                    <Menu.Content>
+                      <Menu.Item value="files" onSelect={() => importFrom('files')}>
+                        <Upload /> Files…
+                      </Menu.Item>
+                      <Menu.Item value="folder" onSelect={() => importFrom('folder')}>
+                        <FolderInput /> Folder or card…
+                      </Menu.Item>
+                    </Menu.Content>
+                  </Menu.Positioner>
+                </Portal>
+              </Menu.Root>
+            </ButtonGroup>
+          )}
           <input
             ref={fileInput}
             type="file"
@@ -480,29 +551,49 @@ export function LibraryPage() {
             onRange={library.want}
             initialScrollTop={restored.scrollTop}
             onScroll={(top) => (scrollTop.current = top)}
-            onClick={grid.onClick}
-            onOpen={openDevelop}
+            onClick={narrow ? tap : grid.onClick}
+            onOpen={narrow ? undefined : openDevelop}
+            onLongPress={narrow ? longPress : undefined}
           />
         )}
-        <LibraryStatusBar
-          selected={selection.size}
-          total={total}
-          developing={photos.filter((p) => p.renderStatus === 'pending').length}
-          loading={library.isFetching && !library.isPending}
-          columns={columns}
-          onColumnsChange={setColumns}
-        />
+        {narrow && selection.size > 0 ? (
+          <SelectionBar
+            selected={selection.size}
+            total={photos.length}
+            onSelectAll={grid.selectAll}
+            onDetails={() => setInfoOpen(true)}
+            onDone={grid.clear}
+          />
+        ) : (
+          <LibraryStatusBar
+            selected={selection.size}
+            total={total}
+            developing={photos.filter((p) => p.renderStatus === 'pending').length}
+            loading={library.isFetching && !library.isPending}
+            columns={columns}
+            range={columnRange}
+            onColumnsChange={setColumns}
+          />
+        )}
       </Flex>
 
-      <InfoPanel
-        selected={selectedPhotos}
-        onDelete={trash}
-        onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
-        onApplyEdit={(edit) => batchEdit([...selection], edit)}
-        onCopy={() => void copyFrom(true)}
-        onExport={() => setExporting(selectedPhotos)}
-        onSend={(instance) => void startTransfer(instance, { ids: selectedPhotos.map((p) => p.id) })}
-      />
+      <PanelDrawer
+        narrow={narrow}
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        placement="bottom"
+        title="Details"
+      >
+        <InfoPanel
+          selected={selectedPhotos}
+          onDelete={trash}
+          onDuplicate={(fromOriginal) => void duplicateSelection(fromOriginal)}
+          onApplyEdit={(edit) => batchEdit([...selection], edit)}
+          onCopy={() => void copyFrom(true)}
+          onExport={() => setExporting(selectedPhotos)}
+          onSend={(instance) => void startTransfer(instance, { ids: selectedPhotos.map((p) => p.id) })}
+        />
+      </PanelDrawer>
       <LibraryExportDialog photos={exporting} preview={exportPreview} onClose={() => setExporting(null)} />
       {copyDialog && (
         <CopyEditsDialog
@@ -547,9 +638,10 @@ export function LibraryPage() {
           onChange={(id, patch) => bulk.mutate({ ids: [id], patch })}
           onClose={(id) => {
             setLoupe(null);
-            selectOne(id);
+            // On phones a selection means taps select: closing doesn't start one.
+            if (!narrow) selectOne(id);
           }}
-          onDevelop={(id) => navigate(`/versions/${id}/develop`)}
+          onDevelop={narrow ? undefined : (id) => navigate(`/versions/${id}/develop`)}
         />
       )}
     </Flex>

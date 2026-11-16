@@ -1,7 +1,7 @@
 import { isTyping } from '../lib/keys.ts';
-import { Box, Button, Center, Flex, HStack, Heading, Spinner, Stack, Text } from '@chakra-ui/react';
+import { Box, Button, Center, Flex, HStack, Heading, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
 import { ChevronRight, Maximize, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useDeleteForever, useRestoreFromTrash, useTrashPhotos } from '../api/hooks.ts';
 import type { TrashItem } from '../api/types.ts';
@@ -10,7 +10,11 @@ import { toaster } from '../components/toaster.tsx';
 import { DeleteForeverDialog } from '../components/trash.tsx';
 import { describeDeletion, describeVersions } from '../components/trashText.ts';
 import { formatBytes } from '../lib/format.ts';
-import { LibraryStatusBar, useColumns } from '../library/LibraryStatusBar.tsx';
+import { LibraryStatusBar, SelectionBar, useColumns } from '../library/LibraryStatusBar.tsx';
+import { PanelDrawer } from '../components/PanelDrawer.tsx';
+import { useStableCallback } from '../develop/useStableCallback.ts';
+import { useNarrow } from '../lib/useNarrow.ts';
+import type { Photo } from '../api/types.ts';
 import { Loupe } from '../library/Loupe.tsx';
 import { PhotoGrid } from '../library/PhotoGrid.tsx';
 import { TrashPanel } from '../library/TrashPanel.tsx';
@@ -31,7 +35,13 @@ export function TrashPage() {
   const { photos, selection, focusedId, focusedIndex } = grid;
   const restore = useRestoreFromTrash();
   const deleteForever = useDeleteForever();
-  const [columns, setColumns] = useColumns();
+  // Phones, as in the library: a tap views, a long press selects, the panel in a drawer.
+  const narrow = useNarrow();
+  const [columns, setColumns, columnRange] = useColumns(narrow);
+  const [panelOpen, setPanelOpen] = useState(false);
+  useEffect(() => {
+    if (!selection.size) setPanelOpen(false);
+  }, [selection.size]);
   /** What the confirmation is for, while it's open. */
   const [confirming, setConfirming] = useState<TrashItem[] | 'all' | null>(null);
   const [loupe, setLoupe] = useState<string | null>(null);
@@ -45,6 +55,11 @@ export function TrashPage() {
     while (end < items.length && items[end]) end++;
     return { photos: items.slice(start, end) as TrashItem[], start, end };
   }, [loupe, items, photos, total]);
+
+  const tap = useStableCallback((_e: React.MouseEvent, photo: Photo) =>
+    selection.size ? grid.toggle(photo.id) : setLoupe(photo.id),
+  );
+  const longPress = useCallback((photo: Photo) => grid.toggle(photo.id), [grid.toggle]);
 
   const onRestore = (versions: TrashItem[]) =>
     restore.mutate(
@@ -117,25 +132,41 @@ export function TrashPage() {
           </HStack>
           <Heading size="sm">Trash</Heading>
           <Box flex="1" />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!photos.length}
-            onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
-            title="View (Space)"
-          >
-            <Maximize /> View
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            colorPalette="red"
-            disabled={!total}
-            loading={deleteForever.isPending}
-            onClick={() => setConfirming('all')}
-          >
-            <Trash2 /> Empty trash
-          </Button>
+          {!narrow && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!photos.length}
+              onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
+              title="View (Space)"
+            >
+              <Maximize /> View
+            </Button>
+          )}
+          {narrow ? (
+            <IconButton
+              size="sm"
+              variant="outline"
+              colorPalette="red"
+              aria-label="Empty trash"
+              disabled={!total}
+              loading={deleteForever.isPending}
+              onClick={() => setConfirming('all')}
+            >
+              <Trash2 />
+            </IconButton>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              colorPalette="red"
+              disabled={!total}
+              loading={deleteForever.isPending}
+              onClick={() => setConfirming('all')}
+            >
+              <Trash2 /> Empty trash
+            </Button>
+          )}
         </HStack>
 
         {trash.isPending ? (
@@ -163,27 +194,47 @@ export function TrashPage() {
             focusedIndex={focusedIndex}
             columns={columns}
             onRange={trash.want}
-            onClick={grid.onClick}
+            onClick={narrow ? tap : grid.onClick}
+            onLongPress={narrow ? longPress : undefined}
           />
         )}
-        <LibraryStatusBar
-          selected={selection.size}
-          total={total}
-          developing={0}
-          loading={trash.isFetching && !trash.isPending}
-          columns={columns}
-          onColumnsChange={setColumns}
-        />
+        {narrow && selection.size > 0 ? (
+          <SelectionBar
+            selected={selection.size}
+            total={photos.length}
+            onSelectAll={grid.selectAll}
+            onDetails={() => setPanelOpen(true)}
+            onDone={grid.clear}
+          />
+        ) : (
+          <LibraryStatusBar
+            selected={selection.size}
+            total={total}
+            developing={0}
+            loading={trash.isFetching && !trash.isPending}
+            columns={columns}
+            range={columnRange}
+            onColumnsChange={setColumns}
+          />
+        )}
       </Flex>
 
-      <TrashPanel
-        selected={grid.selected}
-        total={total}
-        bytes={summary?.bytes ?? 0}
-        days={summary?.days ?? 30}
-        onRestore={onRestore}
-        onDelete={setConfirming}
-      />
+      <PanelDrawer
+        narrow={narrow}
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        placement="bottom"
+        title="Details"
+      >
+        <TrashPanel
+          selected={grid.selected}
+          total={total}
+          bytes={summary?.bytes ?? 0}
+          days={summary?.days ?? 30}
+          onRestore={onRestore}
+          onDelete={setConfirming}
+        />
+      </PanelDrawer>
 
       <DeleteForeverDialog
         text={dialogText}
@@ -202,7 +253,8 @@ export function TrashPage() {
           onLoadMore={() => trash.want(loupeRun.end, loupeRun.end)}
           onClose={(id) => {
             setLoupe(null);
-            grid.selectOne(id);
+            // On phones a selection means taps select: closing doesn't start one.
+            if (!narrow) grid.selectOne(id);
           }}
         />
       )}

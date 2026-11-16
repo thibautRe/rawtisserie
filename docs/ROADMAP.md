@@ -62,7 +62,8 @@ shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and
 rating ranges), 8.13 (select everything the filters match), 7.11 (AVIF renders) and
 M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope. 8.11 done the
 same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic. Then 7.11:
-renders stored as AVIF, encoded by sharp (native) in the render worker.
+renders stored as AVIF, encoded by sharp (native) in the render worker. Then 10.1: the
+library, trash and settings on phones.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -1899,11 +1900,18 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
 The app is unusable on a phone today: the library's sidebars, grid and loupe, and the
 developer's panels, assume a wide window.
 
-- **10.1 Library and settings (M–L, before 1.0):** the grid in fewer columns, the filters
-  and info panel as drawers, the loupe with swipe and pinch (its 100 % tiles already come
-  from the server), culling by touch (rate, flag, label), import from the phone's picker,
-  and every Settings page (tags, tokens, instances, admin) in one column. Touch targets
-  and `test:ui`/`test:library` at a phone viewport.
+- **10.1 Library and settings (M–L, before 1.0) — done** 2026-11-16. Below `md` (768 px,
+  `useNarrow`): the filters (with the sort) and the info panel open as drawers
+  (`PanelDrawer`: from the side, and a sheet from the bottom), the grid has its own
+  columns (2–6, 3 by default), a tap opens the loupe and a long press selects, after which
+  taps add or remove and a selection bar (Details, Select all) replaces the status bar.
+  The loupe swipes between photos and pinches with two fingers (`useZoom`, Android too;
+  iOS's gesture events are ignored while fingers are down), with larger culling buttons.
+  The trash works the same way; the settings and admin pages fit in one column (the admin
+  tables scroll sideways in their card); tag shortcuts aren't shown on phones. Import
+  goes through the phone's file picker (files only: folders and cards stay desktop).
+  The developer isn't offered (10.2). `test:library` and `test:ui` have phone cases. Not
+  done: pinching the grid to change its columns, swiping a sheet closed.
 - **10.2 Developer (after M6):** phones can't develop full RAWs in wasm at an acceptable
   speed, so wait for cloud processing; then the panels as a bottom sheet over the image.
 
@@ -2022,7 +2030,7 @@ Required before 1.0, on top of what's done:
   8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
   export options (colour space/ICC at least).
 - **Library:** ~~8.11 JPEG and other non-RAW images~~.
-- **UI:** 4.13 mask UI redesign; 10.1 the library and settings on phones.
+- **UI:** 4.13 mask UI redesign; ~~10.1 the library and settings on phones~~.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
   (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 8.12 boolean tag filters, 8.13
@@ -2043,7 +2051,7 @@ Required before 1.0, on top of what's done:
    8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
-   and done 2026-11-16), then ~~7.11 AVIF renders~~, 10.1 responsive library, 8.13 and
+   and done 2026-11-16), then ~~7.11 AVIF renders~~, ~~10.1 responsive library~~, 8.13 and
    8.12. 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.

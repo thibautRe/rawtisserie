@@ -61,6 +61,24 @@ for (const mode of ['dark', 'light'])
     await page.close();
   });
 
+test('/ui on a phone: renders, and a panel opens as a sheet that fits', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('**/api/**', (route) => route.fulfill({ status: 404, json: { error: 'not found' } }));
+  await page.goto(`http://localhost:${PORT}/ui`);
+  await page.getByRole('heading', { name: 'Phones' }).waitFor();
+  await page.getByRole('button', { name: 'Open a panel as a sheet' }).tap();
+  const sheet = page.getByRole('dialog', { name: 'Details' });
+  await sheet.getByRole('radio', { name: '3 stars (3)' }).waitFor();
+  await page.waitForTimeout(400); // its opening animation
+  const box = (await sheet.boundingBox())!;
+  assert.ok(box.x >= 0 && box.x + box.width <= 390, `the sheet is ${box.width} px wide at ${box.x}`);
+  if (shots) await page.screenshot({ path: `${shots}/ui-phone-sheet.png` });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test('the manager dialog renames and deletes', async () => {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const errors: string[] = [];

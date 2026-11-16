@@ -19,6 +19,9 @@ export const PHOTO_CARD_CSS: Record<string, SystemStyleObject> = {
     aspectRatio: '1',
     cursor: 'pointer',
     userSelect: 'none',
+    // A long press selects (phones): no image menu (iOS) or tap highlight over it.
+    WebkitTouchCallout: 'none',
+    WebkitTapHighlightColor: 'transparent',
     // The hovered photo's box: highlighted at once (no transition on the way in), fading
     // back with the box's own transition.
     [`&:hover > .${GROUP_BOX_CLASS}`]: { bg: 'bg.emphasized', transition: 'none' },

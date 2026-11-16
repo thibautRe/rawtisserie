@@ -5,6 +5,7 @@ import type { Photo } from '../api/types.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
 import { GROUP_BOX_CLASS } from './photoCardCss.ts';
+import { consumeLongPress, pressCancel, pressMove, pressStart, pressing } from './longPress.ts';
 
 export { GRID_GAP, GROUP_BOX_CLASS } from './photoCardCss.ts';
 
@@ -17,6 +18,8 @@ interface Props {
   joinRight: boolean;
   onClick: (e: React.MouseEvent, photo: Photo) => void;
   onOpen?: (photo: Photo) => void;
+  /** Held down (phones: selects; the click after it is swallowed). */
+  onLongPress?: (photo: Photo) => void;
   /** The pointer entered (a photo id) or left (null) one of the photo's versions. */
   onHover: (photoId: string | null) => void;
 }
@@ -36,6 +39,7 @@ export const PhotoCard = memo(function PhotoCard({
   joinRight,
   onClick,
   onOpen,
+  onLongPress,
   onHover,
 }: Props) {
   const showBar = photo.rating > 0 || photo.flag || photo.colorLabel || photo.edited;
@@ -49,8 +53,13 @@ export const PhotoCard = memo(function PhotoCard({
       data-join-left={joinLeft || undefined}
       data-join-right={joinRight || undefined}
       data-rejected={photo.flag === 'rejected' || undefined}
-      onClick={(e) => onClick(e, photo)}
+      onClick={(e) => !consumeLongPress() && onClick(e, photo)}
       onDoubleClick={onOpen && (() => onOpen(photo))}
+      onPointerDown={onLongPress && ((e) => pressStart(e, () => onLongPress(photo)))}
+      onPointerMove={onLongPress && pressMove}
+      onPointerUp={onLongPress && pressCancel}
+      onPointerCancel={onLongPress && pressCancel}
+      onContextMenu={onLongPress && ((e) => pressing() && e.preventDefault())}
       onPointerEnter={() => onHover(photo.photoId)}
       onPointerLeave={() => onHover(null)}
     >
