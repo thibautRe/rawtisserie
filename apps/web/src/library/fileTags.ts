@@ -115,7 +115,8 @@ export function iptcKeywords(bytes: Uint8Array): string[] {
     if (marker === 0xda) break;
     const length = view.getUint16(at + 2);
     const data = bytes.subarray(at + 4, at + 2 + length);
-    if (marker === 0xed && latin1.decode(data.subarray(0, 14)) === 'Photoshop 3.0\0') out.push(...irb(data.subarray(14)));
+    if (marker === 0xed && latin1.decode(data.subarray(0, 14)) === 'Photoshop 3.0\0')
+      out.push(...irb(data.subarray(14)));
     at += 2 + length;
   }
   return out;
@@ -136,7 +137,7 @@ function irb(data: Uint8Array): string[] {
     at += 4;
     const block = data.subarray(at, at + size);
     if (id === 0x0404) {
-      for (let i = 0; i + 5 <= block.length && block[i] === 0x1c; ) {
+      for (let i = 0; i + 5 <= block.length && block[i] === 0x1c;) {
         const [record, dataset] = [block[i + 1], block[i + 2]];
         const len = (block[i + 3]! << 8) | block[i + 4]!;
         const raw = block.subarray(i + 5, i + 5 + len);
@@ -198,13 +199,18 @@ export const isEmpty = (t: FileTags) => !t.tags && !t.rating && !t.label && !t.r
 export async function readFileTags(picked: Picked): Promise<Map<PickedFile, FileTags>> {
   const embedded = new Map<PickedFile, Promise<FileTags>>();
   const own = (f: PickedFile) => {
-    if (!embedded.has(f)) embedded.set(f, readEmbedded(f.file).catch(() => ({})));
+    if (!embedded.has(f))
+      embedded.set(
+        f,
+        readEmbedded(f.file).catch(() => ({})),
+      );
     return embedded.get(f)!;
   };
   const sidecar = async (f: PickedFile) => parseXmp(await f.file.text());
   const photos = [...picked.files, ...picked.pairs];
   const images = new Map<string, PickedFile[]>();
-  for (const f of photos.filter((f) => isImage(f.path))) images.set(stem(f.path), [...(images.get(stem(f.path)) ?? []), f]);
+  for (const f of photos.filter((f) => isImage(f.path)))
+    images.set(stem(f.path), [...(images.get(stem(f.path)) ?? []), f]);
   const out = new Map<PickedFile, FileTags>();
   for (const f of photos) {
     const sources = await Promise.all([

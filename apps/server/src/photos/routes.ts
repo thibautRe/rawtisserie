@@ -406,7 +406,11 @@ export async function photoRoutes(
           id: r.id,
           historyEnd: r.history_end,
           revision: r.revision,
-          recipe: r.recipe ? normalizeEditParams(r.recipe) : r.no_history ? defaultRecipe(r.exif ?? {}) : originalRecipe(r.exif),
+          recipe: r.recipe
+            ? normalizeEditParams(r.recipe)
+            : r.no_history
+              ? defaultRecipe(r.exif ?? {})
+              : originalRecipe(r.exif),
           // What the recipe may hold (`forPhoto`).
           imageFormat: r.exif?.imageFormat ?? null,
         })),

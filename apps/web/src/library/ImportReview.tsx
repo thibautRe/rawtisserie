@@ -157,8 +157,8 @@ export function ReviewBody({
               ? 'Also import the JPEG next to its RAW file'
               : `Also import the ${pairs.length.toLocaleString()} JPEGs next to their RAW files`}
             <Text as="span" display="block" color="fg.muted" textStyle="xs">
-              Same name, same folder: the camera’s own rendering of the RAW. Their tags, rating and
-              label go to the RAW either way.
+              Same name, same folder: the camera’s own rendering of the RAW. Their tags, rating and label go to the RAW
+              either way.
             </Text>
           </Checkbox.Label>
         </Checkbox.Root>

@@ -936,7 +936,10 @@ export function originalRecipe(metadata: Partial<RecipeMetadata> | null | undefi
  * `recipe` for a photo with this metadata: without the kinds it doesn't have (a style
  * or a pasted edit from a RAW file applied to a JPEG). The same recipe if nothing goes.
  */
-export function forPhoto(recipe: EditParams, metadata: Pick<PhotoMetadata, 'imageFormat'> | null | undefined): EditParams {
+export function forPhoto(
+  recipe: EditParams,
+  metadata: Pick<PhotoMetadata, 'imageFormat'> | null | undefined,
+): EditParams {
   if (recipe.modules.every((m) => hasKind(metadata, m.kind))) return recipe;
   return normalize(
     recipe.modules.filter((m) => hasKind(metadata, m.kind)),

@@ -93,15 +93,15 @@ test('a RAW file gets the tags of the JPEG next to it, and of its sidecar', asyn
     file('DCIM/DSC1.ARW'),
     file('DCIM/DSC1.JPG', jpeg({ xmp: LIGHTROOM })),
     file('DCIM/DSC2.ARW'),
-    file('DCIM/DSC2.ARW.xmp', '<x:xmpmeta xmp:Rating="5"><dc:subject><rdf:Bag><rdf:li>dog</rdf:li></rdf:Bag></dc:subject></x:xmpmeta>'),
+    file(
+      'DCIM/DSC2.ARW.xmp',
+      '<x:xmpmeta xmp:Rating="5"><dc:subject><rdf:Bag><rdf:li>dog</rdf:li></rdf:Bag></dc:subject></x:xmpmeta>',
+    ),
     file('DCIM/DSC3.ARW'),
     file('DCIM/IMG4.jpg', jpeg({ keywords: ['cat'] })),
   ]);
   // Sidecars aren't photos, nor files left out.
-  assert.deepEqual(
-    [picked.files.length, picked.pairs.length, picked.sidecars.length, picked.ignored],
-    [4, 1, 1, 0],
-  );
+  assert.deepEqual([picked.files.length, picked.pairs.length, picked.sidecars.length, picked.ignored], [4, 1, 1, 0]);
   const tags = await readFileTags(picked);
   const of = (path: string) => tags.get([...picked.files, ...picked.pairs].find((f) => f.path === path)!);
   assert.deepEqual(of('DCIM/DSC1.ARW'), { tags: ['People|Alice', 'sunset', 'Rock & Roll'], rating: 4, label: 'green' });

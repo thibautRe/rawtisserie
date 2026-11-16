@@ -82,7 +82,8 @@ export function sortPicked(list: readonly PickedFile[]): Picked {
   };
 }
 
-const byPath = (files: PickedFile[]) => files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
+const byPath = (files: PickedFile[]) =>
+  files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
 
 /** `picked` with the images next to their RAW files imported too, if `include`. */
 export function withPairs(picked: Picked, include: boolean): Picked {

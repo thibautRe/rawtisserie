@@ -18,7 +18,15 @@ import {
 } from './imports.ts';
 import { readFileTags } from './fileTags.ts';
 import { ImportReview, type Review, reviewedFiles } from './ImportReview.tsx';
-import { type PickedFile, type PickedFrom, fromInput, reopen, sortPicked, walkHandles, withPairs } from './pickedFiles.ts';
+import {
+  type PickedFile,
+  type PickedFrom,
+  fromInput,
+  reopen,
+  sortPicked,
+  walkHandles,
+  withPairs,
+} from './pickedFiles.ts';
 
 /** The library showing one import's photos. */
 export const importPath = (id: string) => `/?import=${id}`;

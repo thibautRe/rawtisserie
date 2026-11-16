@@ -1046,8 +1046,18 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * (`useStableCallback`); they are read through `latest` anyway.
  */
 export const ModulePanel = memo(function ModulePanel(props: Props) {
-  const { params, lensCorrection, asShotIlluminant, imageFormat, original, cropping, aspect, autoTuning, detecting, shapeUi } =
-    props;
+  const {
+    params,
+    lensCorrection,
+    asShotIlluminant,
+    imageFormat,
+    original,
+    cropping,
+    aspect,
+    autoTuning,
+    detecting,
+    shapeUi,
+  } = props;
   const { guides, fittingPerspective } = props;
   const { toneInputs, fittingTone, toneView, rangeView } = props;
   const { luts, missingLuts } = props;

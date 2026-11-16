@@ -198,8 +198,8 @@ export function LocalDevelopPage() {
         <Heading size="2xl">Develop a RAW file</Heading>
         <Text color="fg.muted">
           Drop a RAW file here (ARW, CR2, CR3, NEF, DNG, RAF, ORF, RW2…) to develop it: exposure, white balance, tone
-          mapping, colour, sharpening, crop & straighten. Export the result as a JPEG. JPEG, PNG, TIFF and WebP
-          images open too, for lighter touches.
+          mapping, colour, sharpening, crop & straighten. Export the result as a JPEG. JPEG, PNG, TIFF and WebP images
+          open too, for lighter touches.
         </Text>
         <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!backend}>
           <FolderOpen /> Open a RAW file
