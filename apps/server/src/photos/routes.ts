@@ -604,7 +604,7 @@ export async function photoRoutes(
         version: { import_id: importId },
         modifiedAt: query.modified === undefined ? null : new Date(query.modified),
       });
-      const taken = await versionFor(result, filename, importId);
+      const taken = await versionFor(result, filename, { import_id: importId });
       if ('skipped' in taken) {
         skipped.push(taken.skipped);
         continue;

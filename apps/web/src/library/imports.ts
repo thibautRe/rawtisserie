@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Photo, StorageUsage } from '../api/types.ts';
 import { formatBytes } from '../lib/format.ts';
+import type { FileTags } from './fileTags.ts';
 import type { Picked, PickedFile, PickedFrom } from './pickedFiles.ts';
 
 export type ImportStatus = 'waiting' | 'uploading' | 'imported' | 'skipped' | 'failed';
@@ -38,6 +39,8 @@ export interface ImportItem {
   allowDeleted?: boolean;
   /** The upload on the server (`/api/uploads`): a retry resumes it where it stopped. */
   uploadId?: string;
+  /** Tags, rating and label from its files (`fileTags.ts`), given to the version it creates. */
+  fileTags?: FileTags;
 }
 
 export interface ImportRun {
@@ -117,13 +120,15 @@ export interface ImportDeps {
 /**
  * Import what was picked: added to the run still going, if any (same id), else a new
  * run. Returns the run's id. `known` (from `findKnown`) are listed as already in the
- * library, without being hashed or sent.
+ * library, without being hashed or sent. `fileTags` (`readFileTags`) go to the versions
+ * created.
  */
 export function startImport(
   picked: Picked,
   deps: ImportDeps,
   known: ReadonlySet<PickedFile> = new Set(),
   from: PickedFrom = { kind: picked.label ? 'folder' : 'files', handles: null },
+  fileTags: ReadonlyMap<PickedFile, FileTags> = new Map(),
 ): string {
   const refused = picked.refused.map((f): ImportItem => ({
     key: crypto.randomUUID(),
@@ -142,7 +147,8 @@ export function startImport(
     const item = { key, name: f.file.name, path: f.path, size: f.file.size, modified: f.file.lastModified, sent: 0 };
     if (known.has(f)) return { ...item, status: 'skipped', kind: 'duplicate', reason: 'Already in your library' };
     files.set(key, f.file);
-    return { ...item, status: 'waiting' };
+    const tags = fileTags.get(f);
+    return { ...item, status: 'waiting', ...(tags && { fileTags: tags }) };
   });
   const all = [...items, ...refused];
   const active = runs.findLast((r) => !r.done);
@@ -313,6 +319,7 @@ async function process(runId: string, deps: ImportDeps) {
           importId: runId,
           allowDeleted: !!item.allowDeleted,
           uploadId: item.uploadId,
+          fileTags: item.fileTags,
           onStart: (uploadId) => updateItem(runId, item.key, { uploadId }),
           onProgress: (sent) => updateItem(runId, item.key, { sent }),
         });
@@ -461,6 +468,7 @@ interface UploadOptions {
   allowDeleted: boolean;
   /** An upload started before, to resume. */
   uploadId?: string;
+  fileTags?: FileTags;
   onStart: (uploadId: string) => void;
   onProgress: (sent: number) => void;
 }
@@ -487,6 +495,13 @@ async function upload(file: File, o: UploadOptions): Promise<UploadResult> {
       modified: file.lastModified,
       import: o.importId,
       allowDeleted: o.allowDeleted,
+      // For the version it creates.
+      ...(o.fileTags && {
+        tags: o.fileTags.tags,
+        rating: o.fileTags.rating,
+        label: o.fileTags.label,
+        flag: o.fileTags.rejected ? 'rejected' : undefined,
+      }),
     });
     if (started.skipped) return { created: [], skipped: [started.skipped] };
     id = started.id!;

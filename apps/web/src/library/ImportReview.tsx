@@ -1,7 +1,8 @@
 import { Box, Button, Checkbox, CloseButton, Dialog, HStack, Portal, Spinner, Stack, Text } from '@chakra-ui/react';
-import { Ban, Copy, FileImage, FolderMinus, Image } from 'lucide-react';
+import { Ban, Copy, FileImage, FolderMinus, Image, Tags } from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { formatBytes } from '../lib/format.ts';
+import type { FileTags } from './fileTags.ts';
 import { type Picked, type PickedFile, isRaw, withPairs } from './pickedFiles.ts';
 
 /**
@@ -10,7 +11,14 @@ import { type Picked, type PickedFile, isRaw, withPairs } from './pickedFiles.ts
  */
 export type Review =
   | { phase: 'scanning'; label: string | null }
-  | { phase: 'ready'; picked: Picked; known: ReadonlySet<PickedFile>; includePairs: boolean };
+  | {
+      phase: 'ready';
+      picked: Picked;
+      known: ReadonlySet<PickedFile>;
+      includePairs: boolean;
+      /** What the photos get from their files (`readFileTags`). */
+      fileTags: ReadonlyMap<PickedFile, FileTags>;
+    };
 
 /** What a ready review imports: its files, and the JPEGs next to their RAWs if asked for. */
 export const reviewedFiles = (r: Extract<Review, { phase: 'ready' }>) => withPairs(r.picked, r.includePairs);
@@ -19,11 +27,16 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 const bytes = (files: readonly PickedFile[]) => formatBytes(files.reduce((s, f) => s + f.file.size, 0));
 
 /** The counts the review shows (`picked` with the pairs it imports, if any, in its files). */
-export function reviewCounts(picked: Picked, known: ReadonlySet<PickedFile>) {
+export function reviewCounts(
+  picked: Picked,
+  known: ReadonlySet<PickedFile>,
+  fileTags: ReadonlyMap<PickedFile, FileTags> = new Map(),
+) {
   const fresh = picked.files.filter((f) => !known.has(f));
   const raw = picked.files.filter((f) => isRaw(f.path));
   const images = picked.files.filter((f) => !isRaw(f.path));
-  return { raw, images, fresh, known: picked.files.length - fresh.length };
+  const tagged = fresh.filter((f) => fileTags.has(f)).length;
+  return { raw, images, fresh, known: picked.files.length - fresh.length, tagged };
 }
 
 /**
@@ -104,7 +117,7 @@ export function ReviewBody({
     );
   const picked = reviewedFiles(review);
   const pairs = review.picked.pairs;
-  const counts = reviewCounts(picked, review.known);
+  const counts = reviewCounts(picked, review.known, review.fileTags);
   return (
     <Stack gap="2" textStyle="sm">
       {(counts.raw.length > 0 || !counts.images.length) && (
@@ -124,6 +137,11 @@ export function ReviewBody({
           {counts.known.toLocaleString()} already in your library
         </Line>
       )}
+      {counts.tagged > 0 && (
+        <Line icon={<Tags size={14} />} muted>
+          {plural(counts.tagged, 'new photo')} with tags, ratings or labels from their files
+        </Line>
+      )}
       {pairs.length > 0 && (
         <Checkbox.Root
           size="sm"
@@ -139,7 +157,8 @@ export function ReviewBody({
               ? 'Also import the JPEG next to its RAW file'
               : `Also import the ${pairs.length.toLocaleString()} JPEGs next to their RAW files`}
             <Text as="span" display="block" color="fg.muted" textStyle="xs">
-              Same name, same folder: the camera’s own rendering of the RAW
+              Same name, same folder: the camera’s own rendering of the RAW. Their tags, rating and
+              label go to the RAW either way.
             </Text>
           </Checkbox.Label>
         </Checkbox.Root>
@@ -181,9 +200,10 @@ export function sampleReview(n: number, known: number, ignored: number, pairs = 
   for (const f of jpegs) Object.defineProperty(f.file, 'size', { value: 9e6 });
   return {
     phase: 'ready',
-    picked: { files, pairs: jpegs, refused: [], ignored, label: 'DCIM' },
+    picked: { files, pairs: jpegs, sidecars: [], refused: [], ignored, label: 'DCIM' },
     known: new Set(files.slice(0, known)),
     includePairs: false,
+    fileTags: new Map(files.slice(known, known + pairs).map((f) => [f, { tags: ['Holidays'] }])),
   };
 }
 

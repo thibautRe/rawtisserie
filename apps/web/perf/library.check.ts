@@ -730,6 +730,10 @@ test("a card: its folders walked through, what the library has, JPEGs next to th
     ['C0001.MP4', 5],
   ] as const)
     await writeFile(join(dir, name), Buffer.alloc(1024, n));
+  // Tagged in another application: the JPEG's XMP goes to its RAW.
+  const xmp =
+    '<x:xmpmeta xmp:Rating="3"><lr:hierarchicalSubject><rdf:Bag><rdf:li>People|Alice</rdf:li></rdf:Bag></lr:hierarchicalSubject></x:xmpmeta>';
+  await writeFile(join(dir, 'DSC00001.JPG'), Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.from(xmp)]));
   knownNames = new Set(['DSC00002.ARW']);
   await page.locator('input[type=file][webkitdirectory]').setInputFiles(card);
 
@@ -740,12 +744,13 @@ test("a card: its folders walked through, what the library has, JPEGs next to th
   assert.match(text, /2 RAW files/);
   assert.match(text, /1 already in your library/);
   assert.match(text, /2 other files left out/);
-  // The camera's JPEG of a RAW: left out unless asked for.
-  assert.match(text, /Also import the JPEG next to its RAW file/);
+  // The camera's JPEGs of the RAWs: left out unless asked for, their tags given to the RAWs.
+  assert.match(text, /Also import the 2 JPEGs next to their RAW files/);
+  assert.match(text, /1 new photo with tags, ratings or labels from their files/);
   await review.getByRole('button', { name: 'Import 1 photo' }).waitFor();
-  await review.getByText('Also import the JPEG next to its RAW file').click();
-  assert.match(await review.innerText(), /1 image/);
-  await review.getByRole('button', { name: 'Import 2 photos' }).click();
+  await review.getByText('Also import the 2 JPEGs next to their RAW files').click();
+  assert.match(await review.innerText(), /2 images/);
+  await review.getByRole('button', { name: 'Import 3 photos' }).click();
   const done = page.locator('[data-import-state=done]');
   await done.waitFor({ timeout: 20_000 });
   assert.match(await done.innerText(), /1 file already in your library/);
@@ -753,8 +758,14 @@ test("a card: its folders walked through, what the library has, JPEGs next to th
   const sentFiles = started();
   assert.deepEqual(
     sentFiles.map((u) => u.name),
-    ['DSC00001.ARW', 'DSC00002.JPG'],
+    ['DSC00001.ARW', 'DSC00001.JPG', 'DSC00002.JPG'],
   );
+  const sentTags = sentFiles.map((u) => [(u as { tags?: string[] }).tags, (u as { rating?: number }).rating]);
+  assert.deepEqual(sentTags, [
+    [['People|Alice'], 3],
+    [['People|Alice'], 3],
+    [undefined, undefined],
+  ]);
   assert.equal(typeof sentFiles[0]!.modified, 'number');
   await done.getByRole('button', { name: 'Close' }).click();
 });

@@ -1754,15 +1754,33 @@ them, with light touches at most.
 > - Photos carry their format in their metadata (`PhotoMetadata.imageFormat`, absent
 >   for RAW files).
 
+> - **Tags from files** (`apps/web/src/library/fileTags.ts`): on import, the browser
+>   reads tags, rating and colour label from images' XMP (Lightroom's
+>   `lr:hierarchicalSubject` and `dc:subject`, digiKam's tag list, darktable's labels) or
+>   IPTC keywords, and from XMP sidecars (`DSC01234.xmp`, `DSC01234.ARW.xmp`). A RAW
+>   file gets those of the JPEG next to it too, imported or not. They're sent with the
+>   upload (`uploads.tags`, `rating`, `color_label`, `flag`) and the new version starts
+>   with them. Only for photos new to the library (decided: re-importing a folder
+>   doesn't add tags to photos already there).
+
 Left:
 
-- **AVIF and HEIC** (iPhones' default): they need C decoders (dav1d, libheif) that don't
-  build for wasm32-unknown-unknown. Options: a Rust AV1 decoder (rav1d) for AVIF; for
-  HEIC, decode in the browser where it can (Safari) and convert on import, or a native
-  decoder on the server once M6's native renderer exists.
+- **Decoders in their own wasm module, loaded when needed (M), with HEIC.** The image
+  decoders add ~400 KB gzipped to a module every RAW user downloads. Split them out: a
+  second wasm module that turns an image file into samples, its ICC profile and its
+  metadata, handed to the pipeline (`Developer` from decoded pixels; one copy, ~70 MB
+  for a 24 MP JPEG). HEIC needs exactly that interface, with a decoder of its own
+  (below), so build both together.
+- **HEIC** (iPhones' default) and **AVIF.** HEIC is HEVC (H.265) frames in a HEIF
+  container, in tiles. There's no production-ready HEVC decoder in Rust; the usual one
+  is libde265 (C++) through libheif (C++), both LGPL-3.0, which builds to wasm with
+  Emscripten (the `libheif-js` package does exactly that, ~1–1.5 MB of wasm) and runs in
+  the browser and Node alike: a separate module, behind the interface above. To check:
+  10-bit HEICs (recent iPhones) and gain maps (HDR), the grid and rotation (`irot`)
+  libheif applies, and HEVC's patent situation for a hosted service. AVIF: the same
+  interface, with dav1d through Emscripten, or a Rust AV1 decoder (rav1d) if it builds
+  for wasm32.
 - **Filters:** the file type (RAW / JPEG / …) in the library's filters.
-- **Simpler colour tools** for images, if the full modules prove too much: e.g. one
-  "Adjust" module (contrast, saturation, warmth) shown first for them.
 - **RAW + JPEG pairs:** imported both, they're two photos; grouping them (the JPEG as
   the RAW's sidecar) is possible later.
 

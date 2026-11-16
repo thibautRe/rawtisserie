@@ -21,9 +21,11 @@ import { config } from '../config.ts';
 import { HttpError } from '../errors.ts';
 import { db, sql, uploads } from '../db.ts';
 import type Uploads from '../__generated__/uploads.ts';
+import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDto } from './dto.ts';
 import { type SkipKind, UNSUPPORTED, ingestReceived, isSupportedName, versionFor } from './ingest.ts';
+import { Tag } from './tags.ts';
 
 /** The most a chunk may hold (the app sends 8 MiB). */
 export const MAX_CHUNK = 16 * 1024 * 1024;
@@ -77,6 +79,11 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         modified: z.number().int().optional(),
         import: z.uuid().optional(),
         allowDeleted: z.boolean().optional(),
+        /** What the file says about itself (its XMP, sidecars, its JPEG): for the version. */
+        tags: z.array(Tag).max(500).optional(),
+        rating: z.number().int().min(0).max(5).optional(),
+        label: z.enum(['red', 'yellow', 'green', 'blue', 'purple']).optional(),
+        flag: z.enum(['picked', 'rejected']).optional(),
       })
       .parse(request.body);
     const filename = path.basename(body.name);
@@ -98,6 +105,10 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
       file_modified_at: body.modified === undefined ? null : new Date(body.modified),
       import_id: body.import ?? null,
       allow_deleted: body.allowDeleted ?? false,
+      tags: [...new Set(body.tags ?? [])],
+      rating: body.rating ?? 0,
+      color_label: body.label ?? null,
+      flag: body.flag ?? null,
     });
     await mkdir(uploadsDir(), { recursive: true });
     await writeFile(fileOf(row!.id), '');
@@ -166,17 +177,21 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         await pipeline(createReadStream(fileOf(row.id)), hash);
         // Gone from the table first: the file is moved (or removed) by taking it in.
         await uploads(db).delete({ id: row.id });
+        // Checked like the versions' columns when stored.
+        const columns: Partial<Versions> = {
+          import_id: row.import_id,
+          tags: row.tags,
+          rating: row.rating,
+          color_label: row.color_label as Versions['color_label'],
+          flag: row.flag as Versions['flag'],
+        };
         const result = await ingestReceived(
           user.id,
           row.filename,
           { tempPath: fileOf(row.id), size: row.size, sha256: hash.digest('hex') },
-          {
-            allowDeleted: row.allow_deleted,
-            version: { import_id: row.import_id },
-            modifiedAt: row.file_modified_at,
-          },
+          { allowDeleted: row.allow_deleted, version: columns, modifiedAt: row.file_modified_at },
         );
-        const taken = await versionFor(result, row.filename, row.import_id);
+        const taken = await versionFor(result, row.filename, columns);
         if ('skipped' in taken) return { created: [], skipped: [taken.skipped] };
         const [version] = (await db.query(sql`
           SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ${taken.versionId}`)) as VersionRow[];

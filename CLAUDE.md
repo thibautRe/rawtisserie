@@ -63,7 +63,9 @@ See README.md for the architecture overview and commands.
   original deleted for good leaves only its hash in `deleted_originals`, so it's skipped
   unless uploaded with `allowDeleted`. The upload route checks all of it again.
   Every import is reviewed first (`ImportReview`): `findKnown` asks by name, size and
-  modification time (`photos.file_modified_at`), without hashing. The app uploads in
+  modification time (`photos.file_modified_at`), without hashing. The review also reads
+  tags, rating and label from the files' XMP/IPTC and `.xmp` sidecars (`fileTags.ts`; a
+  RAW file also gets its JPEG's), sent with the upload for the new version. The app uploads in
   chunks (`photos/uploads.ts`: `/api/uploads`, resumable, taken in by `ingestReceived`
   like `POST /api/photos`, which stays for single requests).
 - Tags are paths, levels separated by `|` (`People|Alice`, shown People › Alice; `lib/tags.ts`

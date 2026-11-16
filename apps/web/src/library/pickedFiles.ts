@@ -22,6 +22,11 @@ export interface Picked {
    * out unless asked for (`withPairs`).
    */
   pairs: PickedFile[];
+  /**
+   * XMP sidecars (`DSC01234.xmp`, `DSC01234.ARW.xmp`), read for their photos' tags,
+   * rating and label (`fileTags.ts`), not imported.
+   */
+  sidecars: PickedFile[];
   /** Files picked one by one that aren't RAW files or images (reported, as the user chose them). */
   refused: PickedFile[];
   /** Files in the folders that aren't RAW files or images, or are hidden: left out quietly. */
@@ -38,19 +43,28 @@ export const isRaw = (name: string) => RAW_EXTENSIONS.has(extension(name));
 export const isImage = (name: string) => IMAGE_EXTENSIONS.has(extension(name));
 /** What can be imported: a RAW file or an image. */
 export const isPhoto = (name: string) => isRaw(name) || isImage(name);
-/** A file's path without its extension, for matching a JPEG with its RAW. */
-const stem = (path: string) => path.slice(0, path.lastIndexOf('.')).toLowerCase();
+/** A file's path without its extension, lower case, for matching a JPEG with its RAW. */
+export const stem = (path: string) => path.slice(0, path.lastIndexOf('.')).toLowerCase();
+const isSidecar = (name: string) => extension(name) === '.xmp';
+
+/** The sidecars of the photo at `path`: `DSC01234.xmp` (Lightroom) or `DSC01234.ARW.xmp` (darktable). */
+export function sidecarsOf(picked: Pick<Picked, 'sidecars'>, path: string): PickedFile[] {
+  const names = new Set([`${stem(path)}.xmp`, `${path.toLowerCase()}.xmp`]);
+  return picked.sidecars.filter((s) => names.has(s.path.toLowerCase()));
+}
 /** Hidden files and folders (`.Trashes`, macOS's `._DSC01234.ARW`). */
 const isHidden = (path: string) => path.split('/').some((part) => part.startsWith('.'));
 
 /** Sort out `list`: files in folders have a `/` in their path. */
 export function sortPicked(list: readonly PickedFile[]): Picked {
   const photos: PickedFile[] = [];
+  const sidecars: PickedFile[] = [];
   const refused: PickedFile[] = [];
   let ignored = 0;
   for (const f of list) {
     const inFolder = f.path.includes('/');
     if (isPhoto(f.path) && !isHidden(f.path)) photos.push(f);
+    else if (isSidecar(f.path) && !isHidden(f.path)) sidecars.push(f);
     else if (inFolder) ignored++;
     else refused.push(f);
   }
@@ -61,6 +75,7 @@ export function sortPicked(list: readonly PickedFile[]): Picked {
   return {
     files: byPath(photos.filter((f) => !paired(f))),
     pairs: byPath(photos.filter(paired)),
+    sidecars,
     refused,
     ignored,
     label: top && list.every((f) => f.path.includes('/')) ? top : null,

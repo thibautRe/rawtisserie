@@ -16,6 +16,7 @@ import {
   uploadDeleted,
   useImportRun,
 } from './imports.ts';
+import { readFileTags } from './fileTags.ts';
 import { ImportReview, type Review, reviewedFiles } from './ImportReview.tsx';
 import { type PickedFile, type PickedFrom, fromInput, reopen, sortPicked, walkHandles, withPairs } from './pickedFiles.ts';
 
@@ -92,8 +93,8 @@ export function useImporter() {
       return;
     }
     // The pairs too: they may be asked for.
-    const known = await findKnown(withPairs(picked, true).files);
-    if (token === latest.current) setReview({ phase: 'ready', picked, known, includePairs: false });
+    const [known, fileTags] = await Promise.all([findKnown(withPairs(picked, true).files), readFileTags(picked)]);
+    if (token === latest.current) setReview({ phase: 'ready', picked, known, includePairs: false, fileTags });
   };
   const close = () => {
     latest.current++;
@@ -102,7 +103,7 @@ export function useImporter() {
   const confirm = () => {
     if (review?.phase !== 'ready') return;
     close();
-    navigate(importPath(startImport(reviewedFiles(review), deps, review.known, from.current)));
+    navigate(importPath(startImport(reviewedFiles(review), deps, review.known, from.current, review.fileTags)));
   };
   const includePairs = (include: boolean) =>
     setReview((r) => (r?.phase === 'ready' ? { ...r, includePairs: include } : r));

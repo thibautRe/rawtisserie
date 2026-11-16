@@ -128,12 +128,13 @@ export const UNSUPPORTED = 'Not a RAW file or an image we read (JPEG, PNG, TIFF,
 
 /**
  * What an upload brought: the version created (a new one on the photo, for a file only
- * in the trash), or why there's none. `importId` marks the version.
+ * in the trash), or why there's none. `version`: the columns it starts with (its
+ * import, what the file says about itself).
  */
 export async function versionFor(
   result: Ingested,
   filename: string,
-  importId: string | null,
+  version: Partial<Versions> = {},
 ): Promise<{ versionId: string } | { skipped: { filename: string; kind: SkipKind; reason: string } }> {
   if (result.status === 'skipped') return { skipped: { filename, kind: result.kind, reason: result.reason } };
   if (result.status === 'created') return { versionId: result.versionId };
@@ -141,6 +142,6 @@ export async function versionFor(
     return { skipped: { filename, kind: 'duplicate', reason: `Already in your library as ${result.filename}` } };
   // Only in the trash: the file is stored already, so it comes back as a new version
   // (the trashed ones stay there, to restore or not).
-  const [version] = await versions(db).insert({ photo_id: result.photoId, import_id: importId });
-  return { versionId: version!.id };
+  const [created] = await versions(db).insert({ ...version, photo_id: result.photoId });
+  return { versionId: created!.id };
 }
