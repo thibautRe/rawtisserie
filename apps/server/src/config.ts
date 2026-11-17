@@ -36,7 +36,10 @@ function s3Config() {
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   host: process.env.HOST ?? '127.0.0.1',
-  databaseUrl: required('DATABASE_URL'),
+  /** Read when first used (the pool's first query), so modules importing `db.ts` load without it. */
+  get databaseUrl(): string {
+    return required('DATABASE_URL');
+  },
   /** Files on local disk: originals, renders and LUTs without S3, and uploads in progress. */
   storageDir: path.resolve(repoRoot, process.env.STORAGE_DIR ?? 'data'),
   s3: s3Config(),
