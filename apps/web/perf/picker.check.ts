@@ -153,3 +153,24 @@ test('the pipette pins samples (I), a click on one removes it, Esc stops', async
   await page.getByRole('button', { name: 'Clear samples' }).click();
   await page.locator('[data-pinned-samples]').waitFor({ state: 'detached' });
 });
+
+test('zoomed in to 100 %, the pipette pins too, and a drag pans rather than pins', async () => {
+  await page.mouse.click(...at(0.5, 0.5), { button: 'middle' });
+  await page.waitForFunction(() => document.querySelector('button[title^="Zoom"]')?.textContent?.includes('%'));
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('i');
+  await page.mouse.click(...at(0.45, 0.45));
+  await page.locator('[data-pinned-sample="1"]').waitFor();
+  assert.match(await page.locator('[data-pinned-sample="1"]').innerText(), /RGB\s+\d+/);
+  // A drag pans.
+  await page.mouse.move(...at(0.6, 0.6));
+  await page.mouse.down();
+  await page.mouse.move(...at(0.5, 0.5), { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator('[data-pin]').count(), 1);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Clear samples' }).click();
+  await page.mouse.click(...at(0.5, 0.5), { button: 'middle' });
+  await page.waitForFunction(() => document.querySelector('button[title^="Zoom"]')?.textContent?.includes('Fit'));
+});

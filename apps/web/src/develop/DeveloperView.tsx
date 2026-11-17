@@ -386,9 +386,12 @@ export function DeveloperView({
     pointer.current.zoomed = zoomedIn;
     backend.pointer(pointer.current.at, zoomedIn);
   }, [backend, zoomedIn]);
+  // Listened to on the zoom window, which holds the pointer while panning (zoomed in), and
+  // measured on the image (the stage) inside it.
   useEffect(() => {
+    const win = zoomWindow.current;
     const el = stage.current;
-    if (!el) return;
+    if (!win || !el) return;
     let at: [number, number] | null = null;
     let queued = 0;
     const send = () => {
@@ -409,11 +412,11 @@ export function DeveloperView({
       at = null;
       queue();
     };
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerleave', leave);
+    win.addEventListener('pointermove', move);
+    win.addEventListener('pointerleave', leave);
     return () => {
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerleave', leave);
+      win.removeEventListener('pointermove', move);
+      win.removeEventListener('pointerleave', leave);
       cancelAnimationFrame(queued);
       pointer.current.at = null;
       backend.pointer(null, pointer.current.zoomed);
@@ -1114,9 +1117,12 @@ export function DeveloperView({
   const pinning = pipette && !framing && !comparing;
   const showShapes = shapeUi.editing && !framing && !comparing && !pipette;
   // A click (not a drag) on the image pins a sample there, or removes the pin under it.
+  // On the zoom window: zoomed in, a press is a pan's start, which takes the pointer, and
+  // its click then goes to the window rather than through the image.
   useEffect(() => {
+    const win = zoomWindow.current;
     const el = stage.current;
-    if (!el || !pinning || !mapping) return;
+    if (!win || !el || !pinning || !mapping) return;
     let down: [number, number] | null = null;
     const press = (e: PointerEvent) => void (down = [e.clientX, e.clientY]);
     const click = (e: MouseEvent) => {
@@ -1129,11 +1135,11 @@ export function DeveloperView({
         hit >= 0 ? ps.filter((_, i) => i !== hit) : ps.length < MAX_PINS ? [...ps, toSensor(mapping, u, v)] : ps,
       );
     };
-    el.addEventListener('pointerdown', press, true);
-    el.addEventListener('click', click, true);
+    win.addEventListener('pointerdown', press, true);
+    win.addEventListener('click', click, true);
     return () => {
-      el.removeEventListener('pointerdown', press, true);
-      el.removeEventListener('click', click, true);
+      win.removeEventListener('pointerdown', press, true);
+      win.removeEventListener('click', click, true);
     };
   }, [pinning, mapping, pinPlaces]);
 
