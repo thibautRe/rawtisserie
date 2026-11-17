@@ -89,6 +89,10 @@ export function lch([r, g, b]: readonly [number, number, number]): { l: number; 
   return { l, c, h };
 }
 
+/** An 8-bit sRGB colour as a hex code: `#b5b8c9`. */
+export const hexColor = (rgb: readonly [number, number, number]) =>
+  `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+
 /** A signed EV value: `+0.8 EV`, `−2.3 EV`. */
 export const formatEv = (ev: number) => {
   const r = Math.round(ev * 10) / 10 + 0;

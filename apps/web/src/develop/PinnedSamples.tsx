@@ -4,8 +4,10 @@
  * store, like the pointer's, and follow every edit.
  */
 import { Box, Button, HStack, IconButton, Separator, Stack, Text } from '@chakra-ui/react';
-import { X } from 'lucide-react';
-import { formatEv, lch, useSamples } from './picker.ts';
+import { Check, Copy, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { toaster } from '../components/toaster.tsx';
+import { formatEv, hexColor, lch, useSamples } from './picker.ts';
 import type { PixelSample } from './protocol.ts';
 
 /**
@@ -62,11 +64,46 @@ export function PinMarkers({ places, zoom }: { places: readonly (readonly [numbe
   ));
 }
 
+/** Copies a colour's sRGB hex code; a check for a moment once done. */
+function CopyHex({ rgb }: { rgb: readonly [number, number, number] }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const hex = hexColor(rgb);
+  return (
+    <IconButton
+      size="2xs"
+      variant="ghost"
+      minW="5"
+      h="5"
+      color={copied ? 'fg' : 'fg.subtle'}
+      aria-label={`Copy ${hex}`}
+      title={copied ? `Copied ${hex}` : `Copy ${hex} (sRGB)`}
+      onClick={() =>
+        void navigator.clipboard.writeText(hex).then(
+          () => setCopied(true),
+          (err) =>
+            toaster.create({
+              type: 'error',
+              title: 'Could not copy',
+              description: err instanceof Error ? err.message : undefined,
+            }),
+        )
+      }
+    >
+      {copied ? <Check /> : <Copy />}
+    </IconButton>
+  );
+}
+
 /** Between the readout's groups (RGB, LCh, EV): a hairline, short of the text's height. */
 const Divider = () => <Separator orientation="vertical" h="3" borderColor="border.emphasized" />;
 
-/** The values of a pixel, as the status bar's readout shows them. */
-export function SampleValues({ sample }: { sample: PixelSample }) {
+/** The values of a pixel, as the status bar's readout shows them; with `copy`, a button copying its hex code. */
+export function SampleValues({ sample, copy = false }: { sample: PixelSample; copy?: boolean }) {
   const [r, g, b] = sample.display;
   const { l, c, h } = lch(sample.display);
   const label = (text: string) => (
@@ -91,6 +128,7 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
         <Text title="Displayed colour, 8-bit RGB">
           {label('RGB')} {pad(r)} {pad(g)} {pad(b)}
         </Text>
+        {copy && <CopyHex rgb={sample.display} />}
       </HStack>
       <Divider />
       <Text title="Displayed colour, CIE LCh: lightness, chroma, hue">
@@ -146,7 +184,7 @@ export function PinnedSamples({
               {i + 1}
             </Text>
             {sample ? (
-              <SampleValues sample={sample} />
+              <SampleValues sample={sample} copy />
             ) : (
               <Text color="fg.subtle" title="Outside what's rendered (zoomed in elsewhere), or rendering">
                 —

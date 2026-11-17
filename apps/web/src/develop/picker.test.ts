@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SampleStore, formatEv, lch, marked } from './picker.ts';
+import { SampleStore, formatEv, hexColor, lch, marked } from './picker.ts';
 
 const near = (a: number, b: number, d = 0.05) => assert.ok(Math.abs(a - b) <= d, `${a} ≉ ${b}`);
 
@@ -46,4 +46,9 @@ test('the store tells its listeners', () => {
   off();
   store.set(null);
   assert.equal(told, 1);
+});
+
+test('hex codes are two lowercase digits per channel', () => {
+  assert.equal(hexColor([181, 184, 201]), '#b5b8c9');
+  assert.equal(hexColor([0, 9, 255]), '#0009ff');
 });

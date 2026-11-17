@@ -140,6 +140,13 @@ test('the pipette pins samples (I), a click on one removes it, Esc stops', async
     .locator('[data-pinned-sample] > p:nth-of-type(2)')
     .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
   assert.equal(new Set(lefts).size, 1, `LCh columns at ${lefts}`);
+  // Its hex code, to the clipboard.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const copy = page.locator('[data-pinned-sample="1"]').getByRole('button', { name: /^Copy #/ });
+  const hex = (await copy.getAttribute('aria-label'))!.slice('Copy '.length);
+  assert.match(hex, /^#[0-9a-f]{6}$/);
+  await copy.click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), hex);
   // Values for both, the image not moved by the row showing.
   for (const text of await page.locator('[data-pinned-sample]').allInnerTexts()) assert.match(text, /RGB\s+\d+/);
   const centre = await page
