@@ -12,7 +12,7 @@
     "user:invite": "node --env-file-if-exists=../../.env src/scripts/invite.ts",
     "db:schema": "node --env-file-if-exists=../../.env ../../node_modules/@databases/pg-schema-cli/lib/cli.js && node src/scripts/fix-generated-types.ts",
     "typecheck": "tsc -p .",
-    "test": "node --env-file-if-exists=../../.env --test 'src/**/*.test.ts'"
+    "test": "node --test 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1168.0",

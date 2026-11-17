@@ -1,6 +1,7 @@
 /** Library filtering: query-string → SQL conditions over `versions v JOIN photos p` (trash left out). */
 import { sql, type SQLQuery } from '@databases/pg';
 import { z } from 'zod';
+import { badRequest } from '../errors.ts';
 
 const list = z.preprocess(
   (v) => (v === undefined || v === '' ? undefined : [v].flat()),
@@ -126,4 +127,18 @@ export function targetClause(ownerId: string, target: Target): SQLQuery {
   if ('ids' in target)
     return sql`p.owner_id = ${ownerId} AND v.trashed_at IS NULL AND v.id = ANY(${target.ids}::uuid[])`;
   return sql`${whereClause(ownerId, parseLibraryQuery(target.filter))} AND v.id <> ALL(${target.except}::uuid[])`;
+}
+
+/** The filters of a library query string, checked: only the filters' keys, in a stable order. */
+export function normalizeFilterQuery(query: string): string {
+  const params = new URLSearchParams(query);
+  const kept = new URLSearchParams();
+  for (const key of Object.keys(PhotoFilters.shape)) for (const v of params.getAll(key)) if (v) kept.append(key, v);
+  const fields: Record<string, string[]> = {};
+  for (const key of new Set(kept.keys())) fields[key] = kept.getAll(key);
+  const parsed = PhotoFilters.safeParse(
+    Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.length > 1 ? v : v[0]])),
+  );
+  if (!parsed.success) throw badRequest('These filters can’t be read');
+  return kept.toString();
 }

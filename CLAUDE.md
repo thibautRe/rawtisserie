@@ -110,6 +110,9 @@ See README.md for the architecture overview and commands.
 - The server runs TypeScript directly with Node's type stripping (no build step): use
   `.ts` import extensions, `import type` for types, and no enums/namespaces/parameter
   properties (`erasableSyntaxOnly`).
+- Server tests run without `.env`, as in CI (no database): a tested module must not
+  import `config.ts` or `db.ts`, even through another module. Keep pure logic apart from
+  routes (e.g. `sql` from `@databases/pg`, not `db.ts`).
 - DB schema changes: add a new numbered SQL file in `apps/server/migrations/` (never edit
   applied ones), then `npm run db:schema -w @rawtisserie/server` to regenerate the types.
   The generated files are post-processed by `src/scripts/fix-generated-types.ts`.

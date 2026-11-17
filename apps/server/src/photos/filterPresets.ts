@@ -10,7 +10,7 @@ import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import { badRequest, conflict, notFound } from '../errors.ts';
 import type FilterPresets from '../__generated__/filter_presets.ts';
-import { PhotoFilters } from './query.ts';
+import { normalizeFilterQuery } from './query.ts';
 import { SEPARATOR } from './tags.ts';
 
 const Id = z.object({ id: z.uuid() });
@@ -25,20 +25,6 @@ export interface FilterPreset {
 }
 
 const dto = (row: FilterPresets): FilterPreset => ({ id: row.id, name: row.name, query: row.query });
-
-/** The filters of a library query string, checked: only the filters' keys, in a stable order. */
-export function normalizeFilterQuery(query: string): string {
-  const params = new URLSearchParams(query);
-  const kept = new URLSearchParams();
-  for (const key of Object.keys(PhotoFilters.shape)) for (const v of params.getAll(key)) if (v) kept.append(key, v);
-  const fields: Record<string, string[]> = {};
-  for (const key of new Set(kept.keys())) fields[key] = kept.getAll(key);
-  const parsed = PhotoFilters.safeParse(
-    Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v.length > 1 ? v : v[0]])),
-  );
-  if (!parsed.success) throw badRequest('These filters can’t be read');
-  return kept.toString();
-}
 
 /**
  * The tag manager renamed (or moved, or merged) `from` to `to`, or deleted it (`to`
