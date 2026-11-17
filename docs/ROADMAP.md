@@ -443,15 +443,19 @@ white balance and is the most common target for masked instances.
 ### 3.5 Raw denoise (AI) (XL, before 1.0)
 
 > **Built** 2026-11-17 (`denoise.rs`, `pipeline/denoising.rs`, the `rawDenoise` kind,
-> `denoisePool.ts`). As built: a fixed grid of 768-photosite tiles with upstream's
-> overlap as margin; the browser denoises on up to 4 workers of its own, nearest the
-> view first, and renders the original until every tile is in, then the denoised photo
+> `denoisePool.ts`). As built: a fixed grid of 1536-photosite tiles with upstream's
+> overlap as margin (1.56× the work; 768 made it 2.25×); the browser denoises on workers
+> of its own, about 3/8 of the hardware threads within half the device's memory (about
+> 400 MB a tile with quarter, 700 MB half, 1.2 GB large), nearest the view first and
+> none started during a drag. Renders use the original until every tile is in, then the denoised photo
 > (blended at the recipe's strength). The page keeps it in place of the RAW file (16-bit
 > floats, about twice a compressed RAW file's size), and a library photo opens from it.
 > Exports wait for it; bulk exports denoise in their workers. Server renders (library
 > previews, loupe tiles) and the library's edit previews don't denoise. Default model:
-> half-multi v1. Measured: a 42 MP ARW at ISO 16000 with half-multi, 195 s on 4 workers
-> (i9-10885H). Models are fetched at build, pinned by hash, and served by the server.
+> quarter-multi v1, upstream's without a GPU (there's no GPU path yet). Measured on a
+> 42 MP ARW at ISO 16000 (i9-10885H): half-multi with 768 tiles on 4 workers, 195 s;
+> quarter-multi with 1536 tiles, 62 s on 4 workers, 49 s on 6, 52 s on 8.
+> Models are fetched at build, pinned by hash, and served by the server.
 
 > **Spike done** 2026-11-17 (`nn.rs`, `examples/denoise_bench.rs`, `tests/nn_parity.rs`).
 > The executor is ported and matches upstream's PyTorch fixture to 2·10⁻⁷, natively and

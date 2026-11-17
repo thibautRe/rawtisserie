@@ -1391,7 +1391,8 @@ pub struct DenoiseModel {
 
 impl Default for DenoiseModel {
     fn default() -> Self {
-        Self { version: 1, size: DenoiseSize::Half, variant: DenoiseVariant::Multi }
+        // Upstream's default without a GPU (there's no GPU path yet): quarter.
+        Self { version: 1, size: DenoiseSize::Quarter, variant: DenoiseVariant::Multi }
     }
 }
 
@@ -1415,8 +1416,8 @@ impl DenoiseModel {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DenoiseSize {
-    Quarter,
     #[default]
+    Quarter,
     Half,
     Large,
 }

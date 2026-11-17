@@ -682,7 +682,8 @@ export const EDIT_PARAMS_VERSION = 8;
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
   rawDenoise: {
     strength: 0.85,
-    model: { version: 1, size: 'half', variant: 'multi' },
+    // Upstream's default without a GPU (there's no GPU path yet).
+    model: { version: 1, size: 'quarter', variant: 'multi' },
     noiseLevel: 1,
     corrections: [2.82, 3.94, 2.96],
   },

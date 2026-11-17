@@ -18,8 +18,8 @@
 //! Deviations from upstream:
 //! - single-threaded (no OpenMP); the caller tiles and may spread tiles over workers;
 //! - 3×3 convolutions (nearly all the work) use a register-blocked kernel, 8 output
-//!   channels × 4 pixels, on zero-padded copies of their input (the decoder's concat
-//!   materialised, its half-resolution part upsampled). Each output still accumulates
+//!   channels × 4 pixels, on zero-padded copies of 32 rows of their input at a time
+//!   (the decoder's concat built the same way, its half-resolution part upsampled). Each output still accumulates
 //!   in upstream's (ic, ky, kx) order with separate multiply and add, so the results
 //!   are the same; wasm gets explicit SIMD there, as V8 spills the portable version;
 //! - GELU's `erf` is a branch-free rational approximation (Eigen's), within 4·10⁻⁷ of
@@ -338,9 +338,7 @@ impl Model {
         if cv.out_ch % KB_OC != 0 {
             return self.conv2d(cv, input, w, h, 1, 1, out);
         }
-        let mut padded = vec![0.0f32; cv.in_ch * (w + 2) * (h + 2)];
-        pad_into(&mut padded, input, cv.in_ch, w, h);
-        self.conv3_padded(cv, &padded, w, h, out);
+        self.conv3_rows(cv, w, h, out, |ic, y, row| row.copy_from_slice(&input[(ic * h + y) * w..][..w]));
     }
 
     /// [`Model::conv3`] over the concatenation of `a` (`in_ch_a` channels) and `b` (the
@@ -350,28 +348,27 @@ impl Model {
         if cv.out_ch % KB_OC != 0 {
             return self.conv2d_cat2(cv, a, in_ch_a, b, w, h, out);
         }
-        let pplane = (w + 2) * (h + 2);
-        let mut padded = vec![0.0f32; cv.in_ch * pplane];
-        pad_into(&mut padded[..in_ch_a * pplane], a, in_ch_a, w, h);
         let (bw, bh) = (w / 2, h / 2);
-        for c in 0..cv.in_ch - in_ch_a {
-            let plane = &b[c * bw * bh..(c + 1) * bw * bh];
-            let dst = &mut padded[(in_ch_a + c) * pplane..(in_ch_a + c + 1) * pplane];
-            for y in 0..h {
-                let brow = &plane[(y >> 1) * bw..][..bw];
-                for (x, d) in dst[(y + 1) * (w + 2) + 1..][..w].iter_mut().enumerate() {
+        self.conv3_rows(cv, w, h, out, |ic, y, row| {
+            if ic < in_ch_a {
+                row.copy_from_slice(&a[(ic * h + y) * w..][..w]);
+            } else {
+                let brow = &b[((ic - in_ch_a) * bh + (y >> 1)) * bw..][..bw];
+                for (x, d) in row.iter_mut().enumerate() {
                     *d = brow[x >> 1];
                 }
             }
-        }
-        self.conv3_padded(cv, &padded, w, h, out);
+        });
     }
 
-    /// The 3×3 kernel on a 1-pixel zero-padded input: `KB_OC` output channels × `KB_PX`
-    /// pixels accumulate in registers, each in upstream's (ic, ky, kx) order, so the
-    /// results are the same as [`Model::conv2d`]'s.
-    fn conv3_padded(&self, cv: &Conv, padded: &[f32], w: usize, h: usize, out: &mut [f32]) {
-        let (pw, pplane) = (w + 2, (w + 2) * (h + 2));
+    /// The 3×3 kernel, `ROWS` output rows at a time: each band's input rows (and the one
+    /// above and below), which `row(ic, y, into)` gives, are copied with a zero border,
+    /// so no padded copy of the whole input is ever made (it was the largest buffer of a
+    /// forward). `KB_OC` output channels × `KB_PX` pixels accumulate in registers, each in
+    /// upstream's (ic, ky, kx) order, so the results are the same as [`Model::conv2d`]'s.
+    fn conv3_rows(&self, cv: &Conv, w: usize, h: usize, out: &mut [f32], row: impl Fn(usize, usize, &mut [f32])) {
+        const ROWS: usize = 32;
+        let pw = w + 2;
         let in_ch = cv.in_ch;
         // Weights repacked as [block][ic][tap][KB_OC].
         let mut packed = vec![0.0f32; cv.out_ch * in_ch * 9];
@@ -384,29 +381,49 @@ impl Model {
                 }
             }
         }
-        for blk in 0..cv.out_ch / KB_OC {
-            let wb = &packed[blk * in_ch * 9 * KB_OC..][..in_ch * 9 * KB_OC];
-            let bias: [f32; KB_OC] = std::array::from_fn(|o| self.blob[cv.b + blk * KB_OC + o]);
-            for oy in 0..h {
-                let mut x0 = 0;
-                while x0 + KB_PX <= w {
-                    let acc = kernel_block(wb, padded, oy * pw + x0, pw, pplane, in_ch, &bias);
-                    for o in 0..KB_OC {
-                        out[(blk * KB_OC + o) * w * h + oy * w + x0..][..KB_PX].copy_from_slice(&acc[o]);
+        let mut band = vec![0.0f32; in_ch * (ROWS + 2) * pw];
+        for y0 in (0..h).step_by(ROWS) {
+            let rows = ROWS.min(h - y0);
+            let pplane = (rows + 2) * pw;
+            for ic in 0..in_ch {
+                for r in 0..rows + 2 {
+                    let dst = &mut band[ic * pplane + r * pw..][..pw];
+                    let y = (y0 + r).wrapping_sub(1);
+                    if y < h {
+                        dst[0] = 0.0;
+                        dst[pw - 1] = 0.0;
+                        row(ic, y, &mut dst[1..pw - 1]);
+                    } else {
+                        dst.fill(0.0);
                     }
-                    x0 += KB_PX;
                 }
-                for x in x0..w {
-                    for o in 0..KB_OC {
-                        let mut a = bias[o];
-                        for ic in 0..in_ch {
-                            for ky in 0..3 {
-                                for kx in 0..3 {
-                                    a += wb[(ic * 9 + ky * 3 + kx) * KB_OC + o] * padded[ic * pplane + (oy + ky) * pw + x + kx];
+            }
+            let band = &band[..in_ch * pplane];
+            for blk in 0..cv.out_ch / KB_OC {
+                let wb = &packed[blk * in_ch * 9 * KB_OC..][..in_ch * 9 * KB_OC];
+                let bias: [f32; KB_OC] = std::array::from_fn(|o| self.blob[cv.b + blk * KB_OC + o]);
+                for oy in 0..rows {
+                    let at = (y0 + oy) * w;
+                    let mut x0 = 0;
+                    while x0 + KB_PX <= w {
+                        let acc = kernel_block(wb, band, oy * pw + x0, pw, pplane, in_ch, &bias);
+                        for o in 0..KB_OC {
+                            out[(blk * KB_OC + o) * w * h + at + x0..][..KB_PX].copy_from_slice(&acc[o]);
+                        }
+                        x0 += KB_PX;
+                    }
+                    for x in x0..w {
+                        for o in 0..KB_OC {
+                            let mut a = bias[o];
+                            for ic in 0..in_ch {
+                                for ky in 0..3 {
+                                    for kx in 0..3 {
+                                        a += wb[(ic * 9 + ky * 3 + kx) * KB_OC + o] * band[ic * pplane + (oy + ky) * pw + x + kx];
+                                    }
                                 }
                             }
+                            out[(blk * KB_OC + o) * w * h + at + x] = a;
                         }
-                        out[(blk * KB_OC + o) * w * h + oy * w + x] = a;
                     }
                 }
             }
@@ -600,16 +617,6 @@ fn kernel_block(wb: &[f32], padded: &[f32], base: usize, pw: usize, pplane: usiz
         }
     }
     acc.map(|a| [f32x4_extract_lane::<0>(a), f32x4_extract_lane::<1>(a), f32x4_extract_lane::<2>(a), f32x4_extract_lane::<3>(a)])
-}
-
-/// Copies `channels` planes (`w × h`) into the middle of 1-pixel zero-padded planes.
-fn pad_into(dst: &mut [f32], src: &[f32], channels: usize, w: usize, h: usize) {
-    let pplane = (w + 2) * (h + 2);
-    for c in 0..channels {
-        for y in 0..h {
-            dst[c * pplane + (y + 1) * (w + 2) + 1..][..w].copy_from_slice(&src[c * w * h + y * w..][..w]);
-        }
-    }
 }
 
 /// Exact GELU, as PyTorch's `nn.GELU(approximate='none')`.

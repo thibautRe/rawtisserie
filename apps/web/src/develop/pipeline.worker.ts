@@ -5,10 +5,18 @@
  * When only the point operations need to run (colour edits), they are split across
  * a pool of workers, at full size even while dragging.
  */
-import { type EditParams, type SensorMapping, denoiseKeyName, lutIds, toSensor } from '@rawtisserie/pipeline';
+import {
+  type EditParams,
+  type SensorMapping,
+  activeDenoise,
+  denoiseKeyName,
+  denoiseModelId,
+  lutIds,
+  toSensor,
+} from '@rawtisserie/pipeline';
 import init, { Developer, parseLut } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
-import { DenoisePool, type TileResult } from './denoisePool.ts';
+import { DenoisePool, type TileResult, denoiseWorkers } from './denoisePool.ts';
 import { PointPool } from './pointPool.ts';
 import { announceAlive } from './startWorker.ts';
 import type {
@@ -161,7 +169,12 @@ const denoise = {
   /** The key of the last denoised photo handed to the page to keep. */
   kept: null as string | null,
   timer: null as ReturnType<typeof setTimeout> | null,
+  /** No new tile before then (`performance.now()`): a slider is being dragged. */
+  pausedUntil: 0,
 };
+
+/** How long after a draft render (a drag) tiles wait, so the drag keeps the cores. */
+const DRAG_PAUSE_MS = 400;
 
 const tell = (event: DenoiseEvent, transfer: Transferable[] = []) => post({ type: 'denoise', id: 0, event }, transfer);
 
@@ -216,8 +229,12 @@ function pumpDenoise(): DenoiseStatus | null {
     denoise.askedOriginal = true;
     tell({ kind: 'needOriginal' });
   }
-  if (status.state === 'pending' && denoisePool) {
-    while (denoise.inFlight < denoisePool.size) {
+  const paused = denoise.pausedUntil - performance.now();
+  if (status.state === 'pending' && denoisePool && paused > 0) scheduleDenoise(paused);
+  else if (status.state === 'pending' && denoisePool) {
+    const active = activeDenoise(params);
+    const limit = active ? denoiseWorkers(denoiseModelId(active.params.model)) : 1;
+    while (denoise.inFlight < limit) {
       const tile = dev.nextDenoiseTile(json, denoise.focus[0], denoise.focus[1]);
       if (!tile) break;
       const bytes = denoise.models.get(tile.model);
@@ -366,6 +383,7 @@ async function handle(msg: WorkerRequest) {
       const [sourceWidth, sourceHeight] = developer.outputSize(params, 0, 0);
       const sensor = sensorMapping(developer, msg.params, params);
       const focus = toSensor(sensor, (x! + fullWidth! / 2) / frameWidth!, (y! + fullHeight! / 2) / frameHeight!);
+      if (isDraft) denoise.pausedUntil = performance.now() + DRAG_PAUSE_MS;
       watchDenoise(msg.params, params, [focus[0], focus[1]]);
       // The scope shows the image, without the clipping indicators: drawn before them.
       const drawScope = (data: Uint8Array, width: number, height: number) => {

@@ -27,8 +27,9 @@ use crate::nn::{self, Model, FUSION_COARSEST, FUSION_FINEST};
 
 /// Side of the grid's tiles, in photosites: a multiple of every model's alignment
 /// (192 for the multiscale ones). Each is denoised with a margin on every side
-/// ([`margin`]); 768 keeps a half model's scratch near 300 MB per worker.
-pub const TILE: usize = 768;
+/// ([`margin`]): 1536 makes that 1.56× the work (768 made it 2.25×), for a peak of about
+/// 400 MB per tile with the quarter model, 700 MB with half, 1.2 GB with large.
+pub const TILE: usize = 1536;
 
 /// Upstream's defaults: strength 0.85, no global correction, and the per-channel
 /// corrections that carry the profiles' calibration (×2 for the profile fit's Haar
@@ -565,11 +566,11 @@ mod tests {
 
     #[test]
     fn tiles_cover_the_sensor_on_a_fixed_grid() {
-        let t = tiles(2000, 900);
+        let t = tiles(3500, 1700);
         assert_eq!(t.len(), 6);
-        assert_eq!(t[2], Region { x: 1536, y: 0, width: 464, height: 768 });
-        assert_eq!(t[5], Region { x: 1536, y: 768, width: 464, height: 132 });
-        let some = tiles_in(2000, 900, Region { x: 700, y: 700, width: 100, height: 10 });
-        assert_eq!(some.iter().map(|r| (r.x, r.y)).collect::<Vec<_>>(), [(0, 0), (768, 0)]);
+        assert_eq!(t[2], Region { x: 3072, y: 0, width: 428, height: 1536 });
+        assert_eq!(t[5], Region { x: 3072, y: 1536, width: 428, height: 164 });
+        let some = tiles_in(3500, 1700, Region { x: 1500, y: 1500, width: 100, height: 10 });
+        assert_eq!(some.iter().map(|r| (r.x, r.y)).collect::<Vec<_>>(), [(0, 0), (1536, 0)]);
     }
 }

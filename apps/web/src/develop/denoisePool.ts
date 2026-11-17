@@ -1,15 +1,35 @@
 /**
  * Raw denoise tiles (roadmap 3.5) run on workers of their own (`denoise.worker.ts`),
  * started when a recipe needs them and ended when there's nothing left to do, so their
- * memory (a model, and a few hundred MB of scratch per tile) goes with them. Not the
- * render pool's: a tile takes seconds, and colour drags would wait behind it.
+ * memory (a model, and several hundred MB of scratch per tile) goes with them. Not the
+ * render pool's: a tile takes seconds, and colour drags would wait behind it. As many
+ * as the cores and memory allow (`denoiseWorkers`): the pipeline worker hands out no
+ * new tile during a drag, so the page keeps its share.
  */
 import type { DenoiseTile } from '@rawtisserie/pipeline/wasm';
 import type { DenoiseRequest, DenoiseResponse } from './protocol.ts';
 import { startWorker } from './startWorker.ts';
 
-/** As many as the render pool at most (`pointPool.ts`), for the same reason. */
-const MAX_WORKERS = 4;
+/** Never more than this. */
+const MAX_WORKERS = 8;
+
+/** Peak memory of one tile (`denoise::TILE` and its margins), by model size, in MB. */
+const TILE_MB: Record<string, number> = { quarter: 450, half: 750, large: 1300 };
+
+/**
+ * How many tiles of `model` may run at once here: about 3/8 of the hardware threads,
+ * within half of the device's memory (`navigator.deviceMemory`, Chrome's estimate,
+ * capped at 8 GB; 8 GB assumed where it's not given). A whole 42 MP photo on an 8-core,
+ * 16-thread laptop took 62 s with 4 workers, 49 s with 6 and 52 s with 8: past that,
+ * they share cores and memory bandwidth.
+ */
+export function denoiseWorkers(model: string): number {
+  const cores = Math.max(1, Math.round(((navigator.hardwareConcurrency || 2) * 3) / 8));
+  const memoryGb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+  const size = Object.keys(TILE_MB).find((s) => model.includes(`-${s}-`)) ?? 'large';
+  const byMemory = Math.floor((memoryGb * 1024) / 2 / TILE_MB[size]!);
+  return Math.max(1, Math.min(MAX_WORKERS, cores, byMemory));
+}
 /** Workers end this long after their last tile. */
 const IDLE_MS = 20_000;
 
@@ -31,12 +51,12 @@ export class DenoisePool {
   private pending = new Map<number, { resolve: (v: ArrayBuffer) => void; reject: (e: Error) => void }>();
   private nextId = 1;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  readonly size: number;
+  /** The most workers it starts (callers keep at most `denoiseWorkers(model)` tiles going). */
+  readonly size = MAX_WORKERS;
   private wasm: Promise<WebAssembly.Module>;
 
   constructor(wasm: Promise<WebAssembly.Module>) {
     this.wasm = wasm;
-    this.size = Math.max(1, Math.min(MAX_WORKERS, Math.floor((navigator.hardwareConcurrency || 2) / 2) - 1));
   }
 
   /**
