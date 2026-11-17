@@ -1,6 +1,7 @@
 //! Turn sensor data into a linear RGB "base" image in the working space.
 //!
-//! * At full resolution (`factor == 1`) mosaic sensors are demosaiced bilinearly.
+//! * At full resolution (`factor == 1`) Bayer sensors are demosaiced with RCD (`rcd.rs`,
+//!   Ansel's port), others (X-Trans) bilinearly.
 //! * When downscaling (`factor >= 2`) each `factor × factor` block of photosites is
 //!   binned into one pixel by averaging the samples of each colour ("superpixel").
 //!   This is fast, alias-free and exactly what previews and thumbnails need.
@@ -14,6 +15,7 @@ use rawler::CFA;
 use crate::color;
 use crate::decode::{Layout, RawPhoto};
 use crate::image::{Image, Mask, Region};
+use crate::rcd;
 
 /// Size of the base image for `factor`.
 pub fn base_size(photo: &RawPhoto, factor: usize) -> (usize, usize) {
@@ -30,7 +32,10 @@ pub fn develop_base(photo: &RawPhoto, factor: usize) -> Image {
 pub fn develop_base_region(photo: &RawPhoto, factor: usize, region: Region) -> Image {
     let factor = factor.max(1);
     let mut img = match &photo.layout {
-        Layout::Mosaic(cfa) if factor == 1 => demosaic_bilinear(photo, cfa, region),
+        Layout::Mosaic(cfa) if factor == 1 => match bayer(photo, cfa) {
+            Some(bayer) => demosaic_rcd(photo, bayer, region),
+            None => demosaic_bilinear(photo, cfa, region),
+        },
         Layout::Mosaic(cfa) => bin_mosaic(photo, cfa, factor, region),
         Layout::Rgb => bin_plain(photo, factor, 3, region),
         Layout::Mono => bin_plain(photo, factor, 1, region),
@@ -112,6 +117,38 @@ fn bin_mosaic(photo: &RawPhoto, cfa: &CFA, factor: usize, region: Region) -> Ima
             }
         }
     }
+    img
+}
+
+/// The sensor's CFA as a Bayer pattern RCD can demosaic, if it is one.
+fn bayer(photo: &RawPhoto, cfa: &CFA) -> Option<rcd::Bayer> {
+    if photo.width < rcd::MIN_SIZE || photo.height < rcd::MIN_SIZE {
+        return None;
+    }
+    rcd::Bayer::detect(|x, y| photo.color_at(cfa, x, y))
+}
+
+/// RCD, on samples balanced with the reference multipliers (it interpolates colour
+/// differences, as upstream after white balance) and normalised to the largest of them;
+/// given back unbalanced, as the other paths, for `develop_base_region` to balance.
+fn demosaic_rcd(photo: &RawPhoto, cfa: rcd::Bayer, region: Region) -> Image {
+    let (w, h) = (photo.width, photo.height);
+    let wb = photo.wb_reference;
+    let scaler = wb.iter().copied().fold(f32::MIN, f32::max).max(f32::MIN_POSITIVE);
+    let gain = wb.map(|m| m / scaler);
+    const MARGIN: usize = rcd::BORDER + 2;
+    let (x0, y0) = (region.x.saturating_sub(MARGIN), region.y.saturating_sub(MARGIN));
+    let (x1, y1) = ((region.right() + MARGIN).min(w), (region.bottom() + MARGIN).min(h));
+    let mut samples = Vec::with_capacity((x1 - x0) * (y1 - y0));
+    for y in y0..y1 {
+        for x in x0..x1 {
+            samples.push(photo.sample(x, y, 0) * gain[cfa.0[y & 1][x & 1] as usize]);
+        }
+    }
+    let patch = rcd::Patch { x0, y0, w: x1 - x0, h: y1 - y0, samples, width: w, height: h, cfa };
+    let mut img = rcd::demosaic(&patch, region);
+    let undo = gain.map(|g| 1.0 / g);
+    img.map_in_place(|p| std::array::from_fn(|c| p[c] * undo[c]));
     img
 }
 

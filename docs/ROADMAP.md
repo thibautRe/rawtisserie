@@ -688,6 +688,15 @@ perspective").
 
 ### 3.9 Better demosaicing at full resolution (M–L)
 
+> **RCD done** 2026-11-17 (`rcd.rs`, a port of Ansel's `rcd.c` with its PPG border): Bayer
+> sensors at factor 1, on samples balanced with the reference multipliers (unbalanced
+> after, for `develop_base_region`). Tiles start on even photosites; a region reads its
+> patch with `BORDER` + 2 photosites, and matches the whole bit for bit (unit test,
+> `tests/regions.rs`). Native cost: ~25 % more than bilinear (24 MP: 1.07 s vs 0.87 s; a
+> 512 px tile 11 vs 9 ms); not measured in wasm. Golden `detail`, `equalizer` and `lens`
+> re-blessed for the Bayer cameras: the false colour and zipper are gone. Left:
+> **Markesteijn** for X-Trans (Fujifilm stays bilinear), and a wasm measurement.
+
 Added 2026-11-13. `demosaic.rs` is our own and has two paths: previews and anything
 downscaled **bin** photosites per colour (no demosaicing, alias-free), and full
 resolution (100 % zoom, loupe tiles, full-size exports, the golden `detail` recipe)

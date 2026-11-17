@@ -13,7 +13,20 @@ use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let size: u32 = args.get(2).map(|s| s.parse()).transpose()?.unwrap_or(2400);
-    let mut dev = Developer::from_bytes(&std::fs::read(&args[1])?)?;
+    let bytes = std::fs::read(&args[1])?;
+    let mut dev = Developer::from_bytes(&bytes)?;
+
+    // The base at full resolution (demosaiced: RCD for Bayer sensors), whole and as a
+    // 100 % tile's patch.
+    let photo = rawtisserie_pipeline::decode::decode(&bytes)?;
+    let t = Instant::now();
+    let base = rawtisserie_pipeline::demosaic::develop_base(&photo, 1);
+    println!("{:<34} {:>7.1} ms  ({}×{})", "full-resolution base", t.elapsed().as_secs_f64() * 1e3, base.width, base.height);
+    drop(base);
+    let tile = Region { x: photo.width / 3, y: photo.height / 3, width: 512, height: 512 };
+    let t = Instant::now();
+    rawtisserie_pipeline::demosaic::develop_base_region(&photo, 1, tile);
+    println!("{:<34} {:>7.1} ms  (512×512)", "full-resolution base, a tile", t.elapsed().as_secs_f64() * 1e3);
     let fit = RenderSize::fit(size, size);
 
     // What a new import of this file starts with (lens correction when available).
