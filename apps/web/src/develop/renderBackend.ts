@@ -41,7 +41,7 @@ export type LutSource = (id: string) => Promise<ArrayBuffer | null>;
 /** What raw denoise (roadmap 3.5) asks the page for, and hands it. */
 export interface DenoiseSource {
   /** A model's file (`/api/denoise-models/:id`), or null when it can't be had. */
-  model(id: string): Promise<ArrayBuffer | null>;
+  model(id: string, onProgress?: (fraction: number) => void): Promise<ArrayBuffer | null>;
   /** The RAW file, for a photo opened from a kept denoised file whose recipe changed. */
   original(): Promise<ArrayBuffer>;
   /** Keep a denoised photo, named by `denoiseKeyName` (in place of the RAW file). */

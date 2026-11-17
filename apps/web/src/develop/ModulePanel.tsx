@@ -10,6 +10,7 @@ import {
   NativeSelect,
   Portal,
   Progress,
+  Spinner,
   Stack,
   Switch,
   Tabs,
@@ -135,6 +136,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { InfoTip } from '../components/InfoTip.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
@@ -600,22 +602,43 @@ function DenoiseState({
   onUpgrade: () => void;
 }) {
   const lines: React.ReactNode[] = [];
+  const working = (text: string, tip?: React.ReactNode) => (
+    <HStack gap="1.5">
+      <Spinner size="xs" color="fg.subtle" />
+      <Text>{text}</Text>
+      {tip && <InfoTip label="About denoising">{tip}</InfoTip>}
+    </HStack>
+  );
+  const bar = (fraction: number) => (
+    <Progress.Root value={fraction * 100} size="xs" colorPalette="orange">
+      <Progress.Track>
+        <Progress.Range />
+      </Progress.Track>
+    </Progress.Root>
+  );
   if (status?.error) lines.push(<Text color="fg.error">{status.error}</Text>);
-  else if (status?.state === 'needsModel') lines.push(`Downloading the model (${megabytes(model)})…`);
-  else if (status?.state === 'needsOriginal') lines.push('Downloading the RAW file…');
+  else if (status?.state === 'needsModel') {
+    const percent = status.download === undefined ? '' : ` ${Math.round(status.download * 100)} %`;
+    lines.push(
+      <Stack gap="1">
+        {working(
+          `Downloading the model (${megabytes(model)})…${percent}`,
+          'Once, the first time a model is used: it stays in the browser.',
+        )}
+        {status.download !== undefined && bar(status.download)}
+      </Stack>,
+    );
+  } else if (status?.state === 'needsOriginal') lines.push(working('Downloading the RAW file…'));
   else if (status?.state === 'unsupported') lines.push("This photo's sensor can't be denoised (not Bayer or X-Trans).");
   else if (status?.state === 'pending') {
     const { done = 0, total = 1 } = status;
     lines.push(
       <Stack gap="1">
-        <Text>
-          Denoising… {done} / {total}. The image is shown without it until it's done.
-        </Text>
-        <Progress.Root value={(done / Math.max(1, total)) * 100} size="xs" colorPalette="orange">
-          <Progress.Track>
-            <Progress.Range />
-          </Progress.Track>
-        </Progress.Root>
+        {working(
+          `Denoising… ${done} / ${total}`,
+          "The image is shown without denoising until it's done. Keep editing the rest of the picture meanwhile.",
+        )}
+        {bar(done / Math.max(1, total))}
       </Stack>,
     );
   }

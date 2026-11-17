@@ -71,6 +71,8 @@ export interface DenoiseStatus {
   total?: number;
   /** Whether the camera has a noise profile (else a generic one is used). */
   profileMatched: boolean;
+  /** How much of the model has downloaded, 0 … 1 (`needsModel`; added by the page). */
+  download?: number;
   /** The model or the RAW file couldn't be had: why. */
   error?: string;
 }

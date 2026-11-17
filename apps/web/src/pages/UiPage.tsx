@@ -18,8 +18,10 @@ import {
   Menu,
   NativeSelect,
   Portal,
+  Progress,
   SegmentGroup,
   Separator,
+  Spinner,
   Stack,
   Switch,
   TagsInput,
@@ -30,6 +32,7 @@ import { Circle, Download, Hexagon, MoreHorizontal, Pencil, RotateCcw, Square, T
 import { Fragment, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { CompactTab, CompactTabs } from '../components/CompactTabs.tsx';
+import { InfoTip } from '../components/InfoTip.tsx';
 import { TagSearch } from '../components/TagSearch.tsx';
 import { Module, PageTabs } from '../develop/ModulePanel.tsx';
 import { ParamSlider, fmt } from '../develop/ParamSlider.tsx';
@@ -671,6 +674,23 @@ export function UiPage() {
                   <Switch.Label>Enabled</Switch.Label>
                 </Switch.Root>
               </HStack>
+            </Example>
+            <Example label="Work in progress, with an info tip (raw denoise)">
+              <Stack gap="1" textStyle="xs" color="fg.muted">
+                <HStack gap="1.5">
+                  <Spinner size="xs" color="fg.subtle" />
+                  <Text>Denoising… 12 / 77</Text>
+                  <InfoTip label="About denoising">
+                    The image is shown without denoising until it&apos;s done. Keep editing the rest of the picture
+                    meanwhile.
+                  </InfoTip>
+                </HStack>
+                <Progress.Root value={16} size="xs" colorPalette="orange">
+                  <Progress.Track>
+                    <Progress.Range />
+                  </Progress.Track>
+                </Progress.Root>
+              </Stack>
             </Example>
             <Example label="Ghost icon button in a dense row">
               <HStack justify="space-between">

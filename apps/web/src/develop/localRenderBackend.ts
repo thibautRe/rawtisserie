@@ -99,12 +99,21 @@ export class LocalRenderBackend implements RenderBackend {
 
   private onDenoiseEvent(event: DenoiseEvent) {
     const source = this.denoiseSource;
+    const tell = (status: DenoiseStatus) => {
+      this.denoiseStatus = status;
+      for (const l of this.denoiseListeners) l(status);
+    };
     if (event.kind === 'status') {
-      this.denoiseStatus = event.status;
-      for (const l of this.denoiseListeners) l(event.status);
+      // The download's progress is the page's to know: kept until the worker moves on.
+      const download = this.denoiseStatus?.state === 'needsModel' ? this.denoiseStatus.download : undefined;
+      tell(event.status.state === 'needsModel' ? { ...event.status, download } : event.status);
     } else if (event.kind === 'needModel') {
       const model = event.model;
-      void (source?.model(model) ?? Promise.resolve(null))
+      const progress = (download: number) => {
+        const now = this.denoiseStatus;
+        if (now?.state === 'needsModel' && now.model === model) tell({ ...now, download });
+      };
+      void (source?.model(model, progress) ?? Promise.resolve(null))
         .catch(() => null)
         .then((bytes) => this.call({ type: 'denoiseModel', model, bytes }, bytes ? [bytes] : []))
         .catch((err) => console.warn('Sending a denoise model failed', err));
