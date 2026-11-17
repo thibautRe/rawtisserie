@@ -65,7 +65,8 @@ same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic. Th
 renders stored as AVIF, encoded by sharp (native) in the render worker. Then 10.1: the
 library, trash and settings on phones.
 2026-11-17: 8.13, Ctrl+A selects everything the filters match. Then 3.5's spike: the
-denoising executor ported and benchmarked, and the decisions on previews and models.
+denoising executor ported and benchmarked, and the decisions on previews and models;
+then 3.5 built (raw denoise in the developer and exports, kept in place of the original).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -440,6 +441,17 @@ colourfulness/brightness/grey mixing). It replaces today's warmth/tint as the st
 white balance and is the most common target for masked instances.
 
 ### 3.5 Raw denoise (AI) (XL, before 1.0)
+
+> **Built** 2026-11-17 (`denoise.rs`, `pipeline/denoising.rs`, the `rawDenoise` kind,
+> `denoisePool.ts`). As built: a fixed grid of 768-photosite tiles with upstream's
+> overlap as margin; the browser denoises on up to 4 workers of its own, nearest the
+> view first, and renders the original until every tile is in, then the denoised photo
+> (blended at the recipe's strength). The page keeps it in place of the RAW file (16-bit
+> floats, about twice a compressed RAW file's size), and a library photo opens from it.
+> Exports wait for it; bulk exports denoise in their workers. Server renders (library
+> previews, loupe tiles) and the library's edit previews don't denoise. Default model:
+> half-multi v1. Measured: a 42 MP ARW at ISO 16000 with half-multi, 195 s on 4 workers
+> (i9-10885H). Models are fetched at build, pinned by hash, and served by the server.
 
 > **Spike done** 2026-11-17 (`nn.rs`, `examples/denoise_bench.rs`, `tests/nn_parity.rs`).
 > The executor is ported and matches upstream's PyTorch fixture to 2·10⁻⁷, natively and

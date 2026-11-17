@@ -207,6 +207,21 @@ See README.md for the architecture overview and commands.
   `forPhoto`). Accepted extensions: the server's `IMAGE_EXTENSIONS` ↔ web `IMAGE_ACCEPT`.
   `bitmap::detect` tells a TIFF image from a TIFF-based RAW file; `tests/bitmap.rs`
   checks the golden RAWs aren't taken for images.
+- Raw denoise (`rawDenoise`, roadmap 3.5): `nn.rs` runs ansel-denoise's networks (a port
+  of Ansel's `nn_model.c`, checked against PyTorch by `tests/nn_parity.rs`; its 3×3
+  kernel keeps upstream's accumulation order: keep it that way), `denoise.rs` the
+  module (σ map from `data/noiseprofiles.bin`, built by `scripts/noise-profiles.mjs`;
+  camera `ALIASES` for names rawler gives differently). Tiles are on a fixed grid
+  (`denoise::TILE`), whatever the machine: don't make it depend on memory or cores, or
+  photos denoise differently. The developer denoises beside renders
+  (`pipeline/denoising.rs`: `next_denoise_tile` → `denoise::run_tile` anywhere →
+  `provide_denoise_tile`), and swaps the denoised photo in once every tile is there;
+  every public entry point that reads samples calls `sync_source` first. In the
+  browser, tiles run on `denoisePool.ts`'s workers, and the page keeps the denoised
+  photo (`RawPhoto::to_denoised_file`) in place of the original (`keepDenoised`), named
+  by `denoiseKeyName` ↔ `DenoiseKey::name`. Models are pinned by hash in
+  `scripts/fetch-denoise-models.sh` (sizes in `DENOISE_MODEL_BYTES`): never change the
+  file behind an id; a retrained model is a new version (`LATEST_DENOISE_VERSION`).
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance
   adapting from the as-shot light. A recipe without it renders D65-balanced colours.
