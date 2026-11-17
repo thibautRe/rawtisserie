@@ -724,6 +724,17 @@ test('an import shows its files waiting, then what happened to each, and retries
   await page.waitForURL((u) => !u.searchParams.has('import'));
 });
 
+/**
+ * A JPEG with `xmp` where cameras and other applications put it: an APP1 segment with
+ * Adobe's namespace, before the image (the import reads only the segments before it).
+ */
+function jpegWithXmp(xmp: string): Buffer {
+  const payload = Buffer.concat([Buffer.from('http://ns.adobe.com/xap/1.0/\0'), Buffer.from(xmp)]);
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(payload.length + 2);
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe1]), length, payload, Buffer.from([0xff, 0xda, 0, 2])]);
+}
+
 test("a card: its folders walked through, what the library has, JPEGs next to their RAWs and what isn't a photo left out", async () => {
   await open('/');
   await cards().first().waitFor();
@@ -744,7 +755,7 @@ test("a card: its folders walked through, what the library has, JPEGs next to th
   // Tagged in another application: the JPEG's XMP goes to its RAW.
   const xmp =
     '<x:xmpmeta xmp:Rating="3"><lr:hierarchicalSubject><rdf:Bag><rdf:li>People|Alice</rdf:li></rdf:Bag></lr:hierarchicalSubject></x:xmpmeta>';
-  await writeFile(join(dir, 'DSC00001.JPG'), Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.from(xmp)]));
+  await writeFile(join(dir, 'DSC00001.JPG'), jpegWithXmp(xmp));
   knownNames = new Set(['DSC00002.ARW']);
   await page.locator('input[type=file][webkitdirectory]').setInputFiles(card);
 
