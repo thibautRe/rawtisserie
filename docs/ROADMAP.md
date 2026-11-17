@@ -547,6 +547,19 @@ upstream at `57c1f08d81`, 2026-10-02). The models are trained in
 - **UI:** strength, model size (default by sensor type and device speed), variant, and
   the corrections under an "advanced" fold. Show a progress state while the denoised
   mosaic is computed.
+- **WebGPU spike** (2026-11-17, not in the code yet). The U-Net as WGSL compute shaders
+  (3×3 convolutions with their input staged in workgroup memory, 2×2 pixels × 8 output
+  channels per thread, GELU fused) driven from JS: 2·10⁻⁷ from PyTorch on both GPUs of
+  an i9-10885H laptop. Per 1152² tile (coarse and fine nets) on its Quadro T2000 through
+  Mesa's NVK driver: quarter-multi 0.31 s, half-multi 0.71 s, large-multi 2.2 s, about 11×
+  one wasm worker, ~6 % of the GPU's peak; the Intel iGPU was slower than one CPU core. A
+  whole network in one submission lost the device (driver timeout): one submission per
+  convolution, and large layers may need splitting on weak GPUs. Chromium there only
+  exposed the GPUs with its blocklist lifted (`--ignore-gpu-blocklist`). Compared with
+  Ansel (CPU here, no OpenCL), which denoises a 42 MP photo in about 5 s with
+  quarter-multi on 16 threads: our 195 s were half-multi (2.5×), tiles overlapping 2.25×,
+  4 of 16 threads, and 128-bit SIMD without FMA. Natively on 16 threads, quarter-multi
+  took 38 s.
 - **Post-1.0: smaller kept denoised photos.** They're 16-bit floats, about twice a
   compressed RAW file (85 MB against 43 MB for a 42 MP ARW), so the browser's 4 GB keeps
   half as many. Try compressing them (`CompressionStream`), or fewer bits in sensor units.
