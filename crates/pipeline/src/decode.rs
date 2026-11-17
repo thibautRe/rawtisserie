@@ -82,6 +82,10 @@ enum Source {
     },
     /// An image developed already (JPEG, PNG, TIFF, WebP), linearised as it's read.
     Bitmap(Bitmap),
+    /// A RAW file's mosaic after raw denoise ([`crate::denoise`]): normalised samples
+    /// of the usable area, row by row, and which photosites were saturated before (one
+    /// bit each), as denoising moves values near the clipping point.
+    Denoised { samples: Vec<f32>, saturated: Vec<u64> },
 }
 
 /// A decoded file: a RAW file's sensor data, or an image developed already (see
@@ -208,14 +212,93 @@ impl RawPhoto {
         matches!(self.source, Source::Bitmap(_))
     }
 
+    /// Whether its samples are a denoised mosaic ([`RawPhoto::with_denoised`]).
+    pub fn is_denoised(&self) -> bool {
+        matches!(self.source, Source::Denoised { .. })
+    }
+
+    /// The same photo with `samples` (a mosaic's, `width × height`, normalised) in
+    /// place of its sensor data. Saturation is still the original's.
+    pub fn with_denoised(&self, samples: Vec<f32>) -> RawPhoto {
+        assert_eq!(samples.len(), self.width * self.height, "a sample per photosite");
+        let mut saturated = vec![0u64; (self.width * self.height).div_ceil(64)];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.saturated(x, y, 0) {
+                    let i = y * self.width + x;
+                    saturated[i / 64] |= 1 << (i % 64);
+                }
+            }
+        }
+        self.with_source(Source::Denoised { samples, saturated })
+    }
+
+    /// The same photo from denoised `samples` and the saturation bits a
+    /// [`RawPhoto::denoised_parts`] gave: for a denoised mosaic kept apart from its RAW
+    /// file. `None` if the sizes don't match.
+    pub fn from_denoised_parts(&self, samples: Vec<f32>, saturated: Vec<u64>) -> Option<RawPhoto> {
+        let n = self.width * self.height;
+        (samples.len() == n && saturated.len() == n.div_ceil(64)).then(|| self.with_source(Source::Denoised { samples, saturated }))
+    }
+
+    /// A denoised photo's samples and saturation bits, `None` for any other.
+    pub fn denoised_parts(&self) -> Option<(&[f32], &[u64])> {
+        match &self.source {
+            Source::Denoised { samples, saturated } => Some((samples, saturated)),
+            _ => None,
+        }
+    }
+
+    fn with_source(&self, source: Source) -> RawPhoto {
+        RawPhoto {
+            source,
+            layout: self.layout.clone(),
+            origin_x: self.origin_x,
+            origin_y: self.origin_y,
+            width: self.width,
+            height: self.height,
+            wb: self.wb,
+            wb_reference: self.wb_reference,
+            as_shot_illuminant: self.as_shot_illuminant,
+            working_from_camera: self.working_from_camera,
+            orientation: self.orientation,
+            metadata: self.metadata.clone(),
+            lens: self.lens.clone(),
+        }
+    }
+
+    /// Whether the sample at usable-area coordinates is at the sensor's saturation
+    /// (for a denoised mosaic, whether it was before denoising).
+    #[inline]
+    pub fn saturated(&self, x: usize, y: usize, channel: usize) -> bool {
+        match &self.source {
+            Source::Denoised { saturated, .. } => {
+                let i = y * self.width + x;
+                saturated[i / 64] >> (i % 64) & 1 != 0
+            }
+            _ => self.sample(x, y, channel) >= crate::demosaic::SENSOR_CLIP,
+        }
+    }
+
     /// Normalised sample (0 = black, 1 = sensor saturation, or linear light for an
     /// image) at usable-area coordinates. `channel` is only relevant for
     /// 3-samples-per-pixel layouts.
     #[inline]
     pub fn sample(&self, x: usize, y: usize, channel: usize) -> f32 {
+        match &self.source {
+            Source::Bitmap(image) => image.sample(x, y, channel),
+            _ => self.sample_unclamped(x, y, channel).max(0.0),
+        }
+    }
+
+    /// [`RawPhoto::sample`] without clamping at black: noise around black is
+    /// symmetric, and raw denoise needs both sides of it.
+    #[inline]
+    pub fn sample_unclamped(&self, x: usize, y: usize, channel: usize) -> f32 {
         let (raw, black, black_width, black_height, white) = match &self.source {
             Source::Sensor { raw, black, black_width, black_height, white } => (raw, black, *black_width, *black_height, *white),
             Source::Bitmap(image) => return image.sample(x, y, channel),
+            Source::Denoised { samples, .. } => return samples[y * self.width + x],
         };
         let (rx, ry) = (x + self.origin_x, y + self.origin_y);
         let cpp = raw.cpp;
@@ -227,7 +310,7 @@ impl RawPhoto {
         let bcpp = if black.len() >= black_width * black_height * cpp { cpp } else { 1 };
         let bi = ((ry % black_height) * black_width + (rx % black_width)) * bcpp + channel.min(bcpp - 1);
         let black = black.get(bi).copied().unwrap_or(0.0);
-        ((v - black) / (white - black)).max(0.0)
+        (v - black) / (white - black)
     }
 
     /// CFA colour (0 = R, 1 = G, 2 = B) of the photosite at usable-area coordinates.

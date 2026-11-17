@@ -75,7 +75,7 @@ pub fn clipped_photosites_region(photo: &RawPhoto, factor: usize, region: Region
     for (my, oy) in (region.y..region.bottom()).enumerate() {
         for (mx, ox) in (region.x..region.right()).enumerate() {
             let clipped = (oy * factor..((oy + 1) * factor).min(photo.height)).any(|y| {
-                (ox * factor..((ox + 1) * factor).min(photo.width)).any(|x| (0..channels).any(|c| photo.sample(x, y, c) >= SENSOR_CLIP))
+                (ox * factor..((ox + 1) * factor).min(photo.width)).any(|x| (0..channels).any(|c| photo.saturated(x, y, c)))
             });
             if clipped {
                 mask.set(mx, my);

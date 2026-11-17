@@ -19,6 +19,7 @@ pub mod bitmap;
 pub mod color;
 pub mod decode;
 pub mod demosaic;
+pub mod denoise;
 pub mod encode;
 pub mod export;
 pub mod frame;
