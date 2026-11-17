@@ -3,7 +3,7 @@
  * the row of their values above the status bar. Their values come from the sample
  * store, like the pointer's, and follow every edit.
  */
-import { Box, Button, HStack, IconButton, Separator, Text } from '@chakra-ui/react';
+import { Box, Button, HStack, IconButton, Separator, Stack, Text } from '@chakra-ui/react';
 import { X } from 'lucide-react';
 import { formatEv, lch, useSamples } from './picker.ts';
 import type { PixelSample } from './protocol.ts';
@@ -63,7 +63,7 @@ export function PinMarkers({ places, zoom }: { places: readonly (readonly [numbe
 }
 
 /** Between the readout's groups (RGB, LCh, EV): a hairline, short of the text's height. */
-const Divider = () => <Separator orientation="vertical" h="3" borderColor="border.muted" />;
+const Divider = () => <Separator orientation="vertical" h="3" borderColor="border.emphasized" />;
 
 /** The values of a pixel, as the status bar's readout shows them. */
 export function SampleValues({ sample }: { sample: PixelSample }) {
@@ -105,7 +105,7 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
   );
 }
 
-/** The pinned samples' values, floating along the bottom of the image's area; each can be removed. */
+/** The pinned samples' values, one per row, floating at the bottom left of the image's area; each can be removed. */
 export function PinnedSamples({
   count,
   onRemove,
@@ -116,15 +116,16 @@ export function PinnedSamples({
   onClear: () => void;
 }) {
   const { pins } = useSamples();
+  // One per row: the values, fixed in width, line up in columns to compare.
   return (
-    <HStack
+    <Stack
       position="absolute"
       bottom="2"
       left="2"
       maxW="calc(100% - 16px)"
-      minH="7"
+      gap="0"
       px="2"
-      gap="4"
+      py="1"
       rounded="l2"
       borderWidth="1px"
       bg="bg.panel"
@@ -140,7 +141,7 @@ export function PinnedSamples({
       {Array.from({ length: count }, (_, i) => {
         const sample = pins[i];
         return (
-          <HStack key={i} gap="3" data-pinned-sample={i + 1}>
+          <HStack key={i} gap="3" minH="6" data-pinned-sample={i + 1}>
             <Text fontWeight="semibold" color="fg">
               {i + 1}
             </Text>
@@ -151,15 +152,21 @@ export function PinnedSamples({
                 —
               </Text>
             )}
-            <IconButton size="2xs" variant="ghost" aria-label={`Remove sample ${i + 1}`} onClick={() => onRemove(i)}>
+            <IconButton
+              size="2xs"
+              variant="ghost"
+              ms="auto"
+              aria-label={`Remove sample ${i + 1}`}
+              onClick={() => onRemove(i)}
+            >
               <X />
             </IconButton>
           </HStack>
         );
       })}
-      <Button size="2xs" variant="ghost" fontFamily="body" onClick={onClear}>
+      <Button size="2xs" variant="ghost" fontFamily="body" alignSelf="flex-end" onClick={onClear}>
         Clear samples
       </Button>
-    </HStack>
+    </Stack>
   );
 }

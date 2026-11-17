@@ -131,6 +131,15 @@ test('the pipette pins samples (I), a click on one removes it, Esc stops', async
   await page.mouse.click(...at(0.25, 0.4));
   await page.mouse.click(...at(0.7, 0.7));
   await page.locator('[data-pinned-sample="2"]').waitFor();
+  if (process.env.PICKER_SHOT)
+    await page
+      .locator('[data-pinned-samples]')
+      .screenshot({ path: process.env.PICKER_SHOT.replace(/\.png$/, '-pins.png') });
+  // One per row, their values in columns.
+  const lefts = await page
+    .locator('[data-pinned-sample] > p:nth-of-type(2)')
+    .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+  assert.equal(new Set(lefts).size, 1, `LCh columns at ${lefts}`);
   // Values for both, the image not moved by the row showing.
   for (const text of await page.locator('[data-pinned-sample]').allInnerTexts()) assert.match(text, /RGB\s+\d+/);
   const centre = await page
