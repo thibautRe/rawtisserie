@@ -703,13 +703,14 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     shape: 'round',
   }),
   // Along an axis: an anamorphic lens's blue streaks, and lights trailing as if they moved.
+  // Tint hue -145° (215°), within the slider's ±180°. Radius past the slider's range.
   builtIn('glow', 'anamorphic-streak', 'Anamorphic streak', {
     threshold: 2.5,
-    softness: 0.5,
-    radius: 400,
+    softness: 0.2,
+    radius: 700,
     falloff: 0.3,
     strength: 2,
-    hue: 215,
+    hue: -145,
     saturation: 0.7,
     shape: 'streak',
     angle: 0,

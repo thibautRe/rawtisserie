@@ -845,6 +845,15 @@ const degrees = (v: number) => {
   const r = Number(v.toFixed(1)) + 0;
   return `${r > 0 ? '+' : ''}${r.toFixed(1)}°`;
 };
+/**
+ * A hue shift: hundredths of a degree near 0° (where its sliders are finest, and where
+ * Ctrl steps by 0.01°), tenths beyond 10°.
+ */
+const shiftDegrees = (v: number) => {
+  const digits = Math.abs(v) < 9.995 ? 2 : 1;
+  const r = Number(v.toFixed(digits)) + 0;
+  return `${r > 0 ? '+' : ''}${r.toFixed(digits)}°`;
+};
 
 /** Soft range of the temperature slider, and its track: the light's colour. */
 const TEMPERATURE_SOFT = [2000, 12000] as const;
@@ -1669,7 +1678,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               label="White hue"
               min={-180}
               max={180}
-              step={0.5}
+              step={0.1}
               track={tracks.hue(0)}
               format={degrees}
               {...bindMixer(t, 'primaries', 'whiteHue')}
@@ -1695,10 +1704,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     max={90}
                     hardMin={-180}
                     hardMax={180}
-                    step={0.5}
+                    step={0.1}
                     curve={HUE_SHIFT_90}
                     track={tracks.hueShift(PRIMARY_CSS_HUES[i]!, 90, HUE_SHIFT_90)}
-                    format={degrees}
+                    format={shiftDegrees}
                     {...bindMixer(t, 'primaries', `${name}Hue`)}
                   />
                   <ParamSlider
@@ -1762,10 +1771,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     max={90}
                     hardMin={-180}
                     hardMax={180}
-                    step={0.5}
+                    step={0.1}
                     curve={HUE_SHIFT_90}
                     track={tracks.hueShift(PRIMARY_CSS_HUES[i]!, 90, HUE_SHIFT_90)}
-                    format={degrees}
+                    format={shiftDegrees}
                     {...bindMixer(t, 'whitePreserving', `${name}Rotation`)}
                   />
                   <ParamSlider
@@ -2065,9 +2074,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                           label="Hue"
                           min={0}
                           max={360}
-                          step={1}
+                          step={0.1}
                           track={tracks.hue(180)}
-                          format={(h) => `${h.toFixed(0)}°`}
+                          format={(h) => `${h.toFixed(1)}°`}
                           {...bindHueChroma(e, 'hue')}
                         />
                         <ParamSlider
@@ -2191,10 +2200,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   label="Hue shift"
                   min={-180}
                   max={180}
-                  step={0.5}
+                  step={0.1}
                   curve={HUE_SHIFT_180}
                   track={tracks.hueShift(0, 180, HUE_SHIFT_180)}
-                  format={degrees}
+                  format={shiftDegrees}
                   {...e.bind('hueShift')}
                 />
                 <ParamSlider label="Vibrance" min={-1} max={1} step={0.01} {...e.bind('vibrance')} />
@@ -2393,10 +2402,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             label="Hue"
             min={-180}
             max={180}
-            step={0.5}
+            step={0.1}
             curve={HUE_SHIFT_180}
             track={tracks.hueShift(PRIMARY_HUES[e.view.primary], 180, HUE_SHIFT_180)}
-            format={degrees}
+            format={shiftDegrees}
             {...bindPrimary(e, e.view.primary, 'hue')}
           />
           <ParamSlider
@@ -2968,7 +2977,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 max={e.values.shape === 'streak' ? 90 : 180}
                 hardMin={-180}
                 hardMax={180}
-                step={0.5}
+                step={0.1}
                 format={degrees}
                 {...e.bind('angle')}
               />
@@ -2996,7 +3005,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             label="Tint hue"
             min={-180}
             max={180}
-            step={1}
+            step={0.1}
             track={tracks.hue(0)}
             format={degrees}
             {...e.bind('hue')}
