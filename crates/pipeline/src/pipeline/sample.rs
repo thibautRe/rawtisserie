@@ -1,7 +1,8 @@
 //! The colour picker (roadmap 2.7): what one pixel of a render is, as the pointer moves
 //! over it. It reads the spatial stages' cached output and runs that pixel through the
-//! point modules alone, so it's cheap; without that cache it gives nothing rather than
-//! render (a spatial edit is going on: the next render brings the values back).
+//! point modules alone, so it's cheap. Without that cache it gives nothing (a spatial edit
+//! is going on: the next render brings the values back), unless asked to `warm` it (the
+//! caller is idle, and the view shown lost its cache, e.g. to raw denoise's swap).
 
 use serde::Serialize;
 
@@ -39,11 +40,12 @@ pub struct ModuleRead {
 impl Developer {
     /// Pixel `(x, y)` of the render of `params` within `size` (in the whole frame of that
     /// size, not the region's), or `None` outside the region rendered or when the spatial
-    /// stages would have to run.
-    pub fn sample(&mut self, params: &EditParams, size: RenderSize, x: usize, y: usize) -> Option<PixelSample> {
-        if !self.is_spatial_cached(params, size) {
+    /// stages would have to run, unless `warm` (then they do, as for a render).
+    pub fn sample(&mut self, params: &EditParams, size: RenderSize, x: usize, y: usize, warm: bool) -> Option<PixelSample> {
+        if !warm && !self.is_spatial_cached(params, size) {
             return None;
         }
+        self.sync_source(params);
         let region = self.output_region(params, size);
         if x < region.x || y < region.y || x >= region.right() || y >= region.bottom() {
             return None;

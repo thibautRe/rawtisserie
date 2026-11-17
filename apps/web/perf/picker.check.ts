@@ -62,12 +62,45 @@ test('the pixel under the pointer shows in the status bar, and goes when it leav
   await readout().waitFor();
   const first = await readout().innerText();
   assert.match(first, /RGB\s+\d+\s+\d+\s+\d+/);
-  assert.match(first, /L \d+ C \d+ h \d+°/);
+  assert.match(first, /L\s+\d+ C\s+\d+ h\s+\d+°/);
   assert.match(first, /[+−]?\d+\.\d EV/);
   await page.mouse.move(...at(0.8, 0.15), { steps: 3 });
   await page.waitForFunction((before) => document.querySelector('[data-pixel-readout]')?.textContent !== before, first);
   await page.mouse.move(5, 5);
   await readout().waitFor({ state: 'detached' });
+});
+
+test("the readout's values keep their width whatever their digits", async () => {
+  const widths = () =>
+    readout().evaluate((el) => [...el.querySelectorAll('p')].map((p) => Math.round(p.getBoundingClientRect().width)));
+  // A dark corner and a bright sky: values from 1 to 3 digits, EV either side of 0.
+  const seen = new Set<string>();
+  for (const [u, v] of [
+    [0.05, 0.95],
+    [0.5, 0.05],
+    [0.6, 0.6],
+  ] as const) {
+    await page.mouse.move(...at(u, v), { steps: 2 });
+    await page.waitForTimeout(250);
+    seen.add(JSON.stringify(await widths()));
+  }
+  assert.equal(seen.size, 1, [...seen].join(' vs '));
+});
+
+test('zoomed in to 100 % and back to fit, the picker reads the whole image again', async () => {
+  // Middle click: 100 % on a point, again for fit.
+  await page.mouse.click(...at(0.5, 0.5), { button: 'middle' });
+  const zoom = page.locator('button[title^="Zoom"]');
+  await page.waitForFunction(() => document.querySelector('button[title^="Zoom"]')?.textContent?.includes('%'));
+  await page.waitForTimeout(2500);
+  await page.mouse.click(...at(0.5, 0.5), { button: 'middle' });
+  await page.waitForFunction(() => document.querySelector('button[title^="Zoom"]')?.textContent?.includes('Fit'));
+  assert.match(await zoom.innerText(), /Fit/);
+  await page.mouse.move(5, 5);
+  await readout().waitFor({ state: 'detached' });
+  // Far from where the 100 % view was.
+  await page.mouse.move(...at(0.08, 0.9), { steps: 2 });
+  await readout().waitFor({ timeout: 10_000 });
 });
 
 test('the scopes mark it: waveform, parade and vectorscope', async () => {

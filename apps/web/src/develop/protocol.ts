@@ -58,9 +58,10 @@ export type WorkerRequest =
   | { type: 'loadDenoised'; id: number; bytes: ArrayBuffer }
   /**
    * The colour picker: where the pointer is over the image (normalised in the whole
-   * frame), or null when it left. Taken in at once; the worker samples between messages.
+   * frame), or null when it left, and whether a zoomed-in region shows (read first).
+   * Taken in at once; the worker samples between messages.
    */
-  | { type: 'pointer'; id: number; at: [number, number] | null }
+  | { type: 'pointer'; id: number; at: [number, number] | null; zoomed: boolean }
   /** The colour picker's pinned samples (the pipette), normalised in the whole frame. */
   | { type: 'pins'; id: number; pins: [number, number][] }
   /** A raw denoise model the worker asked for (`needModel`), or null if it can't be had. */

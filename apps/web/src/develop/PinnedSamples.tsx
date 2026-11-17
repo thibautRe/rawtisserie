@@ -8,6 +8,12 @@ import { X } from 'lucide-react';
 import { formatEv, lch, useSamples } from './picker.ts';
 import type { PixelSample } from './protocol.ts';
 
+/**
+ * Pads numbers to a fixed width (a digit's, in the numeric font's tabular figures), so
+ * that values going from 3 digits to 1 don't move what follows.
+ */
+export const FIGURE_SPACE = '\u2007';
+
 /** Most samples pinned at once. */
 export const MAX_PINS = 4;
 
@@ -65,7 +71,7 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
       {text}
     </Text>
   );
-  const pad = (n: number) => String(n).padStart(3, ' ');
+  const pad = (n: number) => String(n).padStart(3, FIGURE_SPACE);
   return (
     <>
       <HStack gap="1.5">
@@ -81,9 +87,11 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
         </Text>
       </HStack>
       <Text title="Displayed colour, CIE LCh: lightness, chroma, hue">
-        {label('L')} {l.toFixed(0)} {label('C')} {c.toFixed(0)} {label('h')} {h.toFixed(0)}°
+        {label('L')} {pad(Math.round(l))} {label('C')} {pad(Math.round(c))} {label('h')} {pad(Math.round(h) % 360)}°
       </Text>
-      <Text title="Scene luminance before tone mapping, from middle grey">{formatEv(sample.sceneEv)}</Text>
+      <Text title="Scene luminance before tone mapping, from middle grey">
+        {formatEv(sample.sceneEv).padStart(8, FIGURE_SPACE)}
+      </Text>
     </>
   );
 }

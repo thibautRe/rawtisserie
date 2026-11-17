@@ -389,11 +389,11 @@ impl Developer {
     /// The colour picker: pixel `(x, y)` (in the whole frame, as `outputRegion` counts)
     /// of the render of these parameters within these bounds and region, as JSON
     /// (`PixelSample`), or undefined outside the region or without the spatial stages'
-    /// output cached (it never renders).
-    pub fn sample(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>, x: u32, y: u32) -> Result<Option<String>, JsError> {
+    /// output cached, unless `warm` (then they run, as for a render).
+    pub fn sample(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>, x: u32, y: u32, warm: bool) -> Result<Option<String>, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
         let size = render_size(max_width, max_height, region)?;
-        let sample = self.inner.sample(&params, size, x as usize, y as usize);
+        let sample = self.inner.sample(&params, size, x as usize, y as usize, warm);
         sample.map(|s| serde_json::to_string(&s).map_err(js_err)).transpose()
     }
 

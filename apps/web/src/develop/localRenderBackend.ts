@@ -93,9 +93,11 @@ export class LocalRenderBackend implements RenderBackend {
     this.lutSource = source;
   }
 
-  pointer(at: [number, number] | null) {
+  pointer(at: [number, number] | null, zoomed: boolean) {
     // Fire and forget: the answer comes as `sample` events.
-    void this.worker.then((worker) => worker.postMessage({ type: 'pointer', id: 0, at } satisfies WorkerRequest));
+    void this.worker.then((worker) =>
+      worker.postMessage({ type: 'pointer', id: 0, at, zoomed } satisfies WorkerRequest),
+    );
   }
 
   pins(pins: [number, number][]) {

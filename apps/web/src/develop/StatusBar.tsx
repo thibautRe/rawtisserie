@@ -1,7 +1,7 @@
 import { Box, Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
 import { ChevronDown, CloudAlert, CloudCheck, Frame, Pipette, SunMoon, Zap, ZoomIn } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
-import { SampleValues } from './PinnedSamples.tsx';
+import { FIGURE_SPACE, SampleValues } from './PinnedSamples.tsx';
 import { usePixelSample } from './picker.ts';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
@@ -74,7 +74,8 @@ export function StatusBar({
     <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
       {save && <SaveIndicator {...save} />}
       <Text textStyle="2xs" color="fg.subtle" fontFamily="numeric" fontVariantNumeric="tabular-nums" px="1">
-        {ms !== null && `${Math.round(ms)} ms`}
+        {/* Room for 5 digits, kept without a time: the readout after it doesn't move. */}
+        {ms === null ? FIGURE_SPACE.repeat(8) : `${String(Math.round(ms)).padStart(5, FIGURE_SPACE)} ms`}
       </Text>
       {onPipette && (
         <IconButton

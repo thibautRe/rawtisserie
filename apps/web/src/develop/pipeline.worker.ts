@@ -294,12 +294,11 @@ async function finishDenoise(dev: Developer, params: EditParams, json: string) {
 interface Sampled {
   json: string;
   sizes: [number, number, Region | null][];
-  /** Renders' order: a region left from before zooming out is older than the whole render. */
-  seq: number;
 }
-let renders = 0;
 const picker = {
   at: null as [number, number] | null,
+  /** Whether the page shows a zoomed-in region (over the whole render). */
+  zoomed: false,
   pins: [] as [number, number][],
   /** The last whole render, and the last region render (zoomed in): tried first. */
   fit: null as Sampled | null,
@@ -314,14 +313,15 @@ function scheduleSample() {
   picker.timer = setTimeout(() => {
     picker.timer = null;
     // Mid-message: `run` samples once it's done.
-    if (!running) pumpSample();
+    if (!running) pumpSample(true);
   }, 0);
 }
 
-function pumpSample() {
+/** `warm`: nothing else to do (see `sampleAt`). */
+function pumpSample(warm: boolean) {
   const dev = developer;
   const read = (at: [number, number] | null) => {
-    const json = at && dev ? sampleAt(dev, at) : null;
+    const json = at && dev ? sampleAt(dev, at, warm) : null;
     // With the place: a marker follows the pointer over flat areas too.
     return { at, json, key: json ? `${json}@${at!.join(',')}` : 'null' };
   };
@@ -335,21 +335,38 @@ function pumpSample() {
   post({ type: 'sample', id: 0, sample: parse(hover), pins: pins.map(parse) });
 }
 
-/** The pixel at `at` (normalised) of the last region render, or of the last whole one, as JSON. */
-function sampleAt(dev: Developer, at: [number, number]): string | null {
+/**
+ * The pixel at `at` (normalised) of what's on screen, as JSON: zoomed in, the last region
+ * render (if `at` is in it), else the last whole one. With `warm` (nothing else to do),
+ * the whole render's spatial stages run again if their cache went (raw denoise's swap,
+ * another size since), rather than give nothing.
+ */
+function sampleAt(dev: Developer, at: [number, number], warm: boolean): string | null {
   const { fit, region: zoomed } = picker;
-  // A region from before an edit (zoomed out since) would read old values.
-  const current = zoomed && (!fit || zoomed.seq > fit.seq || zoomed.json === fit.json) ? zoomed : null;
-  for (const r of [current, fit]) {
+  for (const r of [picker.zoomed ? zoomed : null, fit]) {
     for (const [w, h, region] of r?.sizes ?? []) {
-      const [fw, fh] = dev.outputSize(r!.json, w, h);
-      const x = Math.min(fw! - 1, Math.max(0, Math.floor(at[0] * fw!)));
-      const y = Math.min(fh! - 1, Math.max(0, Math.floor(at[1] * fh!)));
-      const json = dev.sample(r!.json, w, h, regionArg(region), x, y);
+      const json = sampleOne(dev, r!.json, w, h, region, at, false);
       if (json) return json;
     }
   }
-  return null;
+  if (!warm || !fit) return null;
+  const [w, h, region] = fit.sizes[0]!;
+  return sampleOne(dev, fit.json, w, h, region, at, true);
+}
+
+function sampleOne(
+  dev: Developer,
+  json: string,
+  w: number,
+  h: number,
+  region: Region | null,
+  at: [number, number],
+  warm: boolean,
+) {
+  const [fw, fh] = dev.outputSize(json, w, h);
+  const x = Math.min(fw! - 1, Math.max(0, Math.floor(at[0] * fw!)));
+  const y = Math.min(fh! - 1, Math.max(0, Math.floor(at[1] * fh!)));
+  return dev.sample(json, w, h, regionArg(region), x, y, warm) ?? null;
 }
 
 // One message at a time: pool renders await their workers, and nothing else may touch
@@ -364,7 +381,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   // be waiting on: taken in at once.
   if (msg.type === 'denoiseModel' || msg.type === 'setOriginal') return void receive(msg);
   if (msg.type === 'pointer' || msg.type === 'pins') {
-    if (msg.type === 'pointer') picker.at = msg.at;
+    if (msg.type === 'pointer') [picker.at, picker.zoomed] = [msg.at, msg.zoomed];
     else picker.pins = msg.pins;
     return scheduleSample();
   }
@@ -393,11 +410,16 @@ async function run() {
   if (running) return;
   running = true;
   try {
-    for (let msg = urgent.shift() ?? idle.shift(); msg; msg = urgent.shift() ?? idle.shift()) await handle(msg);
+    for (let msg = urgent.shift() ?? idle.shift(); msg; msg = urgent.shift() ?? idle.shift()) {
+      await handle(msg);
+      // Between messages too: a run of renders (a drag, a zoomed view coming in) would
+      // keep the picker waiting otherwise.
+      if (urgent.length || idle.length) pumpSample(false);
+    }
   } finally {
     running = false;
   }
-  pumpSample();
+  pumpSample(true);
   pumpDenoise();
 }
 
@@ -465,7 +487,6 @@ async function handle(msg: WorkerRequest) {
           [full.width, full.height, msg.fullRegion],
           [msg.maxWidth, msg.maxHeight, msg.region],
         ],
-        seq: ++renders,
       };
       watchDenoise(msg.params, params, [focus[0], focus[1]]);
       // The scope shows the image, without the clipping indicators: drawn before them.

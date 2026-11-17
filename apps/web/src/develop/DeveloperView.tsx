@@ -379,6 +379,13 @@ export function DeveloperView({
   // what shows it reads (`picker.ts`).
   const samples = useMemo(() => new SampleStore(), []);
   useEffect(() => backend.onSample((s, pins) => samples.set(s, pins)), [backend, samples]);
+  // Zoomed in, the worker reads the region render first (the whole one stays as it was).
+  const pointer = useRef<{ at: [number, number] | null; zoomed: boolean }>({ at: null, zoomed: false });
+  const zoomedIn = zoom !== null;
+  useEffect(() => {
+    pointer.current.zoomed = zoomedIn;
+    backend.pointer(pointer.current.at, zoomedIn);
+  }, [backend, zoomedIn]);
   useEffect(() => {
     const el = stage.current;
     if (!el) return;
@@ -386,7 +393,8 @@ export function DeveloperView({
     let queued = 0;
     const send = () => {
       queued = 0;
-      backend.pointer(at);
+      pointer.current.at = at;
+      backend.pointer(at, pointer.current.zoomed);
     };
     const queue = () => void (queued ||= requestAnimationFrame(send));
     const move = (e: PointerEvent) => {
@@ -407,7 +415,8 @@ export function DeveloperView({
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerleave', leave);
       cancelAnimationFrame(queued);
-      backend.pointer(null);
+      pointer.current.at = null;
+      backend.pointer(null, pointer.current.zoomed);
     };
   }, [backend]);
   // The pipette (`I`): clicks on the image pin samples, kept in sensor coordinates (as

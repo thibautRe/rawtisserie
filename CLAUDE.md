@@ -175,8 +175,9 @@ See README.md for the architecture overview and commands.
   and nothing when that cache is cold (it must never render). Samples land in a store
   (`picker.ts`) that only the markers and the readout subscribe to, so the developer and
   its memoised panels don't render on pointer moves. A new module with a graph of the
-  image marks it through `ModuleRead` (Rust) and `useModuleReads`. `npm run test:picker
-  -w @rawtisserie/web` checks it in a browser.
+  image marks it through `ModuleRead` (Rust) and `useModuleReads`. The worker samples
+  between messages, and warms the shown view's cache only when idle (`sampleAt`). In a
+  browser: `npm run test:picker -w @rawtisserie/web`.
 - Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
   trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press
   selects (`longPress.ts`; closing the loupe doesn't select there). Layout-only changes

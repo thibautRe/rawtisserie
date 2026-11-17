@@ -109,10 +109,10 @@ export interface RenderBackend {
   onDenoiseStatus(listener: (status: DenoiseStatus) => void): () => void;
   /**
    * The colour picker: where the pointer is over the image (normalised in the whole
-   * frame), or null. The pixel there comes back through `onSample`, and again after
+   * frame), or null, and whether a zoomed-in region shows. The pixel there comes back through `onSample`, and again after
    * every render while the pointer stays.
    */
-  pointer(at: [number, number] | null): void;
+  pointer(at: [number, number] | null, zoomed: boolean): void;
   /** The pinned samples' places (normalised in the whole frame), read like the pointer's. */
   pins(pins: [number, number][]): void;
   /** Follow the pixel under the pointer (null: none) and the pinned ones; returns the unsubscribe. */
