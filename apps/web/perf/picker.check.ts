@@ -62,7 +62,7 @@ test('the pixel under the pointer shows in the status bar, and goes when it leav
   await readout().waitFor();
   const first = await readout().innerText();
   assert.match(first, /RGB\s+\d+\s+\d+\s+\d+/);
-  assert.match(first, /L\s+\d+ C\s+\d+ h\s+\d+°/);
+  assert.match(first, /L \d+\s+C \d+\s+h \d+°/);
   assert.match(first, /[+−]?\d+\.\d EV/);
   await page.mouse.move(...at(0.8, 0.15), { steps: 3 });
   await page.waitForFunction((before) => document.querySelector('[data-pixel-readout]')?.textContent !== before, first);

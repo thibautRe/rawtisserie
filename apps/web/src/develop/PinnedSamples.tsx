@@ -72,6 +72,9 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
     </Text>
   );
   const pad = (n: number) => String(n).padStart(3, FIGURE_SPACE);
+  // L, C and h: next to their letter, the room left after them (right-aligned, a single
+  // digit would read as the previous letter's).
+  const after = (text: string, width: number) => text.padEnd(width, FIGURE_SPACE);
   return (
     <>
       <HStack gap="1.5">
@@ -87,7 +90,8 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
         </Text>
       </HStack>
       <Text title="Displayed colour, CIE LCh: lightness, chroma, hue">
-        {label('L')} {pad(Math.round(l))} {label('C')} {pad(Math.round(c))} {label('h')} {pad(Math.round(h) % 360)}°
+        {label('L')} {after(String(Math.round(l)), 3)} {label('C')} {after(String(Math.round(c)), 3)} {label('h')}{' '}
+        {after(`${Math.round(h) % 360}°`, 4)}
       </Text>
       <Text title="Scene luminance before tone mapping, from middle grey">
         {formatEv(sample.sceneEv).padStart(8, FIGURE_SPACE)}
