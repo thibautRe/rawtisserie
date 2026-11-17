@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Prettier on what's being committed (CI runs `npm run format:check` on everything).
+# Staged files are formatted and staged again. A file that also has unstaged changes is
+# only checked: formatting it would put those changes in the commit too.
+# Set up by `npm install` (the `prepare` script: core.hooksPath = .githooks).
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+prettier="$root/node_modules/.bin/prettier"
+if [ ! -x "$prettier" ]; then
+  echo "pre-commit: Prettier isn't installed (npm install): not checked." >&2
+  exit 0
+fi
+
+mapfile -d '' staged < <(git diff --cached --name-only --diff-filter=ACMR -z)
+[ ${#staged[@]} -eq 0 ] && exit 0
+mapfile -d '' unstaged < <(git diff --name-only -z)
+
+whole=()
+partly=()
+for f in "${staged[@]}"; do
+  if printf '%s\0' "${unstaged[@]}" | grep -qzxF -- "$f"; then partly+=("$f"); else whole+=("$f"); fi
+done
+
+cd "$root"
+if [ ${#whole[@]} -gt 0 ]; then
+  "$prettier" --write --ignore-unknown --log-level warn -- "${whole[@]}"
+  git add -- "${whole[@]}"
+fi
+# What's staged of them, not the working copy: unstaged lines aren't being committed.
+bad=()
+for f in "${partly[@]}"; do
+  [ -n "$("$prettier" --file-info "$f" | grep -E '"ignored": true|"inferredParser": null')" ] && continue
+  staged_text=$(git show ":$f")
+  formatted=$(printf '%s\n' "$staged_text" | "$prettier" --stdin-filepath "$f")
+  [ "$staged_text" = "$formatted" ] || bad+=("$f")
+done
+if [ ${#bad[@]} -gt 0 ]; then
+  printf 'pre-commit: not formatted (and with unstaged changes, so not formatted for you):\n' >&2
+  printf '  %s\n' "${bad[@]}" >&2
+  echo "Run 'npx prettier --write <file>' (or 'npm run format'), stage, and commit again." >&2
+  exit 1
+fi

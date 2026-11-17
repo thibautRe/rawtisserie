@@ -45,6 +45,9 @@ See README.md for the architecture overview and commands.
   (`PointMask::Tones` in `PointMasksKey`) from samples of its input, and travel as two
   planes (`tone_curve::plane_ids`) that the point pass blends with the pixel.
 - After changing Rust code used from JS, run `npm run build:wasm` (output is gitignored).
+- Commits go through Prettier (`.githooks/pre-commit`, set up by `npm install`'s
+  `prepare`): staged files are formatted and staged again; one that also has unstaged
+  changes stops the commit if what's staged isn't formatted.
 - rawler (RAW decoding) is patched from our fork (`[patch.crates-io]` in `Cargo.toml`,
   tag `rawtisserie/rawler-0.8.0-wasm` of thibautRe/dnglab; upstream PR
   dnglab/dnglab#960): something that works natively can still fail in

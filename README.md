@@ -155,8 +155,13 @@ server start; `npm run db:migrate` runs them by hand.
 | `npm run build`                                                              | wasm + production web build (served by the API server)      |
 | `npm test`                                                                   | Rust tests + TS tests                                       |
 | `npm run typecheck`                                                          | TypeScript in every workspace                               |
+| `npm run format`                                                             | Prettier on everything (CI runs `npm run format:check`)     |
 | `npm run db:schema -w @rawtisserie/server`                                   | Regenerate DB types into `apps/server/src/__generated__`    |
 | `cargo run --release --example develop -- in.ARW out.jpg 2048 [params.json]` | Develop a file from the CLI                                 |
+
+`npm install` also sets up a pre-commit hook (`.githooks/pre-commit`, through
+`core.hooksPath`) that runs Prettier on the files being committed: it formats and
+stages them again, or stops the commit if one also has unstaged changes.
 
 `RAWTISSERIE_SAMPLE=/path/to/file.ARW npm test -w @rawtisserie/pipeline` also runs a
 real decode-and-render through the wasm module.

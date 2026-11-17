@@ -12,6 +12,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "build:wasm": "./scripts/build-wasm.sh",
     "build": "npm run build:wasm && npm run build --workspaces --if-present",
     "dev": "npm run build:wasm && node --run dev:all",
