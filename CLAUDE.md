@@ -210,8 +210,9 @@ See README.md for the architecture overview and commands.
 - Raw denoise (`rawDenoise`, roadmap 3.5): `nn.rs` runs ansel-denoise's networks (a port
   of Ansel's `nn_model.c`, checked against PyTorch by `tests/nn_parity.rs`; its 3×3
   kernel keeps upstream's accumulation order: keep it that way), `denoise.rs` the
-  module (σ map from `data/noiseprofiles.bin`, built by `scripts/noise-profiles.mjs`;
-  camera `ALIASES` for names rawler gives differently). Tiles are on a fixed grid
+  module (σ map from `data/noiseprofiles.bin`, built by `scripts/noise-profiles.mjs`
+  with `data/noise-profile-aliases.json`: the database names cameras as rawspeed does,
+  not as rawler does, so run the script again after updating rawler). Tiles are on a fixed grid
   (`denoise::TILE`), whatever the machine: don't make it depend on memory or cores, or
   photos denoise differently. The developer denoises beside renders
   (`pipeline/denoising.rs`: `next_denoise_tile` → `denoise::run_tile` anywhere →

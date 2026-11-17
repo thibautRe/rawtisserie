@@ -547,6 +547,13 @@ upstream at `57c1f08d81`, 2026-10-02). The models are trained in
 - **UI:** strength, model size (default by sensor type and device speed), variant, and
   the corrections under an "advanced" fold. Show a progress state while the denoised
   mosaic is computed.
+- **Post-1.0: smaller kept denoised photos.** They're 16-bit floats, about twice a
+  compressed RAW file (85 MB against 43 MB for a 42 MP ARW), so the browser's 4 GB keeps
+  half as many. Try compressing them (`CompressionStream`), or fewer bits in sensor units.
+- **Post-1.0: denoised library images.** Server renders (the grid's previews, the loupe's
+  tiles) and the library's edit previews don't denoise, so the library shows noise the
+  developer doesn't. The browser could send its denoised previews back, or the server
+  denoise once it renders natively (M6).
 
 ### 3.6 Lens correction via lensfun (L, before 1.0)
 
