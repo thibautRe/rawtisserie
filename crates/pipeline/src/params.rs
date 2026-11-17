@@ -1455,12 +1455,43 @@ pub struct Glow {
     pub hue: f32,
     /// Saturation of the tint, 0 (the light's own colour) … 1.
     pub saturation: f32,
+    /// Round, or along one axis: both ways (an anamorphic streak) or one (motion).
+    pub shape: GlowShape,
+    /// Direction of a streak or a motion glow, degrees counterclockwise from the right
+    /// (0: horizontal). A motion glow trails towards it.
+    pub angle: f32,
+    /// Spread across a streak or a motion glow, as a fraction of its spread along, 0 … 1.
+    pub thickness: f32,
 }
 
 impl Default for Glow {
     fn default() -> Self {
-        Self { threshold: 1.5, softness: 0.5, radius: 60.0, falloff: 0.0, strength: 1.5, hue: 20.0, saturation: 0.0 }
+        Self {
+            threshold: 1.5,
+            softness: 0.5,
+            radius: 60.0,
+            falloff: 0.0,
+            strength: 1.5,
+            hue: 20.0,
+            saturation: 0.0,
+            shape: GlowShape::Round,
+            angle: 0.0,
+            thickness: 0.05,
+        }
     }
+}
+
+/// How a glow spreads: [`Glow::shape`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GlowShape {
+    /// Around the lights, the same in every direction.
+    #[default]
+    Round,
+    /// Along an axis, both ways: an anamorphic lens's streaks.
+    Streak,
+    /// Along an axis, one way: a trail, as if the lights moved.
+    Motion,
 }
 
 /// Filmic RGB tone mapping (scene-referred → display-referred), after Ansel.

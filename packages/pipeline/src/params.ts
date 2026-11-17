@@ -124,6 +124,12 @@ export interface ModuleParams {
     hue: number;
     /** Saturation of the tint, 0 (the light's own colour) … 1. */
     saturation: number;
+    /** Round, or along an axis: both ways (an anamorphic streak) or one (motion). */
+    shape: GlowShape;
+    /** Direction of a streak or motion glow, degrees counterclockwise from the right; motion trails towards it. */
+    angle: number;
+    /** Spread across a streak or motion glow, a fraction of its spread along; 0 … 1. */
+    thickness: number;
   };
   exposure: {
     /** Exposure compensation, EV. */
@@ -398,6 +404,9 @@ export const TONE_STRENGTH_MAX = 2;
 export const TONE_CURVE_MAX_OFFSET = 2;
 export const TONE_CURVE_CURVES = ['rgb', 'red', 'green', 'blue'] as const;
 export type ToneCurveCurve = (typeof TONE_CURVE_CURVES)[number];
+/** How a glow spreads. Mirrors `GlowShape`. */
+export const GLOW_SHAPES = ['round', 'streak', 'motion'] as const;
+export type GlowShape = (typeof GLOW_SHAPES)[number];
 export const CURVE_CHANNELS = ['linked', 'independent'] as const;
 export type CurveChannels = (typeof CURVE_CHANNELS)[number];
 /** What a linked tone curve reads, scaled so that a grey's is its value. Mirrors `RgbNorm`. */
@@ -726,7 +735,18 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     chromaDenoise: Array<number>(EQUALIZER_NODES).fill(0),
     mix: 1,
   },
-  glow: { threshold: 1.5, softness: 0.5, radius: 60, falloff: 0, strength: 1.5, hue: 20, saturation: 0 },
+  glow: {
+    threshold: 1.5,
+    softness: 0.5,
+    radius: 60,
+    falloff: 0,
+    strength: 1.5,
+    hue: 20,
+    saturation: 0,
+    shape: 'round',
+    angle: 0,
+    thickness: 0.05,
+  },
   // Ansel's default push for RAW files.
   exposure: { ev: 0.7, black: 0 },
   colorCalibration: {
@@ -1246,6 +1266,10 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
       ? { id: typeof ref.id === 'string' ? ref.id : '', name: typeof ref.name === 'string' ? ref.name : '' }
       : null;
     if (!LUT_INTERPOLATIONS.includes(l.interpolation)) l.interpolation = defaultModuleParams.lut.interpolation;
+  }
+  if (kind === 'glow') {
+    const g = params as ModuleParams['glow'];
+    if (!GLOW_SHAPES.includes(g.shape)) g.shape = defaultModuleParams.glow.shape;
   }
   if (kind === 'toneCurve') {
     const t = params as ModuleParams['toneCurve'];

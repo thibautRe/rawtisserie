@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, MaskPart, MaskView, Overlays};
-use rawtisserie_pipeline::params::{AutoCrop, ContrastEqualizer, Diffuse, Geometry, Glow};
+use rawtisserie_pipeline::params::{AutoCrop, ContrastEqualizer, Diffuse, Geometry, Glow, GlowShape};
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
 fn developer() -> Developer {
@@ -80,6 +80,14 @@ fn regions_match_the_whole_render() {
     glowing.add(Glow { threshold: 0.5, radius: 120.0, strength: 2.0, saturation: 0.6, ..Glow::default() });
     glowing.add(Glow { threshold: 1.0, radius: 8.0, strength: 3.0, ..Glow::default() });
     check("glow", &glowing, RenderSize::fit(1500, 1500));
+    // Along an axis: on a turned grid fixed in the frame.
+    let mut streaks = p.clone();
+    streaks.add(Glow { threshold: 0.5, radius: 200.0, strength: 2.0, shape: GlowShape::Streak, angle: 20.0, thickness: 0.02, ..Glow::default() });
+    streaks.add(Glow { threshold: 1.0, radius: 60.0, strength: 2.0, shape: GlowShape::Motion, angle: -125.0, ..Glow::default() });
+    // Without the display indicator, as for perspective below: a pixel within the level
+    // allowed lands on either side of its threshold.
+    let no_display = Overlays { display: None, ..OVERLAYS };
+    check_with("streak and motion glow", &streaks, RenderSize::fit(1500, 1500), &no_display);
 
     // Diffuse or sharpen: iterated, so its margin is its reach times the iterations.
     // Ansel's "lens deblur: soft", and "inpaint highlights" (noise seeded by frame

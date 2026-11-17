@@ -30,6 +30,8 @@ import {
   denoiseModelId,
   denoiseUpgradable,
   BLEACH_LEVELS,
+  GLOW_SHAPES,
+  type GlowShape,
   type Bleach,
   FLUORESCENTS,
   type Fluorescent,
@@ -739,6 +741,13 @@ const NORMALIZE_KEYS = {
  */
 const HUE_SHIFT_90 = sinhCurve(90, 4.5);
 const HUE_SHIFT_180 = sinhCurve(180, 4.5);
+/** Glow shapes, as the tabs show them. */
+const GLOW_SHAPE_LABELS: Record<GlowShape, string> = { round: 'Round', streak: 'Streak', motion: 'Motion' };
+const GLOW_SHAPE_TITLES: Record<GlowShape, string> = {
+  round: 'Around the lights, the same in every direction',
+  streak: 'Along an axis, both ways: an anamorphic lens’s streaks',
+  motion: 'Along an axis, one way: a trail, as if the lights moved',
+};
 /** Glow radius: fine at the small radii of halation, coarse up to large blooms. */
 const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
 /** Diffuse or sharpen's radii, 0 … 1024 px: Ansel's presets go from 1 to 512. */
@@ -2906,6 +2915,18 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
 
       {sections('glow', [], (e) => (
         <>
+          <HStack gap="2" alignItems="baseline">
+            <Text textStyle="2xs" color="fg.subtle" flexShrink={0}>
+              Shape
+            </Text>
+            <CompactTabs label="Glow shape" value={e.values.shape} onChange={(shape) => e.set({ shape })}>
+              {GLOW_SHAPES.map((s) => (
+                <CompactTab key={s} value={s} title={GLOW_SHAPE_TITLES[s]}>
+                  {GLOW_SHAPE_LABELS[s]}
+                </CompactTab>
+              ))}
+            </CompactTabs>
+          </HStack>
           <ParamSlider
             label="Threshold"
             min={-4}
@@ -2938,6 +2959,30 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             }
             {...e.bind('falloff')}
           />
+          {e.values.shape !== 'round' && (
+            <>
+              <ParamSlider
+                key={`angle-${e.values.shape}`}
+                label="Angle"
+                min={e.values.shape === 'streak' ? -90 : -180}
+                max={e.values.shape === 'streak' ? 90 : 180}
+                hardMin={-180}
+                hardMax={180}
+                step={0.5}
+                format={degrees}
+                {...e.bind('angle')}
+              />
+              <ParamSlider
+                label="Thickness"
+                {...percent}
+                max={0.5}
+                hardMax={1}
+                step={0.005}
+                format={(v) => `${(v * 100).toFixed(1)} %`}
+                {...e.bind('thickness')}
+              />
+            </>
+          )}
           <ParamSlider
             label="Strength"
             min={0}

@@ -995,6 +995,16 @@ A kind that's absent is off, so adding one needs no recipe version bump.
 > tight halo (the narrowest 64× the widest) to a long tail; 0 weighs them equally. The
 > threshold's soft knee is labelled "Threshold softness": it's about which pixels glow,
 > not the glow's shape. Not done: the later items below.
+>
+> Streaks and motion done 2026-11-17 (from NOTES.md): a shape (round, streak, motion),
+> an angle and a thickness (the spread across, a fraction of the spread along). Along an
+> axis, the bright pass is splatted onto a grid turned to it, fixed in the frame (so
+> regions match), as coarse along the axis as the narrowest Gaussian allows and 1 px
+> across; blurred there (running sums in f64: long rows drift otherwise) and read back
+> bilinearly. Motion's Gaussians are half as wide and moved their width towards the
+> angle: a trail starting at the light. Presets "Anamorphic streak" and "Motion trail";
+> the round presets set the shape back. Cost at 2400 px: ~70 ms more than round for a
+> level streak, ~190 ms for motion at 30°.
 
 Light spreading out of the brightest parts of the image: bloom around lamps, windows
 and specular highlights, film halation (a red to orange fringe), diffusion filters
@@ -1024,7 +1034,7 @@ result lands, not which pixels give off light: the blur still reads everything.
   and it replaces the image rather than adding light. When it's ported, its preset
   should be called something like "soft diffusion", so there aren't two blooms.
 - **Presets:** bloom, halation, mist, black mist.
-- Later: other kernel shapes (anamorphic streaks, starbursts), energy conservation (take
+- Later: other kernel shapes (~~anamorphic streaks~~, starbursts), energy conservation (take
   the light that glows away from its source).
 
 ### 4.6 Tone curve (M, before 1.0)

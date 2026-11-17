@@ -669,6 +669,7 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     falloff: 0.3,
     strength: 2.5,
     saturation: 0,
+    shape: 'round',
   }),
   // Film halation: a red to orange fringe around the brightest highlights.
   builtIn('glow', 'halation', 'Halation', {
@@ -679,6 +680,7 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     strength: 3,
     hue: 10,
     saturation: 1,
+    shape: 'round',
   }),
   // Diffusion filters: a haze over most of the image (Pro-Mist), or only the brighter
   // parts, keeping the shadows deep (Black Pro-Mist).
@@ -689,6 +691,7 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     falloff: 0.5,
     strength: 0.4,
     saturation: 0,
+    shape: 'round',
   }),
   builtIn('glow', 'black-mist', 'Black mist', {
     threshold: 0.5,
@@ -697,6 +700,31 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     falloff: 0,
     strength: 0.6,
     saturation: 0,
+    shape: 'round',
+  }),
+  // Along an axis: an anamorphic lens's blue streaks, and lights trailing as if they moved.
+  builtIn('glow', 'anamorphic-streak', 'Anamorphic streak', {
+    threshold: 2.5,
+    softness: 0.5,
+    radius: 400,
+    falloff: 0.3,
+    strength: 2,
+    hue: 215,
+    saturation: 0.7,
+    shape: 'streak',
+    angle: 0,
+    thickness: 0.01,
+  }),
+  builtIn('glow', 'motion', 'Motion trail', {
+    threshold: 2,
+    softness: 0.5,
+    radius: 150,
+    falloff: 0.3,
+    strength: 1.5,
+    saturation: 0,
+    shape: 'motion',
+    angle: 0,
+    thickness: 0.05,
   }),
   // Darker shadows and brighter highlights around middle grey (nodes every 1.5 EV from
   // -9 EV), back to no change at the ends.

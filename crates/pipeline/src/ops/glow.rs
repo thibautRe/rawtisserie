@@ -23,11 +23,19 @@
 //! are aligned on the whole frame, not on the image given, so that a region of the
 //! frame gets the same glow as the whole. Only the box around the pixels above the
 //! threshold (plus the reach) is computed: the rest of the bright pass is 0.
+//!
+//! A streak or a motion glow (`shape`) spreads along an axis at `angle` instead: each
+//! Gaussian is `thickness` times as wide across it. A streak's Gaussians are centred on
+//! the light; a motion glow's are half as wide and as far from the light as they were
+//! wide, towards `angle`, so that together they make a trail starting at the light. They're
+//! computed on a grid turned to the axis (bilinear in and out), whose points are fixed in
+//! the frame, so that a region gets the same glow as the whole. No reduced copies there:
+//! the blurs are running sums, whatever their width.
 
 use crate::color::luminance;
 use crate::image::{Image, Rgb};
 use crate::ops::filters;
-use crate::params::Glow;
+use crate::params::{Glow, GlowShape};
 
 /// Middle grey, which the threshold is an EV offset from.
 const GREY: f32 = 0.1845;
@@ -49,6 +57,21 @@ pub struct GlowOp {
     octaves: [(u32, f32, f32); OCTAVES],
     /// Strength × tint, per channel.
     gain: Rgb,
+    /// A streak or a motion glow, instead of `octaves`.
+    axis: Option<Axis>,
+}
+
+/// A glow along an axis (a streak, or motion).
+#[derive(Clone, Copy, Debug)]
+struct Axis {
+    /// The axis's direction in the frame (x right, y down): `(cos, -sin)` of the angle.
+    cos: f32,
+    sin: f32,
+    /// The grid's spacing along the axis, in pixels (1 across it).
+    step: usize,
+    /// Each Gaussian on the grid: its sigma along the axis (in steps) and across it, how
+    /// far along it's centred from the light (in steps), and its weight.
+    octaves: [(f32, f32, f32, f32); OCTAVES],
 }
 
 impl GlowOp {
@@ -68,8 +91,36 @@ impl GlowOp {
             let reduced = if level == 0 { sigma } else { (sigma * sigma - d * d / 4.0).max(0.0).sqrt() / d };
             (level, reduced, weights[i] / total)
         });
+        let thickness = p.thickness.clamp(0.0, 1.0);
+        let axis = (p.shape != GlowShape::Round).then(|| {
+            let motion = p.shape == GlowShape::Motion;
+            let (sin, cos) = p.angle.to_radians().sin_cos();
+            let along = |i: usize| widest * 0.5f32.powi(i as i32) * if motion { 0.5 } else { 1.0 };
+            // As coarse along the axis as the narrowest Gaussian allows.
+            let level = ((along(OCTAVES - 1) / MIN_SIGMA).max(1.0).log2().floor() as u32).min(MAX_LEVEL);
+            let d = (1u32 << level) as f32;
+            // Splatting onto the grid and interpolating back each add a tent's variance,
+            // d²/6 along and 1/6 across.
+            let reduced = |sigma: f32, d: f32| (sigma * sigma - d * d / 3.0).max(0.0).sqrt() / d;
+            Axis {
+                cos,
+                sin,
+                step: 1 << level,
+                octaves: std::array::from_fn(|i| {
+                    let sigma = widest * 0.5f32.powi(i as i32);
+                    let offset = if motion { sigma } else { 0.0 };
+                    (reduced(along(i), d), reduced(thickness * sigma, 1.0), offset / d, weights[i] / total)
+                }),
+            }
+        });
         let tint = tint(p.hue, p.saturation);
-        Self { threshold, knee: p.softness.clamp(0.0, 1.0) * threshold, octaves, gain: tint.map(|c| c * p.strength.max(0.0)) }
+        Self {
+            threshold,
+            knee: p.softness.clamp(0.0, 1.0) * threshold,
+            octaves,
+            gain: tint.map(|c| c * p.strength.max(0.0)),
+            axis,
+        }
     }
 
     /// Whether it changes the image.
@@ -79,11 +130,21 @@ impl GlowOp {
 
     /// The size of the cells of the coarsest reduced copy, in pixels.
     fn cell(&self) -> usize {
+        if self.axis.is_some() {
+            return 1;
+        }
         1 << self.octaves.iter().map(|o| o.0).max().unwrap_or(0)
     }
 
     /// How far, in pixels, it reads around each pixel.
     pub fn reach(&self) -> usize {
+        if let Some(axis) = &self.axis {
+            // The blurs, the offset, and the steps onto the turned grid and back.
+            let each = axis.octaves.iter().map(|&(along, across, offset, _)| {
+                ((offset.ceil() as usize + filters::box_reach(along) + 2) * axis.step).max(filters::box_reach(across) + 2)
+            });
+            return each.max().unwrap_or(0);
+        }
         let each = self.octaves.iter().map(|&(level, sigma, _)| {
             let d = 1usize << level;
             // The blur, the averaged cells and the interpolation's neighbour.
@@ -141,7 +202,11 @@ impl GlowOp {
             }
             px.extend_from_slice(&row);
         }
-        let mut levels = vec![Level { w: bw, h: bh, px }];
+        let bright = Level { w: bw, h: bh, px };
+        if let Some(axis) = &self.axis {
+            return self.apply_along(axis, img, origin, (fx0, fy0), &bright);
+        }
+        let mut levels = vec![bright];
         let top = self.octaves.iter().map(|o| o.0).max().unwrap_or(0);
         for _ in 0..top {
             let half = levels.last().expect("level 0 is there").half();
@@ -174,6 +239,77 @@ impl GlowOp {
                     let (a, b) = (row[i0], row[i1]);
                     (0..3).for_each(|c| p[c] += a[c] + (b[c] - a[c]) * s);
                 }
+            }
+        }
+    }
+
+    /// A streak or a motion glow: `bright` (the bright pass from `corner` in the frame)
+    /// spread along the axis on a turned grid, added to `img` (at `origin` in the frame).
+    ///
+    /// The bright pass is splatted onto the grid (bilinearly, each pixel's light shared
+    /// between the 4 points around it), whose points are `step` pixels apart along the
+    /// axis and 1 across, at whole steps from the frame's origin: a region's grid is the
+    /// whole's. Blurred there, it's read back bilinearly.
+    fn apply_along(&self, axis: &Axis, img: &mut Image, origin: (usize, usize), corner: (usize, usize), bright: &Level) {
+        let (c, s, d) = (axis.cos, axis.sin, axis.step as f32);
+        // Frame (x right, y down) to the grid: u along the axis (in steps), v across it.
+        let to_grid = |x: f32, y: f32| ((x * c - y * s) / d, x * s + y * c);
+        let (fx0, fy0) = (corner.0 as f32, corner.1 as f32);
+        let (fx1, fy1) = (fx0 + (bright.w - 1) as f32, fy0 + (bright.h - 1) as f32);
+        let corners = [(fx0, fy0), (fx1, fy0), (fx0, fy1), (fx1, fy1)].map(|(x, y)| to_grid(x, y));
+        let u0 = corners.iter().map(|p| p.0).fold(f32::MAX, f32::min).floor() - 1.0;
+        let v0 = corners.iter().map(|p| p.1).fold(f32::MAX, f32::min).floor() - 1.0;
+        let u1 = corners.iter().map(|p| p.0).fold(f32::MIN, f32::max).ceil() + 1.0;
+        let v1 = corners.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil() + 1.0;
+        let (gw, gh) = ((u1 - u0) as usize + 1, (v1 - v0) as usize + 1);
+
+        let mut grid = vec![[0.0f32; 3]; gw * gh];
+        for (by, row) in bright.px.chunks_exact(bright.w).enumerate() {
+            for (bx, p) in row.iter().enumerate() {
+                if *p == [0.0; 3] {
+                    continue;
+                }
+                let (u, v) = to_grid(fx0 + bx as f32, fy0 + by as f32);
+                let (u, v) = (u - u0, v - v0);
+                let (i, j) = (u as usize, v as usize);
+                let (tu, tv) = (u - i as f32, v - j as f32);
+                for (k, wk) in [(j * gw + i, (1.0 - tu) * (1.0 - tv)), (j * gw + i + 1, tu * (1.0 - tv)), ((j + 1) * gw + i, (1.0 - tu) * tv), ((j + 1) * gw + i + 1, tu * tv)] {
+                    let g = &mut grid[k];
+                    (0..3).for_each(|ch| g[ch] += p[ch] * wk);
+                }
+            }
+        }
+
+        let mut sum = vec![[0.0f32; 3]; gw * gh];
+        let mut blurred = grid.clone();
+        for &(along, across, offset, weight) in &axis.octaves {
+            blurred.copy_from_slice(&grid);
+            filters::box_blur_rgb_xy(&mut blurred, gw, gh, along, across);
+            // A grid point holds the light of `step` pixels.
+            let gain = self.gain.map(|g| g * weight / d);
+            // Moved `offset` along the axis (a motion glow's trail), between grid points.
+            let (whole, t) = (offset.floor() as usize, offset.fract());
+            for (out, src) in sum.chunks_exact_mut(gw).zip(blurred.chunks_exact(gw)) {
+                for i in whole..gw {
+                    let a = src[i - whole];
+                    let b = if i > whole { src[i - whole - 1] } else { a };
+                    (0..3).for_each(|k| out[i][k] += gain[k] * (a[k] + (b[k] - a[k]) * t));
+                }
+            }
+        }
+
+        // Back to the frame, over the box (no light reaches further).
+        let sum = Level { w: gw, h: gh, px: sum };
+        let (ox, oy) = origin;
+        let (w, h) = (img.width, img.height);
+        let (ix0, iy0) = (corner.0.saturating_sub(ox), corner.1.saturating_sub(oy));
+        let (ix1, iy1) = ((corner.0 + bright.w - ox).min(w), (corner.1 + bright.h - oy).min(h));
+        for y in iy0..iy1 {
+            for x in ix0..ix1 {
+                let (u, v) = to_grid((ox + x) as f32, (oy + y) as f32);
+                let g = bilinear(&sum, u - u0, v - v0);
+                let p = &mut img.pixels[y * w + x];
+                (0..3).for_each(|k| p[k] += g[k]);
             }
         }
     }
@@ -217,6 +353,22 @@ impl Level {
             .collect();
         Level { w, h, px }
     }
+}
+
+/// `level` at `(x, y)`, between its pixels (edges repeated past it).
+fn bilinear(level: &Level, x: f32, y: f32) -> Rgb {
+    let x = x.clamp(0.0, (level.w - 1) as f32);
+    let y = y.clamp(0.0, (level.h - 1) as f32);
+    let (x0, y0) = (x as usize, y as usize);
+    let (x1, y1) = ((x0 + 1).min(level.w - 1), (y0 + 1).min(level.h - 1));
+    let (tx, ty) = (x - x0 as f32, y - y0 as f32);
+    let at = |x: usize, y: usize| level.px[y * level.w + x];
+    let (a, b, c, d) = (at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1));
+    std::array::from_fn(|k| {
+        let top = a[k] + (b[k] - a[k]) * tx;
+        let bottom = c[k] + (d[k] - c[k]) * tx;
+        top + (bottom - top) * ty
+    })
 }
 
 /// The tint: white desaturated towards the hue (HSV, in the working space's primaries),
@@ -374,6 +526,97 @@ mod tests {
         let (near, far) = (|i: &Image| i.get(83, 80)[1], |i: &Image| i.get(120, 80)[1]);
         assert!(near(&tight) > near(&even) && near(&even) > near(&long));
         assert!(far(&long) > far(&even) && far(&even) > far(&tight));
+    }
+
+    /// A single light in the middle of a dark frame, glowing with `p` (green: the glow
+    /// alone), 16 px wide unless `p` says otherwise.
+    fn one_light(p: Glow) -> Image {
+        let radius = if p.radius == Glow::default().radius { 16.0 } else { p.radius };
+        let (w, h) = (201, 201);
+        let mut img = Image { width: w, height: h, pixels: vec![[0.0; 3]; w * h] };
+        img.pixels[100 * w + 100] = [100.0; 3];
+        op(Glow { threshold: 2.0, softness: 0.0, radius, strength: 1.0, ..p }).apply(&mut img, (0, 0));
+        img.pixels[100 * w + 100][1] -= 100.0;
+        img
+    }
+
+    #[test]
+    fn a_streak_spreads_along_its_axis_and_keeps_the_total() {
+        let total = |i: &Image| i.pixels.iter().map(|p| p[1]).sum::<f32>();
+        let round = one_light(Glow::default());
+        let flat = one_light(Glow { shape: GlowShape::Streak, thickness: 0.05, ..Glow::default() });
+        assert!((total(&flat) / total(&round) - 1.0).abs() < 0.01, "{} {}", total(&flat), total(&round));
+        // Along (both ways alike), and hardly across.
+        let g = |x: usize, y: usize| flat.get(x, y)[1];
+        assert!(g(130, 100) > 50.0 * g(100, 130), "{} {}", g(130, 100), g(100, 130));
+        assert!((g(130, 100) / g(70, 100) - 1.0).abs() < 1e-3);
+        // Turned a quarter: vertical.
+        let up = one_light(Glow { shape: GlowShape::Streak, angle: 90.0, ..Glow::default() });
+        assert!((up.get(100, 130)[1] / g(130, 100) - 1.0).abs() < 1e-3, "{} {}", up.get(100, 130)[1], g(130, 100));
+    }
+
+    #[test]
+    fn a_motion_glow_trails_one_way() {
+        // 90°: up the frame.
+        let img = one_light(Glow { shape: GlowShape::Motion, angle: 90.0, ..Glow::default() });
+        let g = |x: usize, y: usize| img.get(x, y)[1];
+        assert!(g(100, 80) > 20.0 * g(100, 120), "{} {}", g(100, 80), g(100, 120));
+        assert!(g(100, 80) > 20.0 * g(120, 100), "{} {}", g(100, 80), g(120, 100));
+        assert!(g(100, 90) > g(100, 70), "{} {}", g(100, 90), g(100, 70));
+    }
+
+    #[test]
+    fn a_region_gets_the_same_streak() {
+        const REGION: (usize, usize, usize, usize) = (0, 0, 850, 750);
+        let (w, h) = (900, 800);
+        let mut whole = Image { width: w, height: h, pixels: vec![[0.05; 3]; w * h] };
+        for (x, y) in [(400, 380), (460, 430), (530, 370)] {
+            for j in y..y + 6 {
+                whole.pixels[j * w + x..j * w + x + 8].fill([3.0, 2.0, 1.5]);
+            }
+        }
+        // A grid as fine as the frame's pixels, and a coarser one.
+        for (shape, radius) in [(GlowShape::Streak, 100.0)].into_iter().chain( [(GlowShape::Streak, 20.0), (GlowShape::Motion, 20.0), (GlowShape::Streak, 80.0), (GlowShape::Motion, 90.0)]) {
+            let mut whole = whole.clone();
+            for angle in [33.0, -125.0, 160.0, -60.0] {
+            let mut whole = whole.clone();
+            let g = op(Glow { radius, strength: 2.0, shape, angle, thickness: 0.1, ..Glow::default() });
+            let reach = g.reach();
+            let (rx, ry, rw, rh) = REGION;
+            let mut part = whole.crop(crate::image::Region { x: rx, y: ry, width: rw, height: rh });
+            g.apply(&mut whole, (0, 0));
+            g.apply(&mut part, (rx, ry));
+            assert!(reach < 350, "{reach}");
+            let mut worst = 0.0f32;
+            for y in reach..rh - reach {
+                for x in reach..rw - reach {
+                    let (a, b) = (part.get(x, y), whole.get(rx + x, ry + y));
+                    worst = (0..3).fold(worst, |m, c| m.max((a[c] - b[c]).abs()));
+                }
+            }
+            assert!(worst < 1e-4, "{shape:?} {radius} {angle}: {worst}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_coarse_grid_keeps_the_streak() {
+        // Long enough for the grid to be coarser than the pixels along the axis: the light
+        // along the row is still the four Gaussians'.
+        let (w, h) = (801, 41);
+        let mut img = Image { width: w, height: h, pixels: vec![[0.0; 3]; w * h] };
+        img.pixels[20 * w + 400] = [100.0; 3];
+        let p = Glow { threshold: 2.0, softness: 0.0, radius: 80.0, strength: 1.0, shape: GlowShape::Streak, thickness: 0.0, ..Glow::default() };
+        assert!(op(p).axis.unwrap().step >= 4);
+        op(p).apply(&mut img, (0, 0));
+        let light = 100.0 - GREY * 4.0;
+        let gauss = |x: f32, s: f32| (-0.5 * x * x / (s * s)).exp() / (s * (2.0 * std::f32::consts::PI).sqrt());
+        // Three box blurs make a Gaussian's tail a little off, beyond 1.5 sigma.
+        for (x, within) in [(5.0, 0.08), (20.0, 0.08), (60.0, 0.08), (150.0, 0.15)] {
+            let expected = light * (0..4).map(|i| 0.25 * gauss(x, 80.0 / (1 << i) as f32)).sum::<f32>();
+            let got = img.get(400 + x as usize, 20)[1];
+            assert!((got / expected - 1.0).abs() < within, "{x}: {got} {expected}");
+        }
     }
 
     #[test]

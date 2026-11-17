@@ -5,7 +5,7 @@
 use std::time::Instant;
 
 use rawtisserie_pipeline::params::{
-    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, Diffuse, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, Illuminant, Mask, Module, Shape, ToneCurve,
+    BlendMode, ColorBalance, ColorCalibration, ColorPrimaries, ContrastEqualizer, Diffuse, DrawnShape, EditParams, Exposure, Filmic, Geometry, Glow, GlowShape, Illuminant, Mask, Module, Shape, ToneCurve,
 };
 use rawtisserie_pipeline::ops::clipping::{DisplayClipping, Overlays};
 use rawtisserie_pipeline::{Developer, Quality, Region, RenderSize};
@@ -142,6 +142,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         g.threshold = -1.0;
     }
     time("glow, low threshold (full)", &mut dev, &p);
+    // Along an axis, on a turned grid: level, then at an angle (a larger grid).
+    if let Module::Glow(g) = &mut p.modules[glow].module {
+        (g.threshold, g.radius, g.shape, g.thickness) = (1.5, 400.0, GlowShape::Streak, 0.01);
+    }
+    time("glow, streak (full)", &mut dev, &p);
+    if let Module::Glow(g) = &mut p.modules[glow].module {
+        (g.shape, g.angle) = (GlowShape::Motion, 30.0);
+    }
+    time("glow, motion at 30° (full)", &mut dev, &p);
     p.modules[glow].enabled = false;
 
     // Diffuse or sharpen, with some of Ansel's presets: one iteration, then many.
