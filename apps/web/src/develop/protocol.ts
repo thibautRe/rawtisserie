@@ -56,6 +56,13 @@ export type WorkerRequest =
   | { type: 'parseLut'; id: number; bytes: ArrayBuffer }
   /** Open a denoised photo kept by the page (`DenoiseEvent` `denoised`), without its RAW file. */
   | { type: 'loadDenoised'; id: number; bytes: ArrayBuffer }
+  /**
+   * The colour picker: where the pointer is over the image (normalised in the whole
+   * frame), or null when it left. Taken in at once; the worker samples between messages.
+   */
+  | { type: 'pointer'; id: number; at: [number, number] | null }
+  /** The colour picker's pinned samples (the pipette), normalised in the whole frame. */
+  | { type: 'pins'; id: number; pins: [number, number][] }
   /** A raw denoise model the worker asked for (`needModel`), or null if it can't be had. */
   | { type: 'denoiseModel'; id: number; model: string; bytes: ArrayBuffer | null }
   /** The RAW file, for a photo opened from a denoised file (`needOriginal`). */
@@ -167,7 +174,23 @@ export type WorkerResponse =
   /** Done, with nothing to say (`denoiseModel`, `setOriginal`). */
   | { type: 'done'; id: number }
   /** Unasked (`id` 0). */
-  | { type: 'denoise'; id: 0; event: DenoiseEvent };
+  | { type: 'denoise'; id: 0; event: DenoiseEvent }
+  /** The pixel under the pointer (`pointer`), again after each render; null when there's none to read. */
+  | { type: 'sample'; id: 0; sample: PixelSample | null; pins: (PixelSample | null)[] };
+
+/** One pixel of the render (`Developer::sample`). */
+export interface PixelSample {
+  /** Where it is, normalised in the whole frame (the pointer's place). */
+  at: [number, number];
+  /** As the render shows it (8-bit, encoded), without the clipping indicators. */
+  display: [number, number, number];
+  /** Filmic's input: scene-referred linear Rec.2020. */
+  scene: [number, number, number];
+  /** Its luminance, EV relative to middle grey. */
+  sceneEv: number;
+  /** What the tone curve and colour balance instances read there, EV relative to middle grey. */
+  reads: { id: string; ev: number[] }[];
+}
 
 /** From the pipeline worker to a worker of its denoise pool (`denoisePool.ts`). */
 export type DenoiseRequest =

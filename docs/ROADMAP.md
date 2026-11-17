@@ -330,6 +330,19 @@ panels are laid out and navigated.
 
 ### 2.7 Colour picker, always on (M–L, from NOTES.md)
 
+> **Done** 2026-11-17. The pixel under the pointer, always: in the status bar (8-bit RGB,
+> CIE LCh of the displayed colour, scene luminance in EV before tone mapping), marked in
+> the scopes (levels on the waveform and parade, a ring on the vectorscope), in the tone
+> curve (what it reads: norm, mask or channels) and in colour balance's range graph. The
+> pipette (I, or its button in the status bar) pins up to 4 samples with a click (a click
+> on one removes it), kept in sensor coordinates for the session, numbered on the image,
+> in the scopes and graphs, with their values floating over the bottom of the image.
+> `Developer::sample` reads one pixel of the cached spatial image through the point
+> modules (nothing when that cache is cold: no render); the worker samples between
+> messages and after each render, so values follow edits. No cost on drags (`test:perf`,
+> against the previous commit). Not done: pins kept across sessions, a readout next to the
+> pointer.
+
 Added 2026-11-17. Whatever is under the pointer in the developer, as it moves: its
 values, where it sits in the scopes, and where it sits in the modules that show data
 about the image (the tone curve's histogram and nodes, colour balance's settings graph).

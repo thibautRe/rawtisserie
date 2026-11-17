@@ -15,6 +15,7 @@ import type {
   ParsedLut,
   PerspectiveCorrection,
   PerspectiveFit,
+  PixelSample,
   Region,
   ToneCurveInput,
   WorkerRequest,
@@ -40,6 +41,7 @@ export class LocalRenderBackend implements RenderBackend {
   private denoiseSource: DenoiseSource | null = null;
   private denoiseListeners = new Set<(status: DenoiseStatus) => void>();
   private denoiseStatus: DenoiseStatus | null = null;
+  private sampleListeners = new Set<(sample: PixelSample | null, pins: (PixelSample | null)[]) => void>();
 
   /** Without `pool`, renders run on the pipeline worker alone (exports, several at once). */
   constructor({ pool = true }: { pool?: boolean } = {}) {
@@ -55,6 +57,10 @@ export class LocalRenderBackend implements RenderBackend {
       // `startWorker` resolved: from here, every message is an answer.
       worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
         if (e.data.type === 'denoise') return this.onDenoiseEvent(e.data.event);
+        if (e.data.type === 'sample') {
+          for (const l of this.sampleListeners) l(e.data.sample, e.data.pins);
+          return;
+        }
         const p = this.pending.get(e.data.id);
         if (!p) return;
         this.pending.delete(e.data.id);
@@ -85,6 +91,20 @@ export class LocalRenderBackend implements RenderBackend {
 
   setLutSource(source: LutSource) {
     this.lutSource = source;
+  }
+
+  pointer(at: [number, number] | null) {
+    // Fire and forget: the answer comes as `sample` events.
+    void this.worker.then((worker) => worker.postMessage({ type: 'pointer', id: 0, at } satisfies WorkerRequest));
+  }
+
+  pins(pins: [number, number][]) {
+    void this.worker.then((worker) => worker.postMessage({ type: 'pins', id: 0, pins } satisfies WorkerRequest));
+  }
+
+  onSample(listener: (sample: PixelSample | null, pins: (PixelSample | null)[]) => void) {
+    this.sampleListeners.add(listener);
+    return () => void this.sampleListeners.delete(listener);
   }
 
   setDenoiseSource(source: DenoiseSource) {

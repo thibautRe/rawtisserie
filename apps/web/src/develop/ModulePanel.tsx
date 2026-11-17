@@ -141,7 +141,8 @@ import { InfoTip } from '../components/InfoTip.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
-import { CurveEditor } from './CurveEditor.tsx';
+import { CurveEditor, CurveMarks } from './CurveEditor.tsx';
+import { useModuleReads } from './picker.ts';
 import type { PresetInput } from '../api/hooks.ts';
 import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
 import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './presets.tsx';
@@ -920,7 +921,13 @@ const RANGE_GRAPH_EV = [-10, 8] as const;
  * settings it draws.
  */
 const RangeGraph = memo(
-  ({ p }: { p: Pick<Balance, 'fulcrum' | 'midtonesRange' | 'shadowsFalloff' | 'highlightsFalloff'> }) => {
+  ({
+    id,
+    p,
+  }: {
+    id: string;
+    p: Pick<Balance, 'fulcrum' | 'midtonesRange' | 'shadowsFalloff' | 'highlightsFalloff'>;
+  }) => {
     const [lo, hi] = RANGE_GRAPH_EV;
     const [width, height, n] = [240, 48, 96];
     const x = (ev: number) => ((ev - lo) / (hi - lo)) * width;
@@ -931,7 +938,8 @@ const RangeGraph = memo(
         return `${i ? 'L' : 'M'}${x(ev).toFixed(1)},${y.toFixed(1)}`;
       }).join('');
     return (
-      <Stack gap="0.5">
+      <Stack gap="0.5" position="relative">
+        <RangeMark id={id} p={p} width={width} height={height} />
         <svg
           viewBox={`0 0 ${width} ${height}`}
           width="100%"
@@ -962,11 +970,104 @@ const RangeGraph = memo(
     );
   },
   (a, b) =>
+    a.id === b.id &&
     a.p.fulcrum === b.p.fulcrum &&
     a.p.midtonesRange === b.p.midtonesRange &&
     a.p.shadowsFalloff === b.p.shadowsFalloff &&
     a.p.highlightsFalloff === b.p.highlightsFalloff,
 );
+
+/**
+ * The colour picker over colour balance's range graph (roadmap 2.7): the input luminance
+ * of the pixel under the pointer, and the weights there. Reads the sample store itself.
+ */
+function RangeMark({
+  id,
+  p,
+  width,
+  height,
+}: {
+  id: string;
+  p: Pick<Balance, 'fulcrum' | 'midtonesRange' | 'shadowsFalloff' | 'highlightsFalloff'>;
+  width: number;
+  height: number;
+}) {
+  const reads = useModuleReads(id);
+  if (!reads.length) return null;
+  const [lo, hi] = RANGE_GRAPH_EV;
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width="100%"
+      height={height}
+      preserveAspectRatio="none"
+      style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+      aria-hidden
+      data-range-mark
+    >
+      {reads.map(({ value, pin }, n) => {
+        const ev = Math.min(hi, Math.max(lo, value[0]!));
+        const x = ((ev - lo) / (hi - lo)) * width;
+        const weights = toneRangeWeights(p, ev);
+        return (
+          <g key={n}>
+            <line
+              x1={x}
+              x2={x}
+              y1={0}
+              y2={height}
+              stroke="var(--chakra-colors-fg)"
+              strokeOpacity={pin ? 0.4 : 0.7}
+              strokeDasharray={pin ? '2 2' : undefined}
+              vectorEffect="non-scaling-stroke"
+            />
+            {TONE_RANGES.map((r, k) => (
+              <line
+                key={r}
+                x1={x}
+                x2={x}
+                y1={2 + (1 - weights[k]!) * (height - 4) - 0.01}
+                y2={2 + (1 - weights[k]!) * (height - 4) + 0.01}
+                stroke={RANGE_COLORS[r]}
+                strokeWidth={pin ? 4 : 6}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** The colour picker's marks over the tone curve (roadmap 2.7): what it reads under the pointer. Reads the sample store itself. */
+function ToneMarks({
+  id,
+  range,
+  values,
+  channel,
+}: {
+  id: string;
+  range: readonly [number, number] | readonly number[];
+  values: readonly number[];
+  /** Independent curves: the channel shown. */
+  channel: number | null;
+}) {
+  const reads = useModuleReads(id);
+  if (!reads.length) return null;
+  const [lo, hi] = [range[0]!, range[1]!];
+  const at = (v: number) => (v - lo) / (hi - lo);
+  const colors = TONE_CHANNELS.map((c) => TONE_CHANNEL_COLORS[c]);
+  const marks = reads.flatMap(({ value: ev, pin }) =>
+    ev.length === 1
+      ? [{ at: at(ev[0]!), color: 'var(--chakra-colors-fg)', pin }]
+      : channel !== null
+        ? [{ at: at(ev[channel]!), color: colors[channel]!, pin }]
+        : ev.map((v, k) => ({ at: at(v), color: colors[k]!, pin })),
+  );
+  return <CurveMarks values={values} marks={marks} />;
+}
 
 /**
  * Tabs that choose what a module's panel shows (not the image), with a dot on those whose
@@ -2273,7 +2374,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             )}
             {page === 'settings' && (
               <>
-                <RangeGraph p={v} />
+                <RangeGraph id={e.id} p={v} />
                 {/* The graph's legend, and toggles for the overlay. */}
                 <ButtonGroup size="2xs" variant="outline" attached w="full">
                   {TONE_RANGES.map((r, i) => (
@@ -2605,6 +2706,14 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 left={signedEv(range[0])}
                 right={signedEv(range[1])}
                 histogram={bins && toneHistogram(bins, range)}
+                overlay={
+                  <ToneMarks
+                    id={e.id}
+                    range={range}
+                    values={toneToUnit(v[key])}
+                    channel={independent ? TONE_CHANNELS.indexOf(key as ToneChannel) : null}
+                  />
+                }
                 onFocusChange={(node) => updateView({ node })}
                 color={independent ? TONE_CHANNEL_COLORS[key as ToneChannel] : undefined}
                 others={

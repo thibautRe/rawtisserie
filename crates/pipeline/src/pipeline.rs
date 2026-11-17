@@ -26,7 +26,9 @@ use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic,
 use crate::Result;
 
 mod denoising;
+mod sample;
 pub use denoising::{DenoiseJob, DenoiseKey, DenoiseStatus};
+pub use sample::{ModuleRead, PixelSample};
 
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
 /// for 99.9 % of pixels); final renders (exports, thumbnails) are exact.

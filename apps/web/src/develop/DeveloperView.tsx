@@ -15,11 +15,13 @@ import {
   exportFilename,
   exportOptions,
   findModule,
+  fromSensor,
   hasPendingAutoTune,
   illuminantFromXy,
   resolveAutoTunes,
   roundFilmicExposure,
   roundToneRange,
+  toSensor,
   updateInstance,
   updateModule,
 } from '@rawtisserie/pipeline';
@@ -55,6 +57,8 @@ import { CopyEditsDialog, CreateStyleDialog, type StyleSelection, StyleMenu, use
 import { type LutChoice, useLutLibrary, useMissingLuts } from './luts.ts';
 import { useRecipePreview } from './preview.ts';
 import { ThumbnailContext, useThumbnailCache } from './thumbnails.tsx';
+import { SampleContext, SampleStore } from './picker.ts';
+import { MAX_PINS, PinMarkers, PinnedSamples } from './PinnedSamples.tsx';
 import { GuideOverlay } from './GuideOverlay.tsx';
 import type {
   DenoiseStatus,
@@ -123,6 +127,9 @@ const GUIDES_MAX = 1600;
 const STRIPE_PX = 4;
 /** The toast offering to undo a truncation or compression of the history. */
 const UNDO_TOAST = 'history-undo';
+
+/** No pinned samples (the same array, so nothing is sent again). */
+const NO_PLACES: [number, number][] = [];
 
 /**
  * Layout of the ISO 12646 assessment mode: the image shrinks, gets a white frame,
@@ -367,6 +374,47 @@ export function DeveloperView({
   const stage = useRef<HTMLDivElement>(null);
   const zoomLayout = useRef<ZoomLayout | null>(null);
   const { view: zoom, zoomTo } = useZoom(zoomWindow, stage, zoomLayout, !cropDraft);
+  // The colour picker (roadmap 2.7): the pointer's place over the image goes to the
+  // worker (once a frame at most), the pixel there comes back into a store that only
+  // what shows it reads (`picker.ts`).
+  const samples = useMemo(() => new SampleStore(), []);
+  useEffect(() => backend.onSample((s, pins) => samples.set(s, pins)), [backend, samples]);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    let at: [number, number] | null = null;
+    let queued = 0;
+    const send = () => {
+      queued = 0;
+      backend.pointer(at);
+    };
+    const queue = () => void (queued ||= requestAnimationFrame(send));
+    const move = (e: PointerEvent) => {
+      // A finger is busy panning: no pointer to follow.
+      if (e.pointerType === 'touch') return;
+      const r = el.getBoundingClientRect();
+      const [u, v] = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+      at = u >= 0 && u < 1 && v >= 0 && v < 1 ? [u, v] : null;
+      queue();
+    };
+    const leave = () => {
+      at = null;
+      queue();
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerleave', leave);
+    return () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerleave', leave);
+      cancelAnimationFrame(queued);
+      backend.pointer(null);
+    };
+  }, [backend]);
+  // The pipette (`I`): clicks on the image pin samples, kept in sensor coordinates (as
+  // shapes are, so that they stay on the same spot through crops), for this photo only.
+  const [pipette, setPipette] = useState(false);
+  const [pins, setPins] = useState<[number, number][]>([]);
+  useEffect(() => setPins([]), [metadata]);
   /** Crop or guides: the image shows uncropped, without overlays. */
   const framing = cropDraft !== null || guides !== null;
   // Zoomed in, the fitted render is mostly hidden: it stays at the committed recipe
@@ -436,6 +484,16 @@ export function DeveloperView({
     rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
+  // The pins' places in the frame, where the worker reads them.
+  // Every frame brings a new mapping object: the same one while it says the same, so
+  // that a drag doesn't recompute and send them each frame.
+  const mappingJson = frame ? JSON.stringify(frame.mapping) : null;
+  const mapping = useMemo(() => frame?.mapping, [mappingJson]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pinPlaces = useMemo(
+    () => (mapping && pins.length ? pins.map((p) => fromSensor(mapping, p[0], p[1]) as [number, number]) : NO_PLACES),
+    [pins, mapping],
+  );
+  useEffect(() => backend.pins(pinPlaces), [backend, pinPlaces]);
   // Auto-tunes still pending when the photo is opened (the recipe a new image starts
   // with, or a preset or style applied from the library, before its preview was
   // rendered): run once the image is in. The automatic entry is amended; otherwise
@@ -1043,7 +1101,32 @@ export function DeveloperView({
   const onShapeUi = useStableCallback((patch: Partial<ShapeUi>) => setShapeUi((u) => ({ ...u, ...patch })));
   const onShapeCommit = useStableCallback((p: EditParams, label: string) => commit(p, label));
   // Shapes are drawn over the image, unless it shows something else (crop, before).
-  const showShapes = shapeUi.editing && !framing && !comparing;
+  // The pipette's clicks pin samples: shapes aren't edited meanwhile.
+  const pinning = pipette && !framing && !comparing;
+  const showShapes = shapeUi.editing && !framing && !comparing && !pipette;
+  // A click (not a drag) on the image pins a sample there, or removes the pin under it.
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || !pinning || !mapping) return;
+    let down: [number, number] | null = null;
+    const press = (e: PointerEvent) => void (down = [e.clientX, e.clientY]);
+    const click = (e: MouseEvent) => {
+      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+      const r = el.getBoundingClientRect();
+      const [u, v] = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+      if (u < 0 || u >= 1 || v < 0 || v >= 1) return;
+      const hit = pinPlaces.findIndex(([pu, pv]) => Math.hypot((pu - u) * r.width, (pv - v) * r.height) < 9);
+      setPins((ps) =>
+        hit >= 0 ? ps.filter((_, i) => i !== hit) : ps.length < MAX_PINS ? [...ps, toSensor(mapping, u, v)] : ps,
+      );
+    };
+    el.addEventListener('pointerdown', press, true);
+    el.addEventListener('click', click, true);
+    return () => {
+      el.removeEventListener('pointerdown', press, true);
+      el.removeEventListener('click', click, true);
+    };
+  }, [pinning, mapping, pinPlaces]);
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -1077,6 +1160,8 @@ export function DeveloperView({
       else if (mod && key === 'b') setAssessment((a) => !a);
       else if (!mod && key === 'o' && e.shiftKey) setClipping({ sensor: !clipping.sensor });
       else if (!mod && key === 'o') setClipping({ display: !clipping.display });
+      else if (!mod && key === 'i' && !e.shiftKey && !e.altKey) setPipette((p) => !p);
+      else if (key === 'escape' && pipette) setPipette(false);
       else if (key === 'enter' && cropDraft) applyCrop();
       else if (key === 'escape' && cropDraft) setCropDraft(null);
       else if (key === 'enter' && guides) applyGuides();
@@ -1109,288 +1194,304 @@ export function DeveloperView({
   ); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <ThumbnailContext.Provider value={thumbnails}>
-      <Flex h="full" minH="0">
-        <Flex
-          ref={sidebar}
-          as="aside"
-          direction="column"
-          w="56"
-          flexShrink={0}
-          borderRightWidth="1px"
-          bg="bg.panel"
-          minH="0"
-          css={NO_SELECT}
-        >
-          <ScopePanel
-            settings={scopes}
-            onChange={setScopes}
-            width={scopeWidth}
-            height={scopeCssHeight}
-            canvasRef={scopeCanvas}
-          />
-          <Box flex="1" minH="0">
-            <HistoryPanel
+    <SampleContext.Provider value={samples}>
+      <ThumbnailContext.Provider value={thumbnails}>
+        <Flex h="full" minH="0">
+          <Flex
+            ref={sidebar}
+            as="aside"
+            direction="column"
+            w="56"
+            flexShrink={0}
+            borderRightWidth="1px"
+            bg="bg.panel"
+            minH="0"
+            css={NO_SELECT}
+          >
+            <ScopePanel
+              settings={scopes}
+              onChange={setScopes}
+              width={scopeWidth}
+              height={scopeCssHeight}
+              canvasRef={scopeCanvas}
+            />
+            <Box flex="1" minH="0">
+              <HistoryPanel
+                original={original}
+                entries={history.entries}
+                end={history.end}
+                onSelect={onSelectEntry}
+                onCompress={onCompress}
+              />
+            </Box>
+          </Flex>
+          <Flex direction="column" flex="1" minW="0">
+            <Toolbar
+              filename={filename}
+              metadata={metadata}
+              versions={versionsNode}
+              styles={stylesNode}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              comparing={comparing}
+              exporting={exporting}
+              actions={actionsNode}
+              onUndo={onUndo}
+              onRedo={onRedo}
+              onCompare={setComparing}
+              onExport={openExport}
+            />
+            <ExportDialog
+              open={exportOpen}
+              source={canvas}
+              imageSize={exportImageSize}
+              initial={exportSetup.initial}
+              presets={exportSetup.presets}
+              filenameFields={exportInfo.filename}
+              onClose={closeExport}
+              onExport={onExport}
+              onSavePreset={exportSetup.savePreset}
+              onDeletePreset={exportSetup.deletePreset}
+            />
+
+            <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
+              {/* Always mounted: it holds the zoom's event listeners. */}
+              <Box
+                ref={zoomWindow}
+                position={assessment ? 'relative' : 'absolute'}
+                inset={assessment ? undefined : '0'}
+                boxSizing="content-box"
+                overflow="hidden"
+                touchAction="none"
+                borderWidth={`${frameWidth}px`}
+                borderStyle="solid"
+                borderColor={frameWidth ? 'white' : 'transparent'}
+                visibility={frame ? 'visible' : 'hidden'}
+                style={assessment ? { width: fitWidth, height: fitHeight } : undefined}
+              >
+                {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
+                <Box
+                  ref={stage}
+                  position="absolute"
+                  top="0"
+                  left="0"
+                  lineHeight="0"
+                  transformOrigin="0 0"
+                  cursor={pinning ? 'crosshair' : undefined}
+                  style={{ width: fitWidth, height: fitHeight }}
+                >
+                  <canvas ref={canvas} style={{ width: '100%', height: '100%', display: 'block' }} />
+                  <canvas
+                    ref={regionCanvas}
+                    style={
+                      region
+                        ? {
+                            position: 'absolute',
+                            left: `${(100 * region.x) / region.frameWidth}%`,
+                            top: `${(100 * region.y) / region.frameHeight}%`,
+                            width: `${(100 * region.width) / region.frameWidth}%`,
+                            height: `${(100 * region.height) / region.frameHeight}%`,
+                            // Rendered at 100 %: larger zoom levels enlarge its pixels.
+                            imageRendering: region.frameWidth >= regionFrame!.sourceWidth ? 'pixelated' : 'auto',
+                          }
+                        : { display: 'none' }
+                    }
+                  />
+                  {showShapes && frame && layout && (
+                    <ShapeOverlay
+                      params={params}
+                      mapping={frame.mapping}
+                      width={fitWidth}
+                      height={fitHeight}
+                      zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                      ui={shapeUi}
+                      onUi={onShapeUi}
+                      onChange={onLiveChange}
+                      onCommit={onShapeCommit}
+                    />
+                  )}
+                  {guides && !comparing && frame && layout && (
+                    <GuideOverlay
+                      lines={guides}
+                      mapping={frame.mapping}
+                      width={fitWidth}
+                      height={fitHeight}
+                      zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                      onChange={onGuidesChange}
+                    />
+                  )}
+                  {!framing && !comparing && layout && (
+                    <PinMarkers places={pinPlaces} zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1} />
+                  )}
+                  {cropDraft && !comparing && (
+                    <CropOverlay
+                      rect={cropDraft}
+                      aspect={aspectRatio(aspect, originalAspect)}
+                      frameAspect={frameAspect}
+                      onChange={setCropDraft}
+                    />
+                  )}
+                </Box>
+              </Box>
+              {/* Over the image, not under it: pinning the first sample doesn't move the image. */}
+              {pins.length > 0 && !framing && (
+                <PinnedSamples
+                  count={pins.length}
+                  onRemove={(i) => setPins((ps) => ps.filter((_, j) => j !== i))}
+                  onClear={() => setPins([])}
+                />
+              )}
+              {!frame && <Spinner color="orange.solid" size="lg" position="absolute" />}
+              {frame && <RenderSpinner busy={zoom ? regionPending : pending} frame={zoom ? regionFrame : frame} />}
+              {error && (
+                <Text position="absolute" bottom="3" color="fg.error" textStyle="sm">
+                  {error}
+                </Text>
+              )}
+              {showShapes && shapeUi.tool !== 'select' && (
+                <Text
+                  position="absolute"
+                  bottom="4"
+                  bg="bg.panel"
+                  px="3"
+                  py="1.5"
+                  borderRadius="md"
+                  boxShadow="lg"
+                  textStyle="xs"
+                  color="fg.muted"
+                  pointerEvents="none"
+                >
+                  {shapeUi.tool === 'path'
+                    ? 'Click to add nodes, drag for curves · Enter or the first node to close'
+                    : shapeUi.tool === 'brush'
+                      ? 'Paint a stroke'
+                      : shapeUi.tool === 'gradient'
+                        ? 'Drag from where it applies fully to where it stops'
+                        : `Click or drag to add a ${shapeUi.target === 'mask' ? 'shape' : 'spot'}`}
+                  {' · Middle-drag to pan · Esc to stop'}
+                </Text>
+              )}
+              {guides && (
+                <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
+                  <Text textStyle="xs" color="fg.muted" px="2">
+                    {detectingLines
+                      ? 'Looking for lines…'
+                      : `${guides.filter((l) => l.selected).length} of ${guides.length} selected · Click to select · Drag to draw · Right-click to remove`}
+                  </Text>
+                  <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => selectGuides(true)}>
+                    All
+                  </Button>
+                  <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => selectGuides(false)}>
+                    None
+                  </Button>
+                  <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => changeGuides([])}>
+                    Clear
+                  </Button>
+                  <Button size="xs" variant="ghost" loading={detectingLines} onClick={() => void detectGuides()}>
+                    Detect
+                  </Button>
+                  <Button size="xs" variant="ghost" onClick={cancelGuides}>
+                    <X /> Cancel
+                  </Button>
+                  <Button size="xs" colorPalette="orange" onClick={applyGuides}>
+                    <Check /> Apply
+                  </Button>
+                </HStack>
+              )}
+              {cropDraft && (
+                <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
+                  <Text textStyle="xs" color="fg.muted" px="2">
+                    Drag to crop · Enter to apply · Esc to cancel
+                  </Text>
+                  <Button size="xs" variant="ghost" onClick={() => setCropDraft(null)}>
+                    <X /> Cancel
+                  </Button>
+                  <Button size="xs" variant="ghost" onClick={() => setCropDraft(FULL_CROP)}>
+                    Reset
+                  </Button>
+                  <Button size="xs" colorPalette="orange" onClick={applyCrop}>
+                    <Check /> Apply
+                  </Button>
+                </HStack>
+              )}
+            </Center>
+            <StatusBar
+              pipette={pipette}
+              onPipette={() => setPipette((p) => !p)}
+              save={saveState}
+              ms={(region ? regionFrame?.ms : frame?.ms) ?? null}
+              zoom={zoom ? zoom.scale : null}
+              fitScale={layout?.fitScale ?? 1}
+              onZoom={cropDraft ? undefined : zoomTo}
+              clipping={clipping}
+              onClippingChange={setClipping}
+              assessment={assessment}
+              onAssessmentChange={setAssessment}
+            />
+          </Flex>
+
+          <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
+            <ModulePanel
+              params={params}
+              denoise={denoise}
+              lensCorrection={metadata.lensCorrection ?? null}
+              asShotIlluminant={metadata.asShotIlluminant ?? null}
+              imageFormat={metadata.imageFormat ?? null}
               original={original}
-              entries={history.entries}
-              end={history.end}
-              onSelect={onSelectEntry}
-              onCompress={onCompress}
+              onChange={onLiveChange}
+              onCommit={onPanelCommit}
+              presets={presets.modulePresets}
+              onSavePreset={presets.save}
+              onRenamePreset={presets.rename}
+              onDeletePreset={presets.remove}
+              luts={luts}
+              missingLuts={missingLuts}
+              onAddLut={onAddLut}
+              onRenameLut={luts.rename}
+              onRemoveLut={onRemoveLut}
+              cropping={!!cropDraft}
+              aspect={aspect}
+              onAspectChange={onAspectChange}
+              onCustomAspectChange={onCustomAspectChange}
+              onFlipAspect={onFlipAspect}
+              onStartCrop={onStartCrop}
+              guides={guides !== null}
+              onStartGuides={onStartGuides}
+              onFitPerspective={onFitPerspective}
+              fittingPerspective={fittingPerspective}
+              onAutoTuneFilmic={onAutoTuneFilmic}
+              autoTuning={autoTuning}
+              onDetectIlluminant={onDetectIlluminant}
+              detecting={detecting}
+              toneInputs={toneInputs}
+              onFitToneCurve={onFitToneCurve}
+              fittingTone={fittingTone}
+              toneView={toneOverlay}
+              onToneView={onToneView}
+              rangeView={rangeOverlay}
+              onRangeView={onRangeView}
+              shapeUi={shapeUi}
+              onShapeUi={onShapeUi}
             />
           </Box>
+          {copying && (
+            <CopyEditsDialog
+              recipe={store.getState().live}
+              initial={lastSelection(store.getState().live)}
+              onClose={() => setCopying(false)}
+              onCopy={onCopyPicked}
+            />
+          )}
+          {creatingStyle && presets.save && (
+            <CreateStyleDialog
+              recipe={params}
+              existing={presets.styles}
+              onClose={() => setCreatingStyle(false)}
+              onSave={presets.save}
+            />
+          )}
         </Flex>
-        <Flex direction="column" flex="1" minW="0">
-          <Toolbar
-            filename={filename}
-            metadata={metadata}
-            versions={versionsNode}
-            styles={stylesNode}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            comparing={comparing}
-            exporting={exporting}
-            actions={actionsNode}
-            onUndo={onUndo}
-            onRedo={onRedo}
-            onCompare={setComparing}
-            onExport={openExport}
-          />
-          <ExportDialog
-            open={exportOpen}
-            source={canvas}
-            imageSize={exportImageSize}
-            initial={exportSetup.initial}
-            presets={exportSetup.presets}
-            filenameFields={exportInfo.filename}
-            onClose={closeExport}
-            onExport={onExport}
-            onSavePreset={exportSetup.savePreset}
-            onDeletePreset={exportSetup.deletePreset}
-          />
-
-          <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
-            {/* Always mounted: it holds the zoom's event listeners. */}
-            <Box
-              ref={zoomWindow}
-              position={assessment ? 'relative' : 'absolute'}
-              inset={assessment ? undefined : '0'}
-              boxSizing="content-box"
-              overflow="hidden"
-              touchAction="none"
-              borderWidth={`${frameWidth}px`}
-              borderStyle="solid"
-              borderColor={frameWidth ? 'white' : 'transparent'}
-              visibility={frame ? 'visible' : 'hidden'}
-              style={assessment ? { width: fitWidth, height: fitHeight } : undefined}
-            >
-              {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
-              <Box
-                ref={stage}
-                position="absolute"
-                top="0"
-                left="0"
-                lineHeight="0"
-                transformOrigin="0 0"
-                style={{ width: fitWidth, height: fitHeight }}
-              >
-                <canvas ref={canvas} style={{ width: '100%', height: '100%', display: 'block' }} />
-                <canvas
-                  ref={regionCanvas}
-                  style={
-                    region
-                      ? {
-                          position: 'absolute',
-                          left: `${(100 * region.x) / region.frameWidth}%`,
-                          top: `${(100 * region.y) / region.frameHeight}%`,
-                          width: `${(100 * region.width) / region.frameWidth}%`,
-                          height: `${(100 * region.height) / region.frameHeight}%`,
-                          // Rendered at 100 %: larger zoom levels enlarge its pixels.
-                          imageRendering: region.frameWidth >= regionFrame!.sourceWidth ? 'pixelated' : 'auto',
-                        }
-                      : { display: 'none' }
-                  }
-                />
-                {showShapes && frame && layout && (
-                  <ShapeOverlay
-                    params={params}
-                    mapping={frame.mapping}
-                    width={fitWidth}
-                    height={fitHeight}
-                    zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
-                    ui={shapeUi}
-                    onUi={onShapeUi}
-                    onChange={onLiveChange}
-                    onCommit={onShapeCommit}
-                  />
-                )}
-                {guides && !comparing && frame && layout && (
-                  <GuideOverlay
-                    lines={guides}
-                    mapping={frame.mapping}
-                    width={fitWidth}
-                    height={fitHeight}
-                    zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
-                    onChange={onGuidesChange}
-                  />
-                )}
-                {cropDraft && !comparing && (
-                  <CropOverlay
-                    rect={cropDraft}
-                    aspect={aspectRatio(aspect, originalAspect)}
-                    frameAspect={frameAspect}
-                    onChange={setCropDraft}
-                  />
-                )}
-              </Box>
-            </Box>
-            {!frame && <Spinner color="orange.solid" size="lg" position="absolute" />}
-            {frame && <RenderSpinner busy={zoom ? regionPending : pending} frame={zoom ? regionFrame : frame} />}
-            {error && (
-              <Text position="absolute" bottom="3" color="fg.error" textStyle="sm">
-                {error}
-              </Text>
-            )}
-            {showShapes && shapeUi.tool !== 'select' && (
-              <Text
-                position="absolute"
-                bottom="4"
-                bg="bg.panel"
-                px="3"
-                py="1.5"
-                borderRadius="md"
-                boxShadow="lg"
-                textStyle="xs"
-                color="fg.muted"
-                pointerEvents="none"
-              >
-                {shapeUi.tool === 'path'
-                  ? 'Click to add nodes, drag for curves · Enter or the first node to close'
-                  : shapeUi.tool === 'brush'
-                    ? 'Paint a stroke'
-                    : shapeUi.tool === 'gradient'
-                      ? 'Drag from where it applies fully to where it stops'
-                      : `Click or drag to add a ${shapeUi.target === 'mask' ? 'shape' : 'spot'}`}
-                {' · Middle-drag to pan · Esc to stop'}
-              </Text>
-            )}
-            {guides && (
-              <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
-                <Text textStyle="xs" color="fg.muted" px="2">
-                  {detectingLines
-                    ? 'Looking for lines…'
-                    : `${guides.filter((l) => l.selected).length} of ${guides.length} selected · Click to select · Drag to draw · Right-click to remove`}
-                </Text>
-                <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => selectGuides(true)}>
-                  All
-                </Button>
-                <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => selectGuides(false)}>
-                  None
-                </Button>
-                <Button size="xs" variant="ghost" disabled={!guides.length} onClick={() => changeGuides([])}>
-                  Clear
-                </Button>
-                <Button size="xs" variant="ghost" loading={detectingLines} onClick={() => void detectGuides()}>
-                  Detect
-                </Button>
-                <Button size="xs" variant="ghost" onClick={cancelGuides}>
-                  <X /> Cancel
-                </Button>
-                <Button size="xs" colorPalette="orange" onClick={applyGuides}>
-                  <Check /> Apply
-                </Button>
-              </HStack>
-            )}
-            {cropDraft && (
-              <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
-                <Text textStyle="xs" color="fg.muted" px="2">
-                  Drag to crop · Enter to apply · Esc to cancel
-                </Text>
-                <Button size="xs" variant="ghost" onClick={() => setCropDraft(null)}>
-                  <X /> Cancel
-                </Button>
-                <Button size="xs" variant="ghost" onClick={() => setCropDraft(FULL_CROP)}>
-                  Reset
-                </Button>
-                <Button size="xs" colorPalette="orange" onClick={applyCrop}>
-                  <Check /> Apply
-                </Button>
-              </HStack>
-            )}
-          </Center>
-          <StatusBar
-            save={saveState}
-            ms={(region ? regionFrame?.ms : frame?.ms) ?? null}
-            zoom={zoom ? zoom.scale : null}
-            fitScale={layout?.fitScale ?? 1}
-            onZoom={cropDraft ? undefined : zoomTo}
-            clipping={clipping}
-            onClippingChange={setClipping}
-            assessment={assessment}
-            onAssessmentChange={setAssessment}
-          />
-        </Flex>
-
-        <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
-          <ModulePanel
-            params={params}
-            denoise={denoise}
-            lensCorrection={metadata.lensCorrection ?? null}
-            asShotIlluminant={metadata.asShotIlluminant ?? null}
-            imageFormat={metadata.imageFormat ?? null}
-            original={original}
-            onChange={onLiveChange}
-            onCommit={onPanelCommit}
-            presets={presets.modulePresets}
-            onSavePreset={presets.save}
-            onRenamePreset={presets.rename}
-            onDeletePreset={presets.remove}
-            luts={luts}
-            missingLuts={missingLuts}
-            onAddLut={onAddLut}
-            onRenameLut={luts.rename}
-            onRemoveLut={onRemoveLut}
-            cropping={!!cropDraft}
-            aspect={aspect}
-            onAspectChange={onAspectChange}
-            onCustomAspectChange={onCustomAspectChange}
-            onFlipAspect={onFlipAspect}
-            onStartCrop={onStartCrop}
-            guides={guides !== null}
-            onStartGuides={onStartGuides}
-            onFitPerspective={onFitPerspective}
-            fittingPerspective={fittingPerspective}
-            onAutoTuneFilmic={onAutoTuneFilmic}
-            autoTuning={autoTuning}
-            onDetectIlluminant={onDetectIlluminant}
-            detecting={detecting}
-            toneInputs={toneInputs}
-            onFitToneCurve={onFitToneCurve}
-            fittingTone={fittingTone}
-            toneView={toneOverlay}
-            onToneView={onToneView}
-            rangeView={rangeOverlay}
-            onRangeView={onRangeView}
-            shapeUi={shapeUi}
-            onShapeUi={onShapeUi}
-          />
-        </Box>
-        {copying && (
-          <CopyEditsDialog
-            recipe={store.getState().live}
-            initial={lastSelection(store.getState().live)}
-            onClose={() => setCopying(false)}
-            onCopy={onCopyPicked}
-          />
-        )}
-        {creatingStyle && presets.save && (
-          <CreateStyleDialog
-            recipe={params}
-            existing={presets.styles}
-            onClose={() => setCreatingStyle(false)}
-            onSave={presets.save}
-          />
-        )}
-      </Flex>
-    </ThumbnailContext.Provider>
+      </ThumbnailContext.Provider>
+    </SampleContext.Provider>
   );
 }

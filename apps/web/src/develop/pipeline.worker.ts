@@ -25,6 +25,7 @@ import type {
   GuideLine,
   Overlays,
   PerspectiveCorrection,
+  PixelSample,
   Placement,
   Region,
   WorkerRequest,
@@ -285,6 +286,72 @@ async function finishDenoise(dev: Developer, params: EditParams, json: string) {
   }
 }
 
+// ── Colour picker (roadmap 2.7) ───────────────────────────────────────────────
+// The page says where the pointer is; the pixel there is read between messages (from
+// the spatial stages' cache: it never renders), and again after each render.
+
+/** A render the picker reads: its recipe, and the sizes whose spatial output may be cached (full size, then the draft). */
+interface Sampled {
+  json: string;
+  sizes: [number, number, Region | null][];
+  /** Renders' order: a region left from before zooming out is older than the whole render. */
+  seq: number;
+}
+let renders = 0;
+const picker = {
+  at: null as [number, number] | null,
+  pins: [] as [number, number][],
+  /** The last whole render, and the last region render (zoomed in): tried first. */
+  fit: null as Sampled | null,
+  region: null as Sampled | null,
+  /** The last sample posted, as JSON. */
+  told: 'null',
+  timer: null as ReturnType<typeof setTimeout> | null,
+};
+
+function scheduleSample() {
+  if (picker.timer) return;
+  picker.timer = setTimeout(() => {
+    picker.timer = null;
+    // Mid-message: `run` samples once it's done.
+    if (!running) pumpSample();
+  }, 0);
+}
+
+function pumpSample() {
+  const dev = developer;
+  const read = (at: [number, number] | null) => {
+    const json = at && dev ? sampleAt(dev, at) : null;
+    // With the place: a marker follows the pointer over flat areas too.
+    return { at, json, key: json ? `${json}@${at!.join(',')}` : 'null' };
+  };
+  const hover = read(picker.at);
+  const pins = picker.pins.map(read);
+  const told = [hover, ...pins].map((s) => s.key).join('|');
+  if (told === picker.told) return;
+  picker.told = told;
+  const parse = ({ at, json }: { at: [number, number] | null; json: string | null }) =>
+    json && at ? { ...(JSON.parse(json) as Omit<PixelSample, 'at'>), at } : null;
+  post({ type: 'sample', id: 0, sample: parse(hover), pins: pins.map(parse) });
+}
+
+/** The pixel at `at` (normalised) of the last region render, or of the last whole one, as JSON. */
+function sampleAt(dev: Developer, at: [number, number]): string | null {
+  const { fit, region: zoomed } = picker;
+  // A region from before an edit (zoomed out since) would read old values.
+  const current = zoomed && (!fit || zoomed.seq > fit.seq || zoomed.json === fit.json) ? zoomed : null;
+  for (const r of [current, fit]) {
+    for (const [w, h, region] of r?.sizes ?? []) {
+      const [fw, fh] = dev.outputSize(r!.json, w, h);
+      const x = Math.min(fw! - 1, Math.max(0, Math.floor(at[0] * fw!)));
+      const y = Math.min(fh! - 1, Math.max(0, Math.floor(at[1] * fh!)));
+      const json = dev.sample(r!.json, w, h, regionArg(region), x, y);
+      if (json) return json;
+    }
+  }
+  return null;
+}
+
 // One message at a time: pool renders await their workers, and nothing else may touch
 // the developer meanwhile. Thumbnails (menu previews) wait until nothing else does, so
 // that a menu's worth of them doesn't hold up the render of the highlighted item.
@@ -296,6 +363,11 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   // Answers to what the worker asked for, which a message in progress (an export) may
   // be waiting on: taken in at once.
   if (msg.type === 'denoiseModel' || msg.type === 'setOriginal') return void receive(msg);
+  if (msg.type === 'pointer' || msg.type === 'pins') {
+    if (msg.type === 'pointer') picker.at = msg.at;
+    else picker.pins = msg.pins;
+    return scheduleSample();
+  }
   (msg.type === 'thumbnail' ? idle : urgent).push(msg);
   void run();
 };
@@ -325,11 +397,13 @@ async function run() {
   } finally {
     running = false;
   }
+  pumpSample();
   pumpDenoise();
 }
 
 async function handle(msg: WorkerRequest) {
   if (msg.type === 'denoiseModel' || msg.type === 'setOriginal') return receive(msg);
+  if (msg.type === 'pointer' || msg.type === 'pins') return;
   const started = performance.now();
   try {
     await ready;
@@ -358,6 +432,7 @@ async function handle(msg: WorkerRequest) {
       developer = msg.type === 'load' ? new Developer(bytes) : Developer.fromDenoisedFile(bytes);
       // Its models are loaded again as recipes ask for them (from `denoise.models`).
       mapping = null;
+      picker.fit = picker.region = null;
       pool?.invalidate();
       post({ type: 'loaded', id: msg.id, metadata: JSON.parse(developer.metadata()), ms: performance.now() - started });
       return;
@@ -384,6 +459,14 @@ async function handle(msg: WorkerRequest) {
       const sensor = sensorMapping(developer, msg.params, params);
       const focus = toSensor(sensor, (x! + fullWidth! / 2) / frameWidth!, (y! + fullHeight! / 2) / frameHeight!);
       if (isDraft) denoise.pausedUntil = performance.now() + DRAG_PAUSE_MS;
+      picker[msg.fullRegion ? 'region' : 'fit'] = {
+        json: params,
+        sizes: [
+          [full.width, full.height, msg.fullRegion],
+          [msg.maxWidth, msg.maxHeight, msg.region],
+        ],
+        seq: ++renders,
+      };
       watchDenoise(msg.params, params, [focus[0], focus[1]]);
       // The scope shows the image, without the clipping indicators: drawn before them.
       const drawScope = (data: Uint8Array, width: number, height: number) => {

@@ -7,6 +7,7 @@ import type {
   ParsedLut,
   PerspectiveCorrection,
   PerspectiveFit,
+  PixelSample,
   Placement,
   Region,
   ToneCurveInput,
@@ -106,6 +107,16 @@ export interface RenderBackend {
   setDenoiseSource(source: DenoiseSource): void;
   /** Follow where the recipe's raw denoise stands; returns the unsubscribe. */
   onDenoiseStatus(listener: (status: DenoiseStatus) => void): () => void;
+  /**
+   * The colour picker: where the pointer is over the image (normalised in the whole
+   * frame), or null. The pixel there comes back through `onSample`, and again after
+   * every render while the pointer stays.
+   */
+  pointer(at: [number, number] | null): void;
+  /** The pinned samples' places (normalised in the whole frame), read like the pointer's. */
+  pins(pins: [number, number][]): void;
+  /** Follow the pixel under the pointer (null: none) and the pinned ones; returns the unsubscribe. */
+  onSample(listener: (sample: PixelSample | null, pins: (PixelSample | null)[]) => void): () => void;
   /** Decode a LUT file (`.cube`, Hald CLUT PNG). Throws if it isn't one. */
   parseLut(bytes: ArrayBuffer): Promise<ParsedLut>;
   dispose(): void;

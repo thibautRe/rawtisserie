@@ -1,6 +1,8 @@
-import { Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
-import { ChevronDown, CloudAlert, CloudCheck, Frame, SunMoon, Zap, ZoomIn } from 'lucide-react';
+import { Box, Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
+import { ChevronDown, CloudAlert, CloudCheck, Frame, Pipette, SunMoon, Zap, ZoomIn } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
+import { SampleValues } from './PinnedSamples.tsx';
+import { usePixelSample } from './picker.ts';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
 
@@ -49,6 +51,9 @@ interface Props {
   onClippingChange: (patch: Partial<ClippingSettings>) => void;
   assessment: boolean;
   onAssessmentChange: (on: boolean) => void;
+  /** The colour picker's pipette: clicks on the image pin samples. */
+  pipette?: boolean;
+  onPipette?: () => void;
 }
 
 /** A slim bar under the image: save state, render time and view toggles. */
@@ -62,13 +67,28 @@ export function StatusBar({
   onClippingChange,
   assessment,
   onAssessmentChange,
+  pipette,
+  onPipette,
 }: Props) {
   return (
     <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
       {save && <SaveIndicator {...save} />}
-      <Text textStyle="2xs" color="fg.subtle" fontFamily="numeric" fontVariantNumeric="tabular-nums" px="1" flex="1">
+      <Text textStyle="2xs" color="fg.subtle" fontFamily="numeric" fontVariantNumeric="tabular-nums" px="1">
         {ms !== null && `${Math.round(ms)} ms`}
       </Text>
+      {onPipette && (
+        <IconButton
+          size="2xs"
+          variant={pipette ? 'subtle' : 'ghost'}
+          aria-label="Pin samples"
+          aria-pressed={pipette}
+          title={pipette ? 'Pin samples: click the image (I, Esc to stop)' : 'Pin samples (I)'}
+          onClick={onPipette}
+        >
+          <Pipette />
+        </IconButton>
+      )}
+      <PixelReadout />
       <ZoomMenu zoom={zoom} fitScale={fitScale} onZoom={onZoom} />
       <Separator orientation="vertical" h="4" mx="1" />
       <ViewToggles
@@ -248,5 +268,31 @@ function SaveIndicator({ status, retry }: { status: SaveStatus; retry: () => voi
     >
       {saving ? <Spinner size="xs" borderWidth="1.5px" /> : <CloudCheck size={14} />}
     </Center>
+  );
+}
+
+/**
+ * The colour picker's readout (roadmap 2.7): the pixel under the pointer, as shown
+ * (8-bit RGB and CIE LCh) and in the scene (luminance before tone mapping, EV from middle
+ * grey). It reads the sample store itself: the bar around it doesn't render again.
+ */
+function PixelReadout() {
+  const sample = usePixelSample();
+  return (
+    <HStack
+      flex="1"
+      minW="0"
+      gap="3"
+      px="1"
+      textStyle="2xs"
+      color="fg.muted"
+      fontFamily="numeric"
+      fontVariantNumeric="tabular-nums"
+      whiteSpace="nowrap"
+      overflow="hidden"
+      data-pixel-readout={sample ? '' : undefined}
+    >
+      {sample && <SampleValues sample={sample} />}
+    </HStack>
   );
 }

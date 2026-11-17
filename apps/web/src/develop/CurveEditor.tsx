@@ -18,6 +18,11 @@ interface Props {
   others?: readonly { values: readonly number[]; color: string }[];
   /** Drawn behind the curve: heights 0 … 1, evenly spread from the left end to the right one. */
   histogram?: readonly number[];
+  /**
+   * Drawn over the graph, in its coordinates (a `CurveMarks`): it may change more
+   * often than the curve (the colour picker's marker reads a store of its own).
+   */
+  overlay?: React.ReactNode;
   /** Called when a node gets focus (pressed, or picked with the arrow keys) or loses it. */
   onFocusChange?: (node: number | null) => void;
   /** Describes the focused node (by index) and its value, shown under the curve. */
@@ -46,6 +51,7 @@ export function CurveEditor({
   color,
   others = [],
   histogram,
+  overlay,
   format,
   onFocusChange,
   disabled,
@@ -124,7 +130,7 @@ export function CurveEditor({
     }).join(' ');
 
   return (
-    <Box opacity={disabled ? 0.5 : 1}>
+    <Box opacity={disabled ? 0.5 : 1} position="relative">
       <Box
         asChild
         w="full"
@@ -196,6 +202,7 @@ export function CurveEditor({
           ))}
         </svg>
       </Box>
+      {overlay}
       <HStack justify="space-between">
         <Text textStyle="2xs" color="fg.subtle">
           {left}
@@ -210,5 +217,72 @@ export function CurveEditor({
         </Text>
       </HStack>
     </Box>
+  );
+}
+
+/**
+ * Marks over a `CurveEditor`'s graph (its `overlay`): vertical lines at `at` (0 … 1
+ * along the nodes' range), each with a dot where it crosses the curve (`values`). Out of
+ * the range, a short tick at that end.
+ */
+export function CurveMarks({
+  values,
+  marks,
+}: {
+  values: readonly number[];
+  /** `pin`: a pinned sample's number (dashed, labelled); none for the pointer's. */
+  marks: readonly { at: number; color: string; pin?: number }[];
+}) {
+  if (!marks.length) return null;
+  const py = (v: number) => PAD + (1 - v) * (H - 2 * PAD);
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        aspectRatio: `${W} / ${H}`,
+        pointerEvents: 'none',
+      }}
+      aria-hidden
+      data-curve-marks
+    >
+      {marks.map(({ at, color, pin }, i) => {
+        const inside = at >= 0 && at <= 1;
+        const u = clamp(at, 0, 1);
+        const x = PAD + u * (W - 2 * PAD);
+        return inside ? (
+          <g key={i}>
+            <line
+              x1={x}
+              x2={x}
+              y1={PAD}
+              y2={H - PAD}
+              stroke={color}
+              strokeOpacity={pin ? 0.5 : 0.7}
+              strokeDasharray={pin ? '2 2' : undefined}
+              strokeWidth="1"
+            />
+            <circle
+              cx={x}
+              cy={py(curveAt(values, u))}
+              r={pin ? 2 : 2.5}
+              fill={color}
+              stroke="black"
+              strokeOpacity={0.5}
+            />
+            {pin && (
+              <text x={x + 2} y={PAD + 7} fontSize={7} fill={color} fontFamily="var(--chakra-fonts-numeric)">
+                {pin}
+              </text>
+            )}
+          </g>
+        ) : (
+          <line key={i} x1={x} x2={x} y1={H - PAD - 8} y2={H - PAD} stroke={color} strokeWidth="2" />
+        );
+      })}
+    </svg>
   );
 }

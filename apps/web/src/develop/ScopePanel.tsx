@@ -1,6 +1,7 @@
 import { Box, Button, HStack, Heading, IconButton } from '@chakra-ui/react';
 import { Activity, ChevronDown, ChevronRight, Columns3, Crosshair, type LucideIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
+import { marked, useSamples } from './picker.ts';
 import { SCOPE_MODES, SKIN_TONE_ANGLE, type ScopeMode, VECTORSCOPE_ZOOMS, vectorscopePoint } from './scopes.ts';
 
 /** Scope settings; display options, not part of the recipe. */
@@ -209,6 +210,7 @@ export const ScopePanel = memo(function ScopePanel({ settings, onChange, width, 
               data-scope-view
               style={{ width: '100%', height: '100%', display: 'block' }}
             />
+            <ScopeMarker mode={mode} width={width} height={height} zoom={zoom} />
             <svg
               width={width}
               height={height}
@@ -227,3 +229,85 @@ export const ScopePanel = memo(function ScopePanel({ settings, onChange, width, 
     </Box>
   );
 });
+
+/** The channels' colours on the scopes' markers. */
+const CHANNEL_COLORS = ['#ff6060', '#60ff60', '#8080ff'] as const;
+
+/** A pin's number beside its marker, outlined so that it reads over the trace. */
+function PinLabel({ x, y, pin }: { x: number; y: number; pin: number }) {
+  return (
+    <text
+      x={x}
+      y={y}
+      fontSize={9}
+      fontFamily="var(--chakra-fonts-numeric)"
+      fill="white"
+      stroke="black"
+      strokeWidth={2.5}
+      strokeOpacity={0.7}
+      paintOrder="stroke"
+    >
+      {pin}
+    </text>
+  );
+}
+
+/**
+ * Where the pixel under the pointer, and the pinned ones (numbered), are on the scope
+ * (the colour picker, roadmap 2.7): their column and levels on the waveforms, their
+ * colour on the vectorscope. Reads the sample store itself, so the memoised panel around
+ * it doesn't render again.
+ */
+function ScopeMarker({ mode, width, height, zoom }: { mode: ScopeMode; width: number; height: number; zoom: number }) {
+  const all = marked(useSamples());
+  if (!all.length) return null;
+  const marks = all.map(({ value: sample, pin }, n) => {
+    const [r, g, b] = sample.display;
+    if (mode === 'vectorscope') {
+      const size = Math.min(width, height);
+      const [x, y] = vectorscopePoint(r / 255, g / 255, b / 255, size, zoom);
+      const [cx, cy] = [x + (width - size) / 2, y + (height - size) / 2];
+      const radius = pin ? 3.5 : 4.5;
+      return (
+        <g key={n}>
+          <circle cx={cx} cy={cy} r={radius} fill="none" stroke="black" strokeOpacity={0.6} strokeWidth={3} />
+          <circle cx={cx} cy={cy} r={radius} fill="none" stroke="white" strokeWidth={1.5} />
+          {pin && <PinLabel x={cx + 5} y={cy - 4} pin={pin} />}
+        </g>
+      );
+    }
+    const level = (v: number) => (1 - v / 255) * (height - 1) + 0.5;
+    const sections = mode === 'parade' ? 3 : 1;
+    const w = width / sections;
+    const half = pin ? 3.5 : 5;
+    return (
+      <g key={n}>
+        {[r, g, b].map((v, k) => {
+          const x = (mode === 'parade' ? k * w : 0) + sample.at[0] * w;
+          const y = level(v);
+          return (
+            <g key={k}>
+              {!pin && (mode === 'parade' || k === 0) && (
+                <line x1={x} x2={x} y1={0} y2={height} stroke="white" strokeOpacity={0.25} strokeDasharray="2 3" />
+              )}
+              <line x1={x - half} x2={x + half} y1={y} y2={y} stroke="black" strokeOpacity={0.6} strokeWidth={3.5} />
+              <line x1={x - half} x2={x + half} y1={y} y2={y} stroke={CHANNEL_COLORS[k]} strokeWidth={1.5} />
+              {pin && (mode === 'parade' || k === 0) && <PinLabel x={x + 5} y={Math.max(9, y - 3)} pin={pin} />}
+            </g>
+          );
+        })}
+      </g>
+    );
+  });
+  return (
+    <svg
+      width={width}
+      height={height}
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}
+      aria-hidden
+      data-scope-marker
+    >
+      {marks}
+    </svg>
+  );
+}

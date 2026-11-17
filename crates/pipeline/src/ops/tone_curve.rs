@@ -387,6 +387,18 @@ pub fn measure(p: &ToneCurve, pixels: &[Rgb], mask: Option<&[f32]>) -> Option<In
     Some(InputHistogram { bins: counts.iter().map(|h| h.iter().map(|&n| n as f32 / max).collect()).collect(), fit: [a, b] })
 }
 
+/// What `p` reads on one pixel of its input (`input`), in EV relative to middle grey, as
+/// [`measure`]'s histograms count it: the norm, the mask's value (`mask`, when it
+/// preserves detail), or each channel (a curve per channel, or linked without a norm).
+pub fn read_ev(p: &ToneCurve, input: Rgb, mask: Option<f32>) -> Vec<f32> {
+    let ev = |v: f32| v.max(1e-12).log2() - MIDDLE_GREY.log2();
+    match reads(p) {
+        Reads::Mask => vec![ev(mask.unwrap_or_else(|| rgb_norm(input, p.local_norm())))],
+        Reads::Channels | Reads::Linked => input.map(ev).to_vec(),
+        Reads::Norm(norm) => vec![ev(rgb_norm(input, norm))],
+    }
+}
+
 /// What `p` reads on `input` (its input), as the overlay paints it (8-bit sRGB): black
 /// at the first node and white at the last (as a level, sRGB-encoded), the pixels near
 /// `node` tinted like a mask, by how much that node moves them. A curve per channel shows

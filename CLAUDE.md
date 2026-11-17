@@ -168,6 +168,15 @@ See README.md for the architecture overview and commands.
   `npm run test:library -w @rawtisserie/web` goes between the library and the developer (API
   mocked): run it after changing what they share (`library/libraryView.ts`, the film roll),
   or the library export (`export/`; it exports a golden RAW, skipped without them).
+- The colour picker (roadmap 2.7): the page sends the pointer's place (and the pipette's
+  pins, kept in sensor coordinates) to the pipeline worker (`pointer`/`pins`), which reads
+  the pixel between messages and after each render with `Developer::sample`
+  (`pipeline/sample.rs`): one pixel of the cached spatial image through the point modules,
+  and nothing when that cache is cold (it must never render). Samples land in a store
+  (`picker.ts`) that only the markers and the readout subscribe to, so the developer and
+  its memoised panels don't render on pointer moves. A new module with a graph of the
+  image marks it through `ModuleRead` (Rust) and `useModuleReads`. `npm run test:picker
+  -w @rawtisserie/web` checks it in a browser.
 - Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
   trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press
   selects (`longPress.ts`; closing the loupe doesn't select there). Layout-only changes
