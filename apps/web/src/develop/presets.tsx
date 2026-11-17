@@ -277,7 +277,15 @@ export const PresetMenu = memo(
 );
 
 /** A name field that says when saving will replace an existing preset. */
-function NameField({ value, onChange, taken }: { value: string; onChange: (v: string) => void; taken: boolean }) {
+export function NameField({
+  value,
+  onChange,
+  taken,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  taken: boolean;
+}) {
   return (
     <Stack gap="1">
       <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="Name" maxLength={200} autoFocus />
@@ -290,7 +298,7 @@ function NameField({ value, onChange, taken }: { value: string; onChange: (v: st
   );
 }
 
-function SaveDialog({
+export function SaveDialog({
   title,
   subtitle,
   replacing,

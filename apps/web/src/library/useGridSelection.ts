@@ -113,24 +113,34 @@ export function useGridSelection<T extends Photo>(
 
   /**
    * Move the focus by `delta` positions (arrow keys), selecting the photo there, or with
-   * `extend` adding it to the selection. Returns the position if its page isn't in yet.
+   * `extend` (Shift) selecting the range from the anchor to it, as Shift+click does: going
+   * back towards the anchor unselects. Returns the position if its page isn't in yet.
    */
   const step = useCallback(
     (delta: number, extend: boolean): number | null => {
       const at = Math.min(items.length - 1, Math.max(0, focusedIndex < 0 ? 0 : focusedIndex + delta));
       const next = items[at];
       if (!next) return at;
-      if (extend) {
-        if (all) {
-          const except = new Set(all.except);
-          except.delete(next.id);
-          setAllMatching({ ...all, except });
-        } else setPicked((sel) => new Set(sel).add(next.id));
-        setFocusedId(next.id);
-      } else selectOne(next.id);
+      if (!extend) {
+        selectOne(next.id);
+        return null;
+      }
+      if (all) {
+        // Selecting by filter: everything is selected already, but those unticked.
+        const except = new Set(all.except);
+        except.delete(next.id);
+        setAllMatching({ ...all, except });
+      } else {
+        if (!anchorRef.current && focusedId) anchorRef.current = focusedId;
+        const anchor = items.findIndex((p) => p?.id === anchorRef.current);
+        const [a, b] = anchor < 0 ? [at, at] : [Math.min(anchor, at), Math.max(anchor, at)];
+        setPicked(new Set(items.slice(a, b + 1).flatMap((p) => (p ? [p.id] : []))));
+        if (anchor < 0) anchorRef.current = next.id;
+      }
+      setFocusedId(next.id);
       return null;
     },
-    [items, focusedIndex, selectOne, all],
+    [items, focusedIndex, focusedId, selectOne, all],
   );
 
   const selectAll = useCallback(() => {

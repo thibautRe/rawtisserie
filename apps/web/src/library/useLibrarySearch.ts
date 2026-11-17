@@ -54,6 +54,20 @@ export function useLibrarySearch() {
     [setParams],
   );
 
+  /** Changes several keys at once (one history entry, none lost). */
+  const edit = useCallback(
+    (change: (next: URLSearchParams) => void) =>
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          change(next);
+          return next;
+        },
+        { replace: true },
+      ),
+    [setParams],
+  );
+
   const clear = useCallback(
     () =>
       setParams(
@@ -73,8 +87,8 @@ export function useLibrarySearch() {
 
   // The same object while the filters are: memoised panels take it.
   return useMemo(
-    () => ({ params, search: params.toString(), set, setAll, toggle, clear, activeFilterCount }),
-    [params, set, setAll, toggle, clear, activeFilterCount],
+    () => ({ params, search: params.toString(), set, setAll, toggle, edit, clear, activeFilterCount }),
+    [params, set, setAll, toggle, edit, clear, activeFilterCount],
   );
 }
 

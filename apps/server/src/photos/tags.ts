@@ -9,6 +9,7 @@ import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import { badRequest } from '../errors.ts';
 import { VERSIONS_FROM } from './dto.ts';
+import { followTagRename } from './filterPresets.ts';
 import { PhotoFilters, whereClause } from './query.ts';
 
 export const SEPARATOR = '|';
@@ -136,6 +137,7 @@ export async function tagRoutes(app: FastifyInstance) {
         INSERT INTO user_tags (owner_id, tag, shortcut, created_at)
         SELECT ${user.id}, ${moved(from, to)}, shortcut, created_at FROM gone
         ON CONFLICT (owner_id, tag) DO UPDATE SET shortcut = COALESCE(user_tags.shortcut, EXCLUDED.shortcut)`);
+      await followTagRename(tx, user.id, from, to);
       return rows.length;
     });
     return { versions: changed };
@@ -156,6 +158,7 @@ export async function tagRoutes(app: FastifyInstance) {
       await tx.query(sql`
         DELETE FROM user_tags WHERE owner_id = ${user.id}
           AND (tag = ${tag} OR starts_with(tag, ${`${tag}${SEPARATOR}`}))`);
+      await followTagRename(tx, user.id, tag, null);
       return rows.length;
     });
     return { versions: changed };

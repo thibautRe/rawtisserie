@@ -107,6 +107,8 @@ let cutChunks = new Set<number>();
 let chunks = 0;
 /** Uploads started (`/api/uploads`), by id: what's been received. */
 let received = new Map<string, { name: string; size: number; offset: number }>();
+/** Saved filters (`/api/filter-presets`). */
+let filterPresets: { id: string; name: string; query: string }[] = [];
 
 let server: PreviewServer;
 let browser: Browser;
@@ -143,6 +145,7 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   cutChunks = new Set();
   chunks = 0;
   holdCompletes = null;
+  filterPresets = [];
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -256,6 +259,13 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
     if (p && method === 'PATCH') patched.set(p.id, { ...patched.get(p.id), ...route.request().postDataJSON() });
     if (p) return json({ ...detail(p), ...patched.get(p.id) });
     if (path === '/api/presets') return json({ presets: [] });
+    if (path === '/api/filter-presets' && method === 'POST') {
+      const { name, query } = route.request().postDataJSON() as { name: string; query: string };
+      const preset = { id: `f${filterPresets.length}`, name, query };
+      filterPresets = [...filterPresets.filter((p) => p.name !== name), preset];
+      return json(preset);
+    }
+    if (path === '/api/filter-presets') return json({ presets: filterPresets });
     if (path === '/api/luts') return json({ luts: [] });
     if (path === '/api/export-settings')
       return json({ settings: { format: 'jpeg', size: { mode: 'longEdge', longEdge: 256 } }, presets: [] });
@@ -967,6 +977,75 @@ test('tag shortcuts toggle a tag on the selection; keys within a sequence do not
     { ids: [PHOTOS[0]!.id], patch: { removeTags: ['beach'] } },
     { ids: [PHOTOS[0]!.id], patch: { addTags: ['beach'] } },
   ]);
+});
+
+test("in the tag input, a tag's shortcut (with Ctrl or Alt) works, and letters are typed", async () => {
+  await open('/');
+  await cards().first().click();
+  const input = page.locator('#library-tag-input');
+  await input.click();
+  await page.keyboard.type('bp');
+  assert.equal(await input.inputValue(), 'bp');
+  await page.keyboard.press('Control+Alt+KeyB');
+  await page.getByText('Tagged 1 photo beach').waitFor();
+  assert.equal(await input.inputValue(), 'bp');
+  assert.deepEqual(
+    sent.filter((s) => s.path === '/api/versions/bulk').map((s) => s.body),
+    [{ ids: [PHOTOS[0]!.id], patch: { addTags: ['beach'] } }],
+  );
+});
+
+test('Shift+arrows select from where they started, and going back unselects', async () => {
+  await open('/');
+  await cards().first().click();
+  const selected = () =>
+    page
+      .locator('[data-photo-id][data-selected]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-photo-id')));
+  const focused = () => page.locator('[data-photo-id][data-focused]').getAttribute('data-photo-id');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight');
+  assert.deepEqual(
+    await selected(),
+    PHOTOS.slice(0, 4).map((p) => p.id),
+  );
+  await page.keyboard.press('Shift+ArrowLeft');
+  assert.deepEqual(
+    await selected(),
+    PHOTOS.slice(0, 3).map((p) => p.id),
+  );
+  assert.equal(await focused(), PHOTOS[2]!.id);
+  // Back past where it started: the other way.
+  await cards().nth(2).click();
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowLeft');
+  assert.deepEqual(
+    await selected(),
+    PHOTOS.slice(0, 3).map((p) => p.id),
+  );
+});
+
+test('"No tags" is a filter, and picking a tag unpicks it', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  await page.getByText('No tags', { exact: true }).click();
+  await page.waitForURL(/untagged=true/);
+  await page.locator('[data-tag="beach"]').getByText('beach').click();
+  await page.waitForURL((u) => u.searchParams.get('tag') === 'beach' && !u.searchParams.has('untagged'));
+});
+
+test('filters saved as a preset, then applied again over others', async () => {
+  await open('/?q=beach&sort=filename');
+  await cards().first().waitFor();
+  await page.getByRole('button', { name: 'Filter presets' }).click();
+  await page.getByRole('menuitem', { name: 'Save filters as preset…' }).click();
+  await page.getByPlaceholder('Name', { exact: true }).fill('Beaches');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByText('Saved filter preset “Beaches”').waitFor();
+  assert.deepEqual(sent.find((s) => s.path === '/api/filter-presets')?.body, { name: 'Beaches', query: 'q=beach' });
+  await page.getByText('Clear all').click();
+  await page.waitForURL((u) => !u.searchParams.has('q'));
+  await page.getByRole('button', { name: 'Filter presets' }).click();
+  await page.getByRole('menuitem', { name: /Beaches/ }).click();
+  await page.waitForURL((u) => u.searchParams.get('q') === 'beach' && u.searchParams.get('sort') === 'filename');
 });
 
 /** The uploads started, by what the app said of each file. */

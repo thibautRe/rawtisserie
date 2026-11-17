@@ -225,7 +225,8 @@ export async function photoRoutes(
       db.query(sql`
         SELECT count(*)::int AS total, min(p.captured_at) AS "capturedFrom", max(p.captured_at) AS "capturedTo",
           min(p.iso) AS "isoMin", max(p.iso) AS "isoMax", min(p.focal_length) AS "focalMin",
-          max(p.focal_length) AS "focalMax", min(p.f_number) AS "apertureMin", max(p.f_number) AS "apertureMax"
+          max(p.focal_length) AS "focalMax", min(p.f_number) AS "apertureMin", max(p.f_number) AS "apertureMax",
+          (count(*) FILTER (WHERE cardinality(v.tags) = 0))::int AS untagged
         FROM ${VERSIONS_FROM} WHERE ${where}`),
       db.query(sql`
         SELECT i.id AS value, count(*)::int AS count, i.created_at AS "importedAt", i.source

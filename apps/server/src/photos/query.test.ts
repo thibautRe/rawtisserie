@@ -17,6 +17,11 @@ test('an empty query string is the whole library, newest first', () => {
   assert.equal(q.tag, undefined);
 });
 
+test('"no tags" is its own filter', () => {
+  assert.equal(parseLibraryQuery('untagged=true').untagged, 'true');
+  assert.throws(() => parseLibraryQuery('untagged=yes'));
+});
+
 test('paging is not part of a selection by filter, and a bad filter is refused', () => {
   assert.equal('offset' in parseLibraryQuery('offset=400&limit=200'), false);
   assert.throws(() => parseLibraryQuery('ratingMin=9'));

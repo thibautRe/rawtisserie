@@ -22,6 +22,8 @@ export const PhotoFilters = z.object({
   camera: list,
   lens: list,
   tag: list,
+  /** Only versions without any tag. */
+  untagged: z.enum(['true']).optional(),
   ratingMin: z.coerce.number().int().min(0).max(5).optional(),
   flag: flags,
   colorLabel: list,
@@ -73,6 +75,7 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   // Each tag asked for, or one under it (`People` finds `People|Alice`).
   for (const tag of f.tag ?? [])
     c.push(sql`EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE t = ${tag} OR starts_with(t, ${`${tag}|`}))`);
+  if (f.untagged) c.push(sql`cardinality(v.tags) = 0`);
   if (f.colorLabel?.length) c.push(sql`v.color_label = ANY(${f.colorLabel})`);
   if (f.ratingMin) c.push(sql`v.rating >= ${f.ratingMin}`);
   if (f.flag?.length && !FLAGS.every((flag) => f.flag!.includes(flag))) {

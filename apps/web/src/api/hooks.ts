@@ -31,6 +31,7 @@ import type {
   BulkPatch,
   FacetValue,
   Facets,
+  FilterPreset,
   Invitation,
   Photo,
   PhotoDetail,
@@ -305,6 +306,8 @@ export function useTagChange() {
         void qc.invalidateQueries({ queryKey: ['photos'] });
         void qc.invalidateQueries({ queryKey: ['photo'] });
         void qc.invalidateQueries({ queryKey: ['trash'] });
+        // Saved filters follow the tag.
+        void qc.invalidateQueries({ queryKey: ['filter-presets'] });
       }
     },
   });
@@ -698,6 +701,53 @@ export function useDeletePreset() {
   return useMutation({
     mutationFn: (id: string) => api.delete(`/api/presets/${id}`),
     onSuccess: (_, id) => qc.setQueryData<Preset[]>(['presets'], (list = []) => list.filter((p) => p.id !== id)),
+  });
+}
+
+// ── Filter presets ──────────────────────────────────────────────────────────
+
+const byPresetName = (a: { name: string }, b: { name: string }) =>
+  a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+
+/** The user's saved library filters. */
+export function useFilterPresets() {
+  return useQuery({
+    queryKey: ['filter-presets'],
+    queryFn: async () => (await api.get<{ presets: FilterPreset[] }>('/api/filter-presets')).presets,
+    staleTime: Infinity,
+  });
+}
+
+/** Save the filters under a name. One with the same name is replaced. */
+export function useSaveFilterPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; query: string }) => api.post<FilterPreset>('/api/filter-presets', input),
+    onSuccess: (preset) =>
+      qc.setQueryData<FilterPreset[]>(['filter-presets'], (list = []) =>
+        [...list.filter((p) => p.id !== preset.id), preset].sort(byPresetName),
+      ),
+  });
+}
+
+export function useRenameFilterPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      api.patch<FilterPreset>(`/api/filter-presets/${id}`, { name }),
+    onSuccess: (preset) =>
+      qc.setQueryData<FilterPreset[]>(['filter-presets'], (list = []) =>
+        list.map((p) => (p.id === preset.id ? preset : p)).sort(byPresetName),
+      ),
+  });
+}
+
+export function useDeleteFilterPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/api/filter-presets/${id}`),
+    onSuccess: (_, id) =>
+      qc.setQueryData<FilterPreset[]>(['filter-presets'], (list = []) => list.filter((p) => p.id !== id)),
   });
 }
 

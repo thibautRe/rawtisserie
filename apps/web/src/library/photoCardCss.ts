@@ -43,8 +43,10 @@ export const PHOTO_CARD_CSS: Record<string, SystemStyleObject> = {
     borderWidth: '2px',
     borderColor: 'transparent',
     overflow: 'hidden',
-    '[data-focused] > &': { borderColor: 'border.emphasized' },
+    '[data-focused] > &': { borderColor: 'fg.subtle' },
     '[data-selected] > &': { bg: 'bg.emphasized', borderColor: 'orange.solid' },
+    // The photo the keyboard moves from: a brighter ring inside the selection's border.
+    '[data-selected][data-focused] > &': { boxShadow: 'inset 0 0 0 2px var(--chakra-colors-orange-fg)' },
   },
   '.photo-card-thumb': {
     position: 'absolute',

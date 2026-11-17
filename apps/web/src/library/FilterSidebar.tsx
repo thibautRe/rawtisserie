@@ -21,6 +21,7 @@ import { TagSearch } from '../components/TagSearch.tsx';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
 import { type TagNode, filterTagTree, isUnder, tagTree } from '../lib/tags.ts';
 import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
+import { FilterPresetMenu } from './FilterPresetMenu.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
@@ -63,10 +64,12 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
 /**
  * The tags as a tree: a tag picks the photos with it or one under it (`People`: all of
  * People's). Folded below the top, except where a tag is picked, and while searching:
- * then it shows the tags found and the way to them.
+ * then it shows the tags found and the way to them. "No tags" picks the photos without
+ * any, and can't go with a tag (nothing would match): picking one unpicks the other.
  */
-function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySearch }) {
+function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged: number; search: LibrarySearch }) {
   const selected = search.params.getAll('tag');
+  const noTags = search.params.get('untagged') === 'true';
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
   const searching = query.trim() !== '';
@@ -75,7 +78,7 @@ function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySear
     ...values,
     ...selected.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 })),
   ]);
-  if (!tree.length)
+  if (!tree.length && !noTags)
     return (
       <Text textStyle="xs" color="fg.subtle">
         Nothing yet
@@ -113,7 +116,15 @@ function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySear
             flex="1"
             minW="0"
             checked={selected.includes(n.path)}
-            onCheckedChange={() => search.toggle('tag', n.path)}
+            onCheckedChange={() =>
+              search.edit((next) => {
+                const tags = next.getAll('tag');
+                next.delete('tag');
+                for (const t of tags.includes(n.path) ? tags.filter((t) => t !== n.path) : [...tags, n.path])
+                  next.append('tag', t);
+                next.delete('untagged');
+              })
+            }
           >
             <Checkbox.HiddenInput />
             <Checkbox.Control />
@@ -132,6 +143,29 @@ function TagTree({ values, search }: { values: FacetValue[]; search: LibrarySear
   return (
     <Stack gap="2">
       <TagSearch size="xs" value={query} onChange={setQuery} />
+      {!searching && (
+        <Checkbox.Root
+          size="xs"
+          ps="5"
+          checked={noTags}
+          onCheckedChange={() =>
+            search.edit((next) => {
+              next.delete('tag');
+              if (noTags) next.delete('untagged');
+              else next.set('untagged', 'true');
+            })
+          }
+        >
+          <Checkbox.HiddenInput />
+          <Checkbox.Control />
+          <Checkbox.Label flex="1" textStyle="xs" fontStyle="italic">
+            No tags
+          </Checkbox.Label>
+          <Text textStyle="xs" color="fg.muted" {...NUMERIC}>
+            {untagged}
+          </Text>
+        </Checkbox.Root>
+      )}
       {found.length ? (
         <Stack gap="1" maxH="60" overflowY="auto">
           {rows(found, 0)}
@@ -373,11 +407,14 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
           )
         }
         actions={
-          search.activeFilterCount > 0 && (
-            <Button size="2xs" variant="ghost" onClick={search.clear}>
-              Clear all
-            </Button>
-          )
+          <HStack gap="0.5">
+            {search.activeFilterCount > 0 && (
+              <Button size="2xs" variant="ghost" onClick={search.clear}>
+                Clear all
+              </Button>
+            )}
+            <FilterPresetMenu search={search} />
+          </HStack>
         }
       >
         <HStack justify="space-between" rowGap="2" wrap="wrap">
@@ -467,7 +504,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
           </Button>
         }
       >
-        <TagTree values={facets?.tags ?? []} search={search} />
+        <TagTree values={facets?.tags ?? []} untagged={facets?.ranges.untagged ?? 0} search={search} />
       </PanelBlock>
 
       <PanelBlock

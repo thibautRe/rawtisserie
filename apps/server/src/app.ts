@@ -13,6 +13,7 @@ import { isolationReports } from './isolation.ts';
 import { denoiseRoutes } from './denoise/routes.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
+import { filterPresetRoutes } from './photos/filterPresets.ts';
 import { trashRoutes } from './photos/trash.ts';
 import { uploadRoutes } from './photos/uploads.ts';
 import { tagRoutes } from './photos/tags.ts';
@@ -68,6 +69,7 @@ export async function buildApp() {
   await app.register(receiveRoutes, { renderQueue });
   await app.register(sendRoutes, { runner: transfers });
   await app.register(presetRoutes);
+  await app.register(filterPresetRoutes);
   await app.register(exportRoutes);
   await app.register(lutRoutes);
   await app.register(denoiseRoutes);

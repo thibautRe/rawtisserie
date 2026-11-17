@@ -235,7 +235,17 @@ export interface Facets {
     focalMax: number | null;
     apertureMin: number | null;
     apertureMax: number | null;
+    /** Versions without any tag. */
+    untagged: number;
   };
+}
+
+/** Saved library filters (a filter preset). */
+export interface FilterPreset {
+  id: string;
+  name: string;
+  /** The filters, as the library's query string (no sort). */
+  query: string;
 }
 
 /** A token made here, for another instance to send photos to this one. */
