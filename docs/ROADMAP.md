@@ -67,6 +67,11 @@ library, trash and settings on phones.
 2026-11-17: 8.13, Ctrl+A selects everything the filters match. Then 3.5's spike: the
 denoising executor ported and benchmarked, and the decisions on previews and models;
 then 3.5 built (raw denoise in the developer and exports, kept in place of the original).
+NOTES.md feedback the same day: tag shortcuts in the tag input, Shift+arrow ranges
+that shrink back (and the focused photo marked), a "No tags" filter, saved filters
+(filter presets, as module presets), hue shift sliders 10× finer around 0° (0.1° with
+Ctrl), and glow streaks and motion (4.12). Added: 2.7 (an always-on colour picker); 3.9
+(demosaicing) is the next image-quality item after 3.5.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -322,6 +327,35 @@ preset. It builds on 2.5 (every slider usable from the keyboard) and fits the hi
 panels are laid out and navigated.
 
 ---
+
+### 2.7 Colour picker, always on (M–L, from NOTES.md)
+
+Added 2026-11-17. Whatever is under the pointer in the developer, as it moves: its
+values, where it sits in the scopes, and where it sits in the modules that show data
+about the image (the tone curve's histogram and nodes, colour balance's settings graph).
+No tool to pick first.
+
+- **Two kinds of values, two costs.** What the display shows (encoded RGB, luma, the
+  vectorscope's point) can be read from the render the worker already has: one pixel,
+  sent back with the pointer position, cheap enough for every move (throttled to a
+  frame). What modules need is scene-referred and per module: the tone curve's input in
+  EV (after the modules before it, its mask's tone if `preserveDetail`), colour
+  balance's input chroma and hue. That's the pixel run through the point pass up to
+  that module: cheap for one pixel if the worker keeps the spatial image (it does, for
+  the point pool) and a `PointOps` can stop after a given step.
+- **Scopes:** a cross-hair in the waveform/parade at the pixel's column and values, a
+  dot in the vectorscope. Drawn over the scope image in the page (an overlay), not into
+  it, so moving the pointer doesn't redraw the scope.
+- **Modules:** a vertical line in the tone curve at the pixel's EV (per channel when
+  independent), a marker in colour balance's graph. Only on open, expanded modules.
+- **Performance:** the pointer's position goes to the pipeline worker at most once per
+  frame; nothing renders. To measure in `test:perf`: moving the pointer over the image
+  during and after a drag must stay within budget. Compromise if it doesn't: values
+  only while a key is held, or only after the pointer rests 100 ms.
+- **To decide:** where the readout goes (status bar, or next to the pointer); which
+  values (RGB 0–255 or %, LCh, EV); whether a click pins a sample (several, as
+  Lightroom's colour sampler), and whether pinned samples survive a reload (in the
+  recipe? no: in the view state).
 
 ## M3 — Image quality modules
 
@@ -678,6 +712,8 @@ weakest on X-Trans. Only the full-resolution path changes; binning stays.
   say why. Consider a recipe or crop that shows edges (zipper, false colour).
 - **Choice:** an option in the recipe (Ansel has one per image) or fixed? Fixed RCD /
   Markesteijn is simpler and enough to start with.
+- **Feedback (2026-11-17, NOTES.md):** the pattern bilinear leaves is too visible at
+  100 %: this is the next image-quality item after 3.5.
 
 ---
 
