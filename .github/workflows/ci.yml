@@ -27,6 +27,12 @@ jobs:
           path: crates/pipeline/tests/golden/raws
           key: golden-raws-${{ hashFiles('crates/pipeline/tests/golden/raws.txt') }}
       - run: ./scripts/fetch-golden-raws.sh
+      - name: Cache denoise parity fixtures
+        uses: actions/cache@v6
+        with:
+          path: crates/pipeline/tests/nn
+          key: nn-fixtures-${{ hashFiles('scripts/fetch-nn-fixtures.sh') }}
+      - run: ./scripts/fetch-nn-fixtures.sh
       - run: cargo test --workspace --locked
       - name: Upload golden failures
         if: failure()

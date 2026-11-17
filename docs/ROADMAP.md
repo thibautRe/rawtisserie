@@ -64,7 +64,8 @@ M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope. 8.11 do
 same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic. Then 7.11:
 renders stored as AVIF, encoded by sharp (native) in the render worker. Then 10.1: the
 library, trash and settings on phones.
-2026-11-17: 8.13, Ctrl+A selects everything the filters match.
+2026-11-17: 8.13, Ctrl+A selects everything the filters match. Then 3.5's spike: the
+denoising executor ported and benchmarked, and the decisions on previews and models.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -440,6 +441,40 @@ white balance and is the most common target for masked instances.
 
 ### 3.5 Raw denoise (AI) (XL, before 1.0)
 
+> **Spike done** 2026-11-17 (`nn.rs`, `examples/denoise_bench.rs`, `tests/nn_parity.rs`).
+> The executor is ported and matches upstream's PyTorch fixture to 2·10⁻⁷, natively and
+> in wasm. Single-thread speed on a 576² tile (i9-10885H, wasm in Node ≈ native):
+>
+> | model (fine + coarse net) | wasm, s/MP | 24 MP, 4 workers, overlap ×1.5 |
+> |---|---|---|
+> | quarter-multi | 2.4 | ~20 s |
+> | half-multi | 6.2 | ~55 s |
+> | large-multi | ~20 (native 21) | ~3 min |
+>
+> Upstream's kernel ran at 3.9 / 9.3 / 53 s/MP in wasm. The gains came from a
+> register-blocked 3×3 kernel (explicit SIMD in wasm) and a branch-free `erf`; AVX2+FMA
+> adds only 10–15 %. Findings:
+> - upstream's "v1" files were replaced in place (manifest revisions 1–5, "R&D, not
+>   in a tagged release"): we keep our own copies, pinned by SHA-256;
+> - the multiscale fixture's model was never published: only binning is checked
+>   against PyTorch for "unet-ms" (the coarse net runs the same code as the fine one);
+> - the σ map is computed before white balance on normalised, **unclamped** samples
+>   (`RawPhoto::sample` clamps at 0: the denoiser needs its own read);
+> - noise profiles are matched by Ansel's camera names, which may not be rawler's;
+> - tiles: origins on a fixed 64-photosite grid, overlap 96 (single) / 192 (multi),
+>   independent of the machine, or results change with the tiling.
+>
+> **Decisions** (2026-11-17):
+> - **Previews:** zoomed-out views may differ; a full-size view in the developer must
+>   match the export (within ~1 %). Library thumbnails and loupe tiles may use the
+>   coarse net's output (a denoised binned image, 1/16 of the work) for now.
+> - **Models:** lazy-loaded by the browser the first time the module is enabled (a
+>   one-time download, cached); size isn't a concern, so all sizes can ship if the
+>   quality is worth the time (compare before choosing defaults).
+> - **Versions:** pinned now. The module stores the model version it was made with;
+>   shipping a newer one re-renders nothing, and the developer offers "New model.
+>   Upgrade?" on images that use an older one.
+
 A port of Ansel's "RAW Denoise (AI)" module: `src/iop/rawdenoiseai.c`, the CPU executor
 `src/common/nn_model.c`, and the design notes in `doc/rawdenoiseai.md` (last changed
 upstream at `57c1f08d81`, 2026-10-02). The models are trained in
@@ -477,13 +512,9 @@ upstream at `57c1f08d81`, 2026-10-02). The models are trained in
   Denoising must run on the full-resolution mosaic, so it needs a cached denoised
   mosaic keyed by the denoise parameters, from which every base factor and region
   patch is developed.
-- **Decision: previews.** Denoising the whole mosaic is the expensive part, and binning
-  already averages noise away at small scales. Options:
-  - always denoise the full mosaic (correct, slow first render);
-  - denoise only for 1:1 regions and exports, using the receptive field as the
-    region margin (fast, but previews differ from exports).
-
-  `tests/regions.rs` will settle what has to match.
+- **Previews** (decided, see above): zoomed out, the coarse net's output; at full size,
+  the denoised mosaic, in tiles on the fixed grid, so 100 % views match exports.
+  `tests/regions.rs` checks what has to match.
 
 - **Executor:** port `nn_model.c` to Rust (convolutions, resampling, GELU), with no
   runtime dependency, so it runs in wasm and natively. Check it against upstream's

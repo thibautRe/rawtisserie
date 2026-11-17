@@ -25,6 +25,7 @@ pub mod frame;
 pub mod image;
 pub mod lens;
 pub mod metadata;
+pub mod nn;
 pub mod ops;
 pub mod output;
 pub mod params;

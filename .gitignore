@@ -7,6 +7,7 @@ target/
 *.log
 .DS_Store
 /crates/pipeline/tests/golden/raws/
+/crates/pipeline/tests/nn/
 
 NOTES.md
 /deploy/backups/

@@ -99,6 +99,15 @@ pub fn diffuse_plane(params_json: &str, scale: f32, width: u32, height: u32, mut
     Ok(plane)
 }
 
+/// Spike for raw denoise (roadmap 3.5): one stage of an `.anselnn` model on planar
+/// `input` (`width × height`), returning the raw head output. For benchmarks and parity
+/// checks only, until the module exists.
+#[wasm_bindgen(js_name = denoiseForward)]
+pub fn denoise_forward(model: &[u8], coarse: bool, input: Vec<f32>, width: u32, height: u32) -> Result<Vec<f32>, JsError> {
+    let model = pipeline::nn::Model::from_bytes(model).map_err(js_err)?;
+    model.forward(coarse, &input, width as usize, height as usize, false).ok_or_else(|| JsError::new("bad size or input"))
+}
+
 /// Read metadata (EXIF, dimensions…) without decoding the sensor data. Returns JSON.
 #[wasm_bindgen(js_name = readMetadata)]
 pub fn read_metadata(bytes: &[u8]) -> Result<String, JsError> {

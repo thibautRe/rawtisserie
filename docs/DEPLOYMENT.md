@@ -284,7 +284,9 @@ request. Four jobs run in parallel:
 
 - **Rust:** `cargo test --workspace`, golden-image tests included. The golden RAWs are
   cached by `raws.txt`'s hash; when the golden test fails, its renders and ΔE heatmaps
-  (`target/tmp/golden/`) are uploaded as an artifact.
+  (`target/tmp/golden/`) are uploaded as an artifact. The raw denoise executor is
+  checked against ansel-denoise's PyTorch fixtures (`scripts/fetch-nn-fixtures.sh`,
+  cached by that script's hash).
 - **TypeScript:** builds the wasm (`wasm-bindgen` pinned to the crate's version), then
   `format:check`, `typecheck`, the workspaces' tests and the production web build.
 - **Container image:** builds the `Dockerfile`, with Buildx's GitHub Actions cache.
