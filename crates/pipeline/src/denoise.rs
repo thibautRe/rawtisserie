@@ -191,25 +191,51 @@ fn is_xtrans(cfa: &CFA) -> bool {
     cfa.width == 6
 }
 
-/// Denoises one tile of the grid (`core`, from [`tiles`]) at full strength: its
-/// photosites, row by row, normalised and unclamped. `None` if the photo can't be.
-pub fn denoise_tile(model: &Model, photo: &RawPhoto, profile: &NoiseProfile, conditioning: &Conditioning, core: Region) -> Option<Vec<f32>> {
+/// One tile of the grid to denoise: the network's first five input planes over the
+/// tile and its margin (`size × size`), and what the rest needs. Built where the photo
+/// is ([`tile_input`]), run where the model is ([`run_tile`]).
+#[derive(Clone, Debug)]
+pub struct TileInput {
+    /// The tile, in the sensor's usable area.
+    pub core: Region,
+    pub size: usize,
+    /// Mosaic, R, G, B one-hot and σ planes, `size × size` each.
+    pub planes: Vec<f32>,
+    pub xtrans: bool,
+    pub profile: NoiseProfile,
+    /// The σ map's scale per colour ([`Conditioning`]).
+    pub scale: [f32; 3],
+}
+
+/// The input of one tile of the grid (`core`, from [`tiles`]) for a model with this
+/// `margin` ([`margin`]). `None` if the photo can't be denoised.
+pub fn tile_input(photo: &RawPhoto, profile: &NoiseProfile, conditioning: &Conditioning, margin: usize, core: Region) -> Option<TileInput> {
     let Layout::Mosaic(cfa) = &photo.layout else { return None };
     if !supported(photo) {
         return None;
     }
-    let sensor = Sensor { photo, cfa };
-    let m = margin(model);
-    let n = TILE + 2 * m;
-    debug_assert_eq!(n % model.alignment(), 0);
-    let plane = n * n;
+    let size = TILE + 2 * margin;
     let scale = conditioning.scale();
-    let mut planes = vec![0.0f32; model.in_channels() * plane];
-    assemble(&sensor, profile, scale, core.x as isize - m as isize, core.y as isize - m as isize, n, &mut planes);
+    let mut planes = vec![0.0f32; 5 * size * size];
+    let sensor = Sensor { photo, cfa };
+    assemble(&sensor, profile, scale, core.x as isize - margin as isize, core.y as isize - margin as isize, size, &mut planes);
+    Some(TileInput { core, size, planes, xtrans: is_xtrans(cfa), profile: *profile, scale })
+}
 
-    let bin = model.bin(is_xtrans(cfa));
+/// Denoises a tile at full strength: its photosites, row by row, normalised and
+/// unclamped. `None` if `input` wasn't made for this model's margin.
+pub fn run_tile(model: &Model, input: TileInput) -> Option<Vec<f32>> {
+    let TileInput { core, size: n, planes: first, xtrans, profile, scale } = input;
+    let m = margin(model);
+    if n != TILE + 2 * m || n % model.alignment() != 0 || first.len() != 5 * n * n {
+        return None;
+    }
+    let plane = n * n;
+    let mut planes = first;
+    planes.resize(model.in_channels() * plane, 0.0);
+    let bin = model.bin(xtrans);
     if bin > 1 {
-        let guide = coarse_guide(model, &planes, n, bin, profile, scale)?;
+        let guide = coarse_guide(model, &planes, n, bin, &profile, scale)?;
         planes[5 * plane..8 * plane].copy_from_slice(&guide);
     }
     let head = model.forward(false, &planes, n, n, false)?;
@@ -223,6 +249,11 @@ pub fn denoise_tile(model: &Model, photo: &RawPhoto, profile: &NoiseProfile, con
         out.extend_from_slice(&denoised[(y + m) * n + m..][..core.width]);
     }
     Some(out)
+}
+
+/// [`tile_input`] then [`run_tile`].
+pub fn denoise_tile(model: &Model, photo: &RawPhoto, profile: &NoiseProfile, conditioning: &Conditioning, core: Region) -> Option<Vec<f32>> {
+    run_tile(model, tile_input(photo, profile, conditioning, margin(model), core)?)
 }
 
 /// The fine net's first five planes for the `n × n` window at (`x0`, `y0`): mosaic, R,

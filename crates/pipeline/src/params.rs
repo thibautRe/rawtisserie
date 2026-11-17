@@ -151,6 +151,9 @@ macro_rules! modules {
 }
 
 modules! {
+    /// Raw denoise (AI), on the sensor's mosaic before demosaicing. Single instance, RAW
+    /// files only.
+    RawDenoise,
     /// Spot removal, on the base image (sensor frame), before lens correction.
     Retouch,
     /// Lens correction (distortion, TCA, vignetting), in the geometry stage. Single instance.
@@ -180,7 +183,7 @@ modules! {
 impl ModuleKind {
     /// Kinds whose extra instances are dropped on load.
     pub fn single_instance(self) -> bool {
-        matches!(self, ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
+        matches!(self, ModuleKind::RawDenoise | ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
     }
 
     /// Kinds with an auto-tune a preset or style can ask for: filmic's white and black
@@ -1349,6 +1352,83 @@ impl ContrastEqualizer {
         let d = Self::default();
         self.mix == 0.0 || (self.luma == d.luma && self.chroma == d.chroma && self.luma_denoise == d.luma_denoise && self.chroma_denoise == d.chroma_denoise)
     }
+}
+
+/// Raw denoise (AI), see [`crate::denoise`]: a network trained by Ansel's ansel-denoise
+/// subtracts the noise it estimates from the sensor's mosaic, conditioned on the
+/// camera's noise profile.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RawDenoise {
+    /// Opacity of the correction, 0 (none) … 1: `original + strength·(denoised − original)`.
+    pub strength: f32,
+    /// Which network: a model is a version, a size and a variant, and stays as it was
+    /// for a recipe that names it (a newer version is offered, not applied).
+    pub model: DenoiseModel,
+    /// Scales the noise the network is told to expect, everywhere, 0 … 2 (upstream's
+    /// "global correction").
+    pub noise_level: f32,
+    /// Scales it per CFA colour (R, G, B), 0.5 … 8. The defaults carry the noise
+    /// profiles' calibration.
+    pub corrections: [f32; 3],
+}
+
+impl Default for RawDenoise {
+    fn default() -> Self {
+        Self { strength: crate::denoise::DEFAULT_STRENGTH, model: DenoiseModel::default(), noise_level: 1.0, corrections: crate::denoise::DEFAULT_CORRECTIONS }
+    }
+}
+
+/// A raw denoise network: ansel-denoise's `denoise-<size>-<variant>-v<version>.anselnn`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DenoiseModel {
+    /// The weights' version (ours: we pin upstream's files by hash), 1 for now.
+    pub version: u32,
+    pub size: DenoiseSize,
+    pub variant: DenoiseVariant,
+}
+
+impl Default for DenoiseModel {
+    fn default() -> Self {
+        Self { version: 1, size: DenoiseSize::Half, variant: DenoiseVariant::Multi }
+    }
+}
+
+impl DenoiseModel {
+    /// Its file's name without the extension, e.g. `denoise-half-multi-v1`: its id.
+    pub fn id(&self) -> String {
+        let size = match self.size {
+            DenoiseSize::Quarter => "quarter",
+            DenoiseSize::Half => "half",
+            DenoiseSize::Large => "large",
+        };
+        let variant = match self.variant {
+            DenoiseVariant::Single => "single",
+            DenoiseVariant::Multi => "multi",
+        };
+        format!("denoise-{size}-{variant}-v{}", self.version)
+    }
+}
+
+/// Width of the network: each is fitted on its own, so they don't give the same image.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DenoiseSize {
+    Quarter,
+    #[default]
+    Half,
+    Large,
+}
+
+/// The fine network alone, or guided by a coarse one on the binned image (less
+/// low-frequency colour noise).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DenoiseVariant {
+    Single,
+    #[default]
+    Multi,
 }
 
 /// Glow (see [`crate::ops::glow`]): what is brighter than a threshold spreads around,

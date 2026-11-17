@@ -10,6 +10,20 @@ import type { PhotoMetadata } from './metadata.ts';
 import { type Shape, freshShapeId, normalizeShape } from './shapes.ts';
 
 export interface ModuleParams {
+  /**
+   * Raw denoise (AI), on the sensor's mosaic before demosaicing: a network trained by
+   * Ansel's ansel-denoise, conditioned on the camera's noise profile. See `denoise.rs`.
+   */
+  rawDenoise: {
+    /** Opacity of the correction, 0 (none) … 1. */
+    strength: number;
+    /** Which network; stays as it was for a recipe that names it (a newer version is offered). */
+    model: DenoiseModel;
+    /** Scales the noise the network expects, everywhere, 0 … 2 ("global correction"). */
+    noiseLevel: number;
+    /** Scales it per CFA colour (R, G, B), 0.5 … 8; the defaults carry the profiles' calibration. */
+    corrections: [number, number, number];
+  };
   /** Spot removal, on the sensor frame before lens correction: applied in list order. */
   retouch: {
     spots: Spot[];
@@ -410,8 +424,28 @@ export type Led = (typeof LEDS)[number];
 export const ADAPTATIONS = ['cat16', 'linearBradford', 'xyz', 'none'] as const;
 export type Adaptation = (typeof ADAPTATIONS)[number];
 
+/** A raw denoise network: ansel-denoise's `denoise-<size>-<variant>-v<version>.anselnn`. */
+export interface DenoiseModel {
+  /** The weights' version (ours, pinned by hash), 1 for now. */
+  version: number;
+  /** Width of the network: each is fitted on its own, so they don't give the same image. */
+  size: DenoiseSize;
+  /** The fine network alone, or guided by a coarse one on the binned image (less colour blotching). */
+  variant: DenoiseVariant;
+}
+export const DENOISE_SIZES = ['quarter', 'half', 'large'] as const;
+export type DenoiseSize = (typeof DENOISE_SIZES)[number];
+export const DENOISE_VARIANTS = ['single', 'multi'] as const;
+export type DenoiseVariant = (typeof DENOISE_VARIANTS)[number];
+
+/** A denoise model's id, its file's name: mirrors `DenoiseModel::id`. */
+export function denoiseModelId(m: DenoiseModel): string {
+  return `denoise-${m.size}-${m.variant}-v${m.version}`;
+}
+
 /** Module kinds, in pipeline order. */
 export const MODULE_KINDS = [
+  'rawDenoise',
   'retouch',
   'lens',
   'geometry',
@@ -432,7 +466,7 @@ export const MODULE_KINDS = [
  * have: it's display-referred already, and its lens was corrected (or not) when it was
  * made. Recipes for one leave them out (`forPhoto`), and the developer doesn't show them.
  */
-export const RAW_ONLY_KINDS: readonly ModuleKind[] = ['lens', 'filmic'];
+export const RAW_ONLY_KINDS: readonly ModuleKind[] = ['rawDenoise', 'lens', 'filmic'];
 
 /** Whether a photo with this metadata has `kind` (see `RAW_ONLY_KINDS`). */
 export function hasKind(metadata: Pick<PhotoMetadata, 'imageFormat'> | null | undefined, kind: ModuleKind): boolean {
@@ -440,7 +474,7 @@ export function hasKind(metadata: Pick<PhotoMetadata, 'imageFormat'> | null | un
 }
 
 /** Kinds whose extra instances are dropped on load. */
-export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['lens', 'geometry', 'filmic'];
+export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['rawDenoise', 'lens', 'geometry', 'filmic'];
 
 /**
  * Kinds whose instances can have a mask: the spatial and point modules before filmic, and
@@ -646,6 +680,12 @@ export const EDIT_PARAMS_VERSION = 8;
 
 /** Parameters of a new instance of each kind. */
 export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] } = Object.freeze({
+  rawDenoise: {
+    strength: 0.85,
+    model: { version: 1, size: 'half', variant: 'multi' },
+    noiseLevel: 1,
+    corrections: [2.82, 3.94, 2.96],
+  },
   retouch: { spots: [] },
   lens: { distortion: 1, tca: 1, vignetting: 1 },
   geometry: {
@@ -1179,6 +1219,13 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
   }
   if (kind === 'colorBalance') input = foldGrading(input);
   const params = merge(defaultModuleParams[kind], input as DeepPartial<ModuleParams[K]>);
+  if (kind === 'rawDenoise') {
+    const m = (params as ModuleParams['rawDenoise']).model;
+    const d = defaultModuleParams.rawDenoise.model;
+    if (!DENOISE_SIZES.includes(m.size)) m.size = d.size;
+    if (!DENOISE_VARIANTS.includes(m.variant)) m.variant = d.variant;
+    if (!Number.isInteger(m.version) || m.version < 1) m.version = d.version;
+  }
   if (kind === 'filmic') {
     const f = params as ModuleParams['filmic'];
     if (!BLEACH_LEVELS.includes(f.bleach)) f.bleach = defaultModuleParams.filmic.bleach;

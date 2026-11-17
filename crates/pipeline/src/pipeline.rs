@@ -25,6 +25,9 @@ use crate::ops::{equalizer, filmic, geometry};
 use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Glow, Lens, Module, ModuleInstance, ModuleKind};
 use crate::Result;
 
+mod denoising;
+pub use denoising::{DenoiseJob, DenoiseKey, DenoiseStatus};
+
 /// Interactive renders may approximate (filmic's 3D lookup table, within 1–2 levels
 /// for 99.9 % of pixels); final renders (exports, thumbnails) are exact.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -114,6 +117,8 @@ pub struct Developer {
     /// Outputs of diffuse steps computed elsewhere (see [`next_diffuse_job`](Self::next_diffuse_job)),
     /// by [`diffuse_key`], until a render uses them; most recent last.
     diffused: Vec<(u64, Image)>,
+    /// Raw denoise: models, tiles, and the denoised photo (see `denoising.rs`).
+    denoising: denoising::Denoising,
 }
 
 /// Most diffuse outputs kept for the next render.
@@ -451,6 +456,7 @@ impl Developer {
 
     fn with_photo(photo: Rc<RawPhoto>) -> Self {
         Self {
+            denoising: denoising::Denoising::new(Rc::clone(&photo)),
             photo,
             base: None,
             base_retouch: Retouched::default(),
@@ -467,7 +473,9 @@ impl Developer {
     /// renders at very different sizes (e.g. thumbnails) there don't evict these. LUTs
     /// aren't shared: load them in each.
     pub fn sibling(&self) -> Developer {
-        Self::with_photo(Rc::clone(&self.photo))
+        let mut dev = Self::with_photo(Rc::clone(&self.photo));
+        dev.denoising = self.denoising.share();
+        dev
     }
 
     pub fn photo(&self) -> &RawPhoto {
@@ -532,6 +540,7 @@ impl Developer {
     /// straightening and perspective (oriented, lens-corrected, uncropped) as rendered
     /// within `size`. Endpoints are in the sensor frame (normalised), as shapes'.
     pub fn detect_lines(&mut self, params: &EditParams, size: RenderSize) -> Vec<Segment> {
+        self.sync_source(params);
         let plain = Self::unwarped(params);
         let (width, height, scale) = self.output_size(&plain, size);
         let transform = self.transform(&plain);
@@ -618,6 +627,7 @@ impl Developer {
         if plan.patch { Some(Self::binning(plan.scale)) } else { self.base_factor_for(plan.scale) }
     }
     pub fn render(&mut self, params: &EditParams, size: RenderSize, quality: Quality) -> Rgba8 {
+        self.sync_source(params);
         let ops = self.point_ops.render_ops(params, self.photo.as_shot_illuminant, quality);
         let (_, img, masks) = self.spatial(params, size);
         ops.render_masked(img, masks)
@@ -631,6 +641,7 @@ impl Developer {
 
     /// [`render`](Self::render), with clipping indicators painted on top.
     pub fn render_with_overlays(&mut self, params: &EditParams, size: RenderSize, quality: Quality, overlays: &Overlays) -> Rgba8 {
+        self.sync_source(params);
         let mut img = self.render(params, size, quality);
         self.paint_overlays(params, size, &mut img, overlays);
         img
@@ -638,6 +649,7 @@ impl Developer {
 
     /// Paint clipping indicators (and the mask overlay) on a render of `params` within `size`.
     pub fn paint_overlays(&mut self, params: &EditParams, size: RenderSize, img: &mut Rgba8, overlays: &Overlays) {
+        self.sync_source(params);
         if let Some(id) = overlays.mask.as_deref() {
             self.paint_mask_view(params, id, size, overlays.mask_view, img);
         }
@@ -655,6 +667,7 @@ impl Developer {
 
     /// Output pixels that contain saturated photosites, from cache when possible.
     pub fn sensor_clip_mask(&mut self, params: &EditParams, size: RenderSize) -> &Mask {
+        self.sync_source(params);
         let plan = self.plan(params, size);
         let (width, height) = plan.frame;
         // Builds the base and selects this size's slot, as for a render.
@@ -696,12 +709,16 @@ impl Developer {
 
     /// The output of the spatial stages (geometry, diffuse, equalizer, glow), from cache when possible.
     pub fn spatial_image(&mut self, params: &EditParams, size: RenderSize) -> &Image {
+        self.sync_source(params);
         self.spatial(params, size).1
     }
 
     /// Whether [`spatial_image`](Self::spatial_image) would come from cache, i.e. a
     /// render would only re-run the point operations.
     pub fn is_spatial_cached(&self, params: &EditParams, size: RenderSize) -> bool {
+        if self.source_changes(params) {
+            return false;
+        }
         let plan = self.plan(params, size);
         let Some(base_factor) = self.plan_factor(&plan) else { return false };
         let (width, height) = plan.frame;
@@ -724,6 +741,7 @@ impl Developer {
     /// [`spatial_image`](Self::spatial_image), with an id that changes whenever the
     /// image does (so copies of it elsewhere can tell when they are stale).
     pub fn spatial_image_id(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image) {
+        self.sync_source(params);
         let (id, img, _) = self.spatial(params, size);
         (id, img)
     }
@@ -732,6 +750,7 @@ impl Developer {
     /// enabled instances' masks over its pixels (by instance id): what the point
     /// operations read. The id changes whenever either does.
     pub fn spatial(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image, &[MaskPlane]) {
+        self.sync_source(params);
         let (plan, gkey, inner, mut changed) = self.prepare_slot(params, size);
         let pkey = point_masks_key(params, &plan, gkey);
         let diffused = &mut self.diffused;
@@ -850,6 +869,7 @@ impl Developer {
     /// spatial stages are cached or every diffuse step has been provided. Steps are given
     /// in order: each one's input is the output of those before it.
     pub fn next_diffuse_job(&mut self, params: &EditParams, size: RenderSize) -> Option<DiffuseJob> {
+        self.sync_source(params);
         let plan = self.plan(params, size);
         let last = plan.steps.iter().rposition(|s| matches!(s.op, DetailOp::Diffuse { .. }))?;
         if self.is_spatial_cached(params, size) {
@@ -1038,6 +1058,7 @@ impl Developer {
     /// pixel, as the instance applies it (measured on its input). `None` unless the
     /// instance is enabled with a mask (one that selects everything gives all 1s).
     pub fn mask_values(&mut self, params: &EditParams, id: &str, size: RenderSize) -> Option<Vec<f32>> {
+        self.sync_source(params);
         let at = params.modules.iter().position(|m| m.id == id)?;
         let instance = &params.modules[at];
         if !instance.enabled || !instance.module.kind().maskable() {
@@ -1125,6 +1146,7 @@ impl Developer {
     /// precede filmic). Returns `(white_exposure, black_exposure)`, or `None` without
     /// an enabled filmic instance or anything to measure.
     pub fn auto_tune_filmic(&mut self, params: &EditParams, size: RenderSize) -> Option<(f32, f32)> {
+        self.sync_source(params);
         let scaling = params.get::<Filmic>()?.dynamic_range_scaling;
         let ops = self.point_ops.ops(params, self.photo.as_shot_illuminant, None);
         let (_, img, masks) = self.spatial(params, size);
@@ -1135,6 +1157,7 @@ impl Developer {
     /// image after the modules before it), as Ansel's auto-detection does. Returns its
     /// xy chromaticity, or `None` without such an instance or anything to measure.
     pub fn detect_illuminant(&mut self, params: &EditParams, id: &str, size: RenderSize, method: Detection) -> Option<[f32; 2]> {
+        self.sync_source(params);
         let at = params.modules.iter().position(|m| m.id == id && m.module.kind() == ModuleKind::ColorCalibration)?;
         let before = EditParams { version: params.version, modules: params.modules[..at].to_vec(), shapes: params.shapes.clone() };
         let ops = self.point_ops.ops(&before, self.photo.as_shot_illuminant, None);
@@ -1173,6 +1196,7 @@ impl Developer {
     /// before it, over a render of `params` within `size`), and the range of its nodes
     /// that fits it. `None` without such an instance or anything to measure.
     pub fn tone_curve_input(&mut self, params: &EditParams, id: &str, size: RenderSize) -> Option<InputHistogram> {
+        self.sync_source(params);
         let instance = params.modules.iter().find(|m| m.id == id)?;
         let p = <params::ToneCurve as params::ModuleParams>::get(&instance.module)?.clone();
         let input = self.module_input(params, id, size)?;

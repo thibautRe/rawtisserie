@@ -17,6 +17,7 @@ import {
   Sun,
   SwatchBook,
   Thermometer,
+  Eraser,
   Waves,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef } from 'react';
@@ -24,6 +25,7 @@ import { describeChange } from './changes.ts';
 import type { HistoryEntry } from './history.ts';
 
 const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
+  rawDenoise: Eraser,
   retouch: Bandage,
   lens: Aperture,
   geometry: Crop,

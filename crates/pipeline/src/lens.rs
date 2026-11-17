@@ -18,7 +18,7 @@ use rawler::formats::tiff::{GenericTiffReader, Value};
 use crate::params::Lens;
 
 /// Correction data for one image, as functions of the distance from the image centre.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LensProfile {
     pub source: LensSource,
     /// Knot radii, as a fraction of the half-diagonal of the sensor's usable area,
@@ -34,7 +34,7 @@ pub struct LensProfile {
     pub(crate) vignetting: Vec<f32>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LensSource {
     Sony,
 }

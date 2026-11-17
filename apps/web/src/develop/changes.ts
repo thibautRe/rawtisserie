@@ -7,6 +7,7 @@ import {
 } from '@rawtisserie/pipeline';
 
 export const MODULE_TITLES: Record<ModuleKind, string> = {
+  rawDenoise: 'Raw denoise',
   retouch: 'Retouch',
   lens: 'Lens correction',
   geometry: 'Geometry',

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Download ansel-denoise's parity fixtures for the denoising executor
 # (crates/pipeline/tests/nn_parity.rs) into crates/pipeline/tests/nn, and check their
-# checksums. The model is the one the single-scale fixture was made with (it was
-# replaced in ansel-denoise since). Files already present are only checked.
+# checksums. The first model is the one the single-scale fixture was made with (it was
+# replaced in ansel-denoise since); quarter-single v1 is the smallest published one, for
+# tests/denoise.rs. Files already present are only checked.
 # Then: cargo test --release -p rawtisserie-pipeline --test nn_parity
 set -euo pipefail
 cd "$(dirname "$0")/../crates/pipeline/tests"
@@ -22,5 +23,6 @@ done <<'LIST'
 adcb546c361bc9693678137013796af103074a9fe58db6a9f2393fc353762c8e c2b4034f8df17a1af171fa5dee5ef9d17a3afccf fixtures/fixture-expected.f32 fixtures/fixture-expected.f32
 4cadaf1109bf44e549830b8aec2247e04fafe2a4c42eba71eb50087c9f539a7b c2b4034f8df17a1af171fa5dee5ef9d17a3afccf fixtures/ms/fixture-base-planes.f32 fixtures/ms/fixture-base-planes.f32
 a961fad5a8d70b7e9f0b534e2f2f09d67e108135f7da8e888135692e58320f70 c2b4034f8df17a1af171fa5dee5ef9d17a3afccf fixtures/ms/fixture-coarse-input.f32 fixtures/ms/fixture-coarse-input.f32
+75cf17a27165ee2b469dcced5ba142604f030e7e8d0cb889aa67a12a7f39cb49 c2b4034f8df17a1af171fa5dee5ef9d17a3afccf models/denoise-quarter-single-v1.anselnn denoise-quarter-single-v1.anselnn
 LIST
 echo "nn fixtures ok"

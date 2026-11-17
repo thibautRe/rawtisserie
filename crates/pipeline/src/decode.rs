@@ -26,7 +26,7 @@ pub enum Layout {
 
 /// The `D4` transform that brings the sensor image upright: optionally mirror
 /// horizontally, then rotate clockwise by `quarter_turns`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Orient {
     pub flip: bool,
     pub quarter_turns: u8,
@@ -249,6 +249,79 @@ impl RawPhoto {
         }
     }
 
+    /// A denoised photo as a file, for keeping it apart from its RAW file (the browser
+    /// keeps it in place of the original): a header with what decoding read (`key`
+    /// says which denoise made it), then the samples as 16-bit floats and the
+    /// saturation bits. `None` for a photo that isn't denoised.
+    pub fn to_denoised_file(&self, key: &str) -> Option<Vec<u8>> {
+        let (samples, saturated) = self.denoised_parts()?;
+        let Layout::Mosaic(cfa) = &self.layout else { return None };
+        let header = DenoisedHeader {
+            key: key.to_string(),
+            cfa: cfa.name.clone(),
+            origin_x: self.origin_x,
+            origin_y: self.origin_y,
+            width: self.width,
+            height: self.height,
+            wb: self.wb,
+            wb_reference: self.wb_reference,
+            as_shot_illuminant: self.as_shot_illuminant,
+            working_from_camera: self.working_from_camera,
+            orientation: self.orientation,
+            metadata: self.metadata.clone(),
+            lens: self.lens.clone(),
+        };
+        let json = serde_json::to_vec(&header).ok()?;
+        let padded = json.len().next_multiple_of(8);
+        let mut out = Vec::with_capacity(16 + padded + samples.len() * 2 + saturated.len() * 8);
+        out.extend_from_slice(DENOISED_MAGIC);
+        out.extend_from_slice(&(padded as u32).to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&json);
+        out.resize(16 + padded, b' ');
+        for &v in samples {
+            out.extend_from_slice(&f32_to_f16(v).to_le_bytes());
+        }
+        for &b in saturated {
+            out.extend_from_slice(&b.to_le_bytes());
+        }
+        Some(out)
+    }
+
+    /// A photo from [`RawPhoto::to_denoised_file`]'s bytes, and its key.
+    pub fn from_denoised_file(bytes: &[u8]) -> Result<(String, RawPhoto)> {
+        let bad = |why: &str| Error::Decode(format!("denoised file: {why}"));
+        if bytes.len() < 16 || &bytes[..8] != DENOISED_MAGIC {
+            return Err(bad("not one"));
+        }
+        let len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+        let json = bytes.get(16..16 + len).ok_or_else(|| bad("truncated header"))?;
+        let h: DenoisedHeader = serde_json::from_slice(json).map_err(|e| bad(&e.to_string()))?;
+        let n = h.width * h.height;
+        let data = &bytes[16 + len..];
+        if h.width == 0 || h.height == 0 || data.len() != n * 2 + n.div_ceil(64) * 8 {
+            return Err(bad("wrong size"));
+        }
+        let samples = data[..n * 2].chunks_exact(2).map(|b| f16_to_f32(u16::from_le_bytes([b[0], b[1]]))).collect();
+        let saturated = data[n * 2..].chunks_exact(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+        let photo = RawPhoto {
+            source: Source::Denoised { samples, saturated },
+            layout: Layout::Mosaic(CFA::new(&h.cfa)),
+            origin_x: h.origin_x,
+            origin_y: h.origin_y,
+            width: h.width,
+            height: h.height,
+            wb: h.wb,
+            wb_reference: h.wb_reference,
+            as_shot_illuminant: h.as_shot_illuminant,
+            working_from_camera: h.working_from_camera,
+            orientation: h.orientation,
+            metadata: h.metadata,
+            lens: h.lens,
+        };
+        Ok((h.key, photo))
+    }
+
     fn with_source(&self, source: Source) -> RawPhoto {
         RawPhoto {
             source,
@@ -320,6 +393,90 @@ impl RawPhoto {
             c @ 0..=2 => c,
             _ => 1, // treat "emerald"/4th colour as green
         }
+    }
+}
+
+const DENOISED_MAGIC: &[u8; 8] = b"RTDN1\0\0\0";
+
+/// What [`RawPhoto::to_denoised_file`] keeps of the decoding.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DenoisedHeader {
+    key: String,
+    cfa: String,
+    origin_x: usize,
+    origin_y: usize,
+    width: usize,
+    height: usize,
+    wb: [f32; 3],
+    wb_reference: [f32; 3],
+    as_shot_illuminant: Option<[f32; 2]>,
+    working_from_camera: Mat3,
+    orientation: Orient,
+    metadata: PhotoMetadata,
+    lens: Option<LensProfile>,
+}
+
+/// IEEE half precision, rounded to nearest even (no `f16` in stable Rust yet).
+pub(crate) fn f32_to_f16(x: f32) -> u16 {
+    let b = x.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    let exp = ((b >> 23) & 0xff) as i32;
+    let mant = b & 0x7f_ffff;
+    if exp == 0xff {
+        return sign | 0x7c00 | if mant != 0 { 0x200 } else { 0 };
+    }
+    let e = exp - 127 + 15;
+    if e >= 0x1f {
+        return sign | 0x7c00;
+    }
+    if e <= 0 {
+        if e < -10 {
+            return sign;
+        }
+        let m = mant | 0x80_0000;
+        let shift = (14 - e) as u32;
+        let rounded = m + (1 << (shift - 1)) - 1 + ((m >> shift) & 1);
+        return sign | (rounded >> shift) as u16;
+    }
+    let rounded = mant + 0xfff + ((mant >> 13) & 1);
+    let (e, rounded) = if rounded & 0x80_0000 != 0 { (e + 1, 0) } else { (e, rounded) };
+    if e >= 0x1f {
+        return sign | 0x7c00;
+    }
+    sign | ((e as u16) << 10) | (rounded >> 13) as u16
+}
+
+pub(crate) fn f16_to_f32(h: u16) -> f32 {
+    let sign = ((h & 0x8000) as u32) << 16;
+    let exp = ((h >> 10) & 0x1f) as u32;
+    let mant = (h & 0x3ff) as u32;
+    match exp {
+        // Subnormal: mant · 2⁻²⁴, exact in f32.
+        0 => f32::from_bits(sign) + if sign != 0 { -(mant as f32) } else { mant as f32 } * f32::from_bits(0x3380_0000),
+        0x1f => f32::from_bits(sign | 0x7f80_0000 | (mant << 13)),
+        _ => f32::from_bits(sign | ((exp + 112) << 23) | (mant << 13)),
+    }
+}
+
+#[cfg(test)]
+mod half_tests {
+    use super::*;
+
+    #[test]
+    fn half_floats_round_trip() {
+        for h in 0..=u16::MAX {
+            let f = f16_to_f32(h);
+            if !f.is_nan() {
+                assert_eq!(f32_to_f16(f), h, "{h:#x} → {f}");
+            }
+        }
+        // Rounded to nearest, within half a step.
+        for &x in &[0.1f32, 0.5, 0.999, 1.7, -0.003, 1e-6, 3e-5, 65504.0] {
+            let y = f16_to_f32(f32_to_f16(x));
+            assert!((y - x).abs() <= x.abs() * 2f32.powi(-11) + 2f32.powi(-25), "{x} → {y}");
+        }
+        assert!(f16_to_f32(f32_to_f16(1e6)).is_infinite());
     }
 }
 
