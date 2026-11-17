@@ -316,3 +316,26 @@ fn masked_regions_match() {
         assert!(worst <= 1, "range {range} overlay differs by up to {worst} levels");
     }
 }
+
+#[test]
+fn x_trans_base_regions_match() {
+    // Markesteijn's tiles are fixed on the sensor: a region runs the ones holding it.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/raws/fujifilm-x-t30.raf");
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e} (run ./scripts/fetch-golden-raws.sh)", path.display()));
+    let photo = rawtisserie_pipeline::decode::decode(&bytes).unwrap();
+    let whole = rawtisserie_pipeline::demosaic::develop_base(&photo, 1);
+    let (w, h) = (whole.width, whole.height);
+    for r in [
+        Region { x: w / 3 + 1, y: h / 4 + 5, width: 300, height: 200 },
+        Region { x: 0, y: 0, width: 130, height: 70 },
+        Region { x: w - 77, y: h - 101, width: 77, height: 101 },
+        Region { x: 517, y: h - 3, width: 1, height: 3 },
+    ] {
+        let part = rawtisserie_pipeline::demosaic::develop_base_region(&photo, 1, r);
+        for y in 0..r.height {
+            for x in 0..r.width {
+                assert_eq!(part.get(x, y), whole.get(r.x + x, r.y + y), "{r:?} at {x},{y}");
+            }
+        }
+    }
+}

@@ -16,7 +16,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bytes = std::fs::read(&args[1])?;
     let mut dev = Developer::from_bytes(&bytes)?;
 
-    // The base at full resolution (demosaiced: RCD for Bayer sensors), whole and as a
+    // The base at full resolution (demosaiced: RCD for Bayer sensors,
+    // Markesteijn for X-Trans), whole and as a
     // 100 % tile's patch.
     let photo = rawtisserie_pipeline::decode::decode(&bytes)?;
     let t = Instant::now();

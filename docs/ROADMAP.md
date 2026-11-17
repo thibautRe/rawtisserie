@@ -71,7 +71,8 @@ NOTES.md feedback the same day: tag shortcuts in the tag input, Shift+arrow rang
 that shrink back (and the focused photo marked), a "No tags" filter, saved filters
 (filter presets, as module presets), hue shift sliders 10× finer around 0° (0.1° with
 Ctrl), and glow streaks and motion (4.12). Added: 2.7 (an always-on colour picker); 3.9
-(demosaicing) is the next image-quality item after 3.5.
+(demosaicing) is the next image-quality item after 3.5. 3.9 done the same day (RCD for
+Bayer sensors), then Markesteijn for X-Trans on 2026-11-18.
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -699,7 +700,7 @@ perspective").
   A `GeometryKey` change re-renders everything after it, so the cache key must include
   the new fields.
 
-### 3.9 Better demosaicing at full resolution (M–L)
+### 3.9 Better demosaicing at full resolution (M–L) — done
 
 > **RCD done** 2026-11-17 (`rcd.rs`, a port of Ansel's `rcd.c` with its PPG border): Bayer
 > sensors at factor 1, on samples balanced with the reference multipliers (unbalanced
@@ -707,8 +708,17 @@ perspective").
 > patch with `BORDER` + 2 photosites, and matches the whole bit for bit (unit test,
 > `tests/regions.rs`). Native cost: ~25 % more than bilinear (24 MP: 1.07 s vs 0.87 s; a
 > 512 px tile 11 vs 9 ms); not measured in wasm. Golden `detail`, `equalizer` and `lens`
-> re-blessed for the Bayer cameras: the false colour and zipper are gone. Left:
-> **Markesteijn** for X-Trans (Fujifilm stays bilinear), and a wasm measurement.
+> re-blessed for the Bayer cameras: the false colour and zipper are gone.
+>
+> **Markesteijn done** 2026-11-18 (`markesteijn.rs`, a port of Ansel's 1-pass, its
+> default for X-Trans; 3 passes work too, unused): X-Trans sensors at factor 1, balanced
+> as RCD. Upstream's tiles are fixed on the sensor; a region runs the tiles holding it
+> (`patch_bounds`) and matches the whole bit for bit (unit test, `tests/regions.rs` on the
+> X-T30). Cost (26 MP X-T30): native 2.0 s vs bilinear 0.87 s (a 512 px tile 27 vs 8 ms);
+> in wasm a full-size render takes 10.3 s vs 7.1 s. Golden `detail`, `equalizer` and
+> `lens` re-blessed for Fujifilm: the X-Trans maze and false colour are gone. Left: RCD
+> in wasm isn't measured on its own; Markesteijn's green interpolation and passes
+> (~0.75 s of its 2 s) could go faster.
 
 Added 2026-11-13. `demosaic.rs` is our own and has two paths: previews and anything
 downscaled **bin** photosites per colour (no demosaicing, alias-free), and full

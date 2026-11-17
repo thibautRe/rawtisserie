@@ -212,10 +212,12 @@ See README.md for the architecture overview and commands.
   loops over 64-pixel chunks so they vectorise: keep it that way. The tone curve and the contrast equalizer draw with `curveAt` (`develop/curve.ts`), which mirrors `equalizer::curve`. Upstream sources:
   github.com/aurelienpierreeng/ansel, `src/iop/` and `src/pixel/colorequal_shared.c`.
 - `rcd.rs` is Ansel's RCD demosaic (`src/iop/demosaic/rcd.c`, same license), for Bayer
-  sensors at full resolution (`demosaic.rs`; downscaled bases are binned, X-Trans stays
-  bilinear). It keeps upstream's index arithmetic: compare with it line by line. A pixel
-  depends on the photosites within `rcd::BORDER`, so regions read their patch with that
-  margin; tiles start on even photosites.
+  sensors at full resolution (`demosaic.rs`; downscaled bases are binned), and
+  `markesteijn.rs` its Markesteijn 1-pass (`markesteijn.c`) for X-Trans. Both keep
+  upstream's index arithmetic: compare with it line by line. An RCD pixel depends on the
+  photosites within `rcd::BORDER`, so regions read their patch with that margin; tiles
+  start on even photosites. Markesteijn's tiles are fixed on the sensor as upstream's: a
+  region runs the tiles holding it, from `markesteijn::patch_bounds`.
 - Images that aren't RAW files (JPEG, PNG, TIFF, WebP; `bitmap.rs`, roadmap 8.11) are a
   `RawPhoto` too, read as a plain RGB/grey layout and linearised by tables from their ICC
   profile. Their metadata has `imageFormat`. They start with an empty recipe and their
