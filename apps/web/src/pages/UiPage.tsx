@@ -18,7 +18,6 @@ import {
   Menu,
   NativeSelect,
   Portal,
-  Progress,
   SegmentGroup,
   Separator,
   Spinner,
@@ -675,21 +674,19 @@ export function UiPage() {
                 </Switch.Root>
               </HStack>
             </Example>
-            <Example label="Work in progress, with an info tip (raw denoise)">
+            <Example label="Work in progress, with an info tip and its count (raw denoise)">
               <Stack gap="1" textStyle="xs" color="fg.muted">
-                <HStack gap="1.5">
+                <HStack gap="1.5" bg="bg.muted" rounded="l2" px="2" py="1">
                   <Spinner size="xs" color="fg.subtle" />
-                  <Text>Denoising… 12 / 77</Text>
+                  <Text>Denoising…</Text>
                   <InfoTip label="About denoising">
                     The image is shown without denoising until it&apos;s done. Keep editing the rest of the picture
                     meanwhile.
                   </InfoTip>
+                  <Text ms="auto" fontFamily="numeric" fontVariantNumeric="tabular-nums">
+                    12 / 77
+                  </Text>
                 </HStack>
-                <Progress.Root value={16} size="xs" colorPalette="orange">
-                  <Progress.Track>
-                    <Progress.Range />
-                  </Progress.Track>
-                </Progress.Root>
               </Stack>
             </Example>
             <Example label="Ghost icon button in a dense row">

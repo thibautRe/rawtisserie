@@ -9,7 +9,6 @@ import {
   Menu,
   NativeSelect,
   Portal,
-  Progress,
   Spinner,
   Stack,
   Switch,
@@ -604,44 +603,38 @@ function DenoiseState({
   onUpgrade: () => void;
 }) {
   const lines: React.ReactNode[] = [];
-  const working = (text: string, tip?: React.ReactNode) => (
-    <HStack gap="1.5">
+  // Work going on, in a box of its own (the selects' fill), with its count on the right.
+  const working = (text: string, tip?: React.ReactNode, count?: string) => (
+    <HStack gap="1.5" bg="bg.muted" rounded="l2" px="2" py="1" data-denoise-working>
       <Spinner size="xs" color="fg.subtle" />
       <Text>{text}</Text>
       {tip && <InfoTip label="About denoising">{tip}</InfoTip>}
+      {count && (
+        <Text ms="auto" fontFamily="numeric" fontVariantNumeric="tabular-nums" whiteSpace="nowrap">
+          {count}
+        </Text>
+      )}
     </HStack>
   );
-  const bar = (fraction: number) => (
-    <Progress.Root value={fraction * 100} size="xs" colorPalette="orange">
-      <Progress.Track>
-        <Progress.Range />
-      </Progress.Track>
-    </Progress.Root>
-  );
   if (status?.error) lines.push(<Text color="fg.error">{status.error}</Text>);
-  else if (status?.state === 'needsModel') {
-    const percent = status.download === undefined ? '' : ` ${Math.round(status.download * 100)} %`;
+  else if (status?.state === 'needsModel')
     lines.push(
-      <Stack gap="1">
-        {working(
-          `Downloading the model (${megabytes(model)})…${percent}`,
-          'Once, the first time a model is used: it stays in the browser.',
-        )}
-        {status.download !== undefined && bar(status.download)}
-      </Stack>,
+      working(
+        `Downloading the model (${megabytes(model)})…`,
+        'Once, the first time a model is used: it stays in the browser.',
+        status.download === undefined ? undefined : `${Math.round(status.download * 100)} %`,
+      ),
     );
-  } else if (status?.state === 'needsOriginal') lines.push(working('Downloading the RAW file…'));
+  else if (status?.state === 'needsOriginal') lines.push(working('Downloading the RAW file…'));
   else if (status?.state === 'unsupported') lines.push("This photo's sensor can't be denoised (not Bayer or X-Trans).");
   else if (status?.state === 'pending') {
     const { done = 0, total = 1 } = status;
     lines.push(
-      <Stack gap="1">
-        {working(
-          `Denoising… ${done} / ${total}`,
-          "The image is shown without denoising until it's done. Keep editing the rest of the picture meanwhile.",
-        )}
-        {bar(done / Math.max(1, total))}
-      </Stack>,
+      working(
+        'Denoising…',
+        "The image is shown without denoising until it's done. Keep editing the rest of the picture meanwhile.",
+        `${done} / ${total}`,
+      ),
     );
   }
   if (status && !status.profileMatched && status.state !== 'unsupported')
