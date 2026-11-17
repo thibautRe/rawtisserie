@@ -1353,7 +1353,11 @@ export function DeveloperView({
                 <PinnedSamples
                   count={pins.length}
                   onRemove={(i) => setPins((ps) => ps.filter((_, j) => j !== i))}
-                  onClear={() => setPins([])}
+                  // Done sampling: the pipette goes off too.
+                  onClear={() => {
+                    setPins([]);
+                    setPipette(false);
+                  }}
                 />
               )}
               {!frame && <Spinner color="orange.solid" size="lg" position="absolute" />}

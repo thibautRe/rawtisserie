@@ -191,8 +191,9 @@ test('zoomed in to 100 %, the pipette pins too, and a drag pans rather than pins
   await page.mouse.up();
   await page.waitForTimeout(200);
   assert.equal(await page.locator('[data-pin]').count(), 1);
-  await page.keyboard.press('Escape');
+  // Clearing the samples turns the pipette off.
   await page.getByRole('button', { name: 'Clear samples' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Pin samples' }).getAttribute('aria-pressed'), 'false');
   await page.mouse.click(...at(0.5, 0.5), { button: 'middle' });
   await page.waitForFunction(() => document.querySelector('button[title^="Zoom"]')?.textContent?.includes('Fit'));
 });
