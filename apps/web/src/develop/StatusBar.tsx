@@ -83,7 +83,6 @@ export function StatusBar({
           // On, it changes what a click on the image does: it must stand out.
           variant={pipette ? 'solid' : 'ghost'}
           colorPalette={pipette ? 'orange' : undefined}
-          color={pipette ? 'white' : undefined}
           aria-label="Pin samples"
           aria-pressed={pipette}
           title={pipette ? 'Pin samples: click the image (I, Esc to stop)' : 'Pin samples (I)'}
