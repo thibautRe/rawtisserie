@@ -3,7 +3,7 @@
  * the row of their values above the status bar. Their values come from the sample
  * store, like the pointer's, and follow every edit.
  */
-import { Box, Button, HStack, IconButton, Text } from '@chakra-ui/react';
+import { Box, Button, HStack, IconButton, Separator, Text } from '@chakra-ui/react';
 import { X } from 'lucide-react';
 import { formatEv, lch, useSamples } from './picker.ts';
 import type { PixelSample } from './protocol.ts';
@@ -62,6 +62,9 @@ export function PinMarkers({ places, zoom }: { places: readonly (readonly [numbe
   ));
 }
 
+/** Between the readout's groups (RGB, LCh, EV): a hairline, short of the text's height. */
+const Divider = () => <Separator orientation="vertical" h="3" borderColor="border.muted" />;
+
 /** The values of a pixel, as the status bar's readout shows them. */
 export function SampleValues({ sample }: { sample: PixelSample }) {
   const [r, g, b] = sample.display;
@@ -89,10 +92,12 @@ export function SampleValues({ sample }: { sample: PixelSample }) {
           {label('RGB')} {pad(r)} {pad(g)} {pad(b)}
         </Text>
       </HStack>
+      <Divider />
       <Text title="Displayed colour, CIE LCh: lightness, chroma, hue">
         {label('L')} {after(String(Math.round(l)), 3)} {label('C')} {after(String(Math.round(c)), 3)} {label('h')}{' '}
         {after(`${Math.round(h) % 360}°`, 4)}
       </Text>
+      <Divider />
       <Text title="Scene luminance before tone mapping, from middle grey">
         {formatEv(sample.sceneEv).padStart(8, FIGURE_SPACE)}
       </Text>

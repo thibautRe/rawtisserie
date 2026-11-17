@@ -6,7 +6,7 @@
  *   npm run test:picker -w @rawtisserie/web
  *
  * Tests share one page, in order. PERF_RAW picks the file (default: the golden Sony ARW,
- * see scripts/fetch-golden-raws.sh).
+ * see scripts/fetch-golden-raws.sh); PICKER_SHOT=file.png saves the readout's screenshot.
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -64,6 +64,7 @@ test('the pixel under the pointer shows in the status bar, and goes when it leav
   assert.match(first, /RGB\s+\d+\s+\d+\s+\d+/);
   assert.match(first, /L \d+\s+C \d+\s+h \d+°/);
   assert.match(first, /[+−]?\d+\.\d EV/);
+  if (process.env.PICKER_SHOT) await page.locator('[data-pixel-readout]').screenshot({ path: process.env.PICKER_SHOT });
   await page.mouse.move(...at(0.8, 0.15), { steps: 3 });
   await page.waitForFunction((before) => document.querySelector('[data-pixel-readout]')?.textContent !== before, first);
   await page.mouse.move(5, 5);
