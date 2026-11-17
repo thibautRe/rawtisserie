@@ -1,7 +1,6 @@
 /** Library filtering: query-string → SQL conditions over `versions v JOIN photos p` (trash left out). */
-import type { SQLQuery } from '@databases/pg';
+import { sql, type SQLQuery } from '@databases/pg';
 import { z } from 'zod';
-import { sql } from '../db.ts';
 
 const list = z.preprocess(
   (v) => (v === undefined || v === '' ? undefined : [v].flat()),
