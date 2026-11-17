@@ -128,6 +128,8 @@ test('the pipette pins samples (I), a click on one removes it, Esc stops', async
   await page.mouse.move(...at(0.5, 0.5));
   await page.keyboard.press('i');
   assert.equal(await pipette.getAttribute('aria-pressed'), 'true');
+  if (process.env.PICKER_SHOT)
+    await pipette.screenshot({ path: process.env.PICKER_SHOT.replace(/\.png$/, '-pipette.png') });
   await page.mouse.click(...at(0.25, 0.4));
   await page.mouse.click(...at(0.7, 0.7));
   await page.locator('[data-pinned-sample="2"]').waitFor();
@@ -178,7 +180,10 @@ test('zoomed in to 100 %, the pipette pins too, and a drag pans rather than pins
   await page.keyboard.press('i');
   await page.mouse.click(...at(0.45, 0.45));
   await page.locator('[data-pinned-sample="1"]').waitFor();
-  assert.match(await page.locator('[data-pinned-sample="1"]').innerText(), /RGB\s+\d+/);
+  // "—" until the 100 % render it reads is in.
+  await page.waitForFunction(() =>
+    /RGB\s+\d+/.test(document.querySelector('[data-pinned-sample="1"]')?.textContent ?? ''),
+  );
   // A drag pans.
   await page.mouse.move(...at(0.6, 0.6));
   await page.mouse.down();
