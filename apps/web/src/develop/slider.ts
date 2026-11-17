@@ -131,13 +131,17 @@ export const tracks = {
   channel: (color: string) => ramp('#4a4a4a', '#b9b9b9', color),
   /** Colour primaries, for a CSS hue. A positive hue shift goes up the CSS hue circle. */
   hue: (hue: number) => ramp(...[-180, -120, -60, 0, 60, 120, 180].map((d) => `hsl(${hue + d} 70% 55%)`)),
-  /** Like `hue`, for a slider spanning ±90°, with the colours where `curve` puts them. */
-  hueQuarter: (hue: number, curve = LINEAR) => {
-    const [lo, hi] = [curve.toPosition(-90), curve.toPosition(90)];
+  /**
+   * Like `hue`, for a hue shift slider spanning ±`span`°, with the colours where `curve`
+   * puts them.
+   */
+  hueShift: (hue: number, span: 90 | 180, curve = LINEAR) => {
+    const [lo, hi] = [curve.toPosition(-span), curve.toPosition(span)];
     const at = (d: number) => ((curve.toPosition(d) - lo) / (hi - lo)) * 100;
-    return ramp(
-      ...Array.from({ length: 13 }, (_, i) => -90 + i * 15).map((d) => `hsl(${hue + d} 70% 55%) ${at(d).toFixed(2)}%`),
-    );
+    // Stops every 2.5° near 0, where a fine curve spreads the colours, then every 15°.
+    const stops = [...new Set([-span, ...[-15, -10, -5, -2.5, 0, 2.5, 5, 10, 15], span])];
+    for (let d = 30; d < span; d += 15) stops.push(-d, d);
+    return ramp(...stops.sort((a, b) => a - b).map((d) => `hsl(${hue + d} 70% 55%) ${at(d).toFixed(2)}%`));
   },
   saturation: (hue: number) => ramp('#8a8a8a', `hsl(${hue} 85% 50%)`),
   /** Greys from OKLCH lightness `lo` to `hi`, mixed in OKLab. */

@@ -733,9 +733,12 @@ const NORMALIZE_KEYS = {
   grey: 'normalizeGrey',
 } as const;
 
-/** The mixer's primaries modes: the matrix seen as primaries, and back. */
-/** The mixer's primary hue sliders: finer around 0°, over the same ±90° track. */
-const HUE_CURVE = sinhCurve(90);
+/**
+ * Sliders that shift hues (not those that set one: a tint's, the white's): 10× finer
+ * around 0° than a linear track, coarser toward the ends, over the same ±90° or ±180°.
+ */
+const HUE_SHIFT_90 = sinhCurve(90, 4.5);
+const HUE_SHIFT_180 = sinhCurve(180, 4.5);
 /** Glow radius: fine at the small radii of halation, coarse up to large blooms. */
 const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
 /** Diffuse or sharpen's radii, 0 … 1024 px: Ansel's presets go from 1 to 512. */
@@ -1684,8 +1687,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     hardMin={-180}
                     hardMax={180}
                     step={0.5}
-                    curve={HUE_CURVE}
-                    track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!, HUE_CURVE)}
+                    curve={HUE_SHIFT_90}
+                    track={tracks.hueShift(PRIMARY_CSS_HUES[i]!, 90, HUE_SHIFT_90)}
                     format={degrees}
                     {...bindMixer(t, 'primaries', `${name}Hue`)}
                   />
@@ -1751,7 +1754,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     hardMin={-180}
                     hardMax={180}
                     step={0.5}
-                    track={tracks.hueQuarter(PRIMARY_CSS_HUES[i]!)}
+                    curve={HUE_SHIFT_90}
+                    track={tracks.hueShift(PRIMARY_CSS_HUES[i]!, 90, HUE_SHIFT_90)}
                     format={degrees}
                     {...bindMixer(t, 'whitePreserving', `${name}Rotation`)}
                   />
@@ -2179,7 +2183,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   min={-180}
                   max={180}
                   step={0.5}
-                  track={tracks.hue(0)}
+                  curve={HUE_SHIFT_180}
+                  track={tracks.hueShift(0, 180, HUE_SHIFT_180)}
                   format={degrees}
                   {...e.bind('hueShift')}
                 />
@@ -2379,9 +2384,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             label="Hue"
             min={-180}
             max={180}
-            step={1}
-            track={tracks.hue(PRIMARY_HUES[e.view.primary])}
-            format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}°`}
+            step={0.5}
+            curve={HUE_SHIFT_180}
+            track={tracks.hueShift(PRIMARY_HUES[e.view.primary], 180, HUE_SHIFT_180)}
+            format={degrees}
             {...bindPrimary(e, e.view.primary, 'hue')}
           />
           <ParamSlider
