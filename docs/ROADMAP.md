@@ -445,15 +445,16 @@ white balance and is the most common target for masked instances.
 > The executor is ported and matches upstream's PyTorch fixture to 2·10⁻⁷, natively and
 > in wasm. Single-thread speed on a 576² tile (i9-10885H, wasm in Node ≈ native):
 >
-> | model (fine + coarse net) | wasm, s/MP | 24 MP, 4 workers, overlap ×1.5 |
-> |---|---|---|
-> | quarter-multi | 2.4 | ~20 s |
-> | half-multi | 6.2 | ~55 s |
-> | large-multi | ~20 (native 21) | ~3 min |
+> | model (fine + coarse net) | wasm, s/MP      | 24 MP, 4 workers, overlap ×1.5 |
+> | ------------------------- | --------------- | ------------------------------ |
+> | quarter-multi             | 2.4             | ~20 s                          |
+> | half-multi                | 6.2             | ~55 s                          |
+> | large-multi               | ~20 (native 21) | ~3 min                         |
 >
 > Upstream's kernel ran at 3.9 / 9.3 / 53 s/MP in wasm. The gains came from a
 > register-blocked 3×3 kernel (explicit SIMD in wasm) and a branch-free `erf`; AVX2+FMA
 > adds only 10–15 %. Findings:
+>
 > - upstream's "v1" files were replaced in place (manifest revisions 1–5, "R&D, not
 >   in a tagged release"): we keep our own copies, pinned by SHA-256;
 > - the multiscale fixture's model was never published: only binning is checked
@@ -465,6 +466,7 @@ white balance and is the most common target for masked instances.
 >   independent of the machine, or results change with the tiling.
 >
 > **Decisions** (2026-11-17):
+>
 > - **Previews:** zoomed-out views may differ; a full-size view in the developer must
 >   match the export (within ~1 %). Library thumbnails and loupe tiles may use the
 >   coarse net's output (a denoised binned image, 1/16 of the work) for now.

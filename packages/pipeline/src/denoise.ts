@@ -19,7 +19,8 @@ export const DENOISE_MODEL_BYTES: Readonly<Record<string, number>> = {
 
 /** The recipe's raw denoise instance that does something (enabled, strength > 0), if any. */
 export function activeDenoise(params: EditParams): ModuleInstance<'rawDenoise'> | null {
-  const m = params.modules.find((m) => m.enabled && m.kind === 'rawDenoise') as ModuleInstance<'rawDenoise'> | undefined;
+  const m = params.modules.find((m) => m.enabled && m.kind === 'rawDenoise') as
+    ModuleInstance<'rawDenoise'> | undefined;
   return m && m.params.strength > 0 ? m : null;
 }
 

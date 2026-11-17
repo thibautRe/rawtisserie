@@ -9,6 +9,7 @@ import {
   Menu,
   NativeSelect,
   Portal,
+  Progress,
   Stack,
   Switch,
   Tabs,
@@ -19,6 +20,14 @@ import {
   ADAPTATIONS,
   type Adaptation,
   type AutoCrop,
+  DENOISE_MODEL_BYTES,
+  DENOISE_SIZES,
+  type DenoiseModel,
+  type DenoiseSize,
+  type DenoiseVariant,
+  LATEST_DENOISE_VERSION,
+  denoiseModelId,
+  denoiseUpgradable,
   BLEACH_LEVELS,
   type Bleach,
   FLUORESCENTS,
@@ -141,7 +150,14 @@ import { useRecipePreview } from './preview.ts';
 import type { LutChoice, LutLibrary } from './luts.ts';
 import type { RangeKey } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
-import type { IlluminantDetection, PerspectiveFit, ToneCurveInput, ToneCurveView, ToneRangeView } from './protocol.ts';
+import type {
+  DenoiseStatus,
+  IlluminantDetection,
+  PerspectiveFit,
+  ToneCurveInput,
+  ToneCurveView,
+  ToneRangeView,
+} from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { type SliderCurve, sinhCurve, tracks } from './slider.ts';
 
@@ -210,6 +226,8 @@ interface Props {
   onAddLut: (file: File) => Promise<LutChoice | null>;
   onRenameLut: (lut: LutChoice, name: string) => Promise<unknown>;
   onRemoveLut: (lut: LutChoice) => unknown;
+  /** Where the recipe's raw denoise stands (null: nothing heard yet). */
+  denoise: DenoiseStatus | null;
 }
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
@@ -563,6 +581,62 @@ function SelectRow({ label, children }: { label: string; children: (id: string) 
       </Text>
       {children(id)}
     </HStack>
+  );
+}
+
+const DENOISE_SIZE_LABELS: Record<DenoiseSize, string> = { quarter: 'Fast', half: 'Balanced', large: 'Best' };
+
+/** A model's download size, e.g. "15 MB". */
+const megabytes = (model: DenoiseModel) => `${Math.round((DENOISE_MODEL_BYTES[denoiseModelId(model)] ?? 0) / 1e6)} MB`;
+
+/** What raw denoise is doing, when there's something to say. */
+function DenoiseState({
+  status,
+  model,
+  onUpgrade,
+}: {
+  status: DenoiseStatus | null;
+  model: DenoiseModel;
+  onUpgrade: () => void;
+}) {
+  const lines: React.ReactNode[] = [];
+  if (status?.error) lines.push(<Text color="fg.error">{status.error}</Text>);
+  else if (status?.state === 'needsModel') lines.push(`Downloading the model (${megabytes(model)})…`);
+  else if (status?.state === 'needsOriginal') lines.push('Downloading the RAW file…');
+  else if (status?.state === 'unsupported') lines.push("This photo's sensor can't be denoised (not Bayer or X-Trans).");
+  else if (status?.state === 'pending') {
+    const { done = 0, total = 1 } = status;
+    lines.push(
+      <Stack gap="1">
+        <Text>
+          Denoising… {done} / {total}. The image is shown without it until it's done.
+        </Text>
+        <Progress.Root value={(done / Math.max(1, total)) * 100} size="xs" colorPalette="orange">
+          <Progress.Track>
+            <Progress.Range />
+          </Progress.Track>
+        </Progress.Root>
+      </Stack>,
+    );
+  }
+  if (status && !status.profileMatched && status.state !== 'unsupported')
+    lines.push('No noise profile for this camera: a generic one is used. Adjust the noise corrections if needed.');
+  if (denoiseUpgradable(model))
+    lines.push(
+      <HStack gap="2">
+        <Text>A newer model is available.</Text>
+        <Button size="2xs" variant="outline" onClick={onUpgrade}>
+          Upgrade
+        </Button>
+      </HStack>,
+    );
+  if (!lines.length) return null;
+  return (
+    <Stack gap="1" textStyle="xs" color="fg.muted">
+      {lines.map((line, i) => (
+        <Box key={i}>{line}</Box>
+      ))}
+    </Stack>
   );
 }
 
@@ -970,6 +1044,8 @@ interface InstanceView {
   calibrationAdvanced: boolean;
   /** Diffuse or sharpen's direction, edge and inpainting settings are unfolded. */
   diffuseAdvanced: boolean;
+  /** Raw denoise's noise corrections are unfolded. */
+  denoiseAdvanced: boolean;
   curve: EqualizerCurve;
   /** The tone curve channel shown, with independent channels. */
   toneChannel: ToneChannel;
@@ -991,6 +1067,7 @@ const DEFAULT_VIEW: InstanceView = {
   primariesAdvanced: false,
   calibrationAdvanced: false,
   diffuseAdvanced: false,
+  denoiseAdvanced: false,
   curve: 'luma',
   toneChannel: 'red',
   calibration: 'illuminant',
@@ -1049,6 +1126,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const {
     params,
     lensCorrection,
+    denoise,
     asShotIlluminant,
     imageFormat,
     original,
@@ -3273,6 +3351,90 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   </HStack>
                 )}
               </Stack>
+            )}
+          </>
+        );
+      })}
+      {sections('rawDenoise', [denoise], (e) => {
+        const v = e.values;
+        const corrections = (['Red', 'Green', 'Blue'] as const).map((label, c) => {
+          const with_ = (x: number) =>
+            e.edit({ corrections: v.corrections.map((y, i) => (i === c ? x : y)) as [number, number, number] });
+          return (
+            <ParamSlider
+              key={label}
+              label={`${label} correction`}
+              min={0.5}
+              max={8}
+              step={0.01}
+              format={fmt.fixed2}
+              value={v.corrections[c]!}
+              defaultValue={e.defaults.corrections[c]!}
+              // Read when moved: the slider keeps its first handlers.
+              onChange={(x) => latest.current.onChange(with_(x))}
+              onCommit={(x) => latest.current.onCommit(with_(x))}
+            />
+          );
+        });
+        return (
+          <>
+            {e.enabled && (
+              <DenoiseState
+                status={denoise}
+                model={v.model}
+                onUpgrade={() => e.set({ model: { ...v.model, version: LATEST_DENOISE_VERSION } })}
+              />
+            )}
+            <ParamSlider label="Strength" {...percent} max={1} {...e.bind('strength')} />
+            <SelectRow label="Model">
+              {(id) => (
+                <NativeSelect.Root size="xs" flex="1">
+                  <NativeSelect.Field
+                    id={id}
+                    value={v.model.size}
+                    onChange={(ev) => e.set({ model: { ...v.model, size: ev.target.value as DenoiseSize } })}
+                    title="Larger models remove noise better, and take longer"
+                  >
+                    {DENOISE_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {DENOISE_SIZE_LABELS[size]} ({megabytes({ ...v.model, size })})
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
+            </SelectRow>
+            <SelectRow label="Variant">
+              {(id) => (
+                <NativeSelect.Root size="xs" flex="1">
+                  <NativeSelect.Field
+                    id={id}
+                    value={v.model.variant}
+                    onChange={(ev) => e.set({ model: { ...v.model, variant: ev.target.value as DenoiseVariant } })}
+                    title="Multiscale also looks at a downscaled image: less blotchy colour noise"
+                  >
+                    <option value="multi">Multiscale</option>
+                    <option value="single">Single scale</option>
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
+            </SelectRow>
+            <Button
+              size="2xs"
+              variant="ghost"
+              alignSelf="start"
+              px="0"
+              onClick={() => e.setView({ denoiseAdvanced: !e.view.denoiseAdvanced })}
+            >
+              {e.view.denoiseAdvanced ? <ChevronDown /> : <ChevronRight />} Noise corrections
+            </Button>
+            {e.view.denoiseAdvanced && (
+              <>
+                <ParamSlider label="Noise level" {...percent} {...e.bind('noiseLevel')} />
+                {corrections}
+              </>
             )}
           </>
         );

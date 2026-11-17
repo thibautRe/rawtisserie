@@ -7,6 +7,8 @@ import {
   lutIds,
 } from '@rawtisserie/pipeline';
 import type {
+  DenoiseEvent,
+  DenoiseStatus,
   GuideLine,
   IlluminantDetection,
   Overlays,
@@ -18,7 +20,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from './protocol.ts';
-import type { Frame, LutSource, RenderBackend } from './renderBackend.ts';
+import type { DenoiseSource, Frame, LutSource, RenderBackend } from './renderBackend.ts';
 import { startWorker } from './startWorker.ts';
 import type { ScopeRequest } from './scopes.ts';
 
@@ -35,6 +37,9 @@ export class LocalRenderBackend implements RenderBackend {
   /** The LUTs sent to the worker, or being fetched for it, by id. */
   private luts = new Map<string, Promise<void>>();
   private disposed = new AbortController();
+  private denoiseSource: DenoiseSource | null = null;
+  private denoiseListeners = new Set<(status: DenoiseStatus) => void>();
+  private denoiseStatus: DenoiseStatus | null = null;
 
   /** Without `pool`, renders run on the pipeline worker alone (exports, several at once). */
   constructor({ pool = true }: { pool?: boolean } = {}) {
@@ -49,6 +54,7 @@ export class LocalRenderBackend implements RenderBackend {
     ).then((worker) => {
       // `startWorker` resolved: from here, every message is an answer.
       worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+        if (e.data.type === 'denoise') return this.onDenoiseEvent(e.data.event);
         const p = this.pending.get(e.data.id);
         if (!p) return;
         this.pending.delete(e.data.id);
@@ -79,6 +85,37 @@ export class LocalRenderBackend implements RenderBackend {
 
   setLutSource(source: LutSource) {
     this.lutSource = source;
+  }
+
+  setDenoiseSource(source: DenoiseSource) {
+    this.denoiseSource = source;
+  }
+
+  onDenoiseStatus(listener: (status: DenoiseStatus) => void) {
+    this.denoiseListeners.add(listener);
+    if (this.denoiseStatus) listener(this.denoiseStatus);
+    return () => void this.denoiseListeners.delete(listener);
+  }
+
+  private onDenoiseEvent(event: DenoiseEvent) {
+    const source = this.denoiseSource;
+    if (event.kind === 'status') {
+      this.denoiseStatus = event.status;
+      for (const l of this.denoiseListeners) l(event.status);
+    } else if (event.kind === 'needModel') {
+      const model = event.model;
+      void (source?.model(model) ?? Promise.resolve(null))
+        .catch(() => null)
+        .then((bytes) => this.call({ type: 'denoiseModel', model, bytes }, bytes ? [bytes] : []))
+        .catch((err) => console.warn('Sending a denoise model failed', err));
+    } else if (event.kind === 'needOriginal') {
+      void source
+        ?.original()
+        .then((bytes) => this.call({ type: 'setOriginal', bytes }, [bytes]))
+        .catch((err) => console.warn('Getting the RAW file failed', err));
+    } else if (event.kind === 'denoised') {
+      source?.keep?.(event.key, event.file);
+    }
   }
 
   async parseLut(bytes: ArrayBuffer): Promise<ParsedLut> {
@@ -113,7 +150,15 @@ export class LocalRenderBackend implements RenderBackend {
 
   /** Decode a RAW file. The buffer is transferred (and becomes unusable here). */
   async load(bytes: ArrayBuffer): Promise<PhotoMetadata> {
+    this.denoiseStatus = null;
     const r = await this.call<Extract<WorkerResponse, { type: 'loaded' }>>({ type: 'load', bytes }, [bytes]);
+    return r.metadata;
+  }
+
+  /** Open a kept denoised photo (`DenoiseSource.keep`) instead of its RAW file. */
+  async loadDenoised(bytes: ArrayBuffer): Promise<PhotoMetadata> {
+    this.denoiseStatus = null;
+    const r = await this.call<Extract<WorkerResponse, { type: 'loaded' }>>({ type: 'loadDenoised', bytes }, [bytes]);
     return r.metadata;
   }
 

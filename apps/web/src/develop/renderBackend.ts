@@ -1,5 +1,6 @@
 import type { EditParams, ExportMetadata, ExportOptions, SensorMapping } from '@rawtisserie/pipeline';
 import type {
+  DenoiseStatus,
   GuideLine,
   IlluminantDetection,
   Overlays,
@@ -36,6 +37,16 @@ export interface Frame {
  * photo is backend-specific and happens before the backend is handed to the developer.
  */
 export type LutSource = (id: string) => Promise<ArrayBuffer | null>;
+
+/** What raw denoise (roadmap 3.5) asks the page for, and hands it. */
+export interface DenoiseSource {
+  /** A model's file (`/api/denoise-models/:id`), or null when it can't be had. */
+  model(id: string): Promise<ArrayBuffer | null>;
+  /** The RAW file, for a photo opened from a kept denoised file whose recipe changed. */
+  original(): Promise<ArrayBuffer>;
+  /** Keep a denoised photo, named by `denoiseKeyName` (in place of the RAW file). */
+  keep?(key: string, file: ArrayBuffer): void;
+}
 
 export interface RenderBackend {
   /**
@@ -91,6 +102,10 @@ export interface RenderBackend {
    * unavailable (the LUT is then skipped). Each is asked for once.
    */
   setLutSource(source: LutSource): void;
+  /** Where raw denoise gets its models (and the RAW file, and where it keeps its results). */
+  setDenoiseSource(source: DenoiseSource): void;
+  /** Follow where the recipe's raw denoise stands; returns the unsubscribe. */
+  onDenoiseStatus(listener: (status: DenoiseStatus) => void): () => void;
   /** Decode a LUT file (`.cube`, Hald CLUT PNG). Throws if it isn't one. */
   parseLut(bytes: ArrayBuffer): Promise<ParsedLut>;
   dispose(): void;

@@ -3,6 +3,7 @@ import {
   AUTO_RECIPE_LABEL,
   type PhotoMetadata,
   defaultRecipe,
+  denoiseKeyName,
   normalizeEditParams,
   originalRecipe,
 } from '@rawtisserie/pipeline';
@@ -10,7 +11,7 @@ import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api } from '../api/client.ts';
-import { fetchOriginal } from '../api/originals.ts';
+import { fetchDenoised, fetchOriginal, keepDenoised } from '../api/originals.ts';
 import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
@@ -22,6 +23,7 @@ import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
 import type { HistoryOp, HistorySnapshot } from './history.ts';
 import { VersionMenu } from './VersionMenu.tsx';
 import { LocalRenderBackend } from './localRenderBackend.ts';
+import { fetchDenoiseModel } from './denoiseModels.ts';
 import { lutTable } from './luts.ts';
 
 function useLocalBackend() {
@@ -71,6 +73,8 @@ export function LocalDevelopPage() {
     let cancelled = false;
     setLoaded(null);
     setError(null);
+    // Nothing kept for local files: their denoising runs again each time they're opened.
+    backend.setDenoiseSource({ model: fetchDenoiseModel, original: () => file.arrayBuffer() });
     file
       .arrayBuffer()
       .then((bytes) => backend.load(bytes))
@@ -253,6 +257,20 @@ function LibraryDeveloper({ id }: { id: string }) {
   // Versions of the same photo share the original: switching between them keeps it loaded.
   const loadedUrl = useRef<string | null>(null);
 
+  // The recipe the photo opens with: its denoised photo, if one is kept, opens instead of the RAW file.
+  const openingKey = photo?.editParams ? denoiseKeyName(normalizeEditParams(photo.editParams)) : null;
+  const opening = useRef(openingKey);
+  opening.current = openingKey;
+
+  useEffect(() => {
+    if (!backend || !originalUrl) return;
+    backend.setDenoiseSource({
+      model: fetchDenoiseModel,
+      original: () => fetchOriginal(originalUrl),
+      keep: (key, file) => keepDenoised(originalUrl, key, file),
+    });
+  }, [backend, originalUrl]);
+
   useEffect(() => {
     if (!backend || !originalUrl || loadedUrl.current === originalUrl) return;
     let cancelled = false;
@@ -260,8 +278,15 @@ function LibraryDeveloper({ id }: { id: string }) {
     loadedUrl.current = originalUrl;
     setLoaded(null);
     setError(null);
-    fetchOriginal(originalUrl, { onProgress: setProgress })
-      .then((bytes) => backend.load(bytes))
+    const key = opening.current;
+    (key ? fetchDenoised(originalUrl, key) : Promise.resolve(null))
+      .then(async (denoised) => {
+        if (denoised) {
+          setProgress(1);
+          return backend.loadDenoised(denoised);
+        }
+        return backend.load(await fetchOriginal(originalUrl, { onProgress: setProgress }));
+      })
       .then((metadata) => !cancelled && setLoaded({ url: originalUrl, metadata }))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
       .finally(() => (done = !cancelled));

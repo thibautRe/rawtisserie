@@ -11,17 +11,19 @@ import {
   type ExportSettings,
   type PhotoMetadata,
   defaultRecipe,
+  denoiseKeyName,
   exportFilename,
   exportOptions,
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
 import { useSyncExternalStore } from 'react';
 import { ApiError } from '../api/client.ts';
-import { fetchOriginal } from '../api/originals.ts';
+import { fetchDenoised, fetchOriginal } from '../api/originals.ts';
 import type { Photo } from '../api/types.ts';
 import { toaster } from '../components/toaster.tsx';
 import { backendMeasures } from '../develop/autoTune.ts';
 import { photoExportInfo, photoFilenameFields } from '../develop/exportInfo.ts';
+import { fetchDenoiseModel } from '../develop/denoiseModels.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import { lutTable } from '../develop/luts.ts';
 import { saveBlob } from '../lib/download.ts';
@@ -85,6 +87,8 @@ export function dismissExport() {
 interface Input {
   /** Null once it's been handed to a worker (transferred). */
   bytes: ArrayBuffer | null;
+  /** `bytes` is a denoised photo kept for the recipe (raw denoise), not the RAW file. */
+  denoised: boolean;
   /** Null for a new upload not read by the server yet: it starts from the recipe for its file. */
   recipes: (EditParams | null)[];
 }
@@ -220,9 +224,17 @@ async function exportAll(
 
   // Cancelling stops every worker at once, whatever it's doing.
   const backends = new Set<LocalRenderBackend>();
-  const newBackend = () => {
+  /** Raw denoise runs in the export worker; `original` is the URL of the RAW file it has. */
+  const newBackend = (original: () => string | null) => {
     const b = new LocalRenderBackend({ pool: false });
     b.setLutSource(lutTable);
+    b.setDenoiseSource({
+      model: fetchDenoiseModel,
+      original: () => {
+        const url = original();
+        return url ? download(url, signal) : Promise.reject(new Error('No original'));
+      },
+    });
     backends.add(b);
     return b;
   };
@@ -237,17 +249,23 @@ async function exportAll(
   const groups = originalGroups(photos.map((p) => p.originalUrl));
   let claimed = 0;
   const claim = () => (claimed < groups.length ? groups[claimed++]! : null);
+  // A single version whose denoised photo is kept for its recipe exports from it: no
+  // download, nothing to denoise again.
   const prepare = (group: number[]): Promise<Settled<Input>> =>
     settle(
-      Promise.all([
-        download(photos[group[0]!]!.originalUrl, signal),
-        Promise.all(group.map((i) => fetchRecipe(photos[i]!.id))),
-      ]).then(([bytes, recipes]) => ({ bytes, recipes })),
+      Promise.all(group.map((i) => fetchRecipe(photos[i]!.id))).then(async (recipes) => {
+        const url = photos[group[0]!]!.originalUrl;
+        const key = group.length === 1 && recipes[0] ? denoiseKeyName(recipes[0]) : null;
+        const denoised = key ? await fetchDenoised(url, key) : null;
+        if (denoised) return { bytes: denoised, denoised: true, recipes };
+        return { bytes: await download(url, signal), denoised: false, recipes };
+      }),
     );
 
   const lane = async () => {
-    let backend = newBackend();
     let group = claim();
+    const original = () => (group ? photos[group[0]!]!.originalUrl : null);
+    let backend = newBackend(original);
     let input = group && prepare(group);
     while (group && input && !signal.aborted) {
       // The lane's next original downloads while this one exports.
@@ -266,9 +284,12 @@ async function exportAll(
           if (!got.ok) throw got.error;
           if (!metadata) {
             // Fetched again if a version before it failed (its worker was replaced).
-            const bytes = got.value.bytes ?? (await download(photo.originalUrl, signal));
+            const kept = got.value.bytes;
             got.value.bytes = null;
-            metadata = await backend.load(bytes);
+            metadata =
+              kept && got.value.denoised
+                ? await backend.loadDenoised(kept)
+                : await backend.load(kept ?? (await download(photo.originalUrl, signal)));
           }
           // Pending auto-tunes are measured as the server's previews measure them.
           const recipe = got.value.recipes[k] ?? defaultRecipe(metadata);
@@ -282,7 +303,7 @@ async function exportAll(
           failed.push({ photo, name: names[i]!, error: message(err) });
           // A fresh worker for the next one, in case this one is left in a bad state (memory).
           dispose(backend);
-          backend = newBackend();
+          backend = newBackend(original);
           metadata = null;
         } finally {
           current.delete(i);

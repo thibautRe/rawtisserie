@@ -90,6 +90,59 @@ export async function fetchOriginal(
   return bytes;
 }
 
+/** Where a denoised photo of `url` named `key` (`denoiseKeyName`) is kept in the cache. */
+function denoisedUrl(url: string, key: string): string {
+  const u = new URL(url, location.href);
+  u.searchParams.set('denoised', key);
+  return u.href;
+}
+
+/** The original `url` a cache entry is for (itself, or the one it's a denoised photo of). */
+function originalOf(entry: string): string {
+  const u = new URL(entry);
+  u.searchParams.delete('denoised');
+  return u.href;
+}
+
+/**
+ * A denoised photo of the original at `url` (roadmap 3.5), kept by `keepDenoised`,
+ * or null. It opens without the RAW file.
+ */
+export async function fetchDenoised(url: string, key: string): Promise<ArrayBuffer | null> {
+  const name = user && available() ? cacheName(user) : null;
+  const cache = name ? await caches.open(name).catch(() => null) : null;
+  const entry = denoisedUrl(url, key);
+  const hit = await cache?.match(entry).catch(() => undefined);
+  if (!hit) return null;
+  try {
+    const bytes = await hit.arrayBuffer();
+    touch(entry);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Keep a denoised photo of the original at `url` in its place: the RAW file and other
+ * denoised photos of it go (a recipe that needs them downloads the original again).
+ * Counted in the same budget.
+ */
+export function keepDenoised(url: string, key: string, file: ArrayBuffer) {
+  const name = user && available() ? cacheName(user) : null;
+  if (!name) return;
+  const entry = denoisedUrl(url, key);
+  const original = new URL(url, location.href).href;
+  void (async () => {
+    const cache = await caches.open(name);
+    await cache.put(entry, new Response(file, { headers: { 'content-length': String(file.byteLength) } }));
+    touch(entry);
+    const others = (await cache.keys()).filter((r) => r.url !== entry && originalOf(r.url) === original);
+    await Promise.all(others.map((r) => cache.delete(r)));
+    await trim(cache);
+  })().catch(() => {});
+}
+
 export interface CachedOriginal {
   url: string;
   size: number;

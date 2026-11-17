@@ -5,12 +5,15 @@
  * When only the point operations need to run (colour edits), they are split across
  * a pool of workers, at full size even while dragging.
  */
-import { type EditParams, type SensorMapping, lutIds } from '@rawtisserie/pipeline';
+import { type EditParams, type SensorMapping, denoiseKeyName, lutIds, toSensor } from '@rawtisserie/pipeline';
 import init, { Developer, parseLut } from '@rawtisserie/pipeline/wasm';
 import wasmUrl from '@rawtisserie/pipeline/wasm/pipeline_bg.wasm?url';
+import { DenoisePool, type TileResult } from './denoisePool.ts';
 import { PointPool } from './pointPool.ts';
 import { announceAlive } from './startWorker.ts';
 import type {
+  DenoiseEvent,
+  DenoiseStatus,
   GuideLine,
   Overlays,
   PerspectiveCorrection,
@@ -131,6 +134,140 @@ function sensorMapping(dev: Developer, params: EditParams, json: string): Sensor
   return mapping.value;
 }
 
+// ── Raw denoise (roadmap 3.5) ──────────────────────────────────────────────────
+// Tiles are denoised beside renders, on workers of their own (an export worker, which
+// has none, denoises in place before exporting). Results are taken in between
+// messages only, so a render never sees its photo change halfway.
+
+const denoisePool = self.name === 'export' ? null : new DenoisePool(wasm);
+const denoise = {
+  /** The latest recipe rendered or exported, and its JSON. */
+  params: null as EditParams | null,
+  json: null as string | null,
+  /** Where the view is on the sensor (normalised): those tiles first. */
+  focus: [0.5, 0.5] as [number, number],
+  /** Models the page sent, by id: for the developer and the pool. */
+  models: new Map<string, Uint8Array>(),
+  /** Models it couldn't send. */
+  unavailable: new Set<string>(),
+  asked: new Set<string>(),
+  askedOriginal: false,
+  /** Bumped by every photo loaded: results for an earlier one are dropped. */
+  generation: 0,
+  inFlight: 0,
+  results: [] as (TileResult & { generation: number })[],
+  /** The last status told, as JSON. */
+  told: '',
+  /** The key of the last denoised photo handed to the page to keep. */
+  kept: null as string | null,
+  timer: null as ReturnType<typeof setTimeout> | null,
+};
+
+const tell = (event: DenoiseEvent, transfer: Transferable[] = []) => post({ type: 'denoise', id: 0, event }, transfer);
+
+function resetDenoise() {
+  denoise.generation++;
+  denoise.results = [];
+  denoise.asked.clear();
+  denoise.askedOriginal = false;
+  denoise.told = '';
+  denoise.kept = null;
+}
+
+/** Follow `params`' raw denoise (after a render or for an export). */
+function watchDenoise(params: EditParams, json: string, focus?: [number, number]) {
+  denoise.params = params;
+  denoise.json = json;
+  if (focus) denoise.focus = focus;
+  scheduleDenoise(150);
+}
+
+function scheduleDenoise(delay: number) {
+  if (denoise.timer) clearTimeout(denoise.timer);
+  denoise.timer = setTimeout(() => {
+    denoise.timer = null;
+    // Mid-message: `run` pumps once it's done.
+    if (!running) pumpDenoise();
+  }, delay);
+}
+
+/** Take results in, hand tiles out, and tell the page what changed. Between messages only. */
+function pumpDenoise(): DenoiseStatus | null {
+  const dev = developer;
+  const { json, params } = denoise;
+  if (!dev || !json || !params) return null;
+  for (const r of denoise.results.splice(0)) {
+    if (r.generation === denoise.generation) dev.provideDenoiseTile(r.key, r.core, r.values ?? undefined);
+  }
+  let status = JSON.parse(dev.denoiseStatus(json)) as DenoiseStatus;
+  if (status.state === 'needsModel' && status.model) {
+    const bytes = denoise.models.get(status.model);
+    if (bytes) {
+      dev.loadDenoiseModel(status.model, bytes);
+      status = JSON.parse(dev.denoiseStatus(json)) as DenoiseStatus;
+    } else if (denoise.unavailable.has(status.model)) {
+      status = { ...status, error: 'The denoising model could not be downloaded.' };
+    } else if (!denoise.asked.has(status.model)) {
+      denoise.asked.add(status.model);
+      tell({ kind: 'needModel', model: status.model });
+    }
+  }
+  if (status.state === 'needsOriginal' && !denoise.askedOriginal) {
+    denoise.askedOriginal = true;
+    tell({ kind: 'needOriginal' });
+  }
+  if (status.state === 'pending' && denoisePool) {
+    while (denoise.inFlight < denoisePool.size) {
+      const tile = dev.nextDenoiseTile(json, denoise.focus[0], denoise.focus[1]);
+      if (!tile) break;
+      const bytes = denoise.models.get(tile.model);
+      if (!bytes) {
+        tile.free();
+        break;
+      }
+      const generation = denoise.generation;
+      denoise.inFlight++;
+      void denoisePool.run(tile, tile.model, bytes).then((r) => {
+        denoise.inFlight--;
+        denoise.results.push({ ...r, generation });
+        scheduleDenoise(0);
+      });
+    }
+  }
+  const told = JSON.stringify(status);
+  if (told !== denoise.told) {
+    denoise.told = told;
+    tell({ kind: 'status', status });
+  }
+  // Computed here (not opened from a kept file): the page keeps it.
+  if (status.state === 'ready' && dev.hasOriginal()) {
+    const key = denoiseKeyName(params);
+    if (key && key !== denoise.kept) {
+      const file = dev.denoisedFile(json);
+      if (file) {
+        denoise.kept = key;
+        tell({ kind: 'denoised', key, file: file.buffer as ArrayBuffer }, [file.buffer as ArrayBuffer]);
+      }
+    }
+  }
+  return status;
+}
+
+/** Before an export: the recipe's raw denoise done, or an error. */
+async function finishDenoise(dev: Developer, params: EditParams, json: string) {
+  watchDenoise(params, json);
+  for (;;) {
+    const status = pumpDenoise();
+    if (!status || status.state === 'off' || status.state === 'unsupported' || status.state === 'ready') return;
+    if (status.error) throw new Error(status.error);
+    if (status.state === 'pending' && !denoisePool) {
+      dev.denoiseNow(json);
+      continue;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 // One message at a time: pool renders await their workers, and nothing else may touch
 // the developer meanwhile. Thumbnails (menu previews) wait until nothing else does, so
 // that a menu's worth of them doesn't hold up the render of the highlighted item.
@@ -138,9 +275,30 @@ const urgent: WorkerRequest[] = [];
 const idle: WorkerRequest[] = [];
 let running = false;
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  (event.data.type === 'thumbnail' ? idle : urgent).push(event.data);
+  const msg = event.data;
+  // Answers to what the worker asked for, which a message in progress (an export) may
+  // be waiting on: taken in at once.
+  if (msg.type === 'denoiseModel' || msg.type === 'setOriginal') return void receive(msg);
+  (msg.type === 'thumbnail' ? idle : urgent).push(msg);
   void run();
 };
+
+async function receive(msg: Extract<WorkerRequest, { type: 'denoiseModel' | 'setOriginal' }>) {
+  try {
+    await ready;
+    if (msg.type === 'denoiseModel') {
+      if (msg.bytes) denoise.models.set(msg.model, new Uint8Array(msg.bytes));
+      else denoise.unavailable.add(msg.model);
+    } else {
+      developer?.setOriginal(new Uint8Array(msg.bytes));
+      denoise.askedOriginal = false;
+    }
+    post({ type: 'done', id: msg.id });
+  } catch (err) {
+    post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
+  }
+  scheduleDenoise(0);
+}
 
 async function run() {
   if (running) return;
@@ -150,9 +308,11 @@ async function run() {
   } finally {
     running = false;
   }
+  pumpDenoise();
 }
 
 async function handle(msg: WorkerRequest) {
+  if (msg.type === 'denoiseModel' || msg.type === 'setOriginal') return receive(msg);
   const started = performance.now();
   try {
     await ready;
@@ -169,14 +329,17 @@ async function handle(msg: WorkerRequest) {
       post({ type: 'parsedLut', id: msg.id, lutId, size, bitDepth, packed }, [packed]);
       return;
     }
-    if (msg.type === 'load') {
+    if (msg.type === 'load' || msg.type === 'loadDenoised') {
       developer?.free();
       developer = null;
+      resetDenoise();
       // The new developer has none: the pool's go too, and come back as recipes use them.
       for (const id of loadedLuts) pool?.unloadLut(id);
       loadedLuts = [];
       thumbnailLuts = [];
-      developer = new Developer(new Uint8Array(msg.bytes));
+      const bytes = new Uint8Array(msg.bytes);
+      developer = msg.type === 'load' ? new Developer(bytes) : Developer.fromDenoisedFile(bytes);
+      // Its models are loaded again as recipes ask for them (from `denoise.models`).
       mapping = null;
       pool?.invalidate();
       post({ type: 'loaded', id: msg.id, metadata: JSON.parse(developer.metadata()), ms: performance.now() - started });
@@ -202,6 +365,8 @@ async function handle(msg: WorkerRequest) {
       };
       const [sourceWidth, sourceHeight] = developer.outputSize(params, 0, 0);
       const sensor = sensorMapping(developer, msg.params, params);
+      const focus = toSensor(sensor, (x! + fullWidth! / 2) / frameWidth!, (y! + fullHeight! / 2) / frameHeight!);
+      watchDenoise(msg.params, params, [focus[0], focus[1]]);
       // The scope shows the image, without the clipping indicators: drawn before them.
       const drawScope = (data: Uint8Array, width: number, height: number) => {
         const req = msg.scope;
@@ -305,6 +470,7 @@ async function handle(msg: WorkerRequest) {
       ) as PerspectiveCorrection | null;
       post({ type: 'fittedPerspective', id: msg.id, fit, ms: performance.now() - started });
     } else if (msg.type === 'export') {
+      await finishDenoise(developer, msg.params, params);
       const file = developer.renderExport(params, JSON.stringify(msg.options), JSON.stringify(msg.metadata));
       // Full-resolution renders are large: drop the cache so the next preview rebuilds a small one.
       developer.releaseCache();

@@ -57,6 +57,7 @@ import { useRecipePreview } from './preview.ts';
 import { ThumbnailContext, useThumbnailCache } from './thumbnails.tsx';
 import { GuideOverlay } from './GuideOverlay.tsx';
 import type {
+  DenoiseStatus,
   GuideLine,
   IlluminantDetection,
   PerspectiveFit,
@@ -300,6 +301,19 @@ export function DeveloperView({
   const [clipping, setClipping] = useClippingSettings();
   const [scopes, setScopes] = useScopeSettings();
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
+  // Raw denoise runs beside renders: its progress for the panel, and a render once it's done.
+  const [denoise, setDenoise] = useState<DenoiseStatus | null>(null);
+  const [denoisedRenders, setDenoisedRenders] = useState(0);
+  const denoiseState = useRef<DenoiseStatus['state'] | null>(null);
+  useEffect(
+    () =>
+      backend.onDenoiseStatus((status) => {
+        if (status.state === 'ready' && denoiseState.current !== 'ready') setDenoisedRenders((n) => n + 1);
+        denoiseState.current = status.state;
+        setDenoise(status);
+      }),
+    [backend],
+  );
   // Perspective guides while they are edited (null otherwise): the whole corrected image
   // shows, and fits change the live recipe until applied.
   const [guides, setGuides] = useState<GuideLine[] | null>(null);
@@ -407,6 +421,7 @@ export function DeveloperView({
     };
     return { params: fitEffective, width, height, scale, overlays, scope: scopeRequest };
   }, [
+    denoisedRenders,
     fitEffective,
     size.width,
     size.height,
@@ -1318,6 +1333,7 @@ export function DeveloperView({
         <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
           <ModulePanel
             params={params}
+            denoise={denoise}
             lensCorrection={metadata.lensCorrection ?? null}
             asShotIlluminant={metadata.asShotIlluminant ?? null}
             imageFormat={metadata.imageFormat ?? null}

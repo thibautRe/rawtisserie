@@ -3,18 +3,29 @@
  * the photo is opened in the in-browser pipeline (as in the developer), and the
  * highlighted edit is rendered on top of its current recipe.
  */
-import { type EditParams, type PhotoMetadata, defaultRecipe } from '@rawtisserie/pipeline';
+import {
+  type EditParams,
+  type PhotoMetadata,
+  defaultRecipe,
+  denoiseKeyName,
+  normalizeEditParams,
+} from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchOriginal } from '../api/originals.ts';
+import { fetchDenoised, fetchOriginal } from '../api/originals.ts';
 import type { PhotoDetail } from '../api/types.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import type { BatchEdit } from './batchEdit.ts';
 
 /**
  * Open a photo for previewing. The one place that knows where the pixels come from:
- * the original for now, a small proxy image once there are some.
+ * the denoised photo kept for its recipe (raw denoise), else the original, for now; a
+ * small proxy image once there are some. Previews don't denoise (no models: they're
+ * small, where it shows least).
  */
-async function openForPreview(backend: LocalRenderBackend, photo: Pick<PhotoDetail, 'originalUrl'>) {
+async function openForPreview(backend: LocalRenderBackend, photo: Pick<PhotoDetail, 'originalUrl' | 'editParams'>) {
+  const key = photo.editParams ? denoiseKeyName(normalizeEditParams(photo.editParams)) : null;
+  const denoised = key && (await fetchDenoised(photo.originalUrl, key));
+  if (denoised) return backend.loadDenoised(denoised);
   return backend.load(await fetchOriginal(photo.originalUrl));
 }
 

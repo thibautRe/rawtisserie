@@ -571,6 +571,12 @@ impl Developer {
         self.inner.set_original(bytes).map_err(js_err)
     }
 
+    /// Whether it has the RAW file's samples (not only a denoised file's).
+    #[wasm_bindgen(js_name = hasOriginal)]
+    pub fn has_original(&self) -> bool {
+        self.inner.has_original()
+    }
+
     #[wasm_bindgen(js_name = loadDenoiseModel)]
     pub fn load_denoise_model(&mut self, id: &str, bytes: &[u8]) -> Result<(), JsError> {
         self.inner.load_denoise_model(id, bytes).map_err(js_err)

@@ -53,7 +53,35 @@ export type WorkerRequest =
   /** A LUT's packed table, for the recipes that use it (`lutIds`). */
   | { type: 'lut'; id: number; lutId: string; bytes: ArrayBuffer }
   /** Decode a LUT file (`.cube`, Hald CLUT PNG): its id and packed form. */
-  | { type: 'parseLut'; id: number; bytes: ArrayBuffer };
+  | { type: 'parseLut'; id: number; bytes: ArrayBuffer }
+  /** Open a denoised photo kept by the page (`DenoiseEvent` `denoised`), without its RAW file. */
+  | { type: 'loadDenoised'; id: number; bytes: ArrayBuffer }
+  /** A raw denoise model the worker asked for (`needModel`), or null if it can't be had. */
+  | { type: 'denoiseModel'; id: number; model: string; bytes: ArrayBuffer | null }
+  /** The RAW file, for a photo opened from a denoised file (`needOriginal`). */
+  | { type: 'setOriginal'; id: number; bytes: ArrayBuffer };
+
+/** Where the recipe's raw denoise stands (`Developer.denoiseStatus`), as the page sees it. */
+export interface DenoiseStatus {
+  state: 'off' | 'unsupported' | 'needsModel' | 'needsOriginal' | 'pending' | 'ready';
+  /** The model's id (`needsModel`). */
+  model?: string;
+  /** Tiles done and in all (`pending`). */
+  done?: number;
+  total?: number;
+  /** Whether the camera has a noise profile (else a generic one is used). */
+  profileMatched: boolean;
+  /** The model or the RAW file couldn't be had: why. */
+  error?: string;
+}
+
+/** What the pipeline worker tells the page about raw denoise, unasked. */
+export type DenoiseEvent =
+  | { kind: 'status'; status: DenoiseStatus }
+  | { kind: 'needModel'; model: string }
+  | { kind: 'needOriginal' }
+  /** The denoised photo as a file to keep, named by `denoiseKeyName`. */
+  | { kind: 'denoised'; key: string; file: ArrayBuffer };
 
 /** A decoded LUT file. */
 export interface ParsedLut {
@@ -133,7 +161,29 @@ export type WorkerResponse =
   | { type: 'fittedPerspective'; id: number; fit: PerspectiveCorrection | null; ms: number }
   | { type: 'lutLoaded'; id: number }
   | ({ type: 'parsedLut'; id: number } & ParsedLut)
-  | { type: 'error'; id: number; message: string };
+  | { type: 'error'; id: number; message: string }
+  /** Done, with nothing to say (`denoiseModel`, `setOriginal`). */
+  | { type: 'done'; id: number }
+  /** Unasked (`id` 0). */
+  | { type: 'denoise'; id: 0; event: DenoiseEvent };
+
+/** From the pipeline worker to a worker of its denoise pool (`denoisePool.ts`). */
+export type DenoiseRequest =
+  | { type: 'init'; module: WebAssembly.Module }
+  | { type: 'model'; model: string; bytes: ArrayBuffer }
+  | {
+      type: 'run';
+      id: number;
+      model: string;
+      core: number[];
+      size: number;
+      xtrans: boolean;
+      noise: number[];
+      planes: ArrayBuffer;
+    };
+
+export type DenoiseResponse =
+  { type: 'denoised'; id: number; values: ArrayBuffer } | { type: 'error'; id: number; message: string };
 
 /** From the pipeline worker to a worker of its pool (`pointPool.ts`). */
 export type PointRequest =
