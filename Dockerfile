@@ -25,6 +25,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/src/target \
   ./scripts/build-wasm.sh
 
+# Raw denoise models (models/denoise), pinned by hash: ~100 MB, fetched once per change
+# of the script.
+FROM --platform=$BUILDPLATFORM docker.io/library/debian:stable-slim AS denoise-models
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY scripts/fetch-denoise-models.sh scripts/
+RUN ./scripts/fetch-denoise-models.sh models/denoise
+
 # The web app (apps/web/dist).
 FROM --platform=$BUILDPLATFORM docker.io/library/node:${NODE_VERSION}-slim AS web
 WORKDIR /src
@@ -55,6 +64,7 @@ COPY --from=wasm /src/packages/pipeline/wasm packages/pipeline/wasm
 COPY apps/server/migrations apps/server/migrations
 COPY apps/server/src apps/server/src
 COPY --from=web /src/apps/web/dist apps/web/dist
+COPY --from=denoise-models /src/models/denoise models/denoise
 RUN mkdir /data && chown node:node /data
 USER node
 VOLUME /data

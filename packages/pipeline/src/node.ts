@@ -11,6 +11,7 @@ export {
   frameLayout,
   normalizeExport,
   parseLut,
+  denoiseKeyName as denoiseKeyNameWasm,
 } from '../wasm/pipeline.js';
 
 /** Where a built-in LUT's packed file is (`BUILTIN_LUTS`). */

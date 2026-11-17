@@ -6,7 +6,7 @@
 
 use rawtisserie_pipeline::frame::Frame;
 use rawtisserie_pipeline::ops::clipping::Overlays;
-use rawtisserie_pipeline::{self as pipeline, EditParams, Quality, RenderSize};
+use rawtisserie_pipeline::{self as pipeline, EditParams, Quality, Region, RenderSize};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
@@ -99,13 +99,97 @@ pub fn diffuse_plane(params_json: &str, scale: f32, width: u32, height: u32, mut
     Ok(plane)
 }
 
-/// Spike for raw denoise (roadmap 3.5): one stage of an `.anselnn` model on planar
-/// `input` (`width × height`), returning the raw head output. For benchmarks and parity
-/// checks only, until the module exists.
-#[wasm_bindgen(js_name = denoiseForward)]
-pub fn denoise_forward(model: &[u8], coarse: bool, input: Vec<f32>, width: u32, height: u32) -> Result<Vec<f32>, JsError> {
-    let model = pipeline::nn::Model::from_bytes(model).map_err(js_err)?;
-    model.forward(coarse, &input, width as usize, height as usize, false).ok_or_else(|| JsError::new("bad size or input"))
+/// What a stored denoised photo for this recipe is named by (`DenoiseKey::name`), or
+/// undefined without raw denoise. For the TS tests (`denoiseKeyName` mirrors it).
+#[wasm_bindgen(js_name = denoiseKeyName)]
+pub fn denoise_key_name(params_json: &str) -> Result<Option<String>, JsError> {
+    let params = EditParams::from_json(params_json).map_err(js_err)?;
+    Ok(pipeline::pipeline::DenoiseKey::of(&params).map(|(k, s)| k.name(s)))
+}
+
+/// A raw denoise model, loaded once in a denoise worker: runs the tiles the pipeline
+/// worker's developer hands out (`Developer.nextDenoiseTile`).
+#[wasm_bindgen]
+pub struct DenoiseRunner {
+    model: pipeline::nn::Model,
+}
+
+#[wasm_bindgen]
+impl DenoiseRunner {
+    #[wasm_bindgen(constructor)]
+    pub fn new(bytes: &[u8]) -> Result<DenoiseRunner, JsError> {
+        Ok(Self { model: pipeline::nn::Model::from_bytes(bytes).map_err(js_err)? })
+    }
+
+    /// Denoises a tile at full strength: `core` is `[x, y, width, height]`, `planes`
+    /// the tile's input (`DenoiseTile.takePlanes`), `noise` `[a0, a1, a2, b0, b1, b2,
+    /// scale0, scale1, scale2]`. Returns the tile's photosites.
+    pub fn run(&self, core: &[u32], size: u32, xtrans: bool, noise: &[f32], planes: Vec<f32>) -> Result<Vec<f32>, JsError> {
+        let [x, y, width, height] = <[u32; 4]>::try_from(core).map_err(|_| JsError::new("core is [x, y, width, height]"))?.map(|v| v as usize);
+        let noise = <[f32; 9]>::try_from(noise).map_err(|_| JsError::new("noise is [a×3, b×3, scale×3]"))?;
+        let input = pipeline::denoise::TileInput {
+            core: Region { x, y, width, height },
+            size: size as usize,
+            planes,
+            xtrans,
+            profile: pipeline::denoise::NoiseProfile { a: [noise[0], noise[1], noise[2]], b: [noise[3], noise[4], noise[5]], matched: true },
+            scale: [noise[6], noise[7], noise[8]],
+        };
+        pipeline::denoise::run_tile(&self.model, input).ok_or_else(|| JsError::new("this tile isn't for this model"))
+    }
+}
+
+/// A tile to denoise (`Developer.nextDenoiseTile`), for a `DenoiseRunner`.
+#[wasm_bindgen]
+pub struct DenoiseTile {
+    job: Option<pipeline::pipeline::DenoiseJob>,
+    core: [u32; 4],
+}
+
+#[wasm_bindgen]
+impl DenoiseTile {
+    /// Which settings it's for: give it back to `provideDenoiseTile`.
+    #[wasm_bindgen(getter)]
+    pub fn key(&self) -> u64 {
+        self.job.as_ref().map_or(0, |j| j.key)
+    }
+
+    /// The model's id.
+    #[wasm_bindgen(getter)]
+    pub fn model(&self) -> String {
+        self.job.as_ref().map(|j| j.model.clone()).unwrap_or_default()
+    }
+
+    /// `[x, y, width, height]` on the sensor.
+    #[wasm_bindgen(getter)]
+    pub fn core(&self) -> Vec<u32> {
+        self.core.to_vec()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> u32 {
+        self.job.as_ref().map_or(0, |j| j.input.size as u32)
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn xtrans(&self) -> bool {
+        self.job.as_ref().is_some_and(|j| j.input.xtrans)
+    }
+
+    /// `[a0, a1, a2, b0, b1, b2, scale0, scale1, scale2]`.
+    #[wasm_bindgen(getter)]
+    pub fn noise(&self) -> Vec<f32> {
+        self.job.as_ref().map_or_else(Vec::new, |j| {
+            let i = &j.input;
+            [i.profile.a, i.profile.b, i.scale].concat()
+        })
+    }
+
+    /// The input planes. Moves them out.
+    #[wasm_bindgen(js_name = takePlanes)]
+    pub fn take_planes(&mut self) -> Vec<f32> {
+        self.job.as_mut().map(|j| std::mem::take(&mut j.input.planes)).unwrap_or_default()
+    }
 }
 
 /// Read metadata (EXIF, dimensions…) without decoding the sensor data. Returns JSON.
@@ -474,6 +558,86 @@ impl Developer {
     }
 
     /// Free the cached demosaiced image (it is rebuilt on the next render).
+    /// A developer for a denoised photo kept by `denoisedFile`, without its RAW file.
+    #[wasm_bindgen(js_name = fromDenoisedFile)]
+    pub fn from_denoised_file(bytes: &[u8]) -> Result<Developer, JsError> {
+        let (_, inner) = pipeline::Developer::from_denoised_file(bytes).map_err(js_err)?;
+        Ok(Self { inner, thumbnails: None, thumbnail_luts: Default::default() })
+    }
+
+    /// The RAW file, for a developer opened from a denoised file whose recipe changed.
+    #[wasm_bindgen(js_name = setOriginal)]
+    pub fn set_original(&mut self, bytes: &[u8]) -> Result<(), JsError> {
+        self.inner.set_original(bytes).map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = loadDenoiseModel)]
+    pub fn load_denoise_model(&mut self, id: &str, bytes: &[u8]) -> Result<(), JsError> {
+        self.inner.load_denoise_model(id, bytes).map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = hasDenoiseModel)]
+    pub fn has_denoise_model(&self, id: &str) -> bool {
+        self.inner.has_denoise_model(id)
+    }
+
+    /// Where the recipe's raw denoise stands, as JSON: `{ "state": "off" | "unsupported"
+    /// | "needsModel" | "needsOriginal" | "pending" | "ready", "model"?, "done"?, "total"? }`,
+    /// plus `profileMatched` (whether the camera has a noise profile).
+    #[wasm_bindgen(js_name = denoiseStatus)]
+    pub fn denoise_status(&self, params_json: &str) -> Result<String, JsError> {
+        use pipeline::pipeline::DenoiseStatus as S;
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let m = self.inner.metadata();
+        let matched = pipeline::denoise::noise_profile(m.make.as_deref(), m.model.as_deref(), m.iso).matched;
+        let status = match self.inner.denoise_status(&params) {
+            S::Off => serde_json::json!({ "state": "off" }),
+            S::Unsupported => serde_json::json!({ "state": "unsupported" }),
+            S::NeedsModel(model) => serde_json::json!({ "state": "needsModel", "model": model }),
+            S::NeedsOriginal => serde_json::json!({ "state": "needsOriginal" }),
+            S::Pending { done, total } => serde_json::json!({ "state": "pending", "done": done, "total": total }),
+            S::Ready => serde_json::json!({ "state": "ready" }),
+        };
+        let mut status = status;
+        status["profileMatched"] = matched.into();
+        Ok(status.to_string())
+    }
+
+    /// The next tile to denoise, nearest the sensor point (`focusX`, `focusY`),
+    /// normalised; undefined when none is left to hand out.
+    #[wasm_bindgen(js_name = nextDenoiseTile)]
+    pub fn next_denoise_tile(&mut self, params_json: &str, focus_x: f32, focus_y: f32) -> Result<Option<DenoiseTile>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        let focus = (focus_x.is_finite() && focus_y.is_finite()).then_some((focus_x.clamp(0.0, 1.0), focus_y.clamp(0.0, 1.0)));
+        Ok(self.inner.next_denoise_tile(&params, focus).map(|job| {
+            let c = job.input.core;
+            DenoiseTile { core: [c.x as u32, c.y as u32, c.width as u32, c.height as u32], job: Some(job) }
+        }))
+    }
+
+    /// A tile's result, or none if it failed (it's handed out again).
+    #[wasm_bindgen(js_name = provideDenoiseTile)]
+    pub fn provide_denoise_tile(&mut self, key: u64, core: &[u32], values: Option<Vec<f32>>) -> Result<(), JsError> {
+        let [x, y, width, height] = <[u32; 4]>::try_from(core).map_err(|_| JsError::new("core is [x, y, width, height]"))?.map(|v| v as usize);
+        self.inner.provide_denoise_tile(key, Region { x, y, width, height }, values);
+        Ok(())
+    }
+
+    /// Denoises what's left here and now (no denoise workers).
+    #[wasm_bindgen(js_name = denoiseNow)]
+    pub fn denoise_now(&mut self, params_json: &str) -> Result<(), JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        self.inner.denoise_now(&params);
+        Ok(())
+    }
+
+    /// The denoised photo as a file to keep, once the recipe's raw denoise is ready.
+    #[wasm_bindgen(js_name = denoisedFile)]
+    pub fn denoised_file(&mut self, params_json: &str) -> Result<Option<Vec<u8>>, JsError> {
+        let params = EditParams::from_json(params_json).map_err(js_err)?;
+        Ok(self.inner.denoised_file(&params))
+    }
+
     #[wasm_bindgen(js_name = releaseCache)]
     pub fn release_cache(&mut self) {
         self.inner.release_cache();

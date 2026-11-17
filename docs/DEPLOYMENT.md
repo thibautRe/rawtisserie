@@ -112,15 +112,19 @@ uploads resume across a restart.
 
 ## Container image
 
-`Dockerfile` at the root, in three stages:
+`Dockerfile` at the root, in four stages:
 
 1. **wasm** (`rust:1-slim`): `scripts/build-wasm.sh`, with the prebuilt `wasm-bindgen`
    matching the crate's version (`WASM_BINDGEN_VERSION`, keep it in step with
    `Cargo.toml`).
-2. **web** (`node:26-slim`): `npm ci`, then the Vite build.
-3. **runtime** (`node:26-slim`): the server's production dependencies only
+2. **denoise-models** (`debian:stable-slim`): `scripts/fetch-denoise-models.sh`, the raw
+   denoise networks (ansel-denoise's, ~100 MB, pinned by SHA-256) into `models/denoise`.
+3. **web** (`node:26-slim`): `npm ci`, then the Vite build.
+4. **runtime** (`node:26-slim`): the server's production dependencies only
    (`npm ci --omit=dev -w @rawtisserie/server`), `packages/pipeline` (sources, built-in
-   LUTs, wasm), the server's sources and migrations, and `apps/web/dist`. Runs as `node`.
+   LUTs, wasm), the server's sources and migrations, `apps/web/dist` and
+   `models/denoise` (served at `/api/denoise-models/:id`, `DENOISE_MODELS_DIR`; browsers
+   download a model the first time a recipe uses it). Runs as `node`.
 
 Anything the server imports at run time must be in its `dependencies`, not
 `devDependencies`, or the image fails to start. The one native dependency is `sharp`
@@ -137,7 +141,8 @@ podman run -p 4000:4000 -v rawtisserie-data:/data \
 
 The image sets `HOST=0.0.0.0`, `PORT=4000` and `STORAGE_DIR=/data` (a volume: originals,
 renders, LUT tables). The rest of the configuration comes from the environment as
-above. Migrations run on start, and SIGTERM closes the server and the database pool. About 360 MB.
+above. Migrations run on start, and SIGTERM closes the server and the database pool. About 460 MB
+with the denoise models.
 
 ## On a VPS: `deploy/`
 

@@ -41,6 +41,8 @@ export const config = {
   storageDir: path.resolve(repoRoot, process.env.STORAGE_DIR ?? 'data'),
   s3: s3Config(),
   webDistDir: path.resolve(repoRoot, 'apps/web/dist'),
+  /** Raw denoise models (`scripts/fetch-denoise-models.sh`), served as they are. */
+  denoiseModelsDir: path.resolve(repoRoot, process.env.DENOISE_MODELS_DIR ?? 'models/denoise'),
   /** Sign-up without an invitation. */
   allowSignup: process.env.ALLOW_SIGNUP === 'true',
   /** Quota of accounts created without an invitation. */

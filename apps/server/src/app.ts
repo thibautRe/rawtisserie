@@ -10,6 +10,7 @@ import { authPlugin, authRoutes } from './auth/routes.ts';
 import { config } from './config.ts';
 import { exportRoutes } from './exports/routes.ts';
 import { isolationReports } from './isolation.ts';
+import { denoiseRoutes } from './denoise/routes.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
 import { trashRoutes } from './photos/trash.ts';
@@ -69,6 +70,7 @@ export async function buildApp() {
   await app.register(presetRoutes);
   await app.register(exportRoutes);
   await app.register(lutRoutes);
+  await app.register(denoiseRoutes);
   await app.register(accountRoutes, { renderQueue });
 
   app.get('/api/health', async () => ({ ok: true }));

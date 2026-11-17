@@ -8,3 +8,4 @@ export * from './frame.ts';
 export * from './export.ts';
 export * from './luts.ts';
 export * from './autoTune.ts';
+export * from './denoise.ts';
