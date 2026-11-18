@@ -636,7 +636,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
       />
 
       <PanelBlock title="Label">
-        <HStack gap="0">
+        <HStack gap="0" justify="space-between">
           <RatingStars ratings={ratings} />
           <IconButton
             aria-label="Every rating"
