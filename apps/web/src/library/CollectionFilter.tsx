@@ -7,7 +7,16 @@
  * moves, merges and deletes collections.
  */
 import { Box, Button, Checkbox, HStack, IconButton, Menu, Portal, Stack, Text } from '@chakra-ui/react';
-import { ChevronDown, ChevronRight, Combine, Ellipsis, FolderInput, FolderPlus, Pencil, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Combine,
+  CornerDownRight,
+  Ellipsis,
+  FolderInput,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useCollectionChange, useCollections } from '../api/hooks.ts';
 import type { FacetValue } from '../api/types.ts';
@@ -24,6 +33,7 @@ import {
   displayCollection,
   filterCollectionTree,
   isWithin,
+  collectionNameProblem,
   normalizeCollectionName,
 } from '../lib/collections.ts';
 import { CollectionPicker, type PickerRequest } from './CollectionPicker.tsx';
@@ -45,7 +55,7 @@ export function useNewCollection() {
       title: parentName ? `New collection in ${parentName}` : 'New collection',
       action: 'Make',
       name: null,
-      hint: 'Names are unique within the collection they’re in.',
+      hint: 'Names are unique within the collection they’re in, and can’t have “|”.',
       onName: (name) =>
         change.mutate(
           { type: 'create', name, parentId },
@@ -64,7 +74,10 @@ export function useNewCollection() {
       onClose={() => setNaming(null)}
       onRename={(name) => {
         const n = name && normalizeCollectionName(name);
-        if (n && n !== naming?.name) naming?.onName(n);
+        if (!n || n === naming?.name) return;
+        const problem = collectionNameProblem(n);
+        if (problem) toaster.create({ type: 'error', title: problem, description: 'Use another character, as “-”.' });
+        else naming?.onName(n);
       }}
     />
   );
@@ -115,10 +128,10 @@ export function CollectionFilter({
     if (action === 'new') naming.open(n.id, n.name);
     else if (action === 'rename')
       naming.setNaming({
-        title: `Rename ${n.name}`,
-        action: 'Rename',
+        title: `Edit ${n.name}`,
+        action: 'Save',
         name: n.name,
-        hint: 'Names are unique within the collection they’re in.',
+        hint: 'Names are unique within the collection they’re in, and can’t have “|”.',
         onName: (name) => change.mutate({ type: 'rename', id: n.id, name }, { onError: failed('Could not rename it') }),
       });
     else if (action === 'move')
@@ -246,17 +259,17 @@ export function CollectionFilter({
               <Portal>
                 <Menu.Positioner>
                   <Menu.Content minW="48">
-                    <Menu.Item value="new">
-                      <FolderPlus /> New collection in it…
-                    </Menu.Item>
                     <Menu.Item value="rename">
-                      <Pencil /> Rename…
+                      <Pencil /> Edit…
                     </Menu.Item>
                     <Menu.Item value="move">
                       <FolderInput /> Move into…
                     </Menu.Item>
                     <Menu.Item value="merge">
                       <Combine /> Merge into…
+                    </Menu.Item>
+                    <Menu.Item value="new">
+                      <CornerDownRight /> New collection inside…
                     </Menu.Item>
                     <Menu.Separator />
                     <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>

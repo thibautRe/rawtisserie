@@ -24,7 +24,8 @@ const URL_ = `http://localhost:${PORT}`;
 const photo = (i: number): Photo => ({
   id: `v${i}`,
   photoId: `p${i}`,
-  collectionId: null,
+  // One in a collection (the info panel shows it).
+  collectionId: i === 1 ? 'cjapan' : null,
   versionName: null,
   versionIndex: 1,
   versionCount: 1,
@@ -424,9 +425,7 @@ test("T focuses the tag input, which completes from the library's tags", async (
   await page.keyboard.type('baech');
   await page.getByRole('option', { name: /beach/ }).waitFor();
   await page.keyboard.press('Enter');
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 1,
-  );
+  await page.waitForFunction(() => document.querySelectorAll('[data-photo-tag]').length === 1);
   assert.deepEqual(sent.at(-1), { path: '/api/versions/v1', body: { tags: ['beach'] } });
   assert.equal(await input.inputValue(), '');
   // Arrows move through the suggestions; Escape closes them, Enter then adds what's typed.
@@ -434,19 +433,22 @@ test("T focuses the tag input, which completes from the library's tags", async (
   await page.getByRole('listbox').waitFor();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 2,
-  );
+  await page.waitForFunction(() => document.querySelectorAll('[data-photo-tag]').length === 2);
   assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'seagull'] });
   await page.keyboard.type('sea');
   await page.getByRole('listbox').waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('listbox').count(), 0);
   await page.keyboard.press('Enter');
-  await page.waitForFunction(
-    () => document.querySelectorAll('[data-scope="tags-input"][data-part="item"]').length === 3,
-  );
+  await page.waitForFunction(() => document.querySelectorAll('[data-photo-tag]').length === 3);
   assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'seagull', 'sea'] });
+  // Listed below the input: a click shows the photos with it (that filter alone), × removes it.
+  await page.locator('[data-photo-tag="seagull"]').getByRole('button', { name: 'Remove seagull' }).click();
+  assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'sea'] });
+  await page.goto(`${URL_}/?ratingMin=2`);
+  await cards().first().click();
+  await page.locator('[data-photo-collection]').getByText('Japan').click();
+  await page.waitForURL((u) => u.search === '?collection=cjapan');
 });
 
 test('tags are a tree: a parent picks what is under it, and `|` types a level', async () => {
@@ -1311,9 +1313,9 @@ test('collections: a tree in the filters, newest first, picked with those under 
   // Renamed from its menu.
   await row('cjapan').hover();
   await page.getByRole('button', { name: 'Manage Japan' }).click();
-  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await page.getByRole('menuitem', { name: 'Edit…' }).click();
   await page.getByPlaceholder('Name', { exact: true }).fill('Japan 2025');
-  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await row('cjapan').getByText('Japan 2025').waitFor();
   assert.deepEqual(sent.find((s) => s.path === '/api/collections/cjapan')?.body, { name: 'Japan 2025' });
   // Merged into another, after a word on what it does.

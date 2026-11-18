@@ -705,6 +705,12 @@ export function LibraryPage() {
           onExport={exportSelection}
           onSend={sendSelection}
           onMoveToCollection={moveSelectionToCollection}
+          onShowFilter={(key, value) =>
+            search.edit((next) => {
+              for (const k of [...new Set(next.keys())]) if (k !== 'sort') next.delete(k);
+              next.set(key, value);
+            })
+          }
         />
       </PanelDrawer>
       <CollectionPicker request={collectionPicker} onClose={() => setCollectionPicker(null)} />

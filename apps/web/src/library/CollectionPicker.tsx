@@ -16,6 +16,7 @@ import {
   displayCollection,
   filterCollectionTree,
   isWithin,
+  collectionNameProblem,
   normalizeCollectionName,
 } from '../lib/collections.ts';
 
@@ -90,6 +91,11 @@ function PickerBody({ request, onClose }: { request: PickerRequest; onClose: () 
   const create = () => {
     const name = normalizeCollectionName(naming);
     if (!name) return;
+    const problem = collectionNameProblem(name);
+    if (problem) {
+      setError(problem);
+      return;
+    }
     const parentId = picked ?? null;
     setError(null);
     change.mutate(

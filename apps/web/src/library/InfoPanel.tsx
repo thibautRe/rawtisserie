@@ -13,7 +13,6 @@ import {
   Portal,
   Spinner,
   Stack,
-  TagsInput,
   Text,
   Textarea,
 } from '@chakra-ui/react';
@@ -24,6 +23,7 @@ import {
   CopyPlus,
   Download,
   Ellipsis,
+  Folder,
   FolderInput,
   ImageDown,
   Lock,
@@ -31,6 +31,7 @@ import {
   Palette,
   Send,
   Star,
+  Tag,
   Trash2,
   X,
 } from 'lucide-react';
@@ -90,16 +91,39 @@ interface Actions {
   onSend: (instance: RemoteInstance) => void;
   /** Put the selected photos in a collection (picked in a dialog; `current`: where they are, if all in one). */
   onMoveToCollection: (current: string | null) => void;
+  /** Show the library's photos with a tag, or in a collection (and those under it): that filter alone. */
+  onShowFilter: (key: 'tag' | 'collection', value: string) => void;
 }
 
 /** A photo's collection, as a path (`2026 › 2026-11-09`). */
-function CollectionName({ id }: { id: string | null }) {
+function CollectionName({ id, onShow }: { id: string | null; onShow: (id: string) => void }) {
   const { data: list = [] } = useCollections();
   const path = id ? collectionPath(new Map(list.map((c) => [c.id, c])), id) : [];
+  if (!id || !path.length)
+    return (
+      <Text textStyle="xs" color="fg.muted" fontStyle="italic">
+        No collection
+      </Text>
+    );
   return (
-    <Text textStyle="xs" color={path.length ? undefined : 'fg.muted'} fontStyle={path.length ? undefined : 'italic'}>
-      {path.length ? displayCollection(path) : 'No collection'}
-    </Text>
+    <HStack gap="1" data-photo-collection>
+      <Box color="fg.muted" flexShrink={0}>
+        <Folder size={12} />
+      </Box>
+      <Text
+        as="button"
+        textStyle="xs"
+        truncate
+        textAlign="start"
+        cursor="pointer"
+        _hover={{ textDecoration: 'underline' }}
+        focusRing="outside"
+        title={`Show the photos in ${displayCollection(path)}`}
+        onClick={() => onShow(id)}
+      >
+        {displayCollection(path)}
+      </Text>
+    </HStack>
   );
 }
 
@@ -303,6 +327,7 @@ function SinglePanel({
   onExport,
   onSend,
   onMoveToCollection,
+  onShowFilter,
 }: { photo: Photo } & Actions) {
   const { data: instances = [] } = useInstances();
   const { data: detail } = usePhoto(listPhoto.id);
@@ -457,11 +482,16 @@ function SinglePanel({
           </Button>
         }
       >
-        <CollectionName id={photo.collectionId} />
+        <CollectionName id={photo.collectionId} onShow={(id) => onShowFilter('collection', id)} />
       </PanelBlock>
 
       <PanelBlock title="Tags">
-        <PhotoTags key={photo.id} tags={photo.tags} onChange={(tags) => save({ tags })} />
+        <PhotoTags
+          key={photo.id}
+          tags={photo.tags}
+          onChange={(tags) => save({ tags })}
+          onShow={(tag) => onShowFilter('tag', tag)}
+        />
       </PanelBlock>
 
       <PanelBlock
@@ -625,50 +655,94 @@ export function CaptureDetails({ photo }: { photo: Photo }) {
 }
 
 /** One photo's tags, completed from the library's. */
-function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
+function PhotoTags({
+  tags,
+  onChange,
+  onShow,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+  /** Show the library's photos with this tag. */
+  onShow: (tag: string) => void;
+}) {
   const [input, setInput] = useState('');
-  const completion = useTagCompletion({
-    input,
-    exclude: tags,
-    onPick: (tag) => {
-      onChange([...tags, tag]);
-      setInput('');
-    },
-  });
+  const add = (typed: string) => {
+    // Several at once, separated by commas (pasted); levels by `|`.
+    const added = typed.split(',').map(normalizeTag).filter(Boolean);
+    if (added.length) onChange([...new Set([...tags, ...added])]);
+    setInput('');
+  };
+  const completion = useTagCompletion({ input, exclude: tags, onPick: (tag) => add(tag) });
   return (
-    <TagsInput.Root
-      size="xs"
-      variant="subtle"
-      value={tags}
-      // Typed or edited in place: levels separated by `|`.
-      onValueChange={(e) => onChange([...new Set(e.value.map(normalizeTag).filter(Boolean))])}
-      inputValue={input}
-      onInputValueChange={(e) => setInput(e.inputValue)}
-      ids={{ input: TAG_INPUT_ID }}
-      addOnPaste
-      delimiter=","
-    >
-      <TagsInput.Label srOnly>Tags</TagsInput.Label>
-      <Box position="relative">
-        <TagsInput.Control>
-          <TagsInput.Context>
-            {(api) =>
-              api.value.map((tag, index) => (
-                <TagsInput.Item key={index} index={index} value={tag}>
-                  <TagsInput.ItemPreview title={displayTag(tag)}>
-                    <TagsInput.ItemText>{displayTag(tag)}</TagsInput.ItemText>
-                    <TagsInput.ItemDeleteTrigger />
-                  </TagsInput.ItemPreview>
-                  <TagsInput.ItemInput />
-                </TagsInput.Item>
-              ))
-            }
-          </TagsInput.Context>
-          <TagsInput.Input placeholder="Add tag…" {...completion.inputProps} />
-        </TagsInput.Control>
+    <Stack gap="1.5">
+      <Box
+        as="form"
+        position="relative"
+        onSubmit={(e: React.FormEvent) => {
+          e.preventDefault();
+          add(input);
+        }}
+      >
+        <Input
+          size="xs"
+          variant="subtle"
+          placeholder="Add tag…"
+          aria-label="Add a tag"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          {...completion.inputProps}
+        />
         {completion.list}
       </Box>
-    </TagsInput.Root>
+      {tags.length > 0 && (
+        <Stack gap="0.5" data-photo-tags>
+          {[...tags]
+            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
+            .map((tag) => (
+              <HStack
+                key={tag}
+                data-photo-tag={tag}
+                gap="1"
+                css={{
+                  '& [data-remove]': { opacity: { base: 1, md: 0 } },
+                  '&:hover [data-remove], &:focus-within [data-remove]': { opacity: 1 },
+                }}
+              >
+                <Box color="fg.muted" flexShrink={0}>
+                  <Tag size={12} />
+                </Box>
+                <Text
+                  as="button"
+                  flex="1"
+                  minW="0"
+                  truncate
+                  textAlign="start"
+                  textStyle="xs"
+                  cursor="pointer"
+                  _hover={{ textDecoration: 'underline' }}
+                  focusRing="outside"
+                  title={`Show the photos with ${displayTag(tag)}`}
+                  onClick={() => onShow(tag)}
+                >
+                  {displayTag(tag)}
+                </Text>
+                <IconButton
+                  data-remove
+                  size="2xs"
+                  variant="ghost"
+                  minW="4"
+                  h="4"
+                  color="fg.muted"
+                  aria-label={`Remove ${displayTag(tag)}`}
+                  onClick={() => onChange(tags.filter((t) => t !== tag))}
+                >
+                  <X />
+                </IconButton>
+              </HStack>
+            ))}
+        </Stack>
+      )}
+    </Stack>
   );
 }
 

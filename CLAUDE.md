@@ -88,7 +88,8 @@ See README.md for the architecture overview and commands.
   into `reservedPress`'s lists, or a tag's could hide it.
 - Collections (roadmap 8.14) are where photos come from, a tree like folders
   (`collections`, `photos.collection_id`: per photo, its versions with it; server
-  `photos/collections.ts` ↔ `lib/collections.ts`). Names are unique among siblings, so
+  `photos/collections.ts` ↔ `lib/collections.ts`). Names are unique among siblings and never
+  have `|` (kept free to separate levels one day: refused when typed, `-` from files), so
   a path of names finds one: uploads and transfers (`SentVersion.collection`) name theirs
   and `collectionAt` makes what's missing. The filter (`collection`: ids, each with those
   under it, or `none`) is in `whereClause`. Anything new that creates photos decides

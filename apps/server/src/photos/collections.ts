@@ -18,14 +18,34 @@ import { Target, targetClause } from './query.ts';
 
 type Queryable = Pick<Transaction, 'query'>;
 
-/** A collection's name: one line, trimmed. */
+/**
+ * Kept out of names: `|` may separate a collection's levels one day, as it does tags'.
+ * Names given in the app refuse it; those from files (a folder's) have it replaced.
+ */
+export const COLLECTION_SEPARATOR = '|';
+
+/** A collection's name: one line, trimmed, without `|`. */
 export const CollectionName = z
   .string()
   .transform((s) => s.replace(/\s+/g, ' ').trim())
-  .pipe(z.string().min(1, 'A collection needs a name').max(200));
+  .pipe(
+    z
+      .string()
+      .min(1, 'A collection needs a name')
+      .max(200)
+      .refine((s) => !s.includes(COLLECTION_SEPARATOR), 'A collection’s name can’t have “|”'),
+  );
 
-/** A collection's path: its name and its ancestors', from the top. */
-export const CollectionPath = z.array(CollectionName).min(1).max(20);
+/** A collection's path (from an import's folders, another instance): `|` becomes `-`. */
+export const CollectionPath = z
+  .array(
+    z
+      .string()
+      .transform((s) => s.replaceAll(COLLECTION_SEPARATOR, '-'))
+      .pipe(CollectionName),
+  )
+  .min(1)
+  .max(20);
 
 /** The deepest a collection may be (the length of its path). */
 const MAX_DEPTH = 20;

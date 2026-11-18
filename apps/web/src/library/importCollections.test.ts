@@ -77,3 +77,10 @@ test('folders as they are, all in one, or none', () => {
   // Files without a folder: none.
   assert.equal(planCollections([file('a.ARW')], new Map(), sorting({ mode: 'folders' })).of.size, 0);
 });
+
+test('`|` in a folder or a name becomes `-` (it may separate levels one day)', () => {
+  const f = file('Trips/Japan | Kyoto/a.NEF');
+  assert.deepEqual(planCollections([f], new Map(), sorting({ mode: 'folders' })).of.get(f), ['Trips', 'Japan - Kyoto']);
+  const named = sorting({ mode: 'day', names: { 'day:2026-11-09': 'Party|Night' } });
+  assert.equal(planCollections(card, times, named).of.get(card[0]!)?.join(), 'Party-Night');
+});

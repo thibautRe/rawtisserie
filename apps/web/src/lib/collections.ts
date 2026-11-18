@@ -98,3 +98,16 @@ export function filterCollectionTree(nodes: readonly CollectionNode[], query: st
 
 /** A name as the server keeps it: one line, trimmed. */
 export const normalizeCollectionName = (name: string) => name.replace(/\s+/g, ' ').trim();
+
+/**
+ * Kept out of names (the server refuses it): `|` may separate a collection's levels one
+ * day, as it does tags'.
+ */
+export const COLLECTION_SEPARATOR = '|';
+
+/** Why `name` can't be a collection's, or null. */
+export const collectionNameProblem = (name: string) =>
+  name.includes(COLLECTION_SEPARATOR) ? 'A collection’s name can’t have “|”' : null;
+
+/** A name from files (a folder's): `|` becomes `-`, as the server does. */
+export const fileCollectionName = (name: string) => normalizeCollectionName(name.replaceAll(COLLECTION_SEPARATOR, '-'));

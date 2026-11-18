@@ -5,6 +5,7 @@
  * one, or none. Each photo's collection is a path of names, sent with its upload; the
  * server makes what isn't there and reuses what is (names are unique among siblings).
  */
+import { fileCollectionName } from '../lib/collections.ts';
 import type { CaptureTime } from './captureTime.ts';
 import type { PickedFile } from './pickedFiles.ts';
 
@@ -46,7 +47,7 @@ export interface Plan {
 const day = (t: CaptureTime) => t.slice(0, 10);
 const ms = (t: CaptureTime) => Date.parse(`${t}Z`);
 /** A folder's levels (`DCIM/100MSDCF/A.ARW` → DCIM, 100MSDCF). */
-const foldersOf = (path: string) => path.split('/').slice(0, -1).filter(Boolean);
+const foldersOf = (path: string) => path.split('/').slice(0, -1).map(fileCollectionName).filter(Boolean);
 
 /** Whether files picked have folders to keep. */
 export const hasFolders = (files: readonly PickedFile[]) => files.some((f) => f.path.includes('/'));
@@ -77,7 +78,8 @@ export function planCollections(
     const time = times.get(f) ?? '';
     let g = groups.get(key);
     if (!g) {
-      const name = sorting.names[key]?.trim() || defaultName;
+      // Names given in the review: `|` becomes `-`, as in folders' names.
+      const name = fileCollectionName(sorting.names[key] ?? '') || defaultName;
       g = {
         group: { key, path: path(name), defaultName, files: 0, from: time, to: time },
         members: [],
@@ -97,7 +99,7 @@ export function planCollections(
       if (folders.length) add(`folder:${folders.join('/')}`, folders.at(-1)!, () => folders, f);
     }
   else if (sorting.mode === 'one') {
-    const one = sorting.one.map((n) => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const one = sorting.one.map(fileCollectionName).filter(Boolean);
     if (one.length) for (const f of files) add('one', one.at(-1)!, () => one, f);
   } else if (sorting.mode === 'day')
     for (const f of files) {
