@@ -73,6 +73,8 @@ that shrink back (and the focused photo marked), a "No tags" filter, saved filte
 Ctrl), and glow streaks and motion (4.12). Added: 2.7 (an always-on colour picker); 3.9
 (demosaicing) is the next image-quality item after 3.5. 3.9 done the same day (RCD for
 Bayer sensors), then Markesteijn for X-Trans on 2026-11-18.
+3.6 done the same day: lensfun's database for photos without embedded data, kept in
+the recipe, with a lens picker; DNG opcodes and other makers' data moved to 3.10.
 NOTES.md feedback (2026-11-18): the local developer warns before closing the tab once
 edited, no "Develop a local file" in the app menu, and limits against unintended use
 (rate limits and counts per user; see Cross-cutting).
@@ -623,10 +625,34 @@ upstream at `57c1f08d81`, 2026-10-02). The models are trained in
   developer doesn't. The browser could send its denoised previews back, or the server
   denoise once it renders natively (M6).
 
-### 3.6 Lens correction via lensfun (L, before 1.0)
+### 3.6 Lens correction via lensfun (L, before 1.0) — done
 
-The remaining part of 3.1: the lensfun database, then DNG opcodes and other makers'
-embedded data, plus the manual lens override. See the source list in 3.1.
+> **Done** 2026-11-18. Decisions: the profile lives in the recipe (the lens instance's
+> `lensfun`: the lens, crop factors, and coefficients interpolated for the shot), so
+> renders are a pure function of (recipe, image), need no database, and an update of
+> the database never moves an edit; the file's embedded data comes first; new imports
+> only (photos with history are untouched). As built: `scripts/lensfun-db.mjs` builds
+> `packages/pipeline/lensfun/lensfun.json` from lensfun's `data/db` (CC BY-SA 3.0,
+> pinned commit; 1580 lenses, 1059 cameras, joined with rawler's camera names; 1.9 MB,
+> 455 KB gzipped). `lensfun.ts` ports lensfun's search (fuzzy words, `MatchScore`,
+> ranges from names) and interpolation (Hermite splines over focal length, inverse
+> distance weighting for vignetting); `LensProfile::from_lensfun` evaluates poly3/
+> poly5/ptlens distortion, linear/poly3 TCA and pa vignetting into the same knot tables
+> as Sony's data, converting radii through the crop factors, so the geometry stage is
+> unchanged (golden images too). `defaultRecipe` takes the database: the server reads
+> it from disk, the app fetches it (a hashed asset) only for photos that could use it.
+> The lens module shows its source and a picker: lenses matching the file's first, then
+> those for the camera's mount, searchable; a lens without a calibration for the
+> sensor or shot is shown but can't be picked. Presets, styles and copy/paste keep
+> the strengths, never one shot's profile. Not read: focus distance (vignetting is
+> interpolated at 1000 m, as darktable does without one), lens centre offsets.
+
+### 3.10 More embedded lens data (M)
+
+What 3.1 and 3.6 left: DNG opcodes (`WarpRectilinear`, `FixVignetteRadial`), then
+Fujifilm, Olympus/OM and Panasonic embedded data (darktable's `lens.cc` reads them).
+Each is another `LensSource` filling the same knot tables. Also worth having: the
+focus distance from makers' notes, for lensfun's vignetting.
 
 ### 3.7 Diffuse and sharpen (L, before 1.0)
 
@@ -2151,7 +2177,10 @@ Ideas, roughly by value for effort:
   add both to `npm test` or a pre-commit check so they stay clean.
 - **Slider perf budget:** `npm run test:perf -w @rawtisserie/web` is over its 50 %
   main-thread budget on "primaries hue" (~52 %) and "equalizer mix" (~51–55 %), on the
-  code from before retouch too. Find what the main thread does in those drags (likely
+  code from before retouch too. On 2026-11-18 more rows were over on the same machine,
+  before 3.6 as after (measured against the previous commit's wasm): filmic contrast
+  and straighten (~64 % busy), image rates for exposure (9–13 fps), glow (6 fps) and
+  straighten (2 fps, ~530 ms a geometry render at 835 px). Find what the main thread does in those drags (likely
   their sections' restyling) or revisit the budget.
 - **Limits against unintended use** (from NOTES.md, 2026-11-18).
 
@@ -2210,7 +2239,7 @@ Ideas, roughly by value for effort:
 
 Required before 1.0, on top of what's done:
 
-- **Modules:** 3.5 raw denoise (AI), 3.6 lensfun, 3.7 diffuse and sharpen, 3.8 perspective /
+- **Modules:** 3.5 raw denoise (AI), ~~3.6 lensfun~~, 3.7 diffuse and sharpen, 3.8 perspective /
   vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame, 4.10 tone equalizer (guided mask).
 - **Library:** 8.1 presets on a selection, ~~8.2 folder/SD import skipping known files~~,
   8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
@@ -2233,7 +2262,7 @@ Required before 1.0, on top of what's done:
 5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
    (right after 4.3) if dust removal is a priority; it doesn't need masks.
 6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
-   8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, 3.6 lensfun,
+   8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, ~~3.6 lensfun~~,
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
    and done 2026-11-16), then ~~7.11 AVIF renders~~, ~~10.1 responsive library~~, ~~8.13~~ and

@@ -211,6 +211,8 @@ export function presetParams<K extends ModuleKind>(
   groups?: readonly string[] | 'given',
 ): Partial<ModuleParams[K]> {
   const full = moduleParams(kind, params) as Record<string, unknown>;
+  // Lensfun's profile is one shot's (its focal length, aperture, camera): presets keep the strengths.
+  if (kind === 'lens') delete full.lensfun;
   const keys =
     groups === 'given' ? Object.keys(full).filter((k) => isObject(params) && k in params) : groupKeys(kind, groups);
   return Object.fromEntries(keys.map((k) => [k, full[k]])) as Partial<ModuleParams[K]>;
@@ -316,6 +318,8 @@ function styleMode(kind: ModuleKind, mode: unknown, groups: readonly string[] | 
 /** A style instance from a recipe's instance: without its id, and its mask if partial. */
 function styleInstance(m: ModuleInstance, mode: unknown, groups: unknown): StyleInstance {
   const { id: _, ...rest } = structuredClone(m);
+  // As module presets: the strengths, not one shot's lensfun profile.
+  if (rest.kind === 'lens') delete (rest.params as Partial<ModuleParams['lens']>).lensfun;
   const kept = styleGroups(m.kind, groups);
   const instance = { ...rest, mode: styleMode(m.kind, mode, kept) } as StyleInstance;
   if (kept) {
@@ -465,6 +469,9 @@ export function applyStyle(recipe: EditParams, style: StylePayload, appendAll = 
     }
     const made = { ...copy, id: onto?.id ?? '', params: mapShapeRefs(m.kind, copy.params, rename) } as ModuleInstance;
     if (copy.mask) made.mask = mapMaskShapeRefs(copy.mask, rename);
+    // The photo's own lensfun profile stays: a style's lens instance has strengths only.
+    const own = onto?.kind === 'lens' ? (onto.params as ModuleParams['lens']).lensfun : undefined;
+    if (own) (made.params as ModuleParams['lens']).lensfun = structuredClone(own);
     return made;
   };
   const modules = [

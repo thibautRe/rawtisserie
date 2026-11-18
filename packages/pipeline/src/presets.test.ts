@@ -15,6 +15,8 @@ import {
   maskOf,
   updateMask,
   type ModuleKind,
+  type LensfunProfile,
+  setLensProfile,
 } from './params.ts';
 import type { Shape } from './shapes.ts';
 import {
@@ -373,4 +375,37 @@ test("v7 presets' global grading is added to each range", () => {
     params: { saturation: [0.2, 0.25, 0, 0], chroma: [0.1, 0.2, 0.3] },
   });
   assert.deepEqual(payload.params, { saturation: [0.45, 0.2, 0.2], chroma: [0.1, 0.2, 0.3] });
+});
+
+test("lensfun's profile belongs to its photo: presets and styles keep the strengths", () => {
+  const profile: LensfunProfile = {
+    lens: 'Test 50mm f/2',
+    cropFactor: 1,
+    calibCropFactor: 1,
+    calibAspectRatio: 1.5,
+    focalLength: 50,
+    distortion: { model: 'poly3', terms: [-0.01] },
+  };
+  const other: LensfunProfile = { ...profile, lens: 'Other 35mm f/1.4', focalLength: 35 };
+  const source = updateModule(setLensProfile(defaultEditParams, 'lens', profile), 'lens', {
+    params: { vignetting: 0.5 },
+  });
+  const lensParams = findModule(source, 'lens')!.params;
+  assert.equal(lensParams.lensfun?.lens, 'Test 50mm f/2');
+  assert.equal('lensfun' in modulePresetPayload('lens', lensParams, undefined).params, false);
+  const style = styleFromRecipe(source, ['lens']);
+  assert.equal('lensfun' in style.modules[0]!.params, false);
+
+  // Applied onto a photo with its own profile, that profile stays; the strengths come.
+  const target = setLensProfile(defaultEditParams, 'lens', other);
+  const styled = findModule(applyStyle(target, style), 'lens')!.params;
+  assert.deepEqual([styled.lensfun?.lens, styled.vignetting], ['Other 35mm f/1.4', 0.5]);
+  const preset = findModule(
+    applyModulePreset(target, 'lens', 'lens', modulePresetPayload('lens', lensParams, undefined)),
+    'lens',
+  )!;
+  assert.deepEqual([preset.params.lensfun?.lens, preset.params.vignetting], ['Other 35mm f/1.4', 0.5]);
+
+  // Back to the file's embedded data.
+  assert.equal('lensfun' in findModule(setLensProfile(target, 'lens', null), 'lens')!.params, false);
 });

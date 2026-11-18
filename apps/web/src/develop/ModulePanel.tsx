@@ -114,6 +114,8 @@ import {
   updateShape,
   updateSpot,
   updateMask,
+  type LensfunShot,
+  setLensProfile,
 } from '@rawtisserie/pipeline';
 import {
   ArrowDown,
@@ -150,6 +152,7 @@ import { ParamSlider, fmt } from './ParamSlider.tsx';
 import { type ShapeUi, hexToRec2020, isEditing, rec2020ToHex } from './retouch.ts';
 import { MaskEditor } from './MaskEditor.tsx';
 import { LutMenu } from './LutMenu.tsx';
+import { LensSource } from './LensPicker.tsx';
 import { useRecipePreview } from './preview.ts';
 import type { LutChoice, LutLibrary } from './luts.ts';
 import type { RangeKey } from './masks.ts';
@@ -169,6 +172,8 @@ interface Props {
   params: EditParams;
   /** Source of the file's embedded lens correction data (`PhotoMetadata.lensCorrection`). */
   lensCorrection: string | null;
+  /** What lensfun needs of the photo, to pick a lens for it (stable: memoised). */
+  lensShot: LensfunShot;
   /** The photo's format if it isn't a RAW file: it has no filmic or lens correction (`RAW_ONLY_KINDS`). */
   imageFormat: string | null;
   /** The photo's original (history at 0): what modules compare with and reset to. */
@@ -1264,6 +1269,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const {
     params,
     lensCorrection,
+    lensShot,
     denoise,
     asShotIlluminant,
     imageFormat,
@@ -3236,18 +3242,29 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         );
       })}
 
-      {sections('lens', [lensCorrection], (e) => (
-        <>
-          {!lensCorrection && (
-            <Text textStyle="2xs" color="fg.subtle">
-              This file has no lens correction data
-            </Text>
-          )}
-          <ParamSlider label="Distortion" disabled={!lensCorrection} {...percent} {...e.bind('distortion')} />
-          <ParamSlider label="Chromatic aberration" disabled={!lensCorrection} {...percent} {...e.bind('tca')} />
-          <ParamSlider label="Vignetting" disabled={!lensCorrection} {...percent} {...e.bind('vignetting')} />
-        </>
-      ))}
+      {sections('lens', [lensCorrection, lensShot], (e) => {
+        const lensfun = e.values.lensfun ?? null;
+        // Lensfun's profiles may lack a part (no calibration of it for this shot).
+        const off = (part: 'distortion' | 'tca' | 'vignetting') => (lensfun ? !lensfun[part] : !lensCorrection);
+        return (
+          <>
+            <LensSource
+              embedded={lensCorrection}
+              lensfun={lensfun}
+              shot={lensShot}
+              onPick={(profile) =>
+                commit(
+                  (p) => setLensProfile(p, e.id, profile),
+                  `${MODULE_TITLES.lens}: ${profile ? profile.lens : 'camera data'}`,
+                )
+              }
+            />
+            <ParamSlider label="Distortion" disabled={off('distortion')} {...percent} {...e.bind('distortion')} />
+            <ParamSlider label="Chromatic aberration" disabled={off('tca')} {...percent} {...e.bind('tca')} />
+            <ParamSlider label="Vignetting" disabled={off('vignetting')} {...percent} {...e.bind('vignetting')} />
+          </>
+        );
+      })}
 
       {sections('geometry', [cropping, aspect, guides, fittingPerspective], (e) => (
         <>

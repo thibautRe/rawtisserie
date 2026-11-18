@@ -1030,6 +1030,7 @@ export function defaultRecipe(metadata: Partial<RecipeMetadata>, lensfun?: Lensf
 }
 
 /** What lensfun needs of a photo's metadata. */
+export type LensfunShot = ReturnType<typeof lensfunShot>;
 export const lensfunShot = (m: Partial<RecipeMetadata>) => ({
   make: m.make ?? null,
   model: m.model ?? null,
@@ -1618,6 +1619,20 @@ export function updateInstance<K extends ModuleKind>(
   if (existing) return { ...params, modules: params.modules.map((m) => (m === existing ? updated : m)) };
   const at = params.modules.findLastIndex((m) => rank(m.kind) <= rank(kind)) + 1;
   return { ...params, modules: params.modules.toSpliced(at, 0, updated) };
+}
+
+/**
+ * Lens instance `id` (made if missing) switched on, with lensfun's `profile`, or with the
+ * file's embedded data for null.
+ */
+export function setLensProfile(params: EditParams, id: string, profile: LensfunProfile | null): EditParams {
+  const next = updateInstance(params, 'lens', id, { enabled: true });
+  const modules = next.modules.map((m) => {
+    if (m.id !== id || m.kind !== 'lens') return m;
+    const { lensfun: _, ...rest } = (m as ModuleInstance<'lens'>).params;
+    return { ...m, params: profile ? { ...rest, lensfun: structuredClone(profile) } : rest };
+  });
+  return { ...next, modules };
 }
 
 /**

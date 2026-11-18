@@ -251,6 +251,14 @@ See README.md for the architecture overview and commands.
   by `denoiseKeyName` ↔ `DenoiseKey::name`. Models are pinned by hash in
   `scripts/fetch-denoise-models.sh` (sizes in `DENOISE_MODEL_BYTES`): never change the
   file behind an id; a retrained model is a new version (`LATEST_DENOISE_VERSION`).
+- Lensfun (roadmap 3.6): the lens instance's `lensfun` is one shot's profile (mirrored:
+  `params::LensfunProfile` ↔ `LensfunProfile`), evaluated by `LensProfile::from_lensfun`
+  into the embedded data's tables; with it, the file's embedded data isn't used. The
+  database (`packages/pipeline/lensfun/lensfun.json`, from `scripts/lensfun-db.mjs`,
+  CC BY-SA 3.0) is read in TS only (`lensfun.ts`, a port of lensfun's search and
+  interpolation): pass it to `defaultRecipe` (server: `lensfun()` from `node.ts`; app:
+  `develop/lensfun.ts`, loaded only when `mayUseLensfun`). Presets, styles and
+  copy/paste carry the strengths, never a profile (`presetParams`, `styleInstance`).
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance
   adapting from the as-shot light. A recipe without it renders D65-balanced colours.

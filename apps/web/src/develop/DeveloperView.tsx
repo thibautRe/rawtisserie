@@ -24,6 +24,7 @@ import {
   toSensor,
   updateInstance,
   updateModule,
+  lensfunShot,
 } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -378,6 +379,8 @@ export function DeveloperView({
   // worker (once a frame at most), the pixel there comes back into a store that only
   // what shows it reads (`picker.ts`).
   const samples = useMemo(() => new SampleStore(), []);
+  // What the lens module's picker needs of the photo: stable, for the memoised panel.
+  const lensShot = useMemo(() => lensfunShot(metadata), [metadata]);
   useEffect(() => backend.onSample((s, pins) => samples.set(s, pins)), [backend, samples]);
   // Zoomed in, the worker reads the region render first (the whole one stays as it was).
   const pointer = useRef<{ at: [number, number] | null; zoomed: boolean }>({ at: null, zoomed: false });
@@ -1454,6 +1457,7 @@ export function DeveloperView({
               params={params}
               denoise={denoise}
               lensCorrection={metadata.lensCorrection ?? null}
+              lensShot={lensShot}
               asShotIlluminant={metadata.asShotIlluminant ?? null}
               imageFormat={metadata.imageFormat ?? null}
               original={original}
