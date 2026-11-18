@@ -29,6 +29,7 @@ export type VersionRow = Versions &
     | 'gps_longitude'
     | 'artist'
     | 'copyright'
+    | 'collection_id'
   > & { version_count: number; version_index: number };
 
 /** Siblings `s` that count for a version `v`: those in the library, and itself (in the trash). */
@@ -36,7 +37,7 @@ const COUNTED = sql`(s.trashed_at IS NULL OR s.id = v.id)`;
 
 export const VERSION_COLUMNS = sql`v.*, p.owner_id, p.original_filename, p.file_size, p.camera_make, p.camera_model,
   p.lens, p.iso, p.exposure_time, p.f_number, p.focal_length, p.exposure_bias, p.captured_at, p.width, p.height,
-  p.gps_latitude, p.gps_longitude, p.artist, p.copyright,
+  p.gps_latitude, p.gps_longitude, p.artist, p.copyright, p.collection_id,
   (SELECT count(*)::int FROM versions s WHERE s.photo_id = v.photo_id AND ${COUNTED}) AS version_count,
   (SELECT count(*)::int + 1 FROM versions s
     WHERE s.photo_id = v.photo_id AND ${COUNTED} AND (s.position, s.id) < (v.position, v.id)) AS version_index`;
@@ -49,6 +50,8 @@ export function versionDto(v: VersionRow) {
   return {
     id: v.id,
     photoId: v.photo_id,
+    /** The photo's collection (roadmap 8.14), if it's in one. */
+    collectionId: v.collection_id,
     versionName: v.name,
     /** 1-based position among the photo's versions ("Version 2" when unnamed). */
     versionIndex: v.version_index,

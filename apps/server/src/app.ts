@@ -14,6 +14,7 @@ import { rateLimits } from './limits.ts';
 import { denoiseRoutes } from './denoise/routes.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
+import { collectionRoutes } from './photos/collections.ts';
 import { filterPresetRoutes } from './photos/filterPresets.ts';
 import { trashRoutes } from './photos/trash.ts';
 import { uploadRoutes } from './photos/uploads.ts';
@@ -69,6 +70,7 @@ export async function buildApp() {
   await app.register(trashRoutes);
   await app.register(uploadRoutes, { renderQueue });
   await app.register(tagRoutes);
+  await app.register(collectionRoutes);
   const transfers = new TransferRunner(app.log);
   await app.register(tokenRoutes);
   await app.register(receiveRoutes, { renderQueue });

@@ -120,6 +120,53 @@
     ]
   },
   {
+    "name": "collections",
+    "columns": [
+      {
+        "name": "created_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "id",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "name",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
+      },
+      {
+        "name": "owner_id",
+        "isNullable": false,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "parent_id",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
+      },
+      {
+        "name": "updated_at",
+        "isNullable": false,
+        "hasDefault": true,
+        "typeId": 1184,
+        "typeName": "TIMESTAMPTZ"
+      }
+    ]
+  },
+  {
     "name": "deleted_originals",
     "columns": [
       {
@@ -469,6 +516,13 @@
         "hasDefault": false,
         "typeId": 1184,
         "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "collection_id",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 2950,
+        "typeName": "UUID"
       },
       {
         "name": "copyright",
@@ -985,6 +1039,13 @@
         "hasDefault": true,
         "typeId": 16,
         "typeName": "BOOL"
+      },
+      {
+        "name": "collection",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 1009,
+        "typeName": "TEXT[]"
       },
       {
         "name": "color_label",

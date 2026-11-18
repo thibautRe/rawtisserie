@@ -46,6 +46,7 @@ export const MAX_COUNT = {
   userTags: 5000,
   accessTokens: 50,
   instances: 50,
+  collections: 10_000,
   /** Versions of one photo (duplicates). */
   versionsPerPhoto: 100,
   /** Chunked uploads started and not completed (the app sends one at a time). */

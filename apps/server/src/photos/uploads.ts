@@ -25,6 +25,7 @@ import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDto } from './dto.ts';
 import { type SkipKind, UNSUPPORTED, ingestReceived, isSupportedName, versionFor } from './ingest.ts';
+import { CollectionPath, collectionAt } from './collections.ts';
 import { Tag } from './tags.ts';
 import { MAX_COUNT, checkCount } from '../limits.ts';
 
@@ -85,6 +86,8 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         rating: z.number().int().min(0).max(5).optional(),
         label: z.enum(['red', 'yellow', 'green', 'blue', 'purple']).optional(),
         flag: z.enum(['picked', 'rejected']).optional(),
+        /** The collection it goes to (roadmap 8.14), as a path of names: made if needed. */
+        collection: CollectionPath.optional(),
       })
       .parse(request.body);
     const filename = path.basename(body.name);
@@ -115,6 +118,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
       rating: body.rating ?? 0,
       color_label: body.label ?? null,
       flag: body.flag ?? null,
+      collection: body.collection ?? null,
     });
     await mkdir(uploadsDir(), { recursive: true });
     await writeFile(fileOf(row!.id), '');
@@ -199,6 +203,15 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         );
         const taken = await versionFor(result, row.filename, columns);
         if ('skipped' in taken) return { created: [], skipped: [taken.skipped] };
+        // A photo in a collection already (back from the trash) stays there.
+        const path = row.collection?.filter((n): n is string => !!n);
+        if (path?.length)
+          await db.tx(async (tx) => {
+            const collectionId = await collectionAt(tx, user.id, path);
+            await tx.query(sql`
+              UPDATE photos SET collection_id = ${collectionId}
+              WHERE id = (SELECT photo_id FROM versions WHERE id = ${taken.versionId}) AND collection_id IS NULL`);
+          });
         const [version] = (await db.query(sql`
           SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ${taken.versionId}`)) as VersionRow[];
         renderQueue.enqueue(taken.versionId);

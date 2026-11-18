@@ -8,32 +8,32 @@
 /* eslint-disable */
 // tslint:disable
 
-import type RemoteInstances from './remote_instances'
-import type Users from './users'
+import type RemoteInstances from './remote_instances';
+import type Users from './users';
 
 interface Transfers {
   /**
    * @default now()
    */
-  created_at: Date
-  error: (string) | null
-  everything: boolean
+  created_at: Date;
+  error: string | null;
+  everything: boolean;
   /**
    * @default 0
    */
-  extras_sent: number
-  finished_at: (Date) | null
+  extras_sent: number;
+  finished_at: Date | null;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  origin_label: string
-  owner_id: Users['id']
-  remote_id: RemoteInstances['id']
+  id: string;
+  origin_label: string;
+  owner_id: Users['id'];
+  remote_id: RemoteInstances['id'];
   /**
    * @default 'running'::text
    */
-  status: string
+  status: string;
 }
 export type { Transfers as default };
 
@@ -41,24 +41,24 @@ interface Transfers_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  error?: (string) | null
-  everything: boolean
+  created_at?: Date;
+  error?: string | null;
+  everything: boolean;
   /**
    * @default 0
    */
-  extras_sent?: number
-  finished_at?: (Date) | null
+  extras_sent?: number;
+  finished_at?: Date | null;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  origin_label: string
-  owner_id: Users['id']
-  remote_id: RemoteInstances['id']
+  id?: string;
+  origin_label: string;
+  owner_id: Users['id'];
+  remote_id: RemoteInstances['id'];
   /**
    * @default 'running'::text
    */
-  status?: string
+  status?: string;
 }
-export type {Transfers_InsertParameters}
+export type { Transfers_InsertParameters };

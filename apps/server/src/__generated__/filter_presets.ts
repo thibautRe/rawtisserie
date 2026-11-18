@@ -8,24 +8,24 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface FilterPresets {
   /**
    * @default now()
    */
-  created_at: Date
+  created_at: Date;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  name: string
-  owner_id: Users['id']
-  query: string
+  id: string;
+  name: string;
+  owner_id: Users['id'];
+  query: string;
   /**
    * @default now()
    */
-  updated_at: Date
+  updated_at: Date;
 }
 export type { FilterPresets as default };
 
@@ -33,17 +33,17 @@ interface FilterPresets_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
+  created_at?: Date;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  name: string
-  owner_id: Users['id']
-  query: string
+  id?: string;
+  name: string;
+  owner_id: Users['id'];
+  query: string;
   /**
    * @default now()
    */
-  updated_at?: Date
+  updated_at?: Date;
 }
-export type {FilterPresets_InsertParameters}
+export type { FilterPresets_InsertParameters };

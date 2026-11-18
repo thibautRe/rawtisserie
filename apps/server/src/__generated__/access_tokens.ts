@@ -8,21 +8,21 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface AccessTokens {
   /**
    * @default now()
    */
-  created_at: Date
+  created_at: Date;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  last_used_at: (Date) | null
-  name: string
-  owner_id: Users['id']
-  token_hash: string
+  id: string;
+  last_used_at: Date | null;
+  name: string;
+  owner_id: Users['id'];
+  token_hash: string;
 }
 export type { AccessTokens as default };
 
@@ -30,14 +30,14 @@ interface AccessTokens_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
+  created_at?: Date;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  last_used_at?: (Date) | null
-  name: string
-  owner_id: Users['id']
-  token_hash: string
+  id?: string;
+  last_used_at?: Date | null;
+  name: string;
+  owner_id: Users['id'];
+  token_hash: string;
 }
-export type {AccessTokens_InsertParameters}
+export type { AccessTokens_InsertParameters };

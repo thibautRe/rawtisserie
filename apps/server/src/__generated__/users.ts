@@ -8,27 +8,27 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Invitations from './invitations'
+import type Invitations from './invitations';
 
 interface Users {
   /**
    * @default now()
    */
-  created_at: Date
-  display_name: string
-  email: string
-  export_settings: (any) | null
+  created_at: Date;
+  display_name: string;
+  email: string;
+  export_settings: any | null;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  invitation_id: (Invitations['id']) | null
+  id: string;
+  invitation_id: Invitations['id'] | null;
   /**
    * @default false
    */
-  is_admin: boolean
-  password_hash: string
-  storage_quota: (number) | null
+  is_admin: boolean;
+  password_hash: string;
+  storage_quota: number | null;
 }
 export type { Users as default };
 
@@ -36,20 +36,20 @@ interface Users_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  display_name: string
-  email: string
-  export_settings?: (any) | null
+  created_at?: Date;
+  display_name: string;
+  email: string;
+  export_settings?: any | null;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  invitation_id?: (Invitations['id']) | null
+  id?: string;
+  invitation_id?: Invitations['id'] | null;
   /**
    * @default false
    */
-  is_admin?: boolean
-  password_hash: string
-  storage_quota?: (number) | null
+  is_admin?: boolean;
+  password_hash: string;
+  storage_quota?: number | null;
 }
-export type {Users_InsertParameters}
+export type { Users_InsertParameters };

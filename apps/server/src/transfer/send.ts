@@ -14,6 +14,7 @@ import { type EditParams, isBuiltinLut, lutIds } from '@rawtisserie/pipeline';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import { badRequest, notFound } from '../errors.ts';
+import { collectionPath } from '../photos/collections.ts';
 import { Target, targetClause } from '../photos/query.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
@@ -307,7 +308,8 @@ async function sendVersion(
   const [row] = (await db.query(sql`
     SELECT v.*, p.sha256, p.original_filename, p.storage_key, p.exif,
       p.camera_make, p.camera_model, p.lens, p.iso, p.exposure_time, p.f_number, p.focal_length,
-      p.exposure_bias, p.captured_at, p.gps_latitude, p.gps_longitude, p.artist, p.copyright, p.file_modified_at
+      p.exposure_bias, p.captured_at, p.gps_latitude, p.gps_longitude, p.artist, p.copyright, p.file_modified_at,
+      p.collection_id
     FROM versions v JOIN photos p ON p.id = v.photo_id
     WHERE v.id = ${versionId} AND p.owner_id = ${ownerId} AND v.trashed_at IS NULL`)) as (Versions & Photos)[];
   // Moved to the trash since: not sent.
@@ -328,6 +330,7 @@ async function sendVersion(
     sha256: row.sha256,
     filename: row.original_filename,
     fileModifiedAt: row.file_modified_at?.getTime() ?? null,
+    collection: row.collection_id ? await collectionPath(db, ownerId, row.collection_id) : null,
     patch: {
       versionName: row.name,
       title: row.title,

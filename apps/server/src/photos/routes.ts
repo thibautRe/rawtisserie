@@ -217,7 +217,9 @@ export async function photoRoutes(
     const notByImport = whereClause(user.id, { ...filters, import: undefined });
     // Ratings too: the rating filter's bars show what each rating would give.
     const notByRating = whereClause(user.id, { ...filters, ratingMin: undefined, rating: undefined });
-    const [cameras, lenses, tags, ratings, ranges, imports] = await Promise.all([
+    // Collections too: each one's photos (not those under it; null for none) under the other filters.
+    const notByCollection = whereClause(user.id, { ...filters, collection: undefined });
+    const [cameras, lenses, tags, ratings, ranges, imports, collections] = await Promise.all([
       facet('camera_model'),
       facet('lens'),
       // Every level of the tree, counting the versions under it once.
@@ -236,8 +238,11 @@ export async function photoRoutes(
         SELECT i.id AS value, count(*)::int AS count, i.created_at AS "importedAt", i.source
         FROM ${VERSIONS_FROM} JOIN imports i ON i.owner_id = p.owner_id AND i.id = v.import_id
         WHERE ${notByImport} GROUP BY i.id, i.created_at, i.source ORDER BY i.created_at DESC LIMIT 50`),
+      db.query(sql`
+        SELECT p.collection_id AS value, count(*)::int AS count FROM ${VERSIONS_FROM}
+        WHERE ${notByCollection} GROUP BY 1`),
     ]);
-    return { cameras, lenses, tags, ratings, ranges: ranges[0], imports };
+    return { cameras, lenses, tags, ratings, ranges: ranges[0], imports, collections };
   });
 
   app.get('/api/versions/:id', async (request) => {

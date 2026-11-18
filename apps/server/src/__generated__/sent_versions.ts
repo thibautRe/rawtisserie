@@ -8,19 +8,19 @@
 /* eslint-disable */
 // tslint:disable
 
-import type RemoteInstances from './remote_instances'
-import type Versions from './versions'
+import type RemoteInstances from './remote_instances';
+import type Versions from './versions';
 
 interface SentVersions {
-  fingerprint: string
-  remote_id: RemoteInstances['id']
-  version_id: Versions['id']
+  fingerprint: string;
+  remote_id: RemoteInstances['id'];
+  version_id: Versions['id'];
 }
 export type { SentVersions as default };
 
 interface SentVersions_InsertParameters {
-  fingerprint: string
-  remote_id: RemoteInstances['id']
-  version_id: Versions['id']
+  fingerprint: string;
+  remote_id: RemoteInstances['id'];
+  version_id: Versions['id'];
 }
-export type {SentVersions_InsertParameters}
+export type { SentVersions_InsertParameters };

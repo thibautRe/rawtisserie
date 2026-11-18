@@ -2,6 +2,7 @@
 import { sql, type SQLQuery } from '@databases/pg';
 import { z } from 'zod';
 import { badRequest } from '../errors.ts';
+import { collectionSubtree } from './collections.ts';
 import { SEPARATOR } from './tags.ts';
 
 const list = z.preprocess(
@@ -21,6 +22,9 @@ const flags = z.preprocess(
 
 /** `tagAny`'s name for the group of top-level tags (a tag's path is never empty). */
 export const TOP_LEVEL = '|';
+
+/** `collection`'s value for photos in no collection. */
+export const NO_COLLECTION = 'none';
 
 export const PhotoFilters = z.object({
   q: z.string().trim().optional(),
@@ -57,6 +61,17 @@ export const PhotoFilters = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   edited: z.enum(['true', 'false']).optional(),
+  /**
+   * Photos in any of these collections (or under one), `none` for those in none
+   * (`collections.ts`).
+   */
+  collection: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : [v].flat()),
+    z
+      .array(z.union([z.uuid(), z.literal(NO_COLLECTION)]))
+      .max(500)
+      .optional(),
+  ),
   /** The versions some imports created (`versions.import_id`). */
   import: z.preprocess(
     (v) => (v === undefined || v === '' ? undefined : [v].flat()),
@@ -113,6 +128,14 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.edited === 'true') c.push(sql`v.edited`);
   if (f.edited === 'false') c.push(sql`NOT v.edited`);
   if (f.import?.length) c.push(sql`v.import_id = ANY(${f.import})`);
+  if (f.collection?.length) {
+    const ids = f.collection.filter((id) => id !== NO_COLLECTION);
+    const either = [
+      ...(ids.length ? [sql`p.collection_id IN ${collectionSubtree(ownerId, ids)}`] : []),
+      ...(f.collection.includes(NO_COLLECTION) ? [sql`p.collection_id IS NULL`] : []),
+    ];
+    c.push(sql`(${sql.join(either, sql` OR `)})`);
+  }
   return sql.join(c, sql` AND `);
 }
 

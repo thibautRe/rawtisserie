@@ -8,16 +8,16 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface DeletedOriginals {
-  owner_id: Users['id']
-  sha256: string
+  owner_id: Users['id'];
+  sha256: string;
 }
 export type { DeletedOriginals as default };
 
 interface DeletedOriginals_InsertParameters {
-  owner_id: Users['id']
-  sha256: string
+  owner_id: Users['id'];
+  sha256: string;
 }
-export type {DeletedOriginals_InsertParameters}
+export type { DeletedOriginals_InsertParameters };

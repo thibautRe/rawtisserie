@@ -8,17 +8,17 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Versions from './versions'
+import type Versions from './versions';
 
 interface HistoryEntries {
   /**
    * @default now()
    */
-  created_at: Date
-  label: string
-  recipe: import('@rawtisserie/pipeline').EditParams
-  seq: number
-  version_id: Versions['id']
+  created_at: Date;
+  label: string;
+  recipe: import('@rawtisserie/pipeline').EditParams;
+  seq: number;
+  version_id: Versions['id'];
 }
 export type { HistoryEntries as default };
 
@@ -26,10 +26,10 @@ interface HistoryEntries_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  label: string
-  recipe: import('@rawtisserie/pipeline').EditParams
-  seq: number
-  version_id: Versions['id']
+  created_at?: Date;
+  label: string;
+  recipe: import('@rawtisserie/pipeline').EditParams;
+  seq: number;
+  version_id: Versions['id'];
 }
-export type {HistoryEntries_InsertParameters}
+export type { HistoryEntries_InsertParameters };

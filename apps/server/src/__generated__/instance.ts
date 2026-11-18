@@ -12,11 +12,11 @@ interface Instance {
   /**
    * @default gen_random_uuid()
    */
-  id: string
+  id: string;
   /**
    * @default true
    */
-  single: boolean
+  single: boolean;
 }
 export type { Instance as default };
 
@@ -24,10 +24,10 @@ interface Instance_InsertParameters {
   /**
    * @default gen_random_uuid()
    */
-  id?: string
+  id?: string;
   /**
    * @default true
    */
-  single?: boolean
+  single?: boolean;
 }
-export type {Instance_InsertParameters}
+export type { Instance_InsertParameters };

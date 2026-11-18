@@ -8,28 +8,28 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface Presets {
   /**
    * @default now()
    */
-  created_at: Date
+  created_at: Date;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  kind: 'module' | 'style'
-  module_kind: (import('@rawtisserie/pipeline').ModuleKind) | null
-  name: string
-  origin_instance: (string) | null
-  origin_preset: (string) | null
-  owner_id: Users['id']
-  payload: import('@rawtisserie/pipeline').ModulePresetPayload | import('@rawtisserie/pipeline').StylePayload
+  id: string;
+  kind: 'module' | 'style';
+  module_kind: import('@rawtisserie/pipeline').ModuleKind | null;
+  name: string;
+  origin_instance: string | null;
+  origin_preset: string | null;
+  owner_id: Users['id'];
+  payload: import('@rawtisserie/pipeline').ModulePresetPayload | import('@rawtisserie/pipeline').StylePayload;
   /**
    * @default now()
    */
-  updated_at: Date
+  updated_at: Date;
 }
 export type { Presets as default };
 
@@ -37,21 +37,21 @@ interface Presets_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
+  created_at?: Date;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  kind: 'module' | 'style'
-  module_kind?: (import('@rawtisserie/pipeline').ModuleKind) | null
-  name: string
-  origin_instance?: (string) | null
-  origin_preset?: (string) | null
-  owner_id: Users['id']
-  payload: import('@rawtisserie/pipeline').ModulePresetPayload | import('@rawtisserie/pipeline').StylePayload
+  id?: string;
+  kind: 'module' | 'style';
+  module_kind?: import('@rawtisserie/pipeline').ModuleKind | null;
+  name: string;
+  origin_instance?: string | null;
+  origin_preset?: string | null;
+  owner_id: Users['id'];
+  payload: import('@rawtisserie/pipeline').ModulePresetPayload | import('@rawtisserie/pipeline').StylePayload;
   /**
    * @default now()
    */
-  updated_at?: Date
+  updated_at?: Date;
 }
-export type {Presets_InsertParameters}
+export type { Presets_InsertParameters };

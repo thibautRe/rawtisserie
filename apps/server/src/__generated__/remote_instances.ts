@@ -8,22 +8,22 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface RemoteInstances {
   /**
    * @default now()
    */
-  created_at: Date
+  created_at: Date;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  owner_id: Users['id']
-  remote_account: string
-  remote_id: string
-  token: string
-  url: string
+  id: string;
+  owner_id: Users['id'];
+  remote_account: string;
+  remote_id: string;
+  token: string;
+  url: string;
 }
 export type { RemoteInstances as default };
 
@@ -31,15 +31,15 @@ interface RemoteInstances_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
+  created_at?: Date;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  owner_id: Users['id']
-  remote_account: string
-  remote_id: string
-  token: string
-  url: string
+  id?: string;
+  owner_id: Users['id'];
+  remote_account: string;
+  remote_id: string;
+  token: string;
+  url: string;
 }
-export type {RemoteInstances_InsertParameters}
+export type { RemoteInstances_InsertParameters };

@@ -8,16 +8,16 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface Sessions {
   /**
    * @default now()
    */
-  created_at: Date
-  expires_at: Date
-  id: string
-  user_id: Users['id']
+  created_at: Date;
+  expires_at: Date;
+  id: string;
+  user_id: Users['id'];
 }
 export type { Sessions as default };
 
@@ -25,9 +25,9 @@ interface Sessions_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  expires_at: Date
-  id: string
-  user_id: Users['id']
+  created_at?: Date;
+  expires_at: Date;
+  id: string;
+  user_id: Users['id'];
 }
-export type {Sessions_InsertParameters}
+export type { Sessions_InsertParameters };

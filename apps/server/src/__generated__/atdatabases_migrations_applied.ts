@@ -9,29 +9,29 @@
 // tslint:disable
 
 interface AtdatabasesMigrationsApplied {
-  applied_at: Date
+  applied_at: Date;
   /**
    * @default nextval('atdatabases_migrations_applied_id_seq'::regclass)
    */
-  id: number
-  ignored_error: (string) | null
-  index: number
-  name: string
-  obsolete: boolean
-  script: string
+  id: number;
+  ignored_error: string | null;
+  index: number;
+  name: string;
+  obsolete: boolean;
+  script: string;
 }
 export type { AtdatabasesMigrationsApplied as default };
 
 interface AtdatabasesMigrationsApplied_InsertParameters {
-  applied_at: Date
+  applied_at: Date;
   /**
    * @default nextval('atdatabases_migrations_applied_id_seq'::regclass)
    */
-  id?: number
-  ignored_error?: (string) | null
-  index: number
-  name: string
-  obsolete: boolean
-  script: string
+  id?: number;
+  ignored_error?: string | null;
+  index: number;
+  name: string;
+  obsolete: boolean;
+  script: string;
 }
-export type {AtdatabasesMigrationsApplied_InsertParameters}
+export type { AtdatabasesMigrationsApplied_InsertParameters };

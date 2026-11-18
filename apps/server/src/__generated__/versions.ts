@@ -8,134 +8,134 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Photos from './photos'
+import type Photos from './photos';
 
 interface Versions {
-  color_label: ('red' | 'yellow' | 'green' | 'blue' | 'purple') | null
+  color_label: ('red' | 'yellow' | 'green' | 'blue' | 'purple') | null;
   /**
    * @default now()
    */
-  created_at: Date
-  description: (string) | null
+  created_at: Date;
+  description: string | null;
   /**
    * @default false
    */
-  edited: boolean
-  edited_at: (Date) | null
-  flag: ('picked' | 'rejected') | null
+  edited: boolean;
+  edited_at: Date | null;
+  flag: ('picked' | 'rejected') | null;
   /**
    * @default 0
    */
-  history_end: number
+  history_end: number;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  import_id: (string) | null
-  name: (string) | null
-  origin_instance: (string) | null
-  origin_revision: (number) | null
-  origin_version: (string) | null
-  photo_id: Photos['id']
+  id: string;
+  import_id: string | null;
+  name: string | null;
+  origin_instance: string | null;
+  origin_revision: number | null;
+  origin_version: string | null;
+  photo_id: Photos['id'];
   /**
    * @default 0
    */
-  position: number
+  position: number;
   /**
    * @default 0
    */
-  rating: number
-  render_error: (string) | null
+  rating: number;
+  render_error: string | null;
   /**
    * @default 'jpeg'::text
    */
-  render_format: 'jpeg' | 'avif'
+  render_format: 'jpeg' | 'avif';
   /**
    * @default 'pending'::text
    */
-  render_status: 'pending' | 'ready' | 'failed'
+  render_status: 'pending' | 'ready' | 'failed';
   /**
    * @default 0
    */
-  render_version: number
+  render_version: number;
   /**
    * @default 0
    */
-  revision: number
+  revision: number;
   /**
    * @default '{}'::text[]
    */
-  tags: Array<string | null>
-  title: (string) | null
-  trashed_at: (Date) | null
+  tags: Array<string | null>;
+  title: string | null;
+  trashed_at: Date | null;
   /**
    * @default now()
    */
-  updated_at: Date
+  updated_at: Date;
 }
 export type { Versions as default };
 
 interface Versions_InsertParameters {
-  color_label?: ('red' | 'yellow' | 'green' | 'blue' | 'purple') | null
+  color_label?: ('red' | 'yellow' | 'green' | 'blue' | 'purple') | null;
   /**
    * @default now()
    */
-  created_at?: Date
-  description?: (string) | null
+  created_at?: Date;
+  description?: string | null;
   /**
    * @default false
    */
-  edited?: boolean
-  edited_at?: (Date) | null
-  flag?: ('picked' | 'rejected') | null
+  edited?: boolean;
+  edited_at?: Date | null;
+  flag?: ('picked' | 'rejected') | null;
   /**
    * @default 0
    */
-  history_end?: number
+  history_end?: number;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  import_id?: (string) | null
-  name?: (string) | null
-  origin_instance?: (string) | null
-  origin_revision?: (number) | null
-  origin_version?: (string) | null
-  photo_id: Photos['id']
+  id?: string;
+  import_id?: string | null;
+  name?: string | null;
+  origin_instance?: string | null;
+  origin_revision?: number | null;
+  origin_version?: string | null;
+  photo_id: Photos['id'];
   /**
    * @default 0
    */
-  position?: number
+  position?: number;
   /**
    * @default 0
    */
-  rating?: number
-  render_error?: (string) | null
+  rating?: number;
+  render_error?: string | null;
   /**
    * @default 'jpeg'::text
    */
-  render_format?: 'jpeg' | 'avif'
+  render_format?: 'jpeg' | 'avif';
   /**
    * @default 'pending'::text
    */
-  render_status?: 'pending' | 'ready' | 'failed'
+  render_status?: 'pending' | 'ready' | 'failed';
   /**
    * @default 0
    */
-  render_version?: number
+  render_version?: number;
   /**
    * @default 0
    */
-  revision?: number
+  revision?: number;
   /**
    * @default '{}'::text[]
    */
-  tags?: Array<string | null>
-  title?: (string) | null
-  trashed_at?: (Date) | null
+  tags?: Array<string | null>;
+  title?: string | null;
+  trashed_at?: Date | null;
   /**
    * @default now()
    */
-  updated_at?: Date
+  updated_at?: Date;
 }
-export type {Versions_InsertParameters}
+export type { Versions_InsertParameters };

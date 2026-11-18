@@ -9,13 +9,13 @@
 // tslint:disable
 
 interface AtdatabasesMigrationsVersion {
-  id: number
-  version: (string) | null
+  id: number;
+  version: string | null;
 }
 export type { AtdatabasesMigrationsVersion as default };
 
 interface AtdatabasesMigrationsVersion_InsertParameters {
-  id: number
-  version?: (string) | null
+  id: number;
+  version?: string | null;
 }
-export type {AtdatabasesMigrationsVersion_InsertParameters}
+export type { AtdatabasesMigrationsVersion_InsertParameters };

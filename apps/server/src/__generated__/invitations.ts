@@ -8,50 +8,50 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface Invitations {
-  code: string
+  code: string;
   /**
    * @default now()
    */
-  created_at: Date
-  created_by: (Users['id']) | null
-  expires_at: (Date) | null
+  created_at: Date;
+  created_by: Users['id'] | null;
+  expires_at: Date | null;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  label: (string) | null
-  max_uses: number
-  revoked_at: (Date) | null
-  storage_quota: (number) | null
+  id: string;
+  label: string | null;
+  max_uses: number;
+  revoked_at: Date | null;
+  storage_quota: number | null;
   /**
    * @default 0
    */
-  uses: number
+  uses: number;
 }
 export type { Invitations as default };
 
 interface Invitations_InsertParameters {
-  code: string
+  code: string;
   /**
    * @default now()
    */
-  created_at?: Date
-  created_by?: (Users['id']) | null
-  expires_at?: (Date) | null
+  created_at?: Date;
+  created_by?: Users['id'] | null;
+  expires_at?: Date | null;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  label?: (string) | null
-  max_uses: number
-  revoked_at?: (Date) | null
-  storage_quota?: (number) | null
+  id?: string;
+  label?: string | null;
+  max_uses: number;
+  revoked_at?: Date | null;
+  storage_quota?: number | null;
   /**
    * @default 0
    */
-  uses?: number
+  uses?: number;
 }
-export type {Invitations_InsertParameters}
+export type { Invitations_InsertParameters };

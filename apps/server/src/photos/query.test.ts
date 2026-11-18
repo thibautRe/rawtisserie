@@ -58,3 +58,11 @@ test('boolean tag filters and exact ratings read as lists (roadmap 8.12)', () =>
     'tag=b&notTag=a&tagAny=%7C&rating=4',
   );
 });
+
+test('collections are ids, or "none" for photos in none', () => {
+  const id = '6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b';
+  assert.deepEqual(parseLibraryQuery(`collection=${id}&collection=none`).collection, [id, 'none']);
+  assert.deepEqual(parseLibraryQuery(`collection=${id}`).collection, [id]);
+  assert.throws(() => parseLibraryQuery('collection=Trips'));
+  assert.equal(normalizeFilterQuery(`collection=none&sort=filename`), 'collection=none');
+});

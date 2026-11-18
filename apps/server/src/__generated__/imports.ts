@@ -8,16 +8,16 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface Imports {
   /**
    * @default now()
    */
-  created_at: Date
-  id: string
-  owner_id: Users['id']
-  source: (string) | null
+  created_at: Date;
+  id: string;
+  owner_id: Users['id'];
+  source: string | null;
 }
 export type { Imports as default };
 
@@ -25,9 +25,9 @@ interface Imports_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  id: string
-  owner_id: Users['id']
-  source?: (string) | null
+  created_at?: Date;
+  id: string;
+  owner_id: Users['id'];
+  source?: string | null;
 }
-export type {Imports_InsertParameters}
+export type { Imports_InsertParameters };

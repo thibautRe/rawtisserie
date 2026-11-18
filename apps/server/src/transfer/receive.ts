@@ -23,6 +23,7 @@ import { HttpError, badRequest, conflict } from '../errors.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
 import { addLut } from '../luts/routes.ts';
+import { collectionAt } from '../photos/collections.ts';
 import { ingestFile } from '../photos/ingest.ts';
 import { PHOTO_FIELDS, Sha256, VERSION_FIELDS, applyHistoryChange, toColumns } from '../photos/routes.ts';
 import { checkPresetCount } from '../presets/routes.ts';
@@ -249,6 +250,8 @@ async function update(userId: string, versionId: string, meta: SentVersion, isNe
     );
     const photo = toColumns<Photos>(meta.patch, PHOTO_FIELDS);
     if (meta.exif) Object.assign(photo, { exif: meta.exif });
+    // In the sender's collection; one without collection there leaves it where it is here.
+    if (meta.collection) Object.assign(photo, { collection_id: await collectionAt(tx, userId, meta.collection) });
     if (Object.keys(photo).length) await tx.query(updatePhoto(v.photo_id, photo));
 
     const { entries, end } = meta.history;

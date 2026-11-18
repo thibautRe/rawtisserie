@@ -8,24 +8,24 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface ExportPresets {
   /**
    * @default now()
    */
-  created_at: Date
+  created_at: Date;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  name: string
-  owner_id: Users['id']
-  settings: any
+  id: string;
+  name: string;
+  owner_id: Users['id'];
+  settings: any;
   /**
    * @default now()
    */
-  updated_at: Date
+  updated_at: Date;
 }
 export type { ExportPresets as default };
 
@@ -33,17 +33,17 @@ interface ExportPresets_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
+  created_at?: Date;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  name: string
-  owner_id: Users['id']
-  settings: any
+  id?: string;
+  name: string;
+  owner_id: Users['id'];
+  settings: any;
   /**
    * @default now()
    */
-  updated_at?: Date
+  updated_at?: Date;
 }
-export type {ExportPresets_InsertParameters}
+export type { ExportPresets_InsertParameters };

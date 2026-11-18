@@ -12,28 +12,28 @@ interface RenderStats {
   /**
    * @default 0
    */
-  failures: number
-  hour: Date
+  failures: number;
+  hour: Date;
   /**
    * @default 0
    */
-  max_render_ms: number
+  max_render_ms: number;
   /**
    * @default 0
    */
-  max_wait_ms: number
+  max_wait_ms: number;
   /**
    * @default 0
    */
-  peak_pending: number
+  peak_pending: number;
   /**
    * @default 0
    */
-  render_ms: number
+  render_ms: number;
   /**
    * @default 0
    */
-  renders: number
+  renders: number;
 }
 export type { RenderStats as default };
 
@@ -41,27 +41,27 @@ interface RenderStats_InsertParameters {
   /**
    * @default 0
    */
-  failures?: number
-  hour: Date
+  failures?: number;
+  hour: Date;
   /**
    * @default 0
    */
-  max_render_ms?: number
+  max_render_ms?: number;
   /**
    * @default 0
    */
-  max_wait_ms?: number
+  max_wait_ms?: number;
   /**
    * @default 0
    */
-  peak_pending?: number
+  peak_pending?: number;
   /**
    * @default 0
    */
-  render_ms?: number
+  render_ms?: number;
   /**
    * @default 0
    */
-  renders?: number
+  renders?: number;
 }
-export type {RenderStats_InsertParameters}
+export type { RenderStats_InsertParameters };

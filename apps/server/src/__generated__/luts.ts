@@ -9,25 +9,25 @@
 // tslint:disable
 
 interface Luts {
-  bit_depth: number
+  bit_depth: number;
   /**
    * @default now()
    */
-  created_at: Date
-  file_size: number
-  id: string
-  size: number
+  created_at: Date;
+  file_size: number;
+  id: string;
+  size: number;
 }
 export type { Luts as default };
 
 interface Luts_InsertParameters {
-  bit_depth: number
+  bit_depth: number;
   /**
    * @default now()
    */
-  created_at?: Date
-  file_size: number
-  id: string
-  size: number
+  created_at?: Date;
+  file_size: number;
+  id: string;
+  size: number;
 }
-export type {Luts_InsertParameters}
+export type { Luts_InsertParameters };

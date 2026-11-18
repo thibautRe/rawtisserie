@@ -8,16 +8,16 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Users from './users'
+import type Users from './users';
 
 interface UserTags {
   /**
    * @default now()
    */
-  created_at: Date
-  owner_id: Users['id']
-  shortcut: (any) | null
-  tag: string
+  created_at: Date;
+  owner_id: Users['id'];
+  shortcut: any | null;
+  tag: string;
 }
 export type { UserTags as default };
 
@@ -25,9 +25,9 @@ interface UserTags_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  owner_id: Users['id']
-  shortcut?: (any) | null
-  tag: string
+  created_at?: Date;
+  owner_id: Users['id'];
+  shortcut?: any | null;
+  tag: string;
 }
-export type {UserTags_InsertParameters}
+export type { UserTags_InsertParameters };

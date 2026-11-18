@@ -8,29 +8,29 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Transfers from './transfers'
-import type Versions from './versions'
+import type Transfers from './transfers';
+import type Versions from './versions';
 
 interface TransferItems {
-  error: (string) | null
-  position: number
+  error: string | null;
+  position: number;
   /**
    * @default 'waiting'::text
    */
-  status: string
-  transfer_id: Transfers['id']
-  version_id: Versions['id']
+  status: string;
+  transfer_id: Transfers['id'];
+  version_id: Versions['id'];
 }
 export type { TransferItems as default };
 
 interface TransferItems_InsertParameters {
-  error?: (string) | null
-  position: number
+  error?: string | null;
+  position: number;
   /**
    * @default 'waiting'::text
    */
-  status?: string
-  transfer_id: Transfers['id']
-  version_id: Versions['id']
+  status?: string;
+  transfer_id: Transfers['id'];
+  version_id: Versions['id'];
 }
-export type {TransferItems_InsertParameters}
+export type { TransferItems_InsertParameters };

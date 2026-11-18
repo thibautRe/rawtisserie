@@ -8,26 +8,26 @@
 /* eslint-disable */
 // tslint:disable
 
-import type Luts from './luts'
-import type Users from './users'
+import type Luts from './luts';
+import type Users from './users';
 
 interface UserLuts {
   /**
    * @default now()
    */
-  created_at: Date
-  hidden_at: (Date) | null
+  created_at: Date;
+  hidden_at: Date | null;
   /**
    * @default gen_random_uuid()
    */
-  id: string
-  lut_id: Luts['id']
-  name: string
-  owner_id: Users['id']
+  id: string;
+  lut_id: Luts['id'];
+  name: string;
+  owner_id: Users['id'];
   /**
    * @default now()
    */
-  updated_at: Date
+  updated_at: Date;
 }
 export type { UserLuts as default };
 
@@ -35,18 +35,18 @@ interface UserLuts_InsertParameters {
   /**
    * @default now()
    */
-  created_at?: Date
-  hidden_at?: (Date) | null
+  created_at?: Date;
+  hidden_at?: Date | null;
   /**
    * @default gen_random_uuid()
    */
-  id?: string
-  lut_id: Luts['id']
-  name: string
-  owner_id: Users['id']
+  id?: string;
+  lut_id: Luts['id'];
+  name: string;
+  owner_id: Users['id'];
   /**
    * @default now()
    */
-  updated_at?: Date
+  updated_at?: Date;
 }
-export type {UserLuts_InsertParameters}
+export type { UserLuts_InsertParameters };
