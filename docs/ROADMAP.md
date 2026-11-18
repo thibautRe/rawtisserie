@@ -79,6 +79,11 @@ grouped (all/any per parent) in the library's filters, and star ratings as sets.
 NOTES.md feedback (2026-11-18): the local developer warns before closing the tab once
 edited, no "Develop a local file" in the app menu, and limits against unintended use
 (rate limits and counts per user; see Cross-cutting).
+Later that day: the rating filter back to five stars ("at least"), with every rating
+in a list behind a toggle (sets, ranges, unrated), in a Label block with the colour
+labels and picks; colour primaries' saturation and brightness in 0.1 % steps, fine
+around 0. Added: 8.14 (collections), and moving rawler to its next release
+(Cross-cutting: upstream has the CR3 fix, unreleased, on a master that needs porting).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -2035,6 +2040,44 @@ presets and styles, export, sending.
 - Above 200 photos, actions ask first, with the number ("Move 320 photos to the trash?").
 - The status bar shows the count ("All 1,240 selected").
 
+### 8.14 Collections (L, from NOTES.md)
+
+A photo belongs to a **collection**: the "folder" it comes from, usually one per day of
+shooting, sometimes spanning days (a night shoot) or several in a day (two different
+events). Collections nest (a tree, like subfolders). They should look and feel unlike
+tags, even though tags are paths too: a tag says what's in a photo, a collection where
+it came from.
+
+- **Data:** a table of its own (`collections`: user, parent, name, an optional date
+  span, the order among siblings) and `photos.collection_id` (a photo is in one
+  collection; its versions follow it). Not tags: a tag can be on any number of photos
+  at once and is shown everywhere (filters, exports' keywords), a collection is a
+  place. The library browses by collection (a tree in the side panel, above or instead
+  of the filters' tags), and `?collection=<id>` is a filter like `?import=`, including
+  the collections under it.
+- **Importing a folder tree:** keep it. The browser already knows each file's path in
+  the picked folder (`PickedFile.path`, `pickedFiles.ts`), but the server doesn't store
+  it: send it with the upload and create the matching collections (`2026/2026-11-09
+Wedding/` → `2026` › `2026-11-09 Wedding`), reusing existing ones with the same path
+  on a later import.
+- **Importing an unsorted card:** make collections, one per day by capture time (EXIF
+  `DateTimeOriginal`, else the file's date), under a parent per year or none. Options
+  in the import review: by day; by gap (a new collection after N hours without photos,
+  which keeps a night shoot together); into one existing or new collection. The review
+  shows the collections it will create, and they can be renamed there.
+- **Managing:** rename, move (drag in the tree), merge, split a collection at a photo
+  (the second event of a day), move photos to another collection (from the selection,
+  with a `Target` as 8.13's actions), delete an empty one. Moving photos between
+  collections is the common case: it should be one action from the grid.
+- **Elsewhere:** exports can name folders after collections (an option of 8.4's ZIP);
+  `SentVersion` carries the collection's path, created on the receiving side; trashed
+  photos keep theirs; a "no collection" filter for photos imported before this.
+
+To settle before building: whether a version can be in another collection than its
+photo (no, for now); whether imports of a folder with no subfolders also get a
+collection by day or one named after the folder; and whether the library opens on the
+collection tree or on all photos.
+
 ---
 
 ### 8.5 Export options (M, before 1.0) — done
@@ -2225,6 +2268,18 @@ Ideas, roughly by value for effort:
   - **Several server processes** would need a shared store for the rate limits
     (`@fastify/rate-limit` takes Redis): only with M6's scaling.
 
+- **rawler from a release** (from NOTES.md, 2026-11-18): our patch (`[patch.crates-io]`,
+  the fork's tag `rawtisserie/rawler-0.8.0-wasm`) is merged upstream
+  (dnglab/dnglab#960, `0bf0fd9`, 2026-11-13), but not released: the latest release is
+  still 0.8.0. Upstream master is 307 commits past it and changes what decoding uses:
+  colour matrices are now camera profiles (`best_color_matrix`, no `color_matrix`,
+  `xyz_to_cam` or `neutralwb` on `RawImage`), the black level model (row and column
+  deltas, `BlackLevel::as_vec` gone, masked areas measured by their median), white
+  balance normalisation and makernote fields: `decode.rs` and `metadata.rs` need
+  porting, and golden images will likely move. So the pin stays on our fork until a
+  release has the fix. Then: take the release from crates.io, drop the patch, port
+  `decode.rs`, compare the golden images (re-bless only what's explained), and run
+  `scripts/noise-profiles.mjs` and `scripts/lensfun-db.mjs` again (camera names).
 - **Ansel parity:** for each port, record the upstream commit it follows (as
   `filmic.rs` does) and keep a short "deviations" list.
 - **Licensing:** filmic, colour primaries, the contrast equalizer and lens correction
