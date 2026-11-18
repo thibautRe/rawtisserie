@@ -29,25 +29,36 @@ const dto = (row: FilterPresets): FilterPreset => ({ id: row.id, name: row.name,
 
 /**
  * The tag manager renamed (or moved, or merged) `from` to `to`, or deleted it (`to`
- * null): the presets' tag filters follow, the tags under it too. A deleted tag's filter
- * is dropped.
+ * null): the presets' tag filters follow (`tag`, `notTag`, and the groups of `tagAny`),
+ * the tags under it too. A deleted tag's filter is dropped.
  */
 export async function followTagRename(tx: Queryable, ownerId: string, from: string, to: string | null) {
   const rows = (await tx.query(sql`SELECT * FROM filter_presets WHERE owner_id = ${ownerId}`)) as FilterPresets[];
   for (const row of rows) {
-    const params = new URLSearchParams(row.query);
-    const tags = params.getAll('tag');
-    const moved = tags.flatMap((t) => {
-      if (t !== from && !t.startsWith(`${from}${SEPARATOR}`)) return [t];
-      return to === null ? [] : [to + t.slice(from.length)];
-    });
-    if (moved.every((t, i) => t === tags[i]) && moved.length === tags.length) continue;
-    params.delete('tag');
-    for (const t of new Set(moved)) params.append('tag', t);
-    await tx.query(
-      sql`UPDATE filter_presets SET query = ${params.toString()}, updated_at = now() WHERE id = ${row.id}`,
-    );
+    const query = renameInQuery(row.query, from, to);
+    if (query === row.query) continue;
+    await tx.query(sql`UPDATE filter_presets SET query = ${query}, updated_at = now() WHERE id = ${row.id}`);
   }
+}
+
+/** `query` with tag `from` (and those under it) renamed to `to`, or dropped for null. */
+export function renameInQuery(query: string, from: string, to: string | null): string {
+  const keys = new Set(['tag', 'notTag', 'tagAny']);
+  const out = new URLSearchParams();
+  const seen = new Set<string>();
+  let changed = false;
+  for (const [key, value] of new URLSearchParams(query)) {
+    let v: string | null = value;
+    if (keys.has(key) && (value === from || value.startsWith(`${from}${SEPARATOR}`))) {
+      v = to === null ? null : to + value.slice(from.length);
+      changed = true;
+    }
+    // A merge can make two the same: one is enough.
+    if (v === null || (keys.has(key) && seen.has(`${key}=${v}`))) continue;
+    seen.add(`${key}=${v}`);
+    out.append(key, v);
+  }
+  return changed ? out.toString() : query;
 }
 
 export async function filterPresetRoutes(app: FastifyInstance) {

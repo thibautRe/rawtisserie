@@ -80,9 +80,11 @@ export function useLibrarySearch() {
     [setParams],
   );
 
-  // The flags shown count as one filter, and so do the imports.
+  // The flags shown count as one filter, and so do the imports and the ratings; how tags
+  // combine (`tagAny`) isn't one.
   const activeFilterCount = [...params.keys()].filter(
-    (k, i, keys) => k !== 'sort' && ((k !== 'flag' && k !== 'import') || keys.indexOf(k) === i),
+    (k, i, keys) =>
+      k !== 'sort' && k !== 'tagAny' && (!['flag', 'import', 'rating'].includes(k) || keys.indexOf(k) === i),
   ).length;
 
   // The same object while the filters are: memoised panels take it.

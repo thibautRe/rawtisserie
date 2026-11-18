@@ -1,4 +1,4 @@
-import { displayTag } from '../lib/tags.ts';
+import { describeRating, describeTags } from './tagFilter.ts';
 
 /** The library's query string without its sort: the filters a preset saves. */
 export function filtersOf(params: URLSearchParams): string {
@@ -35,8 +35,8 @@ export function describeFilters(query: string): string {
   const parts: string[] = [];
   const q = p.get('q');
   if (q) parts.push(`“${q}”`);
-  const rating = Number(p.get('ratingMin') ?? 0);
-  if (rating) parts.push(`★ ${rating}+`);
+  const rating = describeRating(p);
+  if (rating) parts.push(rating);
   const flags = p.getAll('flag');
   if (flags.length) parts.push(flags.map((f) => FLAG_NAMES[f] ?? f).join(' or '));
   const labels = p.getAll('colorLabel');
@@ -44,7 +44,7 @@ export function describeFilters(query: string): string {
   if (p.get('edited') === 'true') parts.push('edited');
   if (p.get('edited') === 'false') parts.push('not edited');
   if (p.get('untagged') === 'true') parts.push('no tags');
-  parts.push(...p.getAll('tag').map(displayTag));
+  parts.push(...describeTags(p));
   if (p.has('from') || p.has('to')) parts.push('dates');
   parts.push(...p.getAll('camera'), ...p.getAll('lens'));
   if (p.has('isoMin') || p.has('isoMax')) parts.push('ISO');

@@ -74,7 +74,8 @@ Ctrl), and glow streaks and motion (4.12). Added: 2.7 (an always-on colour picke
 (demosaicing) is the next image-quality item after 3.5. 3.9 done the same day (RCD for
 Bayer sensors), then Markesteijn for X-Trans on 2026-11-18.
 3.6 done the same day: lensfun's database for photos without embedded data, kept in
-the recipe, with a lens picker; DNG opcodes and other makers' data moved to 3.10.
+the recipe, with a lens picker; DNG opcodes and other makers' data moved to 3.10. Then 8.12: tags excluded or
+grouped (all/any per parent) in the library's filters, and star ratings as sets.
 NOTES.md feedback (2026-11-18): the local developer warns before closing the tab once
 edited, no "Develop a local file" in the app menu, and limits against unintended use
 (rate limits and counts per user; see Cross-cutting).
@@ -1975,7 +1976,20 @@ Left:
 - **RAW + JPEG pairs:** imported both, they're two photos; grouping them (the JPEG as
   the RAW's sidecar) is possible later.
 
-### 8.12 Boolean tag filters and rating ranges (M)
+### 8.12 Boolean tag filters and rating ranges (M) — done
+
+> **Done** 2026-11-18. As built: a tag in the tree cycles on a click: with it, without
+> it, not filtering. Picked tags go in groups by parent, each group "all" (by default)
+> or "any" (a switch on the parent's row; above the tree for top-level tags), and every
+> group must match: (Alice or Bob) and sunset. An excluded tag leaves out the photos
+> with it or a tag under it, except the picked tags under it: `People › Alice` picked
+> and `People` excluded is Alice and nobody else. An OR across different parents isn't
+> expressible. URL: `tag` as before, `notTag`, `tagAny` (parents; `|` for the top level);
+> saved filters follow renames in all three. Stars: a click is "at least" as before,
+> Ctrl/⌘+click toggles a star, Shift+click a range from the last one clicked, the same
+> with Enter or Space on a focused star; a set is `rating` (any of these), written back
+> as `ratingMin` when it runs up to 5. The summary reads `★ 2–3 · People › Alice or
+People › Bob · no other People`. Tag counts stay those of the photos shown.
 
 - **Tags:** today every selected tag must match (AND). Allow AND, OR and NOT between
   tags, e.g. `sunset` AND `People|Alice` AND NOT any other `People|…` tag. A parent
@@ -2248,7 +2262,7 @@ Required before 1.0, on top of what's done:
 - **UI:** 4.13 mask UI redesign; ~~10.1 the library and settings on phones~~.
 - **Branding:** M9.
 - Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules, 8.12 boolean tag filters.
+  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules (8.12 boolean tag filters: done).
 
 ## Suggested order
 
@@ -2266,7 +2280,7 @@ Required before 1.0, on top of what's done:
    ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
    browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
    and done 2026-11-16), then ~~7.11 AVIF renders~~, ~~10.1 responsive library~~, ~~8.13~~ and
-   8.12. 4.13 mask UI redesign once prototyped,
+   ~~8.12~~. 4.13 mask UI redesign once prototyped,
    with 2.6. 3.5 denoise starts with a spike (port the executor,
    bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
 7. M5 compare.

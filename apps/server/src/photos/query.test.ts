@@ -45,3 +45,16 @@ test('a filter preset keeps the filters only, in a stable order', () => {
 test('a filter that cannot be read is refused', () => {
   assert.throws(() => normalizeFilterQuery('ratingMin=9'));
 });
+
+test('boolean tag filters and exact ratings read as lists (roadmap 8.12)', () => {
+  const q = parseLibraryQuery('tag=People%7CAlice&tag=People%7CBob&tagAny=People&notTag=Places&rating=2&rating=3');
+  assert.deepEqual(q.tag, ['People|Alice', 'People|Bob']);
+  assert.deepEqual(q.tagAny, ['People']);
+  assert.deepEqual(q.notTag, ['Places']);
+  assert.deepEqual(q.rating, [2, 3]);
+  assert.throws(() => parseLibraryQuery('rating=6'));
+  assert.equal(
+    normalizeFilterQuery('sort=filename&rating=4&notTag=a&tagAny=%7C&tag=b'),
+    'tag=b&notTag=a&tagAny=%7C&rating=4',
+  );
+});

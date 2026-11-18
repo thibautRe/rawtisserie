@@ -1032,6 +1032,48 @@ test('"No tags" is a filter, and picking a tag unpicks it', async () => {
   await page.waitForURL((u) => u.searchParams.get('tag') === 'beach' && !u.searchParams.has('untagged'));
 });
 
+test('a tag can be excluded, picked tags under a parent match all or any, and stars make sets (8.12)', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const url = () => decodeURIComponent(new URL(page.url()).search);
+  const tag = (path: string, name: string) => page.locator(`[data-tag="${path}"]`).getByText(name, { exact: true });
+  // Alice and nobody else: Alice picked, People excluded.
+  await page.getByRole('button', { name: 'Unfold People' }).click();
+  await tag('People|Alice', 'Alice').click();
+  await page.waitForURL((u) => u.searchParams.getAll('tag').includes('People|Alice'));
+  await tag('People', 'People').click();
+  await tag('People', 'People').click();
+  await page.waitForURL((u) => u.searchParams.getAll('notTag').includes('People'));
+  await page.locator('[data-tag="People"][data-state="exclude"]').waitFor();
+  // Again: People no longer filters.
+  await tag('People', 'People').click();
+  await page.waitForURL((u) => !u.searchParams.has('notTag'));
+  // Alice or Bob: two picked under People, then "any".
+  await tag('People|Bob', 'Bob').click();
+  await page.waitForURL((u) => u.searchParams.getAll('tag').length === 2);
+  await page.locator('[data-tag="People"]').getByRole('button', { name: 'all' }).click();
+  await page.waitForURL((u) => u.searchParams.get('tagAny') === 'People');
+  assert.match(url(), /tag=People\|Alice&tag=People\|Bob.*tagAny=People/);
+  // Bob excluded: one picked left, no more "any".
+  await tag('People|Bob', 'Bob').click();
+  await page.waitForURL((u) => !u.searchParams.has('tagAny') && u.searchParams.get('notTag') === 'People|Bob');
+
+  // Stars: at least 3, then without 4 (Ctrl), then 1 to 2 (a click, then Shift).
+  const star = (n: number) => page.getByRole('button', { name: `${n} stars`, exact: true });
+  await star(3).click();
+  await page.waitForURL((u) => u.searchParams.get('ratingMin') === '3');
+  await star(4).click({ modifiers: ['ControlOrMeta'] });
+  await page.waitForURL((u) => u.searchParams.getAll('rating').join() === '3,5' && !u.searchParams.has('ratingMin'));
+  await page.locator('button[aria-label="4 stars"][aria-pressed="false"]').waitFor();
+  await star(1).click();
+  await star(2).click({ modifiers: ['Shift'] });
+  await page.waitForURL((u) => u.searchParams.getAll('rating').join() === '1,2');
+  // From the keyboard: Ctrl+Enter on a focused star.
+  await star(5).focus();
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.waitForURL((u) => u.searchParams.getAll('rating').join() === '1,2,5');
+});
+
 test('filters saved as a preset, then applied again over others', async () => {
   await open('/?q=beach&sort=filename');
   await cards().first().waitFor();

@@ -77,7 +77,10 @@ See README.md for the architecture overview and commands.
   `lr:hierarchicalSubject`). The tag manager (Settings › Tags, `pages/TagsPage.tsx`; its editor sets a tag's path, missing levels created with it, and shortcut; its search (`TagSearch`, `filterTagTree`) is the filters' too) renames, moves, merges and deletes
   across every version, trashed ones included, the tags under it too; `user_tags` holds
   tags no photo has yet and the tags' shortcuts. Anything that stores tag names must
-  follow a rename there (saved filters do: `filter_presets`, `followTagRename`). Tag shortcuts (`useTagShortcuts`, `lib/keys.ts`) may be sequences
+  follow a rename there (saved filters do: `filter_presets`, `followTagRename`, in `tag`,
+  `notTag` and `tagAny`). Tag filters (roadmap 8.12) group picked tags by parent, all or any
+  (`tagAny`), and exclude (`notTag`) except under picked ones: `library/tagFilter.ts` ↔
+  server `photos/query.ts` (`tagConditions`). Tag shortcuts (`useTagShortcuts`, `lib/keys.ts`) may be sequences
   (Ctrl+Alt+O, Ctrl+Alt+A), matched by physical key (`code`); they listen first (capture)
   and, while a sequence goes on, its keys do nothing else. A new app shortcut must go
   into `reservedPress`'s lists, or a tag's could hide it.

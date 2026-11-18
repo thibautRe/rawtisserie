@@ -2,6 +2,7 @@
 import { sql, type SQLQuery } from '@databases/pg';
 import { z } from 'zod';
 import { badRequest } from '../errors.ts';
+import { SEPARATOR } from './tags.ts';
 
 const list = z.preprocess(
   (v) => (v === undefined || v === '' ? undefined : [v].flat()),
@@ -18,14 +19,33 @@ const flags = z.preprocess(
   z.array(z.enum(FLAGS)).optional(),
 );
 
+/** `tagAny`'s name for the group of top-level tags (a tag's path is never empty). */
+export const TOP_LEVEL = '|';
+
 export const PhotoFilters = z.object({
   q: z.string().trim().optional(),
   camera: list,
   lens: list,
+  /**
+   * Tags a version must have (it or one under it: `People` finds `People|Alice`). They
+   * go in groups by parent: all of a group's, unless its parent is in `tagAny` (any of
+   * them; `TOP_LEVEL` for the top-level tags); every group must match.
+   */
   tag: list,
+  /**
+   * Tags it must not have, nor any under them, except under the tags it must have:
+   * `tag=People|Alice&notTag=People` is Alice and nobody else.
+   */
+  notTag: list,
+  tagAny: list,
   /** Only versions without any tag. */
   untagged: z.enum(['true']).optional(),
   ratingMin: z.coerce.number().int().min(0).max(5).optional(),
+  /** Any of these ratings (0: none). */
+  rating: z.preprocess(
+    (v) => (v === undefined || v === '' ? undefined : [v].flat()),
+    z.array(z.coerce.number().int().min(0).max(5)).max(6).optional(),
+  ),
   flag: flags,
   colorLabel: list,
   isoMin: num,
@@ -73,12 +93,11 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   }
   if (f.camera?.length) c.push(sql`p.camera_model = ANY(${f.camera})`);
   if (f.lens?.length) c.push(sql`p.lens = ANY(${f.lens})`);
-  // Each tag asked for, or one under it (`People` finds `People|Alice`).
-  for (const tag of f.tag ?? [])
-    c.push(sql`EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE t = ${tag} OR starts_with(t, ${`${tag}|`}))`);
+  c.push(...tagConditions(f));
   if (f.untagged) c.push(sql`cardinality(v.tags) = 0`);
   if (f.colorLabel?.length) c.push(sql`v.color_label = ANY(${f.colorLabel})`);
   if (f.ratingMin) c.push(sql`v.rating >= ${f.ratingMin}`);
+  if (f.rating?.length) c.push(sql`v.rating = ANY(${f.rating}::int[])`);
   if (f.flag?.length && !FLAGS.every((flag) => f.flag!.includes(flag))) {
     const set = f.flag.filter((flag) => flag !== 'unflagged');
     c.push(f.flag.includes('unflagged') ? sql`(v.flag IS NULL OR v.flag = ANY(${set}))` : sql`v.flag = ANY(${set})`);
@@ -95,6 +114,35 @@ export function whereClause(ownerId: string, f: PhotoFilters): SQLQuery {
   if (f.edited === 'false') c.push(sql`NOT v.edited`);
   if (f.import?.length) c.push(sql`v.import_id = ANY(${f.import})`);
   return sql.join(c, sql` AND `);
+}
+
+const parentOf = (tag: string) => {
+  const at = tag.lastIndexOf(SEPARATOR);
+  return at < 0 ? TOP_LEVEL : tag.slice(0, at);
+};
+const isUnder = (tag: string, parent: string) => tag.startsWith(`${parent}${SEPARATOR}`);
+/** `t` (in scope) is one of `tags` or under one of them. */
+const inAny = (tags: string[]) =>
+  sql`(t = ANY(${tags}::text[]) OR EXISTS (SELECT 1 FROM unnest(${tags}::text[]) i WHERE starts_with(t, i || ${SEPARATOR})))`;
+
+/** The tag filters (roadmap 8.12): see `PhotoFilters.tag` and `notTag`. */
+export function tagConditions(f: PhotoFilters): SQLQuery[] {
+  const c: SQLQuery[] = [];
+  const included = [...new Set(f.tag ?? [])];
+  const groups = new Map<string, string[]>();
+  for (const tag of included) groups.set(parentOf(tag), [...(groups.get(parentOf(tag)) ?? []), tag]);
+  const any = new Set(f.tagAny ?? []);
+  for (const [parent, tags] of groups) {
+    const each = any.has(parent) ? [tags] : tags.map((t) => [t]);
+    for (const set of each) c.push(sql`EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE ${inAny(set)})`);
+  }
+  for (const tag of new Set(f.notTag ?? [])) {
+    // The tags asked for under it stay allowed.
+    const kept = included.filter((t) => isUnder(t, tag));
+    c.push(sql`NOT EXISTS (SELECT 1 FROM unnest(v.tags) t WHERE ${inAny([tag])}
+      ${kept.length ? sql`AND NOT ${inAny(kept)}` : sql``})`);
+  }
+  return c;
 }
 
 /** The library's own query string (filters and sort, as in its address), parsed like `/api/versions`'s. */

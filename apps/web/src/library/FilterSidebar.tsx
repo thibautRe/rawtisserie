@@ -19,10 +19,21 @@ import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
 import { TagSearch } from '../components/TagSearch.tsx';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
-import { type TagNode, filterTagTree, isUnder, tagTree } from '../lib/tags.ts';
+import { type TagNode, displayTag, filterTagTree, isUnder, tagTree } from '../lib/tags.ts';
 import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
 import { FilterPresetMenu } from './FilterPresetMenu.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
+import {
+  TOP_LEVEL,
+  clickStar,
+  cycleTag,
+  isAny,
+  ratingSet,
+  setUntagged,
+  tagGroups,
+  tagState,
+  toggleAny,
+} from './tagFilter.ts';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
 function FacetList({ name, values, search }: { name: string; values: FacetValue[]; search: LibrarySearch }) {
@@ -62,21 +73,30 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
 }
 
 /**
- * The tags as a tree: a tag picks the photos with it or one under it (`People`: all of
- * People's). Folded below the top, except where a tag is picked, and while searching:
- * then it shows the tags found and the way to them. "No tags" picks the photos without
- * any, and can't go with a tag (nothing would match): picking one unpicks the other.
+ * The tags as a tree: a click on a tag shows the photos with it or one under it
+ * (`People`: all of People's), again those without it, again all. Picked tags with the
+ * same parent go together: all of them, or any (the switch on the parent, or above the
+ * tree for top-level tags); different parents' must all match. An excluded tag leaves
+ * out photos with it, except for the picked tags under it (`People › Alice` picked and
+ * `People` excluded: Alice and nobody else). Folded below the top, except where a tag is
+ * picked or excluded, and while searching: then it shows the tags found and the way to
+ * them. "No tags" picks the photos without any, and can't go with a picked tag (nothing
+ * would match): picking one unpicks the other.
  */
 function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged: number; search: LibrarySearch }) {
-  const selected = search.params.getAll('tag');
-  const noTags = search.params.get('untagged') === 'true';
+  const p = search.params;
+  const picked = p.getAll('tag');
+  const excluded = p.getAll('notTag');
+  const used = [...picked, ...excluded];
+  const groups = tagGroups(p);
+  const noTags = p.get('untagged') === 'true';
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
   const searching = query.trim() !== '';
-  // Picked tags stay listed even when the other filters leave no photo with them.
+  // Tags in the filters stay listed even when the other filters leave no photo with them.
   const tree = tagTree([
     ...values,
-    ...selected.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 })),
+    ...used.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 })),
   ]);
   if (!tree.length && !noTags)
     return (
@@ -90,12 +110,18 @@ function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged:
       if (!next.delete(path)) next.add(path);
       return next;
     });
+  /** All or any of a group's picked tags, when it has several. */
+  const groupSwitch = (group: string) =>
+    (groups.get(group)?.length ?? 0) > 1 && (
+      <AnySwitch any={isAny(p, group)} onToggle={() => search.edit((next) => toggleAny(next, group))} />
+    );
   const rows = (nodes: TagNode[], depth: number): React.ReactNode[] =>
     nodes.flatMap((n) => {
-      // Open by the user, holding a picked tag, or searched.
-      const unfolded = searching || open.has(n.path) || selected.some((s) => s !== n.path && isUnder(s, n.path));
+      // Open by the user, holding a tag in the filters, or searched.
+      const unfolded = searching || open.has(n.path) || used.some((s) => s !== n.path && isUnder(s, n.path));
+      const state = tagState(p, n.path);
       return [
-        <HStack key={n.path} gap="1" ps={`${depth * 14}px`} data-tag={n.path}>
+        <HStack key={n.path} gap="1" ps={`${depth * 14}px`} data-tag={n.path} data-state={state ?? undefined}>
           {n.children.length ? (
             <IconButton
               size="2xs"
@@ -115,26 +141,33 @@ function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged:
             size="xs"
             flex="1"
             minW="0"
-            checked={selected.includes(n.path)}
-            onCheckedChange={() =>
-              search.edit((next) => {
-                const tags = next.getAll('tag');
-                next.delete('tag');
-                for (const t of tags.includes(n.path) ? tags.filter((t) => t !== n.path) : [...tags, n.path])
-                  next.append('tag', t);
-                next.delete('untagged');
-              })
+            colorPalette={state === 'exclude' ? 'red' : undefined}
+            checked={state === 'include' ? true : state === 'exclude' ? 'indeterminate' : false}
+            title={
+              state === 'include'
+                ? `With ${displayTag(n.path)}: click for the photos without it`
+                : state === 'exclude'
+                  ? `Without ${displayTag(n.path)}: click to stop filtering by it`
+                  : `${displayTag(n.path)}: click for the photos with it, twice for those without`
             }
+            onCheckedChange={() => search.edit((next) => cycleTag(next, n.path))}
           >
             <Checkbox.HiddenInput />
             <Checkbox.Control />
-            <Checkbox.Label flex="1" truncate title={n.path.replaceAll('|', ' › ')} textStyle="xs">
+            <Checkbox.Label
+              flex="1"
+              truncate
+              textStyle="xs"
+              textDecoration={state === 'exclude' ? 'line-through' : undefined}
+              color={state === 'exclude' ? 'fg.muted' : undefined}
+            >
               {n.name}
             </Checkbox.Label>
             <Text textStyle="xs" color="fg.muted" {...NUMERIC}>
               {n.count}
             </Text>
           </Checkbox.Root>
+          {groupSwitch(n.path)}
         </HStack>,
         ...(unfolded ? rows(n.children, depth + 1) : []),
       ];
@@ -148,13 +181,7 @@ function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged:
           size="xs"
           ps="5"
           checked={noTags}
-          onCheckedChange={() =>
-            search.edit((next) => {
-              next.delete('tag');
-              if (noTags) next.delete('untagged');
-              else next.set('untagged', 'true');
-            })
-          }
+          onCheckedChange={() => search.edit((next) => setUntagged(next, !noTags))}
         >
           <Checkbox.HiddenInput />
           <Checkbox.Control />
@@ -166,6 +193,14 @@ function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged:
           </Text>
         </Checkbox.Root>
       )}
+      {groupSwitch(TOP_LEVEL) && (
+        <HStack ps="5" justify="space-between">
+          <Text textStyle="xs" color="fg.muted">
+            Top-level tags
+          </Text>
+          {groupSwitch(TOP_LEVEL)}
+        </HStack>
+      )}
       {found.length ? (
         <Stack gap="1" maxH="60" overflowY="auto">
           {rows(found, 0)}
@@ -176,6 +211,29 @@ function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged:
         </Text>
       )}
     </Stack>
+  );
+}
+
+/** A group's picked tags: all of them, or any. */
+function AnySwitch({ any, onToggle }: { any: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      size="2xs"
+      variant="outline"
+      h="4"
+      minW="8"
+      px="1"
+      textStyle="label"
+      flexShrink={0}
+      title={
+        any
+          ? 'Photos with any of the tags picked under it: click for all of them'
+          : 'Photos with all of the tags picked under it: click for any of them'
+      }
+      onClick={onToggle}
+    >
+      {any ? 'any' : 'all'}
+    </Button>
   );
 }
 
@@ -392,7 +450,13 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
   useEffect(() => {
     if (shownImports) setImportsOpen(true);
   }, [shownImports]);
-  const ratingMin = Number(p.get('ratingMin') ?? 0);
+  const stars = ratingSet(p);
+  // The last star clicked: where a Shift-click's range starts.
+  const ratingAnchor = useRef<number | null>(null);
+  const onStar = (n: number, mods: { toggle: boolean; range: boolean }) => {
+    search.edit((next) => clickStar(next, n, mods, ratingAnchor.current));
+    if (!mods.range) ratingAnchor.current = n;
+  };
   const r = facets?.ranges;
 
   return (
@@ -422,14 +486,21 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
             {[1, 2, 3, 4, 5].map((n) => (
               <IconButton
                 key={n}
-                aria-label={`At least ${n} stars`}
-                title={n === ratingMin ? 'Any rating' : `${n} stars and up`}
+                aria-label={`${n} stars`}
+                aria-pressed={stars.includes(n)}
+                title={`${n} stars and up · Ctrl/⌘: ${n} stars in or out · Shift: a range`}
                 size={{ base: 'sm', md: '2xs' }}
                 variant="ghost"
-                color={n <= ratingMin ? 'orange.fg' : 'fg.subtle'}
-                onClick={() => search.set('ratingMin', n === ratingMin ? null : String(n))}
+                color={stars.includes(n) ? 'orange.fg' : 'fg.subtle'}
+                onClick={(e) => onStar(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
+                // The same from the keyboard: Enter or Space, with Ctrl/⌘ or Shift.
+                onKeyDown={(e) => {
+                  if ((e.key !== 'Enter' && e.key !== ' ') || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+                  e.preventDefault();
+                  onStar(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
+                }}
               >
-                <Star fill={n <= ratingMin ? 'currentColor' : 'none'} />
+                <Star fill={stars.includes(n) ? 'currentColor' : 'none'} />
               </IconButton>
             ))}
           </HStack>
