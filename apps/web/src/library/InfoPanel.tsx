@@ -665,118 +665,105 @@ function PhotoTags({
   /** Show the library's photos with this tag. */
   onShow: (tag: string) => void;
 }) {
-  const [input, setInput] = useState('');
-  const add = (typed: string) => {
-    // Several at once, separated by commas (pasted); levels by `|`.
-    const added = typed.split(',').map(normalizeTag).filter(Boolean);
-    if (added.length) onChange([...new Set([...tags, ...added])]);
-    setInput('');
-  };
-  const completion = useTagCompletion({ input, exclude: tags, onPick: (tag) => add(tag) });
   return (
     <Stack gap="1.5">
-      <Box
-        as="form"
-        position="relative"
-        onSubmit={(e: React.FormEvent) => {
-          e.preventDefault();
-          add(input);
-        }}
-      >
-        <Input
-          size="xs"
-          variant="subtle"
-          placeholder="Add tag…"
-          aria-label="Add a tag"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          {...completion.inputProps}
-        />
-        {completion.list}
-      </Box>
-      {tags.length > 0 && (
-        <Stack gap="0.5" data-photo-tags>
-          {[...tags]
-            .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
-            .map((tag) => (
-              <HStack
-                key={tag}
-                data-photo-tag={tag}
-                gap="1"
-                css={{
-                  '& [data-remove]': { opacity: { base: 1, md: 0 } },
-                  '&:hover [data-remove], &:focus-within [data-remove]': { opacity: 1 },
-                }}
-              >
-                <Box color="fg.muted" flexShrink={0}>
-                  <Tag size={12} />
-                </Box>
-                <Text
-                  as="button"
-                  flex="1"
-                  minW="0"
-                  truncate
-                  textAlign="start"
-                  textStyle="xs"
-                  cursor="pointer"
-                  _hover={{ textDecoration: 'underline' }}
-                  focusRing="outside"
-                  title={`Show the photos with ${displayTag(tag)}`}
-                  onClick={() => onShow(tag)}
-                >
-                  {displayTag(tag)}
-                </Text>
-                <IconButton
-                  data-remove
-                  size="2xs"
-                  variant="ghost"
-                  minW="4"
-                  h="4"
-                  color="fg.muted"
-                  aria-label={`Remove ${displayTag(tag)}`}
-                  onClick={() => onChange(tags.filter((t) => t !== tag))}
-                >
-                  <X />
-                </IconButton>
-              </HStack>
-            ))}
-        </Stack>
-      )}
+      <TagInput exclude={tags} placeholder="Add tag…" onAdd={(added) => onChange([...new Set([...tags, ...added])])} />
+      <TagList tags={tags} onShow={onShow} onRemove={(tag) => onChange(tags.filter((t) => t !== tag))} />
     </Stack>
   );
 }
 
-/** Adds a tag to every selected photo, completed from the library's. */
-function BulkTagInput({ exclude, onAdd }: { exclude: string[]; onAdd: (tag: string) => void }) {
-  const [tag, setTag] = useState('');
-  const add = (t: string) => {
-    if (normalizeTag(t)) onAdd(normalizeTag(t));
-    setTag('');
+/** The tag input (T focuses it), completed from the library's tags; commas add several, levels by `|`. */
+function TagInput({
+  exclude,
+  placeholder,
+  onAdd,
+}: {
+  exclude: readonly string[];
+  placeholder: string;
+  onAdd: (tags: string[]) => void;
+}) {
+  const [input, setInput] = useState('');
+  const add = (typed: string) => {
+    const added = typed.split(',').map(normalizeTag).filter(Boolean);
+    if (added.length) onAdd(added);
+    setInput('');
   };
-  const completion = useTagCompletion({ input: tag, exclude, onPick: add });
+  const completion = useTagCompletion({ input, exclude, onPick: (tag) => add(tag) });
   return (
-    <HStack
+    <Box
       as="form"
-      onSubmit={(e) => {
+      position="relative"
+      onSubmit={(e: React.FormEvent) => {
         e.preventDefault();
-        add(tag);
+        add(input);
       }}
     >
-      <Box position="relative" flex="1">
-        <Input
-          size="xs"
-          variant="subtle"
-          placeholder="Add a tag to all…"
-          value={tag}
-          onChange={(e) => setTag(e.target.value)}
-          {...completion.inputProps}
-        />
-        {completion.list}
-      </Box>
-      <Button size="xs" type="submit" variant="outline">
-        Add
-      </Button>
-    </HStack>
+      <Input
+        size="xs"
+        variant="subtle"
+        placeholder={placeholder}
+        aria-label={placeholder.replace(/…$/, '')}
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        {...completion.inputProps}
+      />
+      {completion.list}
+    </Box>
+  );
+}
+
+/** Tags, one per line: a click shows the library's photos with it, the bin next to it removes it. */
+function TagList({
+  tags,
+  onShow,
+  onRemove,
+}: {
+  tags: readonly string[];
+  onShow: (tag: string) => void;
+  onRemove: (tag: string) => void;
+}) {
+  if (!tags.length) return null;
+  return (
+    <Stack gap="0.5" data-photo-tags>
+      {[...tags]
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
+        .map((tag) => (
+          <HStack key={tag} data-photo-tag={tag} gap="1">
+            <Box color="fg.muted" flexShrink={0}>
+              <Tag size={12} />
+            </Box>
+            <Text
+              as="button"
+              minW="0"
+              truncate
+              textAlign="start"
+              textStyle="xs"
+              cursor="pointer"
+              _hover={{ textDecoration: 'underline' }}
+              focusRing="outside"
+              title={`Show the photos with ${displayTag(tag)}`}
+              onClick={() => onShow(tag)}
+            >
+              {displayTag(tag)}
+            </Text>
+            <IconButton
+              size="2xs"
+              variant="ghost"
+              minW="4"
+              h="4"
+              flexShrink={0}
+              color="fg.subtle"
+              _hover={{ color: 'fg.error', bg: 'transparent' }}
+              aria-label={`Remove ${displayTag(tag)}`}
+              title={`Remove ${displayTag(tag)}`}
+              onClick={() => onRemove(tag)}
+            >
+              <Trash2 />
+            </IconButton>
+          </HStack>
+        ))}
+    </Stack>
   );
 }
 
@@ -812,6 +799,7 @@ function BulkPanel({
   onExport,
   onSend,
   onMoveToCollection,
+  onShowFilter,
 }: { photos: Photo[]; count: number } & Actions) {
   const { data: instances = [] } = useInstances();
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
@@ -833,19 +821,18 @@ function BulkPanel({
         />
       </PanelBlock>
       <PanelBlock title={count > photos.length ? 'Tags in common (of those shown)' : 'Tags in common'}>
-        <HStack wrap="wrap" gap="1">
-          {commonTags.length === 0 && (
-            <Text textStyle="xs" color="fg.muted">
-              None
-            </Text>
-          )}
-          {commonTags.map((t) => (
-            <Button key={t} size="2xs" variant="subtle" onClick={() => onPatch({ removeTags: [t] })}>
-              {displayTag(t)} <X />
-            </Button>
-          ))}
-        </HStack>
-        <BulkTagInput exclude={commonTags} onAdd={(t) => onPatch({ addTags: [t] })} />
+        <TagInput exclude={commonTags} placeholder="Add a tag to all…" onAdd={(tags) => onPatch({ addTags: tags })} />
+        {commonTags.length ? (
+          <TagList
+            tags={commonTags}
+            onShow={(tag) => onShowFilter('tag', tag)}
+            onRemove={(tag) => onPatch({ removeTags: [tag] })}
+          />
+        ) : (
+          <Text textStyle="xs" color="fg.muted">
+            None in common
+          </Text>
+        )}
       </PanelBlock>
       <PanelBlock title="Actions">
         <ApplyMenu onApply={onApplyEdit}>
