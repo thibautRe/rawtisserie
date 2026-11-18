@@ -151,6 +151,12 @@ renders, LUT tables). The rest of the configuration comes from the environment a
 above. Migrations run on start, and SIGTERM closes the server and the database pool. About 460 MB
 with the denoise models.
 
+`--build-arg REVISION=<commit>` (CI passes its SHA) becomes `RAWTISSERIE_REVISION`, the
+build's identity. Renders that failed are retried without anyone's help: after 1 minute,
+10 minutes and 1 hour (what passes: storage, a worker out of memory), then again by each
+new build when it starts (what a deploy fixes). Without the argument, every start counts
+as a new build.
+
 ## On a VPS: `deploy/`
 
 Decided 2026-11-12: one VPS at OVH runs everything below with Docker Compose

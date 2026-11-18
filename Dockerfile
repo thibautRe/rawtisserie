@@ -71,6 +71,11 @@ COPY --from=denoise-models /src/models/denoise models/denoise
 RUN node apps/server/src/scripts/check-image.ts
 RUN mkdir /data && chown node:node /data
 USER node
+# The commit it's built from (CI passes it, `--build-arg REVISION=…`): renders that failed
+# are tried again by each new build. Without it, each start counts as a new one. Last, so
+# a new commit doesn't rebuild the layers above.
+ARG REVISION=
+ENV RAWTISSERIE_REVISION=$REVISION
 VOLUME /data
 EXPOSE 4000
 CMD ["node", "apps/server/src/index.ts"]

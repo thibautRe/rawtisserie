@@ -96,6 +96,7 @@ jobs:
           context: .
           push: false
           tags: rawtisserie:ci
+          build-args: REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -145,6 +146,8 @@ jobs:
           tags: |
             ghcr.io/thibautre/rawtisserie:latest
             ghcr.io/thibautre/rawtisserie:sha-${{ github.sha }}
+          # The build's identity: renders that failed are tried again by each new one.
+          build-args: REVISION=${{ github.sha }}
           # Links the package to the repository (and its access rights).
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

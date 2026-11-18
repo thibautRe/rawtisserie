@@ -4,6 +4,11 @@
  * truth, so pending work survives restarts. A worker is started when there's work and
  * stopped once idle: WebAssembly memory never shrinks, so a worker that has decoded a
  * large RAW keeps that memory until it exits.
+ *
+ * A render that fails is tried again by itself: after `RETRY_DELAYS_MS` (what passes: a
+ * storage error, a worker that crashed), then by the next build (`config.revision`), on
+ * start (what a deploy fixes: a file missing from the image, a pipeline bug). So a
+ * failure never needs someone to re-render by hand.
  */
 import { Worker } from 'node:worker_threads';
 // Loaded here too, before any worker: a native addon loaded only in workers can be
@@ -20,6 +25,14 @@ import { RenderStats, writeRenderStats } from './stats.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
 const IDLE_MS = 2 * 60_000;
+
+/** After the 1st, 2nd and 3rd failure in a row, the next try; then none until the next build. */
+export const RETRY_DELAYS_MS = [60_000, 10 * 60_000, 60 * 60_000] as const;
+/** How often renders due for another try are looked for. */
+const RETRY_SWEEP_MS = 60_000;
+
+/** When a render that failed `attempts` times in a row is tried again: ms from now, or null (the next build). */
+export const retryDelay = (attempts: number): number | null => RETRY_DELAYS_MS[attempts - 1] ?? null;
 
 /** What renders are made as now, and at what quality (sharp's AVIF scale, roadmap 7.11). */
 const FORMAT: RenderFormat = 'avif';
@@ -43,6 +56,7 @@ export class RenderQueue {
   private queuedAt = new Map<string, number>();
   private stats: RenderStats;
   private flushTimer: ReturnType<typeof setInterval> | undefined;
+  private retryTimer: ReturnType<typeof setInterval> | undefined;
   private pool: PoolWorker[] = [];
   private nextJobId = 1;
   private log: FastifyBaseLogger;
@@ -60,10 +74,16 @@ export class RenderQueue {
     }
     this.flushTimer = setInterval(() => void this.flushStats(), 60_000);
     this.flushTimer.unref();
+    this.retryTimer = setInterval(
+      () => void this.retryDue().catch((err) => this.log.warn({ err }, 'could not look for renders to retry')),
+      RETRY_SWEEP_MS,
+    );
+    this.retryTimer.unref();
   }
 
   async stop() {
     clearInterval(this.flushTimer);
+    clearInterval(this.retryTimer);
     await Promise.all(this.pool.map((entry) => this.retire(entry)));
     this.pool = [];
     await this.flushStats();
@@ -84,10 +104,44 @@ export class RenderQueue {
     this.stats.pendingNow(this.queue.length + this.inFlight.size);
   }
 
-  /** Queue every version still marked as pending (e.g. after a restart). */
+  /**
+   * Queue every version still marked as pending (e.g. after a restart), with those that
+   * failed under another build: this one may have fixed them, so they get their tries again.
+   */
   async enqueuePending() {
+    const retried = await db.query(sql`
+      UPDATE versions SET render_status = 'pending', render_error = NULL, render_attempts = 0, render_retry_at = NULL
+      WHERE render_status = 'failed' AND render_failed_build IS DISTINCT FROM ${config.revision}
+      RETURNING id`);
+    if (retried.length) this.log.info({ versions: retried.length }, 'retrying renders that failed under another build');
     const rows = await db.query(sql`SELECT id FROM versions WHERE render_status = 'pending' ORDER BY created_at`);
     for (const row of rows) this.enqueue(row.id as string);
+  }
+
+  /** Queue the renders that failed and are due for another try. */
+  async retryDue() {
+    const rows = await db.query(sql`
+      UPDATE versions SET render_status = 'pending', render_retry_at = NULL
+      WHERE render_status = 'failed' AND render_retry_at <= now()
+      RETURNING id`);
+    for (const row of rows) this.enqueue(row.id as string);
+  }
+
+  /** Mark a render failed, with when to try it again (`retryDelay`). */
+  private async fail(versionId: string, error: string) {
+    const delays = RETRY_DELAYS_MS as readonly number[];
+    const [row] = (await db.query(sql`
+      UPDATE versions SET render_status = 'failed', render_error = ${error},
+        render_attempts = render_attempts + 1, render_failed_build = ${config.revision},
+        render_retry_at = CASE WHEN render_attempts < ${delays.length}
+          THEN now() + (${delays}::int[])[render_attempts + 1] * interval '1 millisecond' END
+      WHERE id = ${versionId}
+      RETURNING render_attempts, render_retry_at`)) as { render_attempts: number; render_retry_at: Date | null }[];
+    if (row)
+      this.log.warn(
+        { versionId, error, attempts: row.render_attempts, retryAt: row.render_retry_at },
+        row.render_retry_at ? 'render failed, will retry' : 'render failed, retried by the next build',
+      );
   }
 
   enqueue(versionId: string) {
@@ -146,7 +200,13 @@ export class RenderQueue {
       this.stats.started(Date.now() - (this.queuedAt.get(versionId) ?? Date.now()));
       this.queuedAt.delete(versionId);
       this.process(entry, versionId)
-        .catch((err) => this.log.error({ err, versionId }, 'render failed'))
+        .catch(async (err) => {
+          // Before the worker ran (the database, storage): failed like a render, so it's retried.
+          this.log.error({ err, versionId }, 'render failed');
+          await this.fail(versionId, err instanceof Error ? err.message : String(err)).catch((e) =>
+            this.log.error({ err: e, versionId }, 'could not record a failed render'),
+          );
+        })
         .finally(() => {
           entry.busy = false;
           this.inFlight.delete(versionId);
@@ -189,8 +249,7 @@ export class RenderQueue {
 
     this.stats.finished(result.ok, Date.now() - started);
     if (!result.ok) {
-      this.log.warn({ versionId, error: result.error }, 'render failed');
-      await versions(db).update({ id: versionId }, { render_status: 'failed', render_error: result.error });
+      await this.fail(versionId, result.error);
       return;
     }
     this.log.info({ versionId, ms: Date.now() - started }, 'rendered');
@@ -199,7 +258,8 @@ export class RenderQueue {
       if (!before) return false;
       await tx.query(sql`
         UPDATE versions
-        SET render_status = 'ready', render_error = NULL, render_version = render_version + 1, render_format = ${FORMAT}
+        SET render_status = 'ready', render_error = NULL, render_version = render_version + 1, render_format = ${FORMAT},
+          render_attempts = 0, render_retry_at = NULL, render_failed_build = NULL
         WHERE id = ${versionId}`);
       if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
       if (result.resolvedRecipe && job.params) await resolveEntry(tx, versionId, job.params, result.resolvedRecipe);

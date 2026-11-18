@@ -56,6 +56,12 @@ export const config = {
    * signed out). Only behind a proxy that sets it, and that clients can't go around.
    */
   trustProxy: process.env.TRUST_PROXY === 'true',
+  /**
+   * The build running: the commit the image was built from (`RAWTISSERIE_REVISION`, set
+   * by CI), else this start (in development, each restart counts as a new build). Renders
+   * that failed are tried again by each new build (`render/queue.ts`).
+   */
+  revision: process.env.RAWTISSERIE_REVISION || `dev-${new Date().toISOString()}`,
   sessionTtlDays: 30,
   maxUploadBytes: 400 * 1024 * 1024,
   renderConcurrency: Math.max(1, Number(process.env.RENDER_CONCURRENCY ?? 2)),

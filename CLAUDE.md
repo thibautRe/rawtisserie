@@ -121,6 +121,10 @@ See README.md for the architecture overview and commands.
   (older ones stay JPEG until rendered again), so build keys with `renderKey(…, format)`.
   Loupe tiles stay JPEG. sharp is imported by the render queue on the main thread too,
   before any worker: keep it that way, workers stop when idle.
+- Renders that fail are retried by the queue (`render/queue.ts`): after `RETRY_DELAYS_MS`,
+  then by each new build on start (`config.revision`, the image's commit), so a failure
+  never needs a re-render by hand. A new way for a render to fail goes through `fail`,
+  not straight to `render_status = 'failed'`.
 - Files (originals, renders, uploaded LUTs) go through the object store
   (`apps/server/src/storage/`: local disk or S3, by key), never `fs` directly, so both
   work; worker threads use it too. Uploads in progress stay on local disk.
