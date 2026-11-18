@@ -12,7 +12,7 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Check, ChevronDown, ChevronRight, Star, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Star, StarOff, X } from 'lucide-react';
 import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useFacets } from '../api/hooks.ts';
@@ -325,7 +325,11 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
             py="0.5"
             borderRadius="l1"
             cursor="pointer"
-            _hover={{ bg: 'bg.muted' }}
+            // On hover, the bar and its label light up, not the whole cell.
+            css={{
+              '&:hover [data-bar]': { filter: 'brightness(1.35)', opacity: 1 },
+              '&:hover [data-label]': { color: on ? 'orange.fg' : 'fg' },
+            }}
             _focusVisible={{ outline: '2px solid', outlineColor: 'orange.focusRing' }}
             onPointerDown={(e: React.PointerEvent) => onPointerDown(e, n)}
             // Pointers are handled above; a click without one comes from the keyboard.
@@ -337,24 +341,30 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
             }}
           >
             {/* The track shows how tall a bar can be; none at all for no photo. */}
-            <Box h="18px" w="4px" bg="bg" display="flex" alignItems="end" overflow="hidden">
+            <Box h="18px" w="4px" bg="bg" borderTopRadius="2px" display="flex" alignItems="end" overflow="hidden">
               <Box
+                data-bar
                 w="full"
+                borderTopRadius="2px"
                 h={`${Math.round((count / most) * 18)}px`}
                 bg={on ? 'orange.solid' : 'fg.subtle'}
                 // Left out by the filter: still there, dimmer.
                 opacity={on || !filtering ? 1 : 0.35}
               />
             </Box>
-            <Text
-              textStyle="2xs"
+            <Box
+              data-label
+              h="3"
+              display="flex"
+              alignItems="center"
+              textStyle="xs"
               lineHeight="1"
               {...NUMERIC}
               color={on ? 'orange.fg' : 'fg.muted'}
               fontWeight={on ? 'semibold' : undefined}
             >
-              {n === 0 ? '–' : n}
-            </Text>
+              {n === 0 ? <StarOff size={12} aria-hidden /> : n}
+            </Box>
           </Stack>
         );
       })}
