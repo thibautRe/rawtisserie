@@ -9,3 +9,4 @@ export * from './export.ts';
 export * from './luts.ts';
 export * from './autoTune.ts';
 export * from './denoise.ts';
+export * from './lensfun.ts';

@@ -12,7 +12,7 @@ import {
   hasPendingAutoTune,
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
-import { Developer, initPipeline, readMetadata } from '@rawtisserie/pipeline/node';
+import { Developer, initPipeline, lensfun, readMetadata } from '@rawtisserie/pipeline/node';
 import { readLut } from '../luts/files.ts';
 import { storage } from '../storage/index.ts';
 import type { RenderJob, RenderResult } from './types.ts';
@@ -36,7 +36,7 @@ parentPort!.on('message', async (job: RenderJob) => {
       // Auto-tunes the default recipe or a preset or style asked for (roadmap 8.7):
       // measured first, at the preview's size, so the renders below reuse the cached base.
       if (job.autoDefaults) {
-        defaultRecipe = await resolveAutoTunes(recipeFor(metadata), developerMeasures(dev));
+        defaultRecipe = await resolveAutoTunes(recipeFor(metadata, lensfun()), developerMeasures(dev));
       } else if (hasPendingAutoTune(job.params)) {
         resolvedRecipe = await resolveAutoTunes(job.params!, developerMeasures(dev));
       }

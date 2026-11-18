@@ -3,3 +3,4 @@ apps/server/src/__generated__/
 apps/server/migrations/
 crates/pipeline/tests/golden/
 crates/pipeline/data/
+packages/pipeline/lensfun/

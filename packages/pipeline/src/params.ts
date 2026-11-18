@@ -6,6 +6,7 @@
  * kind run in list order. A kind with no enabled instance is skipped.
  */
 
+import type { Lensfun } from './lensfun.ts';
 import type { PhotoMetadata } from './metadata.ts';
 import { type Shape, freshShapeId, normalizeShape } from './shapes.ts';
 
@@ -1007,18 +1008,38 @@ export const AUTO_RECIPE_LABELS: readonly string[] = [AUTO_RECIPE_LABEL, 'Lens c
 /** What an image that isn't a RAW file starts with, and its original: nothing. */
 export const emptyEditParams: EditParams = Object.freeze({ version: EDIT_PARAMS_VERSION, modules: [] });
 
-type RecipeMetadata = Pick<PhotoMetadata, 'lensCorrection' | 'imageFormat'>;
+type RecipeMetadata = Pick<
+  PhotoMetadata,
+  'lensCorrection' | 'imageFormat' | 'make' | 'model' | 'lensModel' | 'focalLength' | 'fNumber'
+>;
 
 /**
  * The recipe a new image starts with, given what its file contains: the default
- * recipe, plus lens correction when the file embeds correction data; nothing for an
- * image that isn't a RAW file (developed already). Mirrors `EditParams::default_for`.
+ * recipe, plus lens correction when the file embeds correction data or, given lensfun's
+ * database, when it knows the camera and lens (the file's own data first); nothing for
+ * an image that isn't a RAW file (developed already). Mirrors `EditParams::default_for`,
+ * which doesn't read lensfun's database.
  */
-export function defaultRecipe(metadata: Partial<RecipeMetadata>): EditParams {
+export function defaultRecipe(metadata: Partial<RecipeMetadata>, lensfun?: Lensfun | null): EditParams {
   if (metadata.imageFormat) return emptyEditParams;
-  if (!metadata.lensCorrection) return defaultEditParams;
-  return { ...defaultEditParams, modules: [instance('lens', 'lens'), ...structuredClone(defaultEditParams.modules)] };
+  const profile = metadata.lensCorrection || !lensfun ? null : lensfun.match(lensfunShot(metadata)).profile;
+  if (!metadata.lensCorrection && !profile) return defaultEditParams;
+  const lens = instance('lens', 'lens');
+  if (profile) lens.params.lensfun = profile;
+  return { ...defaultEditParams, modules: [lens, ...structuredClone(defaultEditParams.modules)] };
 }
+
+/** What lensfun needs of a photo's metadata. */
+export const lensfunShot = (m: Partial<RecipeMetadata>) => ({
+  make: m.make ?? null,
+  model: m.model ?? null,
+  lensModel: m.lensModel ?? null,
+  focalLength: m.focalLength ?? null,
+  fNumber: m.fNumber ?? null,
+});
+
+/** Whether a photo's default recipe could use lensfun's database: a RAW file without embedded lens data, with a lens name. */
+export const mayUseLensfun = (m: Partial<RecipeMetadata>) => !m.imageFormat && !m.lensCorrection && !!m.lensModel;
 
 /**
  * A version's original (history at 0) for a file with this metadata (`null` when it's

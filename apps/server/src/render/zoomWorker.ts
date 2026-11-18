@@ -5,7 +5,7 @@
  */
 import { parentPort } from 'node:worker_threads';
 import { defaultRecipe, developerMeasures, hasPendingAutoTune, resolveAutoTunes } from '@rawtisserie/pipeline';
-import { Developer, initPipeline } from '@rawtisserie/pipeline/node';
+import { Developer, initPipeline, lensfun } from '@rawtisserie/pipeline/node';
 import { readLut } from '../luts/files.ts';
 import { storage } from '../storage/index.ts';
 import { ZOOM_TILE, type ZoomLevels, type ZoomRequest, type ZoomResponse, type ZoomSource } from './zoomTypes.ts';
@@ -41,7 +41,7 @@ async function prepare(source: ZoomSource) {
     const lut = await readLut(id);
     if (lut) dev.loadLut(lut);
   }
-  const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata())) : source.params;
+  const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata()), lensfun()) : source.params;
   const params = JSON.stringify(recipe ?? {});
   if (recipe && hasPendingAutoTune(recipe)) {
     if (!resolved.has(params)) {

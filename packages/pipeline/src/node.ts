@@ -1,6 +1,7 @@
 /** Load the pipeline WebAssembly module in Node (server-side thumbnails). */
 import { readFileSync } from 'node:fs';
 import { initSync } from '../wasm/pipeline.js';
+import { Lensfun } from './lensfun.ts';
 
 export {
   Developer,
@@ -16,6 +17,13 @@ export {
 
 /** Where a built-in LUT's packed file is (`BUILTIN_LUTS`). */
 export const builtinLutUrl = (id: string): URL => new URL(`../luts/${id}.clut`, import.meta.url);
+
+/** lensfun's database (`lensfun/lensfun.json`), read on first use. */
+let lensfunDb: Lensfun | null = null;
+export function lensfun(): Lensfun {
+  lensfunDb ??= new Lensfun(JSON.parse(readFileSync(new URL('../lensfun/lensfun.json', import.meta.url), 'utf8')));
+  return lensfunDb;
+}
 
 let initialized = false;
 

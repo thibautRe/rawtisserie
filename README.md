@@ -13,8 +13,8 @@ RAWtisserie is a web-based photo library and RAW developer, inspired by
   developer restores the filters, scroll position and selection. Originals are never
   modified; edits live in the database. Each photo has one or more _versions_ (like
   darktable duplicates), each with its own rating, labels and edit history.
-- **Developer**: a film roll of the library's current photos along the bottom, lens correction from the camera's embedded data (Sony, auto-applied to
-  new imports), exposure, colour calibration (white balance by chromatic adaptation and
+- **Developer**: a film roll of the library's current photos along the bottom, lens correction from the camera's embedded data (Sony) or
+  lensfun's database (both auto-applied to new imports), exposure, colour calibration (white balance by chromatic adaptation and
   channel mixing), colour balance (chroma, saturation and brilliance by tonal range, and
   split-toning: a light correction and channel mix per range), colour primaries and a
   contrast equalizer (ports of Ansel's), filmic tone mapping (a port of Ansel's filmic
@@ -325,7 +325,8 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
   luminance is edited, about twice that with colour. It re-runs on curve edits; caching
   the bands would make those cheap but costs ~60 MB per megapixel. Zoomed in at 100 %,
   its margin makes the first render of a view take about a second in the browser.
-- Lens correction only reads Sony's embedded data (no lensfun yet). No histogram, denoise or XMP sidecar import/export yet.
+- Lens correction reads Sony's embedded data and lensfun's database, not yet DNG opcodes or
+  other makers' embedded data. No histogram, denoise or XMP sidecar import/export yet.
 - Retouch has no wavelet scales, automatic source search or "visualise spots" view yet.
 - Masks can't pick their ranges from the image yet, and there are no raster (painted or
   AI) masks.
@@ -336,7 +337,10 @@ The feature roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
 The filmic, colour calibration, colour primaries, contrast equalizer and retouch modules are
 ports of [Ansel](https://ansel.photos)'s `filmicrgb`, `channelmixerrgb`, `colorprimaries`,
 `atrous` and `retouch`/`heal` by Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
-embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). RAW decoding uses
+embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). Lens correction profiles
+come from the [lensfun](https://lensfun.github.io) database (CC BY-SA 3.0,
+`packages/pipeline/lensfun/`, built by `scripts/lensfun-db.mjs`), searched and
+interpolated as lensfun's library does. RAW decoding uses
 [rawler](https://github.com/dnglab/dnglab) (LGPL-2.1). The test RAWs come from
 [raw.pixls.us](https://raw.pixls.us) (CC0).
 

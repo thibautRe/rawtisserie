@@ -2,7 +2,6 @@ import { Box, Button, Center, Flex, Heading, Progress, Spinner, Stack, Text } fr
 import {
   AUTO_RECIPE_LABEL,
   type PhotoMetadata,
-  defaultRecipe,
   denoiseKeyName,
   normalizeEditParams,
   originalRecipe,
@@ -26,6 +25,7 @@ import { VersionMenu } from './VersionMenu.tsx';
 import { LocalRenderBackend } from './localRenderBackend.ts';
 import { fetchDenoiseModel } from './denoiseModels.ts';
 import { lutTable } from './luts.ts';
+import { defaultRecipeFor, preloadLensfun } from './lensfun.ts';
 
 function useLocalBackend() {
   const [backend, setBackend] = useState<LocalRenderBackend | null>(null);
@@ -79,6 +79,8 @@ export function LocalDevelopPage() {
     file
       .arrayBuffer()
       .then((bytes) => backend.load(bytes))
+      // Its first entry may use lensfun's database (`autoApplied`).
+      .then(async (metadata) => (await preloadLensfun(metadata), metadata))
       .then((metadata) => !cancelled && setLoaded({ file, metadata }))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)));
     return () => {
@@ -234,7 +236,7 @@ function LeaveWarning({ active }: { active: boolean }) {
  * (`addDefaultRecipe` in the render queue). Its auto-tunes run once the image is in.
  */
 function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
-  const recipe = defaultRecipe(metadata);
+  const recipe = defaultRecipeFor(metadata);
   return { entries: [{ label: AUTO_RECIPE_LABEL, recipe, createdAt: new Date().toISOString() }], end: 1 };
 }
 
@@ -295,6 +297,8 @@ function LibraryDeveloper({ id }: { id: string }) {
         }
         return backend.load(await fetchOriginal(originalUrl, { onProgress: setProgress }));
       })
+      // For `autoApplied`, if the server hasn't recorded the first entry yet.
+      .then(async (metadata) => (await preloadLensfun(metadata), metadata))
       .then((metadata) => !cancelled && setLoaded({ url: originalUrl, metadata }))
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
       .finally(() => (done = !cancelled));

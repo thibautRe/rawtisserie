@@ -244,7 +244,7 @@ impl EditParams {
     /// The recipe a new image starts with, given what its file contains: the default
     /// recipe, plus lens correction when the file embeds correction data; nothing for
     /// an image that isn't a RAW file (it's developed already). Must match
-    /// `defaultRecipe` in TS.
+    /// `defaultRecipe` in TS without lensfun's database (which only TS reads).
     pub fn default_for(metadata: &PhotoMetadata) -> Self {
         if metadata.image_format.is_some() {
             return Self { modules: Vec::new(), ..Self::default() };

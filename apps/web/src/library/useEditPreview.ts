@@ -3,18 +3,13 @@
  * the photo is opened in the in-browser pipeline (as in the developer), and the
  * highlighted edit is rendered on top of its current recipe.
  */
-import {
-  type EditParams,
-  type PhotoMetadata,
-  defaultRecipe,
-  denoiseKeyName,
-  normalizeEditParams,
-} from '@rawtisserie/pipeline';
+import { type EditParams, type PhotoMetadata, denoiseKeyName, normalizeEditParams } from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchDenoised, fetchOriginal } from '../api/originals.ts';
 import type { PhotoDetail } from '../api/types.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import type { BatchEdit } from './batchEdit.ts';
+import { defaultRecipeFor, preloadLensfun } from '../develop/lensfun.ts';
 
 /**
  * Open a photo for previewing. The one place that knows where the pixels come from:
@@ -25,8 +20,12 @@ import type { BatchEdit } from './batchEdit.ts';
 async function openForPreview(backend: LocalRenderBackend, photo: Pick<PhotoDetail, 'originalUrl' | 'editParams'>) {
   const key = photo.editParams ? denoiseKeyName(normalizeEditParams(photo.editParams)) : null;
   const denoised = key && (await fetchDenoised(photo.originalUrl, key));
-  if (denoised) return backend.loadDenoised(denoised);
-  return backend.load(await fetchOriginal(photo.originalUrl));
+  const metadata = denoised
+    ? await backend.loadDenoised(denoised)
+    : await backend.load(await fetchOriginal(photo.originalUrl));
+  // Without a recipe yet, previews start from the default one, which may use it.
+  if (!photo.editParams) await preloadLensfun(metadata);
+  return metadata;
 }
 
 /** The decoded photo goes (worker and memory) this long after the menu closes. */
@@ -89,7 +88,7 @@ export function useEditPreview(photo: PhotoDetail | undefined, width: number, he
 
   /** The recipe previews start from: the current entry, or what a new image starts with. */
   const baseRecipe = (detail: PhotoDetail, metadata: PhotoMetadata): EditParams =>
-    detail.editParams ?? defaultRecipe(metadata);
+    detail.editParams ?? defaultRecipeFor(metadata);
 
   const draw = useCallback(
     (bitmap: ImageBitmap) => {

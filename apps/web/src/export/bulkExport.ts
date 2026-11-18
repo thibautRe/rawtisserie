@@ -10,7 +10,6 @@ import {
   type EditParams,
   type ExportSettings,
   type PhotoMetadata,
-  defaultRecipe,
   denoiseKeyName,
   exportFilename,
   exportOptions,
@@ -33,6 +32,7 @@ import { exportLanes, originalGroups } from './lanes.ts';
 import { archiveName, uniqueName } from './names.ts';
 import { PART_SIZE, PartedArchive } from './archive.ts';
 import { archiveSink, cleanUpArchives } from './spool.ts';
+import { defaultRecipeFor, preloadLensfun } from '../develop/lensfun.ts';
 
 export interface ExportRun {
   total: number;
@@ -292,7 +292,9 @@ async function exportAll(
                 : await backend.load(kept ?? (await download(photo.originalUrl, signal)));
           }
           // Pending auto-tunes are measured as the server's previews measure them.
-          const recipe = got.value.recipes[k] ?? defaultRecipe(metadata);
+          // Not rendered yet: what the server will start it with.
+          if (!got.value.recipes[k]) await preloadLensfun(metadata);
+          const recipe = got.value.recipes[k] ?? defaultRecipeFor(metadata);
           const params = await resolveAutoTunes(recipe, backendMeasures(backend));
           const blob = await backend.export(params, options, photoExportInfo(photo, metadata).metadata);
           if (single) file = { blob, name: names[i]! };

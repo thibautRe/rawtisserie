@@ -9,6 +9,7 @@ import {
   normalizeEditParams,
   originalRecipe,
 } from '@rawtisserie/pipeline';
+import { lensfun } from '@rawtisserie/pipeline/node';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, historyEntries, photos, sql, versions } from '../db.ts';
 import type { Queryable } from '@databases/pg';
@@ -358,7 +359,7 @@ export async function photoRoutes(
         // has its data), now rather than after its first render, which the developer
         // opening it right away would miss. Its auto-tunes run when it's rendered (or opened).
         const photo = await photos(tx).findOne({ id: photo_id });
-        const recipe = photo?.exif && defaultRecipe(photo.exif);
+        const recipe = photo?.exif && defaultRecipe(photo.exif, lensfun());
         if (recipe) {
           await historyEntries(tx).insert({ version_id: copy!.id, seq: 1, label: AUTO_RECIPE_LABEL, recipe });
           await versions(tx).update({ id: copy!.id }, { history_end: 1 });
@@ -438,7 +439,7 @@ export async function photoRoutes(
           recipe: r.recipe
             ? normalizeEditParams(r.recipe)
             : r.no_history
-              ? defaultRecipe(r.exif ?? {})
+              ? defaultRecipe(r.exif ?? {}, lensfun())
               : originalRecipe(r.exif),
           // What the recipe may hold (`forPhoto`).
           imageFormat: r.exif?.imageFormat ?? null,

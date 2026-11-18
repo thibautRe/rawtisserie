@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./node": "./src/node.ts",
     "./wasm": "./wasm/pipeline.js",
-    "./wasm/pipeline_bg.wasm": "./wasm/pipeline_bg.wasm"
+    "./wasm/pipeline_bg.wasm": "./wasm/pipeline_bg.wasm",
+    "./lensfun.json": "./lensfun/lensfun.json"
   },
   "scripts": {
     "typecheck": "tsc -p .",
