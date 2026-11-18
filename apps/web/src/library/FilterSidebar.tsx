@@ -251,14 +251,27 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
   const set = ratingSet(search.params);
   // The last rating clicked: where a Shift+click's range starts.
   const anchor = useRef<number | null>(null);
-  // A drag across the bars: shown as it goes, applied when it ends.
+  // A drag across the bars (once it reaches another one): shown as it goes, applied when it ends.
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
-  const shown = drag ? ratingRange(drag.from, drag.to) : set;
+  // What a change made shows until the address has it: React Router renders navigations
+  // in a transition, and the bars would show the old set in between.
+  const [pending, setPending] = useState<number[] | null>(null);
+  useEffect(() => setPending(null), [search.search]);
+  const shown = drag ? ratingRange(drag.from, drag.to) : (pending ?? set);
+  const filtering = shown.length > 0;
   const countOf = (n: number) => counts.find((c) => c.value === n)?.count ?? 0;
   const most = Math.max(1, ...RATINGS.map(countOf));
 
+  /** Apply `change` to the filters, showing its ratings at once. */
+  const apply = (change: (params: URLSearchParams) => void) => {
+    const next = new URLSearchParams(window.location.search);
+    change(next);
+    setPending(ratingSet(next));
+    search.edit(change);
+  };
   const click = (n: number, mods: { toggle: boolean; range: boolean }) => {
-    search.edit((next) => clickRating(next, n, mods, anchor.current));
+    const from = anchor.current;
+    apply((next) => clickRating(next, n, mods, from));
     if (!mods.range) anchor.current = n;
   };
   const ratingAt = (x: number, y: number) => {
@@ -270,7 +283,6 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
     e.preventDefault();
     const mods = { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey };
     let to = n;
-    setDrag({ from: n, to: n });
     const move = (m: PointerEvent) => {
       const at = ratingAt(m.clientX, m.clientY);
       if (at !== null && at !== to) setDrag({ from: n, to: (to = at) });
@@ -281,7 +293,7 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
       setDrag(null);
       if (to === n) click(n, mods);
       else {
-        search.edit((next) => setRatings(next, ratingRange(n, to)));
+        apply((next) => setRatings(next, ratingRange(n, to)));
         anchor.current = n;
       }
     };
@@ -324,14 +336,14 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
               click(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
             }}
           >
-            <Box h="6" w="full" display="flex" alignItems="end" px="1">
+            {/* The track shows how tall a bar can be; none at all for no photo. */}
+            <Box h="18px" w="4px" bg="bg" display="flex" alignItems="end" overflow="hidden">
               <Box
                 w="full"
-                h={`${Math.max(2, Math.round((count / most) * 24))}px`}
-                borderRadius="1px"
+                h={`${Math.round((count / most) * 18)}px`}
                 bg={on ? 'orange.solid' : 'fg.subtle'}
                 // Left out by the filter: still there, dimmer.
-                opacity={on || !(set.length || drag) ? 1 : 0.35}
+                opacity={on || !filtering ? 1 : 0.35}
               />
             </Box>
             <Text

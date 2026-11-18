@@ -1068,9 +1068,21 @@ test('a tag can be excluded, picked tags under a parent match all or any, and st
   // Ratings: only 3, then 4 too (Ctrl), then 4 to 5 (Shift, from the last one clicked).
   const bar = (n: number) => page.locator(`[data-rating="${n}"]`);
   const ratings = (u: URL) => u.searchParams.getAll('rating').join();
+  // Shown at once, and kept: no going back to the old look while the address catches up.
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-rating="3"]')!;
+    const seen: string[] = [el.getAttribute('aria-pressed')!];
+    (window as unknown as { pressed: string[] }).pressed = seen;
+    new MutationObserver(() => {
+      const now = el.getAttribute('aria-pressed')!;
+      if (now !== seen.at(-1)) seen.push(now);
+    }).observe(el, { attributes: true, attributeFilter: ['aria-pressed'] });
+  });
   await bar(3).click();
   await page.waitForURL((u) => ratings(u) === '3');
   await page.locator('[data-rating="3"][aria-pressed="true"]').waitFor();
+  await page.waitForTimeout(400);
+  assert.deepEqual(await page.evaluate(() => (window as unknown as { pressed: string[] }).pressed), ['false', 'true']);
   await bar(4).click({ modifiers: ['ControlOrMeta'] });
   await page.waitForURL((u) => ratings(u) === '3,4');
   await bar(5).click({ modifiers: ['Shift'] });
