@@ -22,7 +22,7 @@ import { db, sql, versions } from '../db.ts';
 import { HttpError, badRequest, conflict } from '../errors.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
-import { addLut } from '../luts/routes.ts';
+import { acceptPackedLuts, addLut } from '../luts/routes.ts';
 import { collectionAt } from '../photos/collections.ts';
 import { ingestFile } from '../photos/ingest.ts';
 import { PHOTO_FIELDS, Sha256, VERSION_FIELDS, applyHistoryChange, toColumns } from '../photos/routes.ts';
@@ -43,6 +43,8 @@ const userOf = (request: FastifyRequest) => request.tokenUser!;
 
 export async function receiveRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
   app.decorateRequest('tokenUser', null);
+  // `/api/transfer/luts` takes a packed LUT: without this, 415 Unsupported Media Type.
+  acceptPackedLuts(app);
   app.addHook('onRequest', async (request, reply) => {
     if (!request.url.startsWith('/api/transfer/')) return;
     request.tokenUser = await tokenUser(request);

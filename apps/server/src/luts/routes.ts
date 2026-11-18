@@ -39,6 +39,19 @@ const lutDto = (row: Row): UserLut => ({
  * from another instance) under `name`. One they already have (even removed) comes back
  * under the new name.
  */
+/**
+ * Packed LUTs (`application/octet-stream`) read whole, up to `LUT_MAX_BYTES`, for
+ * `addLut`. Parsers are a plugin's own: every plugin with a route taking one needs this
+ * (the LUT routes, and transfers' `/api/transfer/luts`).
+ */
+export function acceptPackedLuts(app: FastifyInstance) {
+  app.addContentTypeParser(
+    'application/octet-stream',
+    { parseAs: 'buffer', bodyLimit: LUT_MAX_BYTES },
+    (_req, body, done) => done(null, body),
+  );
+}
+
 export async function addLut(userId: string, name: string, body: unknown): Promise<Row> {
   if (!(body instanceof Uint8Array) || !PACKED_MAGIC.every((b, i) => body[i] === b)) {
     throw badRequest('Expected a packed LUT (application/octet-stream)');
@@ -92,11 +105,7 @@ const nameTaken = (name: string) => (err: { code?: string }) => {
  */
 export async function lutRoutes(app: FastifyInstance) {
   initPipeline();
-  app.addContentTypeParser(
-    'application/octet-stream',
-    { parseAs: 'buffer', bodyLimit: LUT_MAX_BYTES },
-    (_req, body, done) => done(null, body),
-  );
+  acceptPackedLuts(app);
 
   app.get('/api/luts', { preHandler: requireUser }, async (request) => {
     const rows = (await db.query(sql`
