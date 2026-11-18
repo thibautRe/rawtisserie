@@ -11,6 +11,7 @@ import { badRequest } from '../errors.ts';
 import { VERSIONS_FROM } from './dto.ts';
 import { followTagRename } from './filterPresets.ts';
 import { PhotoFilters, whereClause } from './query.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 export const SEPARATOR = '|';
 
@@ -67,6 +68,13 @@ const under = (from: string) => sql`(t = ${from} OR starts_with(t, ${`${from}${S
 // Characters counted by Postgres (JavaScript counts UTF-16 units: an emoji is two).
 const moved = (from: string, to: string) => sql`${to} || substr(t, length(${from}) + 1)`;
 
+/** Refuse one more `user_tags` row over `MAX_COUNT` (one for `tag` already isn't more). */
+async function checkUserTags(userId: string, tag: string) {
+  const [row] = (await db.query(sql`
+    SELECT count(*)::int AS n FROM user_tags WHERE owner_id = ${userId} AND tag <> ${tag}`)) as { n: number }[];
+  checkCount(row!.n, MAX_COUNT.userTags, 'saved tags');
+}
+
 /**
  * The tag manager's routes. Renaming a tag renames those under it too (`People` to
  * `Family` makes `People|Alice` `Family|Alice`); renaming onto an existing tag merges
@@ -108,8 +116,10 @@ export async function tagRoutes(app: FastifyInstance) {
   /** A tag no photo has yet (to give it a shortcut, or to have it completed). */
   app.post('/api/tags', async (request) => {
     const { tag } = z.object({ tag: Tag }).parse(request.body);
+    const user = currentUser(request);
+    await checkUserTags(user.id, tag);
     await db.query(sql`
-      INSERT INTO user_tags (owner_id, tag) VALUES (${currentUser(request).id}, ${tag}) ON CONFLICT DO NOTHING`);
+      INSERT INTO user_tags (owner_id, tag) VALUES (${user.id}, ${tag}) ON CONFLICT DO NOTHING`);
     return { tag };
   });
 
@@ -168,6 +178,7 @@ export async function tagRoutes(app: FastifyInstance) {
   app.put('/api/tags/shortcut', async (request) => {
     const { tag, shortcut } = z.object({ tag: Tag, shortcut: Shortcut.nullable() }).parse(request.body);
     const user = currentUser(request);
+    await checkUserTags(user.id, tag);
     await db.query(sql`
       INSERT INTO user_tags (owner_id, tag, shortcut) VALUES (${user.id}, ${tag}, ${shortcut && JSON.stringify(shortcut)}::jsonb)
       ON CONFLICT (owner_id, tag) DO UPDATE SET shortcut = EXCLUDED.shortcut`);

@@ -25,6 +25,7 @@ import type Versions from '../__generated__/versions.ts';
 import { addLut } from '../luts/routes.ts';
 import { ingestFile } from '../photos/ingest.ts';
 import { PHOTO_FIELDS, Sha256, VERSION_FIELDS, applyHistoryChange, toColumns } from '../photos/routes.ts';
+import { checkPresetCount } from '../presets/routes.ts';
 import type { RenderQueue } from '../render/queue.ts';
 import { instanceId } from './instance.ts';
 import { Hello, PROTOCOL, type ReceivedStatus, SentPreset, SentVersion } from './protocol.ts';
@@ -154,6 +155,7 @@ export async function receiveRoutes(app: FastifyInstance, { renderQueue }: { ren
         throw err.code === '23505' ? conflict(`There is already a preset named “${input.name}”`) : err;
       });
     if (updated.length) return { status: 'updated' };
+    await checkPresetCount(user.id, input.kind, moduleKind, input.name);
     await db.query(sql`
       INSERT INTO presets (owner_id, kind, module_kind, name, payload, origin_instance, origin_preset)
       VALUES (${user.id}, ${input.kind}, ${moduleKind}, ${input.name}, ${payload}::jsonb, ${instance}, ${id})

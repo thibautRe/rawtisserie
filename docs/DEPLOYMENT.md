@@ -45,8 +45,9 @@ terminates HTTPS. It ships as a [container image](#container-image), run on a VP
 
 Configuration is environment variables (`.env.example`): `DATABASE_URL`, `STORAGE_DIR`,
 `PORT`, `ALLOW_SIGNUP` (false: sign-up needs an invitation), `DEFAULT_STORAGE_QUOTA_GB`
-(for accounts created without one), `COOKIE_SECURE` (true behind HTTPS),
-`RENDER_CONCURRENCY`, `MIGRATE_ON_START`, `ALLOW_PRIVATE_INSTANCES` (see below), and the
+(for accounts created without one), `COOKIE_SECURE` (true behind HTTPS), `TRUST_PROXY`
+(true behind a reverse proxy that sets X-Forwarded-For, as `deploy/` does: rate limits count
+signed-out requests by the client's address), `RENDER_CONCURRENCY`, `MIGRATE_ON_START`, `ALLOW_PRIVATE_INSTANCES` (see below), and the
 `S3_*` settings.
 
 **Instances talk to each other** when a user sends photos from one to another (Settings,

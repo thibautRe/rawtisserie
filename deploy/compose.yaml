@@ -27,6 +27,8 @@ services:
     environment:
       DATABASE_URL: postgres://rawtisserie:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/rawtisserie
       COOKIE_SECURE: 'true'
+      # Caddy is the only way in: its X-Forwarded-For is the client's address.
+      TRUST_PROXY: 'true'
       ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
       DEFAULT_STORAGE_QUOTA_GB: ${DEFAULT_STORAGE_QUOTA_GB:-}
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-2}

@@ -10,6 +10,7 @@ import { authPlugin, authRoutes } from './auth/routes.ts';
 import { config } from './config.ts';
 import { exportRoutes } from './exports/routes.ts';
 import { isolationReports } from './isolation.ts';
+import { rateLimits } from './limits.ts';
 import { denoiseRoutes } from './denoise/routes.ts';
 import { lutRoutes } from './luts/routes.ts';
 import { photoRoutes } from './photos/routes.ts';
@@ -29,6 +30,8 @@ export async function buildApp() {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     bodyLimit: 2 * 1024 * 1024,
+    // Behind a proxy (Caddy in `deploy/`): the client's address from X-Forwarded-For.
+    trustProxy: config.trustProxy,
   });
   const renderQueue = new RenderQueue(app.log);
   const zoom = new ZoomRenderer(app.log);
@@ -54,6 +57,8 @@ export async function buildApp() {
     }
   });
 
+  // Before any route: it's applied to routes as they're added.
+  await rateLimits(app);
   // Not encapsulated: its headers must go on every response, static files included.
   await isolationReports(app);
   await app.register(fastifyCookie);

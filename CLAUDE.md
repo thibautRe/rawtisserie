@@ -96,6 +96,11 @@ See README.md for the architecture overview and commands.
 - Storage quotas count original files only (`accounts/quota.ts`); anything new that
   stores user files must decide whether it counts, and check `fits` before storing.
   Admin-only routes use `requireAdmin` (and the page checks `isAdmin` too).
+- Limits against unintended use are in `apps/server/src/limits.ts`: rate limits (per user,
+  per address signed out; a route's own with `config.rateLimit`) and how many of each thing
+  a user may keep (`MAX_COUNT`, `checkCount`). Anything new a user can create (a table of
+  their own rows, files outside the quota) gets a count there; check it on every path that
+  creates one (transfers too).
 - Library renders are AVIF, encoded by `sharp` (native) in the render worker from wasm's
   `renderFinal`; `versions.render_format` says what a version's stored renders are
   (older ones stay JPEG until rendered again), so build keys with `renderKey(…, format)`.

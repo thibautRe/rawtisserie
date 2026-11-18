@@ -4,8 +4,10 @@ import { LUT_ID, LUT_MAX_BYTES, LUT_NAME_MAX, type UserLut, isBuiltinLut } from 
 import { initPipeline, parseLut } from '@rawtisserie/pipeline/node';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
-import { badRequest, conflict, notFound } from '../errors.ts';
+import { HttpError, badRequest, conflict, notFound } from '../errors.ts';
 import { storeLut, streamLut } from './files.ts';
+import { MAX_COUNT, MAX_LUT_BYTES, checkCount } from '../limits.ts';
+import { formatBytes } from '../accounts/quota.ts';
 
 const Id = z.object({ id: z.uuid() });
 const LutId = z.object({ lutId: z.string().regex(LUT_ID) });
@@ -51,6 +53,15 @@ export async function addLut(userId: string, name: string, body: unknown): Promi
   // Stored as the pipeline packs it, whatever the client sent.
   const packed = parsed.takePacked();
   parsed.free();
+  // The user's other LUTs, removed ones included: their tables stay stored (and adding
+  // one they have brings it back, so it's not one more).
+  const [mine] = (await db.query(sql`
+    SELECT count(*)::int AS count, coalesce(sum(l.file_size), 0)::bigint AS bytes
+    FROM user_luts u JOIN luts l ON l.id = u.lut_id
+    WHERE u.owner_id = ${userId} AND u.lut_id <> ${id}`)) as { count: number; bytes: number }[];
+  checkCount(mine!.count, MAX_COUNT.luts, 'LUTs');
+  if (Number(mine!.bytes) + packed.length > MAX_LUT_BYTES)
+    throw new HttpError(403, `Your LUTs can take at most ${formatBytes(MAX_LUT_BYTES)}`);
   // The table first, then its file, then the user's copy of it: a table is only used
   // through a copy, so it never is before its file is there. If the copy can't be made
   // (its name is taken), a new table is left without one: `collectLuts` removes it at

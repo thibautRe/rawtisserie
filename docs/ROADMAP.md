@@ -73,6 +73,9 @@ that shrink back (and the focused photo marked), a "No tags" filter, saved filte
 Ctrl), and glow streaks and motion (4.12). Added: 2.7 (an always-on colour picker); 3.9
 (demosaicing) is the next image-quality item after 3.5. 3.9 done the same day (RCD for
 Bayer sensors), then Markesteijn for X-Trans on 2026-11-18.
+NOTES.md feedback (2026-11-18): the local developer warns before closing the tab once
+edited, no "Develop a local file" in the app menu, and limits against unintended use
+(rate limits and counts per user; see Cross-cutting).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -2150,6 +2153,29 @@ Ideas, roughly by value for effort:
   main-thread budget on "primaries hue" (~52 %) and "equalizer mix" (~51–55 %), on the
   code from before retouch too. Find what the main thread does in those drags (likely
   their sections' restyling) or revisit the budget.
+- **Limits against unintended use** (from NOTES.md, 2026-11-18).
+
+  > **Done** (`apps/server/src/limits.ts`). As built: rate limits per user (per address
+  > when signed out, `TRUST_PROXY` behind Caddy), in memory: 1200 API requests a minute,
+  > 10 logins a minute, 10 sign-ups an hour, 30 invitation lookups a minute, 600 loupe
+  > tiles a minute; renders and originals aren't limited (files, asked for by the
+  > hundred). Counts per user: 1000 presets and styles, 200 saved filters, 100 export
+  > presets, 500 LUTs and 2 GB of LUT tables (removed ones included: they stay stored,
+  > outside the quota), 5000 saved tags, 50 access tokens, 50 connected instances, 100
+  > versions of a photo, 20 uploads in progress, whose sizes now count against the
+  > quota until they're completed.
+
+  Still open, larger:
+  - **Render queue fairness:** the queue is first in, first out across users
+    (`render/queue.ts`), so one user importing 10 000 photos holds back everyone's
+    renders for hours. Round-robin between users (or by oldest pending per user).
+  - **History entries per version** are unbounded: 7.7 has to settle what happens at a
+    cap (compress, or move old entries out) before there can be one.
+  - **Limits per account:** today they're constants. With 7.9's plans, some (LUTs,
+    instances) may belong to the plan, set like the storage quota on `/admin`.
+  - **Several server processes** would need a shared store for the rate limits
+    (`@fastify/rate-limit` takes Redis): only with M6's scaling.
+
 - **Ansel parity:** for each port, record the upstream commit it follows (as
   `filmic.rs` does) and keep a short "deviations" list.
 - **Licensing:** filmic, colour primaries, the contrast equalizer and lens correction

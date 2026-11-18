@@ -23,6 +23,7 @@ import { storage } from '../storage/index.ts';
 import { instanceId } from './instance.ts';
 import type { SentPreset, SentVersion } from './protocol.ts';
 import { type Remote, RemoteError, hello, normalizeUrl, remoteError, remoteFetch } from './remote.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 const Id = z.object({ id: z.uuid() });
 /** Uploading an original can take a while. */
@@ -54,6 +55,11 @@ export async function sendRoutes(app: FastifyInstance, { runner }: { runner: Tra
     const input = z.object({ url: z.string().min(1).max(500), token: z.string().trim().min(1).max(200) });
     const { url: given, token } = input.parse(request.body);
     const url = normalizeUrl(given);
+    const [mine] = (await db.query(sql`
+      SELECT count(*)::int AS n FROM remote_instances WHERE owner_id = ${currentUser(request).id} AND url <> ${url}`)) as {
+      n: number;
+    }[];
+    checkCount(mine!.n, MAX_COUNT.instances, 'connected instances');
     const there = await hello({ url, token });
     if (there.instance === (await instanceId())) throw badRequest('That’s this instance');
     const account = `${there.account.displayName} <${there.account.email}>`;

@@ -26,6 +26,7 @@ import type { RenderQueue } from '../render/queue.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDto } from './dto.ts';
 import { type SkipKind, UNSUPPORTED, ingestReceived, isSupportedName, versionFor } from './ingest.ts';
 import { Tag } from './tags.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 /** The most a chunk may hold (the app sends 8 MiB). */
 export const MAX_CHUNK = 16 * 1024 * 1024;
@@ -90,10 +91,15 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
     const skip = (kind: SkipKind, reason: string) => reply.send({ skipped: { filename, kind, reason } });
     if (!isSupportedName(filename)) return skip('unsupported', UNSUPPORTED);
     if (body.size > config.maxUploadBytes) return skip('tooLarge', 'File too large');
+    // Uploads not completed yet count too: they're on this server's disk already, or will be.
+    const [open] = (await db.query(sql`
+      SELECT count(*)::int AS count, coalesce(sum(size), 0)::bigint AS bytes
+      FROM uploads WHERE owner_id = ${user.id}`)) as { count: number; bytes: number }[];
+    checkCount(open!.count, MAX_COUNT.openUploads, 'uploads in progress');
     const usage = await storageUsage(db, user.id);
     // Files only in the trash are counted already, but that's only known once hashed:
     // `complete` checks again, and such an upload over the quota is taken in then.
-    if (!fits(usage, body.size)) return skip('quota', quotaExceeded(usage));
+    if (!fits(usage, Number(open!.bytes) + body.size)) return skip('quota', quotaExceeded(usage));
     if (body.import)
       await db.query(
         sql`INSERT INTO imports (owner_id, id) VALUES (${user.id}, ${body.import}) ON CONFLICT DO NOTHING`,

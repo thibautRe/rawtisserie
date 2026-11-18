@@ -26,6 +26,7 @@ import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
 import { PhotoFilters, PhotoListQuery, SORTS, Target, parseLibraryQuery, targetClause, whereClause } from './query.ts';
 import { RENDER_FORMATS, RENDER_SIZES, originalKey, renderKey, type RenderFormat, type RenderSize } from './storage.ts';
 import { TAG_LEVELS, Tag } from './tags.ts';
+import { MAX_COUNT, RATE_LIMITS, checkCount } from '../limits.ts';
 
 const Id = z.object({ id: z.uuid() });
 export const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
@@ -330,6 +331,7 @@ export async function photoRoutes(
       const index = siblings.findIndex((v) => v.id === id);
       const source = siblings[index];
       if (!source) throw notFound('Photo not found');
+      checkCount(siblings.length, MAX_COUNT.versionsPerPhoto, 'versions of a photo');
       const [copy] = await versions(tx).insert({
         photo_id,
         position: index + 1,
@@ -477,7 +479,8 @@ export async function photoRoutes(
     return { ok: true };
   });
 
-  app.get('/api/versions/:id/render/:size', async (request, reply) => {
+  // Files, asked for by the hundred when the grid scrolls: not rate limited.
+  app.get('/api/versions/:id/render/:size', { config: { rateLimit: false } }, async (request, reply) => {
     const { id, size } = Id.extend({ size: z.enum(Object.keys(RENDER_SIZES) as [RenderSize]) }).parse(request.params);
     // Also for the trash page's thumbnails.
     const version = await findVersion(currentUser(request).id, id, { inTrash: true });
@@ -539,22 +542,26 @@ export async function photoRoutes(
   });
 
   /** One tile of a zoom level (`ZOOM_TILE` square, smaller at the right and bottom edges). */
-  app.get('/api/versions/:id/zoom/:level/:col/:row', async (request, reply) => {
-    const { id, level, col, row } = Id.extend({
-      level: z.coerce.number().int().min(0).max(8),
-      col: z.coerce.number().int().min(0).max(1000),
-      row: z.coerce.number().int().min(0).max(1000),
-    }).parse(request.params);
-    const source = await zoomSource(currentUser(request).id, id);
-    const jpeg = await zoom.tile(source, level, col, row, clientGone(reply)).catch((err) => {
-      throw zoomFailed(err);
-    });
-    const versioned = (request.query as Record<string, string>).k === String(source.revision);
-    return reply
-      .header('content-type', 'image/jpeg')
-      .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
-      .send(Buffer.from(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength));
-  });
+  app.get(
+    '/api/versions/:id/zoom/:level/:col/:row',
+    { config: { rateLimit: RATE_LIMITS.zoomTiles } },
+    async (request, reply) => {
+      const { id, level, col, row } = Id.extend({
+        level: z.coerce.number().int().min(0).max(8),
+        col: z.coerce.number().int().min(0).max(1000),
+        row: z.coerce.number().int().min(0).max(1000),
+      }).parse(request.params);
+      const source = await zoomSource(currentUser(request).id, id);
+      const jpeg = await zoom.tile(source, level, col, row, clientGone(reply)).catch((err) => {
+        throw zoomFailed(err);
+      });
+      const versioned = (request.query as Record<string, string>).k === String(source.revision);
+      return reply
+        .header('content-type', 'image/jpeg')
+        .header('cache-control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
+        .send(Buffer.from(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength));
+    },
+  );
 
   // ── Photos (original files) ───────────────────────────────────────────────
 
@@ -658,7 +665,7 @@ export async function photoRoutes(
     return reply.code(created.length ? 201 : 200).send({ created, skipped });
   });
 
-  app.get('/api/photos/:id/original', async (request, reply) => {
+  app.get('/api/photos/:id/original', { config: { rateLimit: false } }, async (request, reply) => {
     const { id } = Id.parse(request.params);
     const photo = await photos(db).findOne({ id, owner_id: currentUser(request).id });
     if (!photo) throw notFound('Photo not found');

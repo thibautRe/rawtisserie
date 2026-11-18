@@ -8,6 +8,7 @@
  * just pages. Vite's dev and preview servers send the same (`apps/web/vite.config.ts`).
  */
 import type { FastifyInstance } from 'fastify';
+import { RATE_LIMITS } from './limits.ts';
 
 export const REPORT_PATH = '/api/reports';
 const ENDPOINT = 'isolation';
@@ -62,28 +63,32 @@ export async function isolationReports(app: FastifyInstance) {
   );
 
   /** Log what isolation would block. Public (reports come without credentials), so keep it terse. */
-  app.post(REPORT_PATH, { bodyLimit: 64 * 1024 }, async (request, reply) => {
-    const reports = Array.isArray(request.body) ? request.body.slice(0, MAX_REPORTS) : [];
-    for (const report of reports as { type?: unknown; url?: unknown; body?: Record<string, unknown> }[]) {
-      if (!report || onlyFromReportOnly(report)) continue;
-      const body = report.body ?? {};
-      request.log.warn(
-        {
-          isolationReport: {
-            type: text(report.type, 50),
-            page: text(report.url),
-            disposition: text(body.disposition, 20),
-            // COEP: what was blocked, and why (`corp`, `navigation`, `worker initialization`).
-            blocked: text(body.blockedURL),
-            destination: text(body.destination, 50),
-            // COOP: which kind of opener or popup access broke.
-            violation: text(body.violationType ?? body.type, 50),
-            other: text(body.previousResponseURL ?? body.nextResponseURL ?? body.openerURL ?? body.openeeURL),
+  app.post(
+    REPORT_PATH,
+    { bodyLimit: 64 * 1024, config: { rateLimit: RATE_LIMITS.reports } },
+    async (request, reply) => {
+      const reports = Array.isArray(request.body) ? request.body.slice(0, MAX_REPORTS) : [];
+      for (const report of reports as { type?: unknown; url?: unknown; body?: Record<string, unknown> }[]) {
+        if (!report || onlyFromReportOnly(report)) continue;
+        const body = report.body ?? {};
+        request.log.warn(
+          {
+            isolationReport: {
+              type: text(report.type, 50),
+              page: text(report.url),
+              disposition: text(body.disposition, 20),
+              // COEP: what was blocked, and why (`corp`, `navigation`, `worker initialization`).
+              blocked: text(body.blockedURL),
+              destination: text(body.destination, 50),
+              // COOP: which kind of opener or popup access broke.
+              violation: text(body.violationType ?? body.type, 50),
+              other: text(body.previousResponseURL ?? body.nextResponseURL ?? body.openerURL ?? body.openeeURL),
+            },
           },
-        },
-        'cross-origin isolation would block this',
-      );
-    }
-    return reply.code(204).send();
-  });
+          'cross-origin isolation would block this',
+        );
+      }
+      return reply.code(204).send();
+    },
+  );
 }

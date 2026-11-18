@@ -5,6 +5,7 @@ import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, exportPresets, sql, users } from '../db.ts';
 import { conflict, notFound } from '../errors.ts';
 import type ExportPresets from '../__generated__/export_presets.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 const Id = z.object({ id: z.uuid() });
 const Name = z.string().trim().min(1).max(200);
@@ -44,6 +45,11 @@ export async function exportRoutes(app: FastifyInstance) {
     const user = currentUser(request);
     const input = z.object({ name: Name, settings: z.unknown() }).parse(request.body);
     const settings = normalizeExportSettings(input.settings);
+    const [{ others }] = (await db.query(sql`
+      SELECT count(*)::int AS others FROM export_presets WHERE owner_id = ${user.id} AND name <> ${input.name}`)) as [
+      { others: number },
+    ];
+    checkCount(others, MAX_COUNT.exportPresets, 'export presets');
     const [row] = (await db.query(sql`
       INSERT INTO export_presets (owner_id, name, settings)
       VALUES (${user.id}, ${input.name}, ${JSON.stringify(settings)}::jsonb)

@@ -11,6 +11,7 @@ import { type SessionUser, toSessionUser } from '../auth/sessions.ts';
 import { db, sql } from '../db.ts';
 import type Users from '../__generated__/users.ts';
 import { notFound } from '../errors.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 /** What tokens start with, so they're recognisable (in a password manager, a leak scan). */
 const PREFIX = 'rtt_';
@@ -55,6 +56,9 @@ export async function tokenRoutes(app: FastifyInstance) {
   /** A new token: the only time it's shown. */
   app.post('/api/access-tokens', async (request, reply) => {
     const { name } = z.object({ name: z.string().trim().min(1).max(100) }).parse(request.body);
+    const [mine] = (await db.query(sql`
+      SELECT count(*)::int AS n FROM access_tokens WHERE owner_id = ${currentUser(request).id}`)) as { n: number }[];
+    checkCount(mine!.n, MAX_COUNT.accessTokens, 'access tokens');
     const token = PREFIX + randomBytes(32).toString('base64url');
     const [row] = (await db.query(sql`
       INSERT INTO access_tokens (owner_id, name, token_hash)

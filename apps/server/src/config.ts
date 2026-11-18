@@ -51,6 +51,11 @@ export const config = {
   /** Quota of accounts created without an invitation. */
   defaultStorageQuota: defaultStorageQuota(),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
+  /**
+   * Take the client's address from X-Forwarded-For (rate limits count by address when
+   * signed out). Only behind a proxy that sets it, and that clients can't go around.
+   */
+  trustProxy: process.env.TRUST_PROXY === 'true',
   sessionTtlDays: 30,
   maxUploadBytes: 400 * 1024 * 1024,
   renderConcurrency: Math.max(1, Number(process.env.RENDER_CONCURRENCY ?? 2)),

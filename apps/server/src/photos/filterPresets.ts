@@ -12,6 +12,7 @@ import { badRequest, conflict, notFound } from '../errors.ts';
 import type FilterPresets from '../__generated__/filter_presets.ts';
 import { normalizeFilterQuery } from './query.ts';
 import { SEPARATOR } from './tags.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 const Id = z.object({ id: z.uuid() });
 const Name = z.string().trim().min(1).max(200);
@@ -65,6 +66,11 @@ export async function filterPresetRoutes(app: FastifyInstance) {
     const input = z.object({ name: Name, query: z.string().max(20_000) }).parse(request.body);
     const query = normalizeFilterQuery(input.query);
     if (!query) throw badRequest('A filter preset needs a filter');
+    const [{ others }] = (await db.query(sql`
+      SELECT count(*)::int AS others FROM filter_presets WHERE owner_id = ${user.id} AND name <> ${input.name}`)) as [
+      { others: number },
+    ];
+    checkCount(others, MAX_COUNT.filterPresets, 'saved filters');
     const [row] = (await db.query(sql`
       INSERT INTO filter_presets (owner_id, name, query) VALUES (${user.id}, ${input.name}, ${query})
       ON CONFLICT (owner_id, name) DO UPDATE SET query = excluded.query, updated_at = now()

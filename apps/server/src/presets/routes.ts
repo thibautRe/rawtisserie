@@ -12,6 +12,7 @@ import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, presets, sql } from '../db.ts';
 import { badRequest, conflict, notFound } from '../errors.ts';
 import type Presets from '../__generated__/presets.ts';
+import { MAX_COUNT, checkCount } from '../limits.ts';
 
 const Id = z.object({ id: z.uuid() });
 const UNIQUE_VIOLATION = '23505';
@@ -43,6 +44,16 @@ function presetDto(row: Presets): Preset {
     : { ...base, type: 'style', moduleKind: null, payload: normalizeStyle(row.payload) };
 }
 
+/** Refuse a new preset or style over `MAX_COUNT`: saving under a name taken replaces that one, so it's not one more. */
+export async function checkPresetCount(userId: string, kind: string, moduleKind: string | null, name: string) {
+  const [row] = (await db.query(sql`
+    SELECT count(*)::int AS others FROM presets WHERE owner_id = ${userId}
+      AND (kind, module_kind, name) IS DISTINCT FROM (${kind}::text, ${moduleKind}::text, ${name}::text)`)) as {
+    others: number;
+  }[];
+  checkCount(row!.others, MAX_COUNT.presets, 'presets and styles');
+}
+
 /** The user's own presets and styles. Built-in ones live in the app (`BUILTIN_PRESETS`). */
 export async function presetRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireUser);
@@ -62,6 +73,7 @@ export async function presetRoutes(app: FastifyInstance) {
     const payload = moduleKind ? normalizeModulePreset(moduleKind, input.payload) : normalizeStyle(input.payload);
     const empty = 'params' in payload ? Object.keys(payload.params).length === 0 : payload.modules.length === 0;
     if (empty) throw badRequest(moduleKind ? 'A preset needs at least one parameter' : 'A style needs a module');
+    await checkPresetCount(user.id, input.type, moduleKind, input.name);
     const [row] = (await db.query(sql`
       INSERT INTO presets (owner_id, kind, module_kind, name, payload)
       VALUES (${user.id}, ${input.type}, ${moduleKind}, ${input.name}, ${JSON.stringify(payload)}::jsonb)

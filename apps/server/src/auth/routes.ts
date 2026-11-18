@@ -14,6 +14,7 @@ import {
   getSessionUser,
   toSessionUser,
 } from './sessions.ts';
+import { RATE_LIMITS } from '../limits.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -86,7 +87,7 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   /** Whether an invitation can be used, and the storage it gives (bytes, null: unlimited). */
-  app.get('/api/auth/invitations/:code', async (request, reply) => {
+  app.get('/api/auth/invitations/:code', { config: { rateLimit: RATE_LIMITS.invitation } }, async (request, reply) => {
     const { code } = z.object({ code: z.string().min(1).max(100) }).parse(request.params);
     const invitation = await findInvitation(db, code);
     const problem = invitationProblem(invitation);
@@ -94,7 +95,7 @@ export async function authRoutes(app: FastifyInstance) {
     return { storageQuota: invitation!.storage_quota };
   });
 
-  app.post('/api/auth/signup', async (request, reply) => {
+  app.post('/api/auth/signup', { config: { rateLimit: RATE_LIMITS.signup } }, async (request, reply) => {
     const body = Signup.parse(request.body);
     if (!body.invitation && !config.allowSignup) {
       return reply.code(403).send({ error: 'Sign-up needs an invitation' });
@@ -126,7 +127,7 @@ export async function authRoutes(app: FastifyInstance) {
     return { user: toSessionUser(result.user) };
   });
 
-  app.post('/api/auth/login', async (request, reply) => {
+  app.post('/api/auth/login', { config: { rateLimit: RATE_LIMITS.login } }, async (request, reply) => {
     const body = Credentials.parse(request.body);
     const user = await findUserByEmail(body.email);
     const ok = await verifyPassword(body.password, user?.password_hash ?? dummyHash);
@@ -136,16 +137,20 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   /** Change the user's password; their other sessions are signed out. */
-  app.post('/api/auth/password', { preHandler: requireUser }, async (request, reply) => {
-    const { currentPassword, newPassword } = PasswordChange.parse(request.body);
-    const user = (await users(db).findOne({ id: currentUser(request).id }))!;
-    if (!(await verifyPassword(currentPassword, user.password_hash))) {
-      return reply.code(400).send({ error: 'The current password is wrong' });
-    }
-    await users(db).update({ id: user.id }, { password_hash: await hashPassword(newPassword) });
-    await deleteOtherSessions(user.id, request.cookies[SESSION_COOKIE]!);
-    return { ok: true };
-  });
+  app.post(
+    '/api/auth/password',
+    { preHandler: requireUser, config: { rateLimit: RATE_LIMITS.passwordChange } },
+    async (request, reply) => {
+      const { currentPassword, newPassword } = PasswordChange.parse(request.body);
+      const user = (await users(db).findOne({ id: currentUser(request).id }))!;
+      if (!(await verifyPassword(currentPassword, user.password_hash))) {
+        return reply.code(400).send({ error: 'The current password is wrong' });
+      }
+      await users(db).update({ id: user.id }, { password_hash: await hashPassword(newPassword) });
+      await deleteOtherSessions(user.id, request.cookies[SESSION_COOKIE]!);
+      return { ok: true };
+    },
+  );
 
   app.post('/api/auth/logout', async (request, reply) => {
     const token = request.cookies[SESSION_COOKIE];
