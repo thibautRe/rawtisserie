@@ -25,7 +25,10 @@ import { FilterPresetMenu } from './FilterPresetMenu.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import {
   TOP_LEVEL,
-  clickStar,
+  RATINGS,
+  clickRating,
+  ratingRange,
+  setRatings,
   cycleTag,
   isAny,
   ratingSet,
@@ -234,6 +237,116 @@ function AnySwitch({ any, onToggle }: { any: boolean; onToggle: () => void }) {
     >
       {any ? 'any' : 'all'}
     </Button>
+  );
+}
+
+/**
+ * The rating filter (roadmap 8.12): a bar per rating (unrated, then 1 to 5 stars), as
+ * tall as how many photos have it under the other filters, orange when it's shown. A
+ * click shows only that rating (again: all), a drag or Shift+click a range from the
+ * last one clicked, Ctrl/⌘+click adds or removes one; the same from the keyboard with
+ * Enter or Space on a bar.
+ */
+function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: LibrarySearch }) {
+  const set = ratingSet(search.params);
+  // The last rating clicked: where a Shift+click's range starts.
+  const anchor = useRef<number | null>(null);
+  // A drag across the bars: shown as it goes, applied when it ends.
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const shown = drag ? ratingRange(drag.from, drag.to) : set;
+  const countOf = (n: number) => counts.find((c) => c.value === n)?.count ?? 0;
+  const most = Math.max(1, ...RATINGS.map(countOf));
+
+  const click = (n: number, mods: { toggle: boolean; range: boolean }) => {
+    search.edit((next) => clickRating(next, n, mods, anchor.current));
+    if (!mods.range) anchor.current = n;
+  };
+  const ratingAt = (x: number, y: number) => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-rating]');
+    return el ? Number(el.dataset.rating) : null;
+  };
+  const onPointerDown = (e: React.PointerEvent, n: number) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const mods = { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey };
+    let to = n;
+    setDrag({ from: n, to: n });
+    const move = (m: PointerEvent) => {
+      const at = ratingAt(m.clientX, m.clientY);
+      if (at !== null && at !== to) setDrag({ from: n, to: (to = at) });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setDrag(null);
+      if (to === n) click(n, mods);
+      else {
+        search.edit((next) => setRatings(next, ratingRange(n, to)));
+        anchor.current = n;
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <HStack w="full" gap="1" align="end" css={{ touchAction: 'none' }} role="group" aria-label="Ratings shown">
+      <Box color="fg.muted" mb="0.5" aria-hidden>
+        <Star size={12} />
+      </Box>
+      {RATINGS.map((n) => {
+        const on = shown.includes(n);
+        const count = countOf(n);
+        const name = n === 0 ? 'Unrated' : `${n} ${n === 1 ? 'star' : 'stars'}`;
+        return (
+          <Stack
+            key={n}
+            as="button"
+            data-rating={n}
+            aria-label={name}
+            aria-pressed={on}
+            title={`${name}: ${count} · click: only these · drag or Shift: a range · Ctrl/⌘: add or remove`}
+            gap="0.5"
+            align="center"
+            flex="1"
+            minW="0"
+            py="0.5"
+            borderRadius="l1"
+            cursor="pointer"
+            _hover={{ bg: 'bg.muted' }}
+            _focusVisible={{ outline: '2px solid', outlineColor: 'orange.focusRing' }}
+            onPointerDown={(e: React.PointerEvent) => onPointerDown(e, n)}
+            // Pointers are handled above; a click without one comes from the keyboard.
+            onClick={(e: React.MouseEvent) => e.detail === 0 && click(n, { toggle: false, range: false })}
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if ((e.key !== 'Enter' && e.key !== ' ') || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+              e.preventDefault();
+              click(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
+            }}
+          >
+            <Box h="6" w="full" display="flex" alignItems="end" px="1">
+              <Box
+                w="full"
+                h={`${Math.max(2, Math.round((count / most) * 24))}px`}
+                borderRadius="1px"
+                bg={on ? 'orange.solid' : 'fg.subtle'}
+                // Left out by the filter: still there, dimmer.
+                opacity={on || !(set.length || drag) ? 1 : 0.35}
+              />
+            </Box>
+            <Text
+              textStyle="2xs"
+              lineHeight="1"
+              {...NUMERIC}
+              color={on ? 'orange.fg' : 'fg.muted'}
+              fontWeight={on ? 'semibold' : undefined}
+            >
+              {n === 0 ? '–' : n}
+            </Text>
+          </Stack>
+        );
+      })}
+    </HStack>
   );
 }
 
@@ -450,13 +563,6 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
   useEffect(() => {
     if (shownImports) setImportsOpen(true);
   }, [shownImports]);
-  const stars = ratingSet(p);
-  // The last star clicked: where a Shift-click's range starts.
-  const ratingAnchor = useRef<number | null>(null);
-  const onStar = (n: number, mods: { toggle: boolean; range: boolean }) => {
-    search.edit((next) => clickStar(next, n, mods, ratingAnchor.current));
-    if (!mods.range) ratingAnchor.current = n;
-  };
   const r = facets?.ranges;
 
   return (
@@ -482,28 +588,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
         }
       >
         <HStack justify="space-between" rowGap="2" wrap="wrap">
-          <HStack gap="0">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <IconButton
-                key={n}
-                aria-label={`${n} stars`}
-                aria-pressed={stars.includes(n)}
-                title={`${n} stars and up · Ctrl/⌘: ${n} stars in or out · Shift: a range`}
-                size={{ base: 'sm', md: '2xs' }}
-                variant="ghost"
-                color={stars.includes(n) ? 'orange.fg' : 'fg.subtle'}
-                onClick={(e) => onStar(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey })}
-                // The same from the keyboard: Enter or Space, with Ctrl/⌘ or Shift.
-                onKeyDown={(e) => {
-                  if ((e.key !== 'Enter' && e.key !== ' ') || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
-                  e.preventDefault();
-                  onStar(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
-                }}
-              >
-                <Star fill={stars.includes(n) ? 'currentColor' : 'none'} />
-              </IconButton>
-            ))}
-          </HStack>
+          <RatingBars counts={facets?.ratings ?? []} search={search} />
           <HStack gap={{ base: '3', md: '1.5' }}>
             {COLOR_LABELS.map((c) => {
               const active = p.getAll('colorLabel').includes(c);

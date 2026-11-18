@@ -250,7 +250,14 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
           { value: 'People|Bob', count: 1 },
           { value: 'beach', count: 4 },
         ],
-        ratings: [],
+        ratings: [
+          { value: 0, count: 3 },
+          { value: 1, count: 1 },
+          { value: 2, count: 2 },
+          { value: 3, count: 4 },
+          { value: 4, count: 1 },
+          { value: 5, count: 1 },
+        ],
         ranges: { total: PHOTOS.length },
         imports: IMPORTS,
       });
@@ -1058,20 +1065,28 @@ test('a tag can be excluded, picked tags under a parent match all or any, and st
   await tag('People|Bob', 'Bob').click();
   await page.waitForURL((u) => !u.searchParams.has('tagAny') && u.searchParams.get('notTag') === 'People|Bob');
 
-  // Stars: at least 3, then without 4 (Ctrl), then 1 to 2 (a click, then Shift).
-  const star = (n: number) => page.getByRole('button', { name: `${n} stars`, exact: true });
-  await star(3).click();
-  await page.waitForURL((u) => u.searchParams.get('ratingMin') === '3');
-  await star(4).click({ modifiers: ['ControlOrMeta'] });
-  await page.waitForURL((u) => u.searchParams.getAll('rating').join() === '3,5' && !u.searchParams.has('ratingMin'));
-  await page.locator('button[aria-label="4 stars"][aria-pressed="false"]').waitFor();
-  await star(1).click();
-  await star(2).click({ modifiers: ['Shift'] });
-  await page.waitForURL((u) => u.searchParams.getAll('rating').join() === '1,2');
-  // From the keyboard: Ctrl+Enter on a focused star.
-  await star(5).focus();
+  // Ratings: only 3, then 4 too (Ctrl), then 4 to 5 (Shift, from the last one clicked).
+  const bar = (n: number) => page.locator(`[data-rating="${n}"]`);
+  const ratings = (u: URL) => u.searchParams.getAll('rating').join();
+  await bar(3).click();
+  await page.waitForURL((u) => ratings(u) === '3');
+  await page.locator('[data-rating="3"][aria-pressed="true"]').waitFor();
+  await bar(4).click({ modifiers: ['ControlOrMeta'] });
+  await page.waitForURL((u) => ratings(u) === '3,4');
+  await bar(5).click({ modifiers: ['Shift'] });
+  await page.waitForURL((u) => u.searchParams.get('ratingMin') === '4' && !u.searchParams.has('rating'));
+  // A drag from 1 to 2.
+  const box = async (n: number) => (await bar(n).boundingBox())!;
+  const [one, two] = [await box(1), await box(2)];
+  await page.mouse.move(one.x + one.width / 2, one.y + one.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(two.x + two.width / 2, two.y + two.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForURL((u) => ratings(u) === '1,2');
+  // From the keyboard: Ctrl+Enter on the unrated bar adds it.
+  await bar(0).focus();
   await page.keyboard.press('ControlOrMeta+Enter');
-  await page.waitForURL((u) => u.searchParams.getAll('rating').join() === '1,2,5');
+  await page.waitForURL((u) => ratings(u) === '0,1,2');
 });
 
 test('filters saved as a preset, then applied again over others', async () => {

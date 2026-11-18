@@ -215,6 +215,8 @@ export async function photoRoutes(
         GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 100`);
     // Imports are listed under the other filters, not their own: picking one shows the others still.
     const notByImport = whereClause(user.id, { ...filters, import: undefined });
+    // Ratings too: the rating filter's bars show what each rating would give.
+    const notByRating = whereClause(user.id, { ...filters, ratingMin: undefined, rating: undefined });
     const [cameras, lenses, tags, ratings, ranges, imports] = await Promise.all([
       facet('camera_model'),
       facet('lens'),
@@ -223,7 +225,7 @@ export async function photoRoutes(
         SELECT n AS value, count(DISTINCT v.id)::int AS count FROM ${VERSIONS_FROM}, unnest(v.tags) t, ${TAG_LEVELS}
         WHERE ${where} GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 500`),
       db.query(sql`
-        SELECT v.rating AS value, count(*)::int AS count FROM ${VERSIONS_FROM} WHERE ${where} GROUP BY 1 ORDER BY 1`),
+        SELECT v.rating AS value, count(*)::int AS count FROM ${VERSIONS_FROM} WHERE ${notByRating} GROUP BY 1 ORDER BY 1`),
       db.query(sql`
         SELECT count(*)::int AS total, min(p.captured_at) AS "capturedFrom", max(p.captured_at) AS "capturedTo",
           min(p.iso) AS "isoMin", max(p.iso) AS "isoMax", min(p.focal_length) AS "focalMin",

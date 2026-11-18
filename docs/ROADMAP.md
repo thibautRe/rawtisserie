@@ -1985,11 +1985,17 @@ Left:
 > with it or a tag under it, except the picked tags under it: `People › Alice` picked
 > and `People` excluded is Alice and nobody else. An OR across different parents isn't
 > expressible. URL: `tag` as before, `notTag`, `tagAny` (parents; `|` for the top level);
-> saved filters follow renames in all three. Stars: a click is "at least" as before,
-> Ctrl/⌘+click toggles a star, Shift+click a range from the last one clicked, the same
-> with Enter or Space on a focused star; a set is `rating` (any of these), written back
-> as `ratingMin` when it runs up to 5. The summary reads `★ 2–3 · People › Alice or
-People › Bob · no other People`. Tag counts stay those of the photos shown.
+> saved filters follow renames in all three. Ratings: first built on the
+> stars widget (filled stars for the set), which read as a mirrored rating; replaced the
+> same day by a bar per rating (unrated, 1–5), as tall as its count under the other
+> filters (rating counts leave the rating filter out), orange when shown. A click shows
+> only that rating, a drag or Shift+click a range, Ctrl/⌘+click adds or removes one
+> (Enter or Space on a focused bar, with the same keys). A set is `rating` (0: unrated),
+> written back as `ratingMin` when it runs from 1 or more up to 5. The summary reads
+> `★ 2–3 · People › Alice or People › Bob · no other People`. Tag counts stay those of
+> the photos shown. Filter changes start from the address as it is now
+> (`useLibrarySearch`): React Router renders navigations in a transition, so a quick
+> second change used to start from before the first.
 
 - **Tags:** today every selected tag must match (AND). Allow AND, OR and NOT between
   tags, e.g. `sunset` AND `People|Alice` AND NOT any other `People|…` tag. A parent

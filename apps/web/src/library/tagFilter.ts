@@ -90,68 +90,72 @@ export function describeTags(params: URLSearchParams): string[] {
 
 // ── Ratings ──────────────────────────────────────────────────────────────────
 
-const STARS = [1, 2, 3, 4, 5];
+/** The ratings a photo can have: 0 is unrated. */
+export const RATINGS = [0, 1, 2, 3, 4, 5];
 
-/** The star counts the filter shows (none: any). */
+/** The ratings the filter shows (none: any). */
 export function ratingSet(params: URLSearchParams): number[] {
   const exact = params
     .getAll('rating')
     .map(Number)
-    .filter((n) => STARS.includes(n));
+    .filter((n) => RATINGS.includes(n));
   if (exact.length) return [...new Set(exact)].sort();
   const min = Number(params.get('ratingMin') ?? 0);
-  return min > 0 ? STARS.filter((n) => n >= min) : [];
+  return min > 0 ? RATINGS.filter((n) => n >= min) : [];
 }
 
 /**
- * Write a set of star counts: "at least" when it runs up to 5 (1–5 is "rated": unrated
- * photos are left out), any rating when it's empty.
+ * Write a set of ratings: none or all of them is no filter, a run from 1 or more up to
+ * 5 is "at least" (`ratingMin`, as older links have it), anything else `rating`.
  */
 export function setRatings(params: URLSearchParams, set: readonly number[]): void {
   params.delete('rating');
   params.delete('ratingMin');
-  const sorted = [...new Set(set)].filter((n) => STARS.includes(n)).sort();
-  if (!sorted.length) return;
+  const sorted = [...new Set(set)].filter((n) => RATINGS.includes(n)).sort();
+  if (!sorted.length || sorted.length === RATINGS.length) return;
   const min = sorted[0]!;
-  if (sorted.length === 6 - min && sorted.every((n, i) => n === min + i)) {
+  if (min > 0 && sorted.length === 6 - min && sorted.every((n, i) => n === min + i)) {
     params.set('ratingMin', String(min));
     return;
   }
   for (const n of sorted) params.append('rating', String(n));
 }
 
+/** The ratings from `a` to `b`, either way round. */
+export const ratingRange = (a: number, b: number) => RATINGS.filter((n) => n >= Math.min(a, b) && n <= Math.max(a, b));
+
 /**
- * A click on star `n`: "at least n" (again: any rating); with `toggle` (Ctrl/⌘), that
- * star in or out of the set; with `range` (Shift), the stars from `anchor` (the last
- * one clicked) to `n`.
+ * A click on rating `n`: only it (again: any rating); with `toggle` (Ctrl/⌘), it in or
+ * out of the set; with `range` (Shift), the ratings from `anchor` (the last one clicked)
+ * to `n`. Dragging across them is a range too (`setRatings` with `ratingRange`).
  */
-export function clickStar(
+export function clickRating(
   params: URLSearchParams,
   n: number,
   { toggle = false, range = false }: { toggle?: boolean; range?: boolean },
   anchor: number | null,
 ): void {
   const set = ratingSet(params);
-  if (range) {
-    const from = anchor ?? n;
-    setRatings(
-      params,
-      STARS.filter((s) => s >= Math.min(from, n) && s <= Math.max(from, n)),
-    );
-  } else if (toggle) setRatings(params, set.includes(n) ? set.filter((s) => s !== n) : [...set, n]);
-  else {
-    const atLeast = !params.has('rating') && Number(params.get('ratingMin') ?? 0) === n;
-    setRatings(params, atLeast ? [] : STARS.filter((s) => s >= n));
-  }
+  if (range) setRatings(params, ratingRange(anchor ?? n, n));
+  else if (toggle) setRatings(params, set.includes(n) ? set.filter((s) => s !== n) : [...set, n]);
+  else setRatings(params, set.length === 1 && set[0] === n ? [] : [n]);
 }
 
-/** The rating filter in a few words: `★ 3+`, `★ 2`, `★ 2–3`, `★ 1, 3, 5`. */
+/** The rating filter in a few words: `★ 3+`, `★ 2`, `★ 2–3`, `★ 1, 3, 5`, `unrated or ★ 1`. */
 export function describeRating(params: URLSearchParams): string | null {
   const set = ratingSet(params);
   if (!set.length) return null;
-  const [min, max] = [set[0]!, set.at(-1)!];
-  if (max === 5 && set.length === 6 - min) return `★ ${min}+`;
-  if (set.length === 1) return `★ ${min}`;
-  if (set.length === max - min + 1) return `★ ${min}–${max}`;
-  return `★ ${set.join(', ')}`;
+  const stars = set.filter((n) => n > 0);
+  const unrated = set.includes(0);
+  if (!stars.length) return 'unrated';
+  const [min, max] = [stars[0]!, stars.at(-1)!];
+  const text =
+    max === 5 && stars.length === 6 - min && !unrated
+      ? `★ ${min}+`
+      : stars.length === 1
+        ? `★ ${min}`
+        : stars.length === max - min + 1
+          ? `★ ${min}–${max}`
+          : `★ ${stars.join(', ')}`;
+  return unrated ? `unrated or ${text}` : text;
 }

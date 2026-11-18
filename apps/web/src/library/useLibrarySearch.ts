@@ -2,6 +2,14 @@ import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
 /**
+ * The filters as the address has them now. React Router hands updaters the params of
+ * the last render, and renders navigations in a transition: a second change soon after
+ * a first (two quick clicks) would start from before the first and undo it.
+ */
+const latest = (prev: URLSearchParams) =>
+  typeof window === 'undefined' ? new URLSearchParams(prev) : new URLSearchParams(window.location.search);
+
+/**
  * Library filters live in the URL (shareable, survive reloads) and use the same
  * parameter names as `GET /api/versions`, so the query string is passed through as-is.
  */
@@ -12,7 +20,7 @@ export function useLibrarySearch() {
     (key: string, value: string | null | undefined) =>
       setParams(
         (prev) => {
-          const next = new URLSearchParams(prev);
+          const next = latest(prev);
           if (value === null || value === undefined || value === '') next.delete(key);
           else next.set(key, value);
           return next;
@@ -26,7 +34,7 @@ export function useLibrarySearch() {
     (key: string, value: string) =>
       setParams(
         (prev) => {
-          const next = new URLSearchParams(prev);
+          const next = latest(prev);
           const values = next.getAll(key);
           next.delete(key);
           for (const v of values.includes(value) ? values.filter((v) => v !== value) : [...values, value]) {
@@ -44,7 +52,7 @@ export function useLibrarySearch() {
     (key: string, values: string[]) =>
       setParams(
         (prev) => {
-          const next = new URLSearchParams(prev);
+          const next = latest(prev);
           next.delete(key);
           for (const v of values) next.append(key, v);
           return next;
@@ -59,7 +67,7 @@ export function useLibrarySearch() {
     (change: (next: URLSearchParams) => void) =>
       setParams(
         (prev) => {
-          const next = new URLSearchParams(prev);
+          const next = latest(prev);
           change(next);
           return next;
         },
@@ -72,7 +80,7 @@ export function useLibrarySearch() {
     () =>
       setParams(
         (prev) => {
-          const sort = prev.get('sort');
+          const sort = latest(prev).get('sort');
           return sort ? new URLSearchParams({ sort }) : new URLSearchParams();
         },
         { replace: true },

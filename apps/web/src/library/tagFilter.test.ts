@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  clickStar,
+  clickRating,
   cycleTag,
   describeRating,
   describeTags,
@@ -60,43 +60,26 @@ test('"No tags" leaves the excluded tags', () => {
   );
 });
 
-test('a click is "at least", Ctrl/⌘ toggles a star, Shift picks a range', () => {
-  assert.equal(
-    after('', (p) => clickStar(p, 3, {}, null)),
-    'ratingMin=3',
-  );
-  assert.equal(
-    after('ratingMin=3', (p) => clickStar(p, 3, {}, null)),
-    '',
-  );
-  // At least 1: rated, unrated photos left out.
-  assert.equal(
-    after('', (p) => clickStar(p, 1, {}, null)),
-    'ratingMin=1',
-  );
-  // 3+ without 4: 3 and 5.
-  assert.equal(
-    after('ratingMin=3', (p) => clickStar(p, 4, { toggle: true }, 3)),
-    'rating=3&rating=5',
-  );
-  assert.equal(
-    after('', (p) => clickStar(p, 2, { toggle: true }, null)),
-    'rating=2',
-  );
-  // Back to a run up to 5: "at least" again.
-  assert.equal(
-    after('rating=3&rating=5', (p) => clickStar(p, 4, { toggle: true }, 5)),
-    'ratingMin=3',
-  );
-  assert.equal(
-    after('rating=2', (p) => clickStar(p, 3, { range: true }, 2)),
-    'rating=2&rating=3',
-  );
-  assert.equal(
-    after('', (p) => clickStar(p, 4, { range: true }, 2)),
-    'rating=2&rating=3&rating=4',
-  );
+test('a click shows only that rating, Ctrl/⌘ adds or removes one, Shift a range', () => {
+  const click = (
+    s: string,
+    n: number,
+    mods: { toggle?: boolean; range?: boolean } = {},
+    anchor: number | null = null,
+  ) => after(s, (p) => clickRating(p, n, mods, anchor));
+  assert.equal(click('', 3), 'rating=3');
+  assert.equal(click('rating=3', 3), '');
+  assert.equal(click('rating=3', 4), 'rating=4');
+  // Unrated photos are one of them.
+  assert.equal(click('', 0), 'rating=0');
+  assert.equal(click('rating=2', 4, { toggle: true }), 'rating=2&rating=4');
+  assert.equal(click('ratingMin=3', 4, { toggle: true }), 'rating=3&rating=5');
+  // A run up to 5 is "at least", as older links have it; all of them is no filter.
+  assert.equal(click('rating=3', 5, { range: true }, 3), 'ratingMin=3');
+  assert.equal(click('rating=2', 0, { range: true }, 2), 'rating=0&rating=1&rating=2');
+  assert.equal(click('rating=0&rating=1&rating=2&rating=3&rating=4', 5, { toggle: true }), '');
   assert.deepEqual(ratingSet(q('ratingMin=4')), [4, 5]);
+  assert.deepEqual(ratingSet(q('rating=0&rating=2')), [0, 2]);
 });
 
 test('ratings read back in a few words', () => {
@@ -104,5 +87,7 @@ test('ratings read back in a few words', () => {
   assert.equal(describeRating(q('rating=2')), '★ 2');
   assert.equal(describeRating(q('rating=2&rating=3')), '★ 2–3');
   assert.equal(describeRating(q('rating=1&rating=3&rating=5')), '★ 1, 3, 5');
+  assert.equal(describeRating(q('rating=0')), 'unrated');
+  assert.equal(describeRating(q('rating=0&rating=1')), 'unrated or ★ 1');
   assert.equal(describeRating(q('')), null);
 });
