@@ -84,6 +84,15 @@ See README.md for the architecture overview and commands.
   (Ctrl+Alt+O, Ctrl+Alt+A), matched by physical key (`code`); they listen first (capture)
   and, while a sequence goes on, its keys do nothing else. A new app shortcut must go
   into `reservedPress`'s lists, or a tag's could hide it.
+- Collections (roadmap 8.14) are where photos come from, a tree like folders
+  (`collections`, `photos.collection_id`: per photo, its versions with it; server
+  `photos/collections.ts` ↔ `lib/collections.ts`). Names are unique among siblings, so
+  a path of names finds one: uploads and transfers (`SentVersion.collection`) name theirs
+  and `collectionAt` makes what's missing. The filter (`collection`: ids, each with those
+  under it, or `none`) is in `whereClause`. Anything new that creates photos decides
+  their collection. The import review sorts new photos (`importCollections.ts`, capture
+  times read in the browser by `captureTime.ts`, since the server learns them only when
+  it renders); the sidebar's block (`CollectionFilter.tsx`) never scrolls on its own.
 - Library actions on a selection take a `Target` (roadmap 8.13): ids, or `{ filter, except }`
   when Ctrl+A selected everything the filters match (`useGridSelection`'s `target()`).
   Server routes resolve it with `targetClause` (`photos/query.ts`) in their own query; a

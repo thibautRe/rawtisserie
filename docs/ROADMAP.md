@@ -84,6 +84,8 @@ in a list behind a toggle (sets, ranges, unrated), in a Label block with the col
 labels and picks; colour primaries' saturation and brightness in 0.1 % steps, fine
 around 0. Added: 8.14 (collections), and moving rawler to its next release
 (Cross-cutting: upstream has the CR3 fix, unreleased, on a master that needs porting).
+Then 8.14, collections: a tree per photo, in the filters, sorted into at import (by day,
+by shoot, as the folders, all in one).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct
@@ -2040,7 +2042,27 @@ presets and styles, export, sending.
 - Above 200 photos, actions ask first, with the number ("Move 320 photos to the trash?").
 - The status bar shows the count ("All 1,240 selected").
 
-### 8.14 Collections (L, from NOTES.md)
+### 8.14 Collections (L, from NOTES.md) — done
+
+> **Done** 2026-11-18 (server `photos/collections.ts`, migration 00026; web
+> `lib/collections.ts`, `CollectionFilter.tsx`, `CollectionPicker.tsx`,
+> `importCollections.ts`, `captureTime.ts`). As built: a `collections` table (names unique
+> among siblings, so a path of names finds one; 10,000 per user) and
+> `photos.collection_id`. In the filter sidebar, first: the tree, newest first at each
+> level, each with its photos and those under it under the other filters, picked like
+> tags (any of them, each with those under it) and "No collection"; each level shows its
+> six most recent and those holding a picked one, the rest behind "Show more", and a
+> search finds any, so it never scrolls on its own. Each row's menu makes one in it,
+> renames, moves, merges (photos and children, merged where names meet) and deletes
+> (photos stay, in no collection). A picker (tree, search, making one in place) moves the
+> selection's photos (a `Target`, so all a filter matches), from the info panel. The
+> import review reads capture times from the files' first bytes (EXIF: TIFF-based RAWs,
+> JPEG, RAF, CR3; else the file's date) and sorts by day, by shoot (a gap of N hours),
+> as in the folders, all in one, or none, optionally under a year, with names given in
+> place; the choice is remembered per kind (card or folders). Uploads and transfers carry
+> the path. Not done: export folders named after collections (8.4's ZIP), drag and drop
+> in the tree, splitting a collection at a photo (select from it and move them into a
+> new one instead), and a photo's collection in its card or the loupe.
 
 A photo belongs to a **collection**: the "folder" it comes from, usually one per day of
 shooting, sometimes spanning days (a night shoot) or several in a day (two different
