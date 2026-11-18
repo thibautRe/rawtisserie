@@ -50,6 +50,9 @@ export function describeFilters(query: string): string {
   if (p.has('isoMin') || p.has('isoMax')) parts.push('ISO');
   if (p.has('focalMin') || p.has('focalMax')) parts.push('focal length');
   if (p.has('apertureMin') || p.has('apertureMax')) parts.push('aperture');
+  const collections = p.getAll('collection').filter((c) => c !== 'none').length;
+  if (collections) parts.push(collections === 1 ? 'a collection' : `${collections} collections`);
+  if (p.getAll('collection').includes('none')) parts.push('no collection');
   const imports = p.getAll('import').length;
   if (imports) parts.push(imports === 1 ? 'an import' : `${imports} imports`);
   return parts.join(' · ');

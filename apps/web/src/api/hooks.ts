@@ -23,6 +23,7 @@ import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { clearOriginals } from './originals.ts';
 import { mergePages } from './pages.ts';
+import type { Collection } from '../lib/collections.ts';
 import type { Shortcut } from '../lib/keys.ts';
 import type {
   AccessToken,
@@ -310,6 +311,55 @@ export function useTagChange() {
         void qc.invalidateQueries({ queryKey: ['filter-presets'] });
       }
     },
+  });
+}
+
+/** The user's collections (roadmap 8.14). Under `facets`, so library changes (imports) refresh their counts. */
+export function useCollections() {
+  return useQuery({
+    queryKey: ['facets', 'collections'],
+    queryFn: () => api.get<Collection[]>('/api/collections'),
+    staleTime: 30_000,
+  });
+}
+
+export type CollectionChange =
+  | { type: 'create'; name: string; parentId: string | null }
+  | { type: 'rename'; id: string; name: string }
+  | { type: 'move'; id: string; parentId: string | null }
+  | { type: 'merge'; id: string; into: string }
+  | { type: 'delete'; id: string };
+
+/** Make, rename, move, merge or delete a collection. A new one comes back. */
+export function useCollectionChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (c: CollectionChange): Promise<Collection | null> => {
+      if (c.type === 'create') return api.post<Collection>('/api/collections', { name: c.name, parentId: c.parentId });
+      if (c.type === 'rename') await api.patch(`/api/collections/${c.id}`, { name: c.name });
+      else if (c.type === 'move') await api.patch(`/api/collections/${c.id}`, { parentId: c.parentId });
+      else if (c.type === 'merge') await api.post(`/api/collections/${c.id}/merge`, { into: c.into });
+      else await api.delete(`/api/collections/${c.id}`);
+      return null;
+    },
+    onSuccess: (_, c) => {
+      void qc.invalidateQueries({ queryKey: ['facets'] });
+      // Photos carry their collection: merged or deleted ones changed.
+      if (c.type === 'merge' || c.type === 'delete') {
+        void qc.invalidateQueries({ queryKey: ['photos'] });
+        void qc.invalidateQueries({ queryKey: ['photo'] });
+      }
+    },
+  });
+}
+
+/** Put the photos of versions (`target`) in a collection (null: none). Answers how many photos moved. */
+export function useMoveToCollection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ target, collectionId }: { target: Target; collectionId: string | null }) =>
+      (await api.post<{ count: number }>('/api/versions/collection', { ...target, collectionId })).count,
+    onSettled: () => refreshVersions(qc),
   });
 }
 

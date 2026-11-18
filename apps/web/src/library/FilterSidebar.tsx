@@ -12,7 +12,7 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Check, ChevronDown, ChevronRight, Star, StarOff, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FolderPlus, Star, StarOff, X } from 'lucide-react';
 import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useFacets } from '../api/hooks.ts';
@@ -21,6 +21,7 @@ import { TagSearch } from '../components/TagSearch.tsx';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
 import { type TagNode, displayTag, filterTagTree, isUnder, tagTree } from '../lib/tags.ts';
 import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
+import { CollectionFilter, useNewCollection } from './CollectionFilter.tsx';
 import { FilterPresetMenu } from './FilterPresetMenu.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
 import {
@@ -611,6 +612,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
     if (!plainRating) setRatingsOpen(true);
   }, [plainRating]);
   const r = facets?.ranges;
+  const newCollection = useNewCollection();
 
   return (
     <Stack as="aside" {...BLOCKS_PROPS} w="64" flexShrink={0} borderRightWidth="1px">
@@ -634,6 +636,25 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
           </HStack>
         }
       />
+
+      <PanelBlock
+        title="Collections"
+        actions={
+          <IconButton
+            size="2xs"
+            variant="ghost"
+            color="fg.muted"
+            aria-label="New collection"
+            title="New collection"
+            onClick={() => newCollection.open(null)}
+          >
+            <FolderPlus />
+          </IconButton>
+        }
+      >
+        <CollectionFilter counts={facets?.collections ?? []} search={search} naming={newCollection} />
+        {newCollection.dialog}
+      </PanelBlock>
 
       <PanelBlock title="Label">
         <HStack gap="0" justify="space-between">

@@ -92,7 +92,9 @@ export function useLibrarySearch() {
   // combine (`tagAny`) isn't one.
   const activeFilterCount = [...params.keys()].filter(
     (k, i, keys) =>
-      k !== 'sort' && k !== 'tagAny' && (!['flag', 'import', 'rating'].includes(k) || keys.indexOf(k) === i),
+      k !== 'sort' &&
+      k !== 'tagAny' &&
+      (!['flag', 'import', 'rating', 'collection'].includes(k) || keys.indexOf(k) === i),
   ).length;
 
   // The same object while the filters are: memoised panels take it.

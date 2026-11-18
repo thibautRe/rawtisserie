@@ -24,6 +24,7 @@ import {
   CopyPlus,
   Download,
   Ellipsis,
+  FolderInput,
   ImageDown,
   Lock,
   LockOpen,
@@ -35,7 +36,8 @@ import {
 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useInstances, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
+import { useCollections, useInstances, usePhoto, useUpdatePhoto } from '../api/hooks.ts';
+import { collectionPath, displayCollection } from '../lib/collections.ts';
 import { photoCount } from './selectionText.ts';
 import {
   type BulkPatch,
@@ -87,6 +89,19 @@ interface Actions {
   onExport: () => void;
   /** Send the selected versions to another instance (connected in the settings). */
   onSend: (instance: RemoteInstance) => void;
+  /** Put the selected photos in a collection (picked in a dialog; `current`: where they are, if all in one). */
+  onMoveToCollection: (current: string | null) => void;
+}
+
+/** A photo's collection, as a path (`2026 › 2026-11-09`). */
+function CollectionName({ id }: { id: string | null }) {
+  const { data: list = [] } = useCollections();
+  const path = id ? collectionPath(new Map(list.map((c) => [c.id, c])), id) : [];
+  return (
+    <Text textStyle="xs" color={path.length ? undefined : 'fg.muted'} fontStyle={path.length ? undefined : 'italic'}>
+      {path.length ? displayCollection(path) : 'No collection'}
+    </Text>
+  );
 }
 
 /** Duplicate / Duplicate from original. */
@@ -288,6 +303,7 @@ function SinglePanel({
   onCopy,
   onExport,
   onSend,
+  onMoveToCollection,
 }: { photo: Photo } & Actions) {
   const { data: instances = [] } = useInstances();
   const { data: detail } = usePhoto(listPhoto.id);
@@ -374,6 +390,7 @@ function SinglePanel({
               else if (value === 'export') onExport();
               else if (value === 'duplicate' || value === 'original') onDuplicate(value === 'original');
               else if (value === 'delete') onDelete([photo]);
+              else if (value === 'collection') onMoveToCollection(photo.collectionId);
               else if (value.startsWith('send:')) onSend(instances.find((i) => `send:${i.id}` === value)!);
             }}
           >
@@ -412,6 +429,9 @@ function SinglePanel({
                   <Menu.Item value="original">
                     <CopyPlus /> Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
                   </Menu.Item>
+                  <Menu.Item value="collection">
+                    <FolderInput /> Move to collection…
+                  </Menu.Item>
                   {instances.map((i) => (
                     <Menu.Item key={i.id} value={`send:${i.id}`}>
                       <Send /> Send to {hostOf(i.url)}
@@ -428,6 +448,17 @@ function SinglePanel({
         </HStack>
 
         <Culling rating={photo.rating} flag={photo.flag} colorLabel={photo.colorLabel} onChange={save} />
+      </PanelBlock>
+
+      <PanelBlock
+        title="Collection"
+        actions={
+          <Button size="2xs" variant="ghost" color="fg.muted" onClick={() => onMoveToCollection(photo.collectionId)}>
+            Move…
+          </Button>
+        }
+      >
+        <CollectionName id={photo.collectionId} />
       </PanelBlock>
 
       <PanelBlock title="Tags" actions={<ManageTags />}>
@@ -716,6 +747,7 @@ function BulkPanel({
   onApplyEdit,
   onExport,
   onSend,
+  onMoveToCollection,
 }: { photos: Photo[]; count: number } & Actions) {
   const { data: instances = [] } = useInstances();
   const same = <T,>(get: (p: Photo) => T): T | undefined => {
@@ -768,6 +800,9 @@ function BulkPanel({
             <Copy /> Duplicate {n}
           </Button>
         </DuplicateMenu>
+        <Button size="xs" variant="outline" onClick={() => onMoveToCollection(same((p) => p.collectionId) ?? null)}>
+          <FolderInput /> Move {n} to a collection…
+        </Button>
         {instances.map((i) => (
           <Button key={i.id} size="xs" variant="outline" onClick={() => onSend(i)}>
             <Send /> Send {n} to {hostOf(i.url)}

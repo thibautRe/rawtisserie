@@ -9,11 +9,13 @@ export function TagSearch({
   value,
   onChange,
   size = 'sm',
+  placeholder = 'Find a tag…',
   ...rest
 }: {
   value: string;
   onChange: (query: string) => void;
   size?: 'xs' | 'sm';
+  placeholder?: string;
   maxW?: string;
 }) {
   return (
@@ -26,8 +28,8 @@ export function TagSearch({
     >
       <Input
         size={size}
-        placeholder="Find a tag…"
-        aria-label="Find a tag"
+        placeholder={placeholder}
+        aria-label={placeholder.replace(/…$/, '')}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {

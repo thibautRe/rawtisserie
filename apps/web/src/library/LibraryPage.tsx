@@ -27,9 +27,13 @@ import {
   fetchTargetPhotos,
   useBatchEdit,
   useBulkUpdate,
+  useCollections,
   useDuplicateVersion,
   useLibraryPhotos,
+  useMoveToCollection,
 } from '../api/hooks.ts';
+import { collectionPath, displayCollection } from '../lib/collections.ts';
+import { CollectionPicker, type PickerRequest } from './CollectionPicker.tsx';
 import { COLOR_LABELS, type BulkPatch, type Photo, type RemoteInstance } from '../api/types.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { PanelDrawer } from '../components/PanelDrawer.tsx';
@@ -135,6 +139,12 @@ export function LibraryPage() {
   }, [loupe, items, photos, total]);
 
   const bulk = useBulkUpdate();
+  const moveToCollection = useMoveToCollection();
+  const { data: collections = [] } = useCollections();
+  // Read when a pick is made: the picker may have made a collection since it opened.
+  const latestCollections = useRef(collections);
+  latestCollections.current = collections;
+  const [collectionPicker, setCollectionPicker] = useState<PickerRequest | null>(null);
   const moveToTrash = useTrashWithUndo();
   const duplicate = useDuplicateVersion();
   const { start: startImport, review: importReview } = useImporter();
@@ -212,6 +222,40 @@ export function LibraryPage() {
       { title: `Send ${photoCount(grid.count)} to ${hostOf(instance.url)}?`, confirm: 'Send' },
       () => void startTransfer(instance, grid.target()),
     );
+  };
+
+  /** Put the selection's photos in a collection, picked in a dialog. */
+  const moveSelectionToCollection = (current: string | null) => {
+    if (!grid.count) return;
+    const target = grid.target();
+    const count = grid.count;
+    setCollectionPicker({
+      title: `Move ${photoCount(count)} to…`,
+      confirm: 'Move',
+      current,
+      none: { label: 'No collection', hint: 'Out of every collection' },
+      onPick: (collectionId) => {
+        const name = collectionId
+          ? displayCollection(collectionPath(new Map(latestCollections.current.map((c) => [c.id, c])), collectionId))
+          : null;
+        ask(count, { title: `Move ${photoCount(count)} to ${name ?? 'no collection'}?`, confirm: 'Move' }, () =>
+          moveToCollection.mutate(
+            { target, collectionId },
+            {
+              onSuccess: (moved) =>
+                toaster.create({
+                  type: 'info',
+                  title: name
+                    ? `Moved ${photoCount(moved)} to ${name}`
+                    : `${photoCount(moved)} out of their collection`,
+                  duration: 3000,
+                }),
+              onError: failed('Could not move them'),
+            },
+          ),
+        );
+      },
+    });
   };
 
   // ── Export (roadmap 8.4): the selection, in the grid's order ──
@@ -660,8 +704,10 @@ export function LibraryPage() {
           onCopy={() => void copyFrom(true)}
           onExport={exportSelection}
           onSend={sendSelection}
+          onMoveToCollection={moveSelectionToCollection}
         />
       </PanelDrawer>
+      <CollectionPicker request={collectionPicker} onClose={() => setCollectionPicker(null)} />
       <LibraryExportDialog photos={exporting} preview={exportPreview} onClose={() => setExporting(null)} />
       {copyDialog && (
         <CopyEditsDialog

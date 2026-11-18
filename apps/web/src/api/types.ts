@@ -102,6 +102,8 @@ export interface TrashPage {
 export interface Photo {
   id: string;
   photoId: string;
+  /** The photo's collection (roadmap 8.14), if it's in one. */
+  collectionId: string | null;
   /** Name of a duplicate; null for an unnamed version. */
   versionName: string | null;
   /** 1-based position among the photo's versions. */
@@ -221,6 +223,8 @@ export interface ImportFacet {
 
 export interface Facets {
   imports: ImportFacet[];
+  /** Each collection's own photos (not those under it) under the other filters; null for none. */
+  collections: FacetValue<string | null>[];
   cameras: FacetValue[];
   lenses: FacetValue[];
   tags: FacetValue[];

@@ -24,6 +24,7 @@ const URL_ = `http://localhost:${PORT}`;
 const photo = (i: number): Photo => ({
   id: `v${i}`,
   photoId: `p${i}`,
+  collectionId: null,
   versionName: null,
   versionIndex: 1,
   versionCount: 1,
@@ -109,6 +110,50 @@ let chunks = 0;
 let received = new Map<string, { name: string; size: number; offset: number }>();
 /** Saved filters (`/api/filter-presets`). */
 let filterPresets: { id: string; name: string; query: string }[] = [];
+/** Collections (`/api/collections`): a year, two days in it, and an older trip. */
+type MockCollection = {
+  id: string;
+  parentId: string | null;
+  name: string;
+  createdAt: string;
+  photos: number;
+  latest: string;
+};
+const COLLECTIONS: MockCollection[] = [
+  {
+    id: 'c2026',
+    parentId: null,
+    name: '2026',
+    createdAt: '2026-11-01T00:00:00Z',
+    photos: 0,
+    latest: '2026-11-01T00:00:00Z',
+  },
+  {
+    id: 'c1109',
+    parentId: 'c2026',
+    name: '2026-11-09',
+    createdAt: '2026-11-09T00:00:00Z',
+    photos: 4,
+    latest: '2026-11-09T20:00:00Z',
+  },
+  {
+    id: 'c1110',
+    parentId: 'c2026',
+    name: '2026-11-10',
+    createdAt: '2026-11-10T00:00:00Z',
+    photos: 2,
+    latest: '2026-11-10T20:00:00Z',
+  },
+  {
+    id: 'cjapan',
+    parentId: null,
+    name: 'Japan',
+    createdAt: '2025-04-01T00:00:00Z',
+    photos: 3,
+    latest: '2025-04-10T00:00:00Z',
+  },
+];
+let collections: MockCollection[] = [];
 
 let server: PreviewServer;
 let browser: Browser;
@@ -146,6 +191,7 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   chunks = 0;
   holdCompletes = null;
   filterPresets = [];
+  collections = COLLECTIONS.map((c) => ({ ...c }));
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -260,12 +306,41 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
         ],
         ranges: { total: PHOTOS.length },
         imports: IMPORTS,
+        collections: [
+          { value: 'c1109', count: 4 },
+          { value: 'c1110', count: 2 },
+          { value: 'cjapan', count: 3 },
+          { value: null, count: 1 },
+        ],
       });
     const version = /^\/api\/versions\/(v\d+)$/.exec(path)?.[1];
     const p = PHOTOS.find((p) => p.id === version);
     if (p && method === 'PATCH') patched.set(p.id, { ...patched.get(p.id), ...route.request().postDataJSON() });
     if (p) return json({ ...detail(p), ...patched.get(p.id) });
     if (path === '/api/presets') return json({ presets: [] });
+    if (path === '/api/collections' && method === 'POST') {
+      const { name, parentId } = route.request().postDataJSON() as { name: string; parentId: string | null };
+      const made = {
+        id: `c${collections.length}-${name}`,
+        parentId,
+        name,
+        createdAt: '2026-11-18T00:00:00Z',
+        photos: 0,
+        latest: '2026-11-18T00:00:00Z',
+      };
+      collections = [...collections, made];
+      return json(made);
+    }
+    if (path === '/api/collections') return json(collections);
+    const collection = /^\/api\/collections\/([^/]+)(\/merge)?$/.exec(path);
+    if (collection) {
+      const body = method === 'DELETE' ? null : route.request().postDataJSON();
+      const [, id, merge] = collection;
+      if (method === 'DELETE' || merge) collections = collections.filter((c) => c.id !== id);
+      else collections = collections.map((c) => (c.id === id ? { ...c, ...body } : c));
+      return method === 'DELETE' ? route.fulfill({ status: 204 }) : json({ ok: true });
+    }
+    if (path === '/api/versions/collection') return json({ count: 1 });
     if (path === '/api/filter-presets' && method === 'POST') {
       const { name, query } = route.request().postDataJSON() as { name: string; query: string };
       const preset = { id: `f${filterPresets.length}`, name, query };
@@ -1110,6 +1185,88 @@ test('a tag can be excluded, picked tags under a parent match all or any, and ra
   await page.getByRole('button', { name: 'At least 4 stars' }).click();
   await page.waitForURL((u) => u.searchParams.get('ratingMin') === '4' && !u.searchParams.has('rating'));
   await page.locator('[data-rating="4"][aria-pressed="true"]').waitFor();
+});
+
+test('collections: a tree in the filters, newest first, picked with those under them, and managed from it (8.14)', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const row = (id: string) => page.locator(`[data-collection="${id}"]`);
+  const shots = process.env.COLLECTION_SHOTS;
+  // The newest first: 2026 (its photos and those under it) before Japan.
+  await row('c2026').waitFor();
+  const order = await page
+    .locator('[data-collection]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-collection')));
+  assert.deepEqual(order, ['c2026', 'cjapan']);
+  assert.match((await row('c2026').textContent()) ?? '', /2026\s*6/);
+  await page.getByRole('button', { name: 'Unfold 2026' }).click();
+  const unfolded = await page
+    .locator('[data-collection]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-collection')));
+  assert.deepEqual(unfolded, ['c2026', 'c1110', 'c1109', 'cjapan']);
+  if (shots)
+    await page
+      .locator('aside')
+      .first()
+      .screenshot({ path: `${shots}/collections-sidebar.png` });
+  // Picked: one, then another (any of them), then the photos in none.
+  await row('c1109').getByText('2026-11-09').click();
+  await page.waitForURL((u) => u.searchParams.getAll('collection').join() === 'c1109');
+  await row('cjapan').getByText('Japan').click();
+  await page.waitForURL((u) => u.searchParams.getAll('collection').join() === 'c1109,cjapan');
+  await page.getByText('No collection', { exact: true }).click();
+  await page.waitForURL((u) => u.searchParams.getAll('collection').includes('none'));
+  // A search finds one under a folded parent.
+  await page.getByLabel('Find a collection').fill('11-10');
+  await row('c1110').waitFor();
+  assert.equal(await row('cjapan').count(), 0);
+  await page.getByLabel('Find a collection').press('Escape');
+
+  // Renamed from its menu.
+  await row('cjapan').hover();
+  await page.getByRole('button', { name: 'Manage Japan' }).click();
+  await page.getByRole('menuitem', { name: 'Rename…' }).click();
+  await page.getByPlaceholder('Name', { exact: true }).fill('Japan 2025');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await row('cjapan').getByText('Japan 2025').waitFor();
+  assert.deepEqual(sent.find((s) => s.path === '/api/collections/cjapan')?.body, { name: 'Japan 2025' });
+  // Merged into another, after a word on what it does.
+  await row('c1110').hover();
+  await page.getByRole('button', { name: 'Manage 2026-11-10' }).click();
+  await page.getByRole('menuitem', { name: 'Merge into…' }).click();
+  const picker = page.locator('[data-collection-picker]');
+  // It can't go into itself.
+  await picker.getByRole('button', { name: 'Unfold 2026' }).click();
+  assert.equal(await picker.locator('[data-pick="c1110"]').getAttribute('aria-disabled'), 'true');
+  await picker.locator('[data-pick="c1109"]').click();
+  if (shots) await picker.screenshot({ path: `${shots}/collections-picker.png` });
+  await picker.getByRole('button', { name: 'Merge', exact: true }).click();
+  await page
+    .getByRole('alertdialog')
+    .getByText(/Its 2 photos go into 2026 › 2026-11-09/)
+    .waitFor();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Merge' }).click();
+  await page.waitForFunction(() => !document.querySelector('[data-collection="c1110"]'));
+  assert.deepEqual(sent.find((s) => s.path === '/api/collections/c1110/merge')?.body, { into: 'c1109' });
+
+  // A photo moved into a new collection, made in the picker.
+  await page.goto(`${URL_}/`);
+  await cards().first().click();
+  await page.getByRole('button', { name: 'Move…' }).click();
+  await picker.getByRole('button', { name: 'Unfold 2026' }).waitFor();
+  await picker.locator('[data-pick="c2026"]').click();
+  await picker.getByLabel('New collection’s name').fill('  Wedding ');
+  await picker.getByRole('button', { name: 'Make' }).click();
+  await picker.locator('[data-pick^="c"][aria-pressed="true"]').getByText('Wedding').waitFor();
+  assert.deepEqual(sent.find((s) => s.path === '/api/collections')?.body, { name: 'Wedding', parentId: 'c2026' });
+  await picker.getByRole('button', { name: 'Move', exact: true }).click();
+  await page.getByText(/Moved 1 photo to 2026 › Wedding/).waitFor();
+  const moved = sent.find((s) => s.path === '/api/versions/collection')?.body as {
+    ids: string[];
+    collectionId: string;
+  };
+  assert.equal(moved.ids.length, 1);
+  assert.match(moved.collectionId, /Wedding$/);
 });
 
 test('filters saved as a preset, then applied again over others', async () => {

@@ -9,9 +9,12 @@ export const RenameDialog = memo(function RenameDialog({
   open,
   name,
   placeholder,
+  action = 'Rename',
   onClose,
   onRename,
 }: {
+  /** The button's label. */
+  action?: string;
   title: string;
   hint: string;
   maxLength: number;
@@ -56,7 +59,7 @@ export const RenameDialog = memo(function RenameDialog({
                     <Button variant="outline">Cancel</Button>
                   </Dialog.ActionTrigger>
                   <Button type="submit" colorPalette="orange">
-                    Rename
+                    {action}
                   </Button>
                 </HStack>
               </Dialog.Footer>
