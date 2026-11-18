@@ -58,13 +58,17 @@ COPY apps/web/package.json apps/web/
 COPY packages/pipeline/package.json packages/pipeline/
 RUN --mount=type=cache,target=/root/.npm \
   npm ci --omit=dev -w @rawtisserie/server
-COPY packages/pipeline/src packages/pipeline/src
-COPY packages/pipeline/luts packages/pipeline/luts
+# The whole package (its data: LUTs, lensfun's database…), not a list of its folders: one
+# added later comes with it. Its wasm is built above (left out by .dockerignore).
+COPY packages/pipeline packages/pipeline
 COPY --from=wasm /src/packages/pipeline/wasm packages/pipeline/wasm
 COPY apps/server/migrations apps/server/migrations
 COPY apps/server/src apps/server/src
 COPY --from=web /src/apps/web/dist apps/web/dist
 COPY --from=denoise-models /src/models/denoise models/denoise
+# What the server reads at runtime, read the way it does (render included): an image
+# missing one of its files fails to build here, not in production.
+RUN node apps/server/src/scripts/check-image.ts
 RUN mkdir /data && chown node:node /data
 USER node
 VOLUME /data

@@ -122,10 +122,16 @@ uploads resume across a restart.
    denoise networks (ansel-denoise's, ~100 MB, pinned by SHA-256) into `models/denoise`.
 3. **web** (`node:26-slim`): `npm ci`, then the Vite build.
 4. **runtime** (`node:26-slim`): the server's production dependencies only
-   (`npm ci --omit=dev -w @rawtisserie/server`), `packages/pipeline` (sources, built-in
-   LUTs, wasm), the server's sources and migrations, `apps/web/dist` and
-   `models/denoise` (served at `/api/denoise-models/:id`, `DENOISE_MODELS_DIR`; browsers
-   download a model the first time a recipe uses it). Runs as `node`.
+   (`npm ci --omit=dev -w @rawtisserie/server`), the whole of `packages/pipeline`
+   (sources, built-in LUTs, lensfun's database; its wasm from stage 1), the server's
+   sources and migrations, `apps/web/dist` and `models/denoise` (served at
+   `/api/denoise-models/:id`, `DENOISE_MODELS_DIR`; browsers download a model the first
+   time a recipe uses it). Its last step runs `apps/server/src/scripts/check-image.ts`:
+   what the server reads at run time, used as it uses it (an image decoded, its default
+   recipe with lensfun's database, rendered and encoded by sharp; the LUTs, the models,
+   the web app, the migrations). An image missing a file fails to build, in CI before
+   it's published, rather than in production (lensfun's database did, 2026-11-19).
+   Runs as `node`.
 
 Anything the server imports at run time must be in its `dependencies`, not
 `devDependencies`, or the image fails to start. The one native dependency is `sharp`
@@ -295,7 +301,8 @@ request. Four jobs run in parallel:
   cached by that script's hash).
 - **TypeScript:** builds the wasm (`wasm-bindgen` pinned to the crate's version), then
   `format:check`, `typecheck`, the workspaces' tests and the production web build.
-- **Container image:** builds the `Dockerfile`, with Buildx's GitHub Actions cache.
+- **Container image:** builds the `Dockerfile`, with Buildx's GitHub Actions cache; its
+  last step checks the image (`check-image.ts`, above).
 - **Deploy configuration:** `docker compose config` on `deploy/compose.yaml`,
   `caddy validate` on the Caddyfile, `shellcheck` on the backup and deploy scripts and a build of
   its image.

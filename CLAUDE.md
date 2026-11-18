@@ -124,6 +124,10 @@ See README.md for the architecture overview and commands.
 - Files (originals, renders, uploaded LUTs) go through the object store
   (`apps/server/src/storage/`: local disk or S3, by key), never `fs` directly, so both
   work; worker threads use it too. Uploads in progress stay on local disk.
+- A file the server reads at run time (data in `packages/pipeline`, models, the web
+  app) must be in the production image: `apps/server/src/scripts/check-image.ts`, run
+  as the image's last build step, reads each the way the server does. Add what you add
+  to it, or the image builds without it and production fails (lensfun's database did).
 - `docs/DEPLOYMENT.md` has the deployment diagram and what CI (`.github/workflows/ci.yml`)
   runs. Update it with any change to what runs in production, where it stores things, or
   how it's built and checked.
