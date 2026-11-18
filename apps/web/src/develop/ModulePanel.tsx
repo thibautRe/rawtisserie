@@ -740,6 +740,9 @@ const NORMALIZE_KEYS = {
  */
 const HUE_SHIFT_90 = sinhCurve(90, 4.5);
 const HUE_SHIFT_180 = sinhCurve(180, 4.5);
+/** Colour primaries' saturation and brightness shifts: fine around 0, as the hue's. */
+const PRIMARY_SATURATION = sinhCurve(100, 4.5);
+const PRIMARY_BRIGHTNESS = sinhCurve(0.25, 4.5);
 /** Glow shapes, as the tabs show them. */
 const GLOW_SHAPE_LABELS: Record<GlowShape, string> = { round: 'Round', streak: 'Streak', motion: 'Motion' };
 const GLOW_SHAPE_TITLES: Record<GlowShape, string> = {
@@ -2513,9 +2516,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             label="Saturation"
             min={-100}
             max={100}
-            step={1}
+            step={0.1}
+            curve={PRIMARY_SATURATION}
             track={tracks.saturation(PRIMARY_HUES[e.view.primary])}
-            format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %`}
+            format={(v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} %`}
             {...bindPrimary(e, e.view.primary, 'saturation')}
           />
           <ParamSlider
@@ -2525,8 +2529,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             max={0.25}
             hardMin={-1}
             hardMax={1}
-            step={0.005}
+            step={0.001}
             scale={100}
+            curve={PRIMARY_BRIGHTNESS}
             track={tracks.brightness(PRIMARY_HUES[e.view.primary])}
             format={(v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)} %`}
             {...bindPrimary(e, e.view.primary, 'brightness')}
