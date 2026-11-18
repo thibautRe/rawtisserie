@@ -40,7 +40,8 @@ export function PanelBlock({
   badge?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  children: React.ReactNode;
+  /** None: a title line alone (with its actions). */
+  children?: React.ReactNode;
 }) {
   if (onOpenChange)
     return (
@@ -80,7 +81,7 @@ export function PanelBlock({
       </Collapsible.Root>
     );
   return (
-    <Stack gap="1.5" px="3" pt={title ? '2' : '3'} pb="3" bg="bg.panel">
+    <Stack gap="1.5" px="3" pt={title ? '2' : '3'} pb={children ? '3' : '2'} bg="bg.panel">
       {title && (
         <HStack justify="space-between" h="6">
           <HStack gap="2">

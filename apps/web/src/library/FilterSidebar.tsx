@@ -27,6 +27,7 @@ import {
   TOP_LEVEL,
   RATINGS,
   clickRating,
+  ratingAtLeast,
   ratingRange,
   setRatings,
   cycleTag,
@@ -240,38 +241,68 @@ function AnySwitch({ any, onToggle }: { any: boolean; onToggle: () => void }) {
   );
 }
 
-/**
- * The rating filter (roadmap 8.12): a bar per rating (unrated, then 1 to 5 stars), as
- * tall as how many photos have it under the other filters, orange when it's shown. A
- * click shows only that rating (again: all), a drag or Shift+click a range from the
- * last one clicked, Ctrl/⌘+click adds or removes one; the same from the keyboard with
- * Enter or Space on a bar.
- */
-function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: LibrarySearch }) {
-  const set = ratingSet(search.params);
-  // The last rating clicked: where a Shift+click's range starts.
-  const anchor = useRef<number | null>(null);
-  // A drag across the bars (once it reaches another one): shown as it goes, applied when it ends.
-  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+/** The ratings shown (`ratingSet`), and a way to change them that shows the change at once. */
+interface Ratings {
+  set: number[];
+  apply: (change: (params: URLSearchParams) => void) => void;
+}
+
+function useRatings(search: LibrarySearch): Ratings {
   // What a change made shows until the address has it: React Router renders navigations
-  // in a transition, and the bars would show the old set in between.
+  // in a transition, and the filter would show the old set in between.
   const [pending, setPending] = useState<number[] | null>(null);
   useEffect(() => setPending(null), [search.search]);
-  const shown = drag ? ratingRange(drag.from, drag.to) : (pending ?? set);
+  return {
+    set: pending ?? ratingSet(search.params),
+    apply: (change) => {
+      const next = new URLSearchParams(window.location.search);
+      change(next);
+      setPending(ratingSet(next));
+      search.edit(change);
+    },
+  };
+}
+
+/** The rating filter's first look: five stars, "at least" one of them (again: any rating). */
+function RatingStars({ ratings }: { ratings: Ratings }) {
+  const atLeast = ratingAtLeast(ratings.set) ?? 0;
+  return (
+    <HStack gap="0" role="group" aria-label="Rating">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <IconButton
+          key={n}
+          aria-label={`At least ${n} stars`}
+          title={n === atLeast ? 'Any rating' : `${n} stars and up`}
+          size={{ base: 'sm', md: '2xs' }}
+          variant="ghost"
+          color={n <= atLeast ? 'orange.fg' : 'fg.subtle'}
+          onClick={() => ratings.apply((next) => setRatings(next, n === atLeast ? [] : ratingRange(n, 5)))}
+        >
+          <Star fill={n <= atLeast ? 'currentColor' : 'none'} />
+        </IconButton>
+      ))}
+    </HStack>
+  );
+}
+
+/**
+ * The rating filter in full (roadmap 8.12): a line per rating (unrated, then 1 to 5
+ * stars), with how many photos have it under the other filters. A click shows only that
+ * rating (again: all), a drag or Shift+click the ratings from the last one clicked,
+ * Ctrl/⌘+click adds or removes one; the same from the keyboard with Enter or Space.
+ */
+function RatingList({ counts, ratings }: { counts: FacetValue<number>[]; ratings: Ratings }) {
+  // The last rating clicked: where a Shift+click's range starts.
+  const anchor = useRef<number | null>(null);
+  // A drag across the lines (once it reaches another one): shown as it goes, applied when it ends.
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const shown = drag ? ratingRange(drag.from, drag.to) : ratings.set;
   const filtering = shown.length > 0;
   const countOf = (n: number) => counts.find((c) => c.value === n)?.count ?? 0;
-  const most = Math.max(1, ...RATINGS.map(countOf));
 
-  /** Apply `change` to the filters, showing its ratings at once. */
-  const apply = (change: (params: URLSearchParams) => void) => {
-    const next = new URLSearchParams(window.location.search);
-    change(next);
-    setPending(ratingSet(next));
-    search.edit(change);
-  };
   const click = (n: number, mods: { toggle: boolean; range: boolean }) => {
     const from = anchor.current;
-    apply((next) => clickRating(next, n, mods, from));
+    ratings.apply((next) => clickRating(next, n, mods, from));
     if (!mods.range) anchor.current = n;
   };
   const ratingAt = (x: number, y: number) => {
@@ -293,7 +324,7 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
       setDrag(null);
       if (to === n) click(n, mods);
       else {
-        apply((next) => setRatings(next, ratingRange(n, to)));
+        ratings.apply((next) => setRatings(next, ratingRange(n, to)));
         anchor.current = n;
       }
     };
@@ -302,34 +333,29 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
   };
 
   return (
-    <HStack w="full" gap="1" align="end" css={{ touchAction: 'none' }} role="group" aria-label="Ratings shown">
-      <Box color="fg.muted" mb="0.5" aria-hidden>
-        <Star size={12} />
-      </Box>
+    <Stack gap="0" css={{ touchAction: 'none' }} role="group" aria-label="Ratings shown">
       {RATINGS.map((n) => {
         const on = shown.includes(n);
         const count = countOf(n);
-        const name = n === 0 ? 'Unrated' : `${n} ${n === 1 ? 'star' : 'stars'}`;
+        const name = n === 0 ? 'No rating' : `${n} ${n === 1 ? 'star' : 'stars'}`;
+        // Left out by the filter: dimmer.
+        const color = on ? 'orange.fg' : filtering ? 'fg.subtle' : 'fg.muted';
         return (
-          <Stack
+          <HStack
             key={n}
             as="button"
             data-rating={n}
             aria-label={name}
             aria-pressed={on}
             title={`${name}: ${count} · click: only these · drag or Shift: a range · Ctrl/⌘: add or remove`}
-            gap="0.5"
-            align="center"
-            flex="1"
-            minW="0"
-            py="0.5"
+            gap="1"
+            px="1.5"
+            py={{ base: '1.5', md: '0.5' }}
             borderRadius="l1"
             cursor="pointer"
-            // On hover, the bar and its label light up, not the whole cell.
-            css={{
-              '&:hover [data-bar]': { filter: 'brightness(1.35)', opacity: 1 },
-              '&:hover [data-label]': { color: on ? 'orange.fg' : 'fg' },
-            }}
+            color={color}
+            bg={on ? 'orange.subtle' : undefined}
+            _hover={{ bg: on ? 'orange.subtle' : 'bg.muted', color: on ? 'orange.fg' : 'fg' }}
             _focusVisible={{ outline: '2px solid', outlineColor: 'orange.focusRing' }}
             onPointerDown={(e: React.PointerEvent) => onPointerDown(e, n)}
             // Pointers are handled above; a click without one comes from the keyboard.
@@ -340,35 +366,25 @@ function RatingBars({ counts, search }: { counts: FacetValue<number>[]; search: 
               click(n, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
             }}
           >
-            {/* The track shows how tall a bar can be; none at all for no photo. */}
-            <Box h="18px" w="4px" bg="bg" borderTopRadius="2px" display="flex" alignItems="end" overflow="hidden">
-              <Box
-                data-bar
-                w="full"
-                borderTopRadius="2px"
-                h={`${Math.round((count / most) * 18)}px`}
-                bg={on ? 'orange.solid' : 'fg.subtle'}
-                // Left out by the filter: still there, dimmer.
-                opacity={on || !filtering ? 1 : 0.35}
-              />
-            </Box>
-            <Box
-              data-label
-              h="3"
-              display="flex"
-              alignItems="center"
-              textStyle="xs"
-              lineHeight="1"
-              {...NUMERIC}
-              color={on ? 'orange.fg' : 'fg.muted'}
-              fontWeight={on ? 'semibold' : undefined}
-            >
-              {n === 0 ? <StarOff size={12} aria-hidden /> : n}
-            </Box>
-          </Stack>
+            {n === 0 ? (
+              <>
+                <StarOff size={12} aria-hidden />
+                <Text textStyle="xs">No rating</Text>
+              </>
+            ) : (
+              <HStack gap="0.5" aria-hidden>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Star key={s} size={12} fill={s <= n ? 'currentColor' : 'none'} opacity={s <= n ? 1 : 0.5} />
+                ))}
+              </HStack>
+            )}
+            <Text textStyle="xs" ms="auto" {...NUMERIC} fontWeight={on ? 'semibold' : undefined}>
+              {count}
+            </Text>
+          </HStack>
         );
       })}
-    </HStack>
+    </Stack>
   );
 }
 
@@ -510,6 +526,7 @@ export const LABEL_COLORS: Record<string, string> = {
 const TECHNICAL_FILTERS = ['camera', 'lens', 'isoMin', 'isoMax', 'focalMin', 'focalMax', 'apertureMin', 'apertureMax'];
 const TECHNICAL_OPEN_KEY = 'library.filters.technicalOpen';
 const IMPORTS_OPEN_KEY = 'library.filters.importsOpen';
+const RATINGS_OPEN_KEY = 'library.filters.ratingsOpen';
 
 /** The flags shown: any combination, none set meaning all of them. */
 const FLAG_FILTERS = [
@@ -585,6 +602,14 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
   useEffect(() => {
     if (shownImports) setImportsOpen(true);
   }, [shownImports]);
+  const ratings = useRatings(search);
+  // Every rating: open when it was left open, or for a filter the stars can't show.
+  const [ratingsOpen, setRatingsOpen] = useState(() => localStorage.getItem(RATINGS_OPEN_KEY) === '1');
+  useEffect(() => localStorage.setItem(RATINGS_OPEN_KEY, ratingsOpen ? '1' : '0'), [ratingsOpen]);
+  const plainRating = ratingAtLeast(ratings.set) !== null;
+  useEffect(() => {
+    if (!plainRating) setRatingsOpen(true);
+  }, [plainRating]);
   const r = facets?.ranges;
 
   return (
@@ -608,9 +633,24 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
             <FilterPresetMenu search={search} />
           </HStack>
         }
-      >
+      />
+
+      <PanelBlock title="Label">
         <HStack justify="space-between" rowGap="2" wrap="wrap">
-          <RatingBars counts={facets?.ratings ?? []} search={search} />
+          <HStack gap="0">
+            <RatingStars ratings={ratings} />
+            <IconButton
+              aria-label="Every rating"
+              title={ratingsOpen ? 'Hide every rating' : 'Every rating, with counts: unrated, ranges, any set'}
+              aria-expanded={ratingsOpen}
+              size={{ base: 'sm', md: '2xs' }}
+              variant="ghost"
+              color="fg.muted"
+              onClick={() => setRatingsOpen((o) => !o)}
+            >
+              {ratingsOpen ? <ChevronDown /> : <ChevronRight />}
+            </IconButton>
+          </HStack>
           <HStack gap={{ base: '3', md: '1.5' }}>
             {COLOR_LABELS.map((c) => {
               const active = p.getAll('colorLabel').includes(c);
@@ -632,11 +672,16 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
             })}
           </HStack>
         </HStack>
+        {ratingsOpen && <RatingList counts={facets?.ratings ?? []} ratings={ratings} />}
         <FlagFilter search={search} />
-        <Row label="Edited">
+      </PanelBlock>
+
+      <PanelBlock
+        title="Edited"
+        actions={
           <SegmentGroup.Root
             size="xs"
-            flex="1"
+            w="40"
             value={p.get('edited') ?? 'any'}
             onValueChange={(e) => search.set('edited', e.value === 'any' ? null : e.value)}
           >
@@ -650,8 +695,8 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
               ]}
             />
           </SegmentGroup.Root>
-        </Row>
-      </PanelBlock>
+        }
+      />
 
       <PanelBlock title="Date taken">
         <Row label="From">

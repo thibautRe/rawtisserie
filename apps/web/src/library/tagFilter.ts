@@ -121,6 +121,13 @@ export function setRatings(params: URLSearchParams, set: readonly number[]): voi
   for (const n of sorted) params.append('rating', String(n));
 }
 
+/** The set as "at least n stars": n, 0 for no filter, null for a set that isn't one. */
+export function ratingAtLeast(set: readonly number[]): number | null {
+  if (!set.length) return 0;
+  const min = set[0]!;
+  return min > 0 && set.length === 6 - min && set.every((n, i) => n === min + i) ? min : null;
+}
+
 /** The ratings from `a` to `b`, either way round. */
 export const ratingRange = (a: number, b: number) => RATINGS.filter((n) => n >= Math.min(a, b) && n <= Math.max(a, b));
 

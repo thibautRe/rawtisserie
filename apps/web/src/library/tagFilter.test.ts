@@ -5,6 +5,7 @@ import {
   cycleTag,
   describeRating,
   describeTags,
+  ratingAtLeast,
   ratingSet,
   setUntagged,
   tagGroups,
@@ -80,6 +81,11 @@ test('a click shows only that rating, Ctrl/⌘ adds or removes one, Shift a rang
   assert.equal(click('rating=0&rating=1&rating=2&rating=3&rating=4', 5, { toggle: true }), '');
   assert.deepEqual(ratingSet(q('ratingMin=4')), [4, 5]);
   assert.deepEqual(ratingSet(q('rating=0&rating=2')), [0, 2]);
+  // What the five stars can show.
+  assert.equal(ratingAtLeast([]), 0);
+  assert.equal(ratingAtLeast([3, 4, 5]), 3);
+  assert.equal(ratingAtLeast([3, 4]), null);
+  assert.equal(ratingAtLeast([0]), null);
 });
 
 test('ratings read back in a few words', () => {

@@ -1039,7 +1039,7 @@ test('"No tags" is a filter, and picking a tag unpicks it', async () => {
   await page.waitForURL((u) => u.searchParams.get('tag') === 'beach' && !u.searchParams.has('untagged'));
 });
 
-test('a tag can be excluded, picked tags under a parent match all or any, and stars make sets (8.12)', async () => {
+test('a tag can be excluded, picked tags under a parent match all or any, and ratings make sets (8.12)', async () => {
   await open('/');
   await cards().first().waitFor();
   const url = () => decodeURIComponent(new URL(page.url()).search);
@@ -1065,7 +1065,14 @@ test('a tag can be excluded, picked tags under a parent match all or any, and st
   await tag('People|Bob', 'Bob').click();
   await page.waitForURL((u) => !u.searchParams.has('tagAny') && u.searchParams.get('notTag') === 'People|Bob');
 
-  // Ratings: only 3, then 4 too (Ctrl), then 4 to 5 (Shift, from the last one clicked).
+  // The five stars: at least 3, again for any rating.
+  await page.getByRole('button', { name: 'At least 3 stars' }).click();
+  await page.waitForURL((u) => u.searchParams.get('ratingMin') === '3');
+  await page.getByRole('button', { name: 'At least 3 stars' }).click();
+  await page.waitForURL((u) => !u.searchParams.has('ratingMin'));
+  // Every rating, a line each: only 3, then 4 too (Ctrl), then 4 to 5 (Shift, from the last one clicked).
+  await page.getByRole('button', { name: 'Every rating' }).click();
+  await page.locator('[data-rating="0"]').getByText('No rating').waitFor();
   const bar = (n: number) => page.locator(`[data-rating="${n}"]`);
   const ratings = (u: URL) => u.searchParams.getAll('rating').join();
   // Shown at once, and kept: no going back to the old look while the address catches up.
@@ -1099,6 +1106,10 @@ test('a tag can be excluded, picked tags under a parent match all or any, and st
   await bar(0).focus();
   await page.keyboard.press('ControlOrMeta+Enter');
   await page.waitForURL((u) => ratings(u) === '0,1,2');
+  // The stars can't show that: they stay empty, and a click on one replaces it.
+  await page.getByRole('button', { name: 'At least 4 stars' }).click();
+  await page.waitForURL((u) => u.searchParams.get('ratingMin') === '4' && !u.searchParams.has('rating'));
+  await page.locator('[data-rating="4"][aria-pressed="true"]').waitFor();
 });
 
 test('filters saved as a preset, then applied again over others', async () => {
