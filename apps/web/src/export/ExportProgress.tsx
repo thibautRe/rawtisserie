@@ -1,6 +1,6 @@
 import { Box, Button, CloseButton, HStack, Progress, Stack, Text } from '@chakra-ui/react';
-import { useEffect } from 'react';
 import { RotateCcw } from 'lucide-react';
+import { useLeaveWarning } from '../lib/useLeaveWarning.ts';
 import { cancelExport, dismissExport, retryFailed, useExportRun } from './bulkExport.ts';
 
 /**
@@ -11,12 +11,7 @@ import { cancelExport, dismissExport, retryFailed, useExportRun } from './bulkEx
 export function ExportProgress() {
   const run = useExportRun();
   const running = run?.state === 'running';
-  useEffect(() => {
-    if (!running) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [running]);
+  useLeaveWarning(running);
   if (!run) return null;
 
   return (

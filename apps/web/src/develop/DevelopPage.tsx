@@ -17,6 +17,7 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
 import { PHOTO_ACCEPT } from '../lib/format.ts';
+import { useLeaveWarning } from '../lib/useLeaveWarning.ts';
 import { DeveloperView } from './DeveloperView.tsx';
 import { FilmRoll } from './FilmRoll.tsx';
 import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
@@ -141,6 +142,8 @@ export function LocalDevelopPage() {
           initialHistory={autoApplied(loaded.metadata)}
           actions={(history) => (
             <>
+              {/* Edits live only in this tab: anything past the automatic entry is lost on leaving. */}
+              <LeaveWarning active={history.entries.length > 1} />
               <Button size="sm" variant="ghost" onClick={() => input.current?.click()}>
                 <FolderOpen /> Open…
               </Button>
@@ -219,6 +222,11 @@ export function LocalDevelopPage() {
       </Stack>
     </Center>
   );
+}
+
+function LeaveWarning({ active }: { active: boolean }) {
+  useLeaveWarning(active);
+  return null;
 }
 
 /**

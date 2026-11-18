@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HistoryWrite } from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
 import type { HistoryOp, HistoryStore } from './history.ts';
+import { useLeaveWarning } from '../lib/useLeaveWarning.ts';
 
 /** Save this long after the last change. */
 const DEBOUNCE_MS = 750;
@@ -144,12 +145,7 @@ export function useAutosave(store: HistoryStore, initialRevision: number, save: 
 
   // Warn before leaving while changes aren't saved yet. Not after a conflict: they
   // can't be saved anyway, and the way out is the reload the toast offers.
-  useEffect(() => {
-    if (status === 'saved' || status === 'conflict') return;
-    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [status]);
+  useLeaveWarning(status !== 'saved' && status !== 'conflict');
 
   /** Save now and wait until everything is saved; rejects if something couldn't be. */
   const whenSaved = useCallback(async () => {

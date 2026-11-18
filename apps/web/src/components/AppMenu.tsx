@@ -1,5 +1,5 @@
 import { Box, IconButton, Menu, Portal, Text } from '@chakra-ui/react';
-import { Aperture, Images, LogIn, LogOut, Settings, ShieldCheck } from 'lucide-react';
+import { Images, LogIn, LogOut, Settings, ShieldCheck } from 'lucide-react';
 import { memo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useLogout, useMe, useStorage } from '../api/hooks.ts';
@@ -27,18 +27,12 @@ export const AppMenu = memo(function AppMenu() {
       <Portal>
         <Menu.Positioner>
           <Menu.Content minW="52">
-            {user && (
-              <Menu.Item value="library" disabled={pathname === '/'} onClick={() => navigate(libraryPath())}>
-                <Images /> Library
-              </Menu.Item>
-            )}
-
-            <Menu.Item value="develop" disabled={pathname === '/develop'} onClick={() => navigate('/develop')}>
-              <Aperture /> Develop a local file
-            </Menu.Item>
-            <Menu.Separator />
             {user ? (
               <>
+                <Menu.Item value="library" disabled={pathname === '/'} onClick={() => navigate(libraryPath())}>
+                  <Images /> Library
+                </Menu.Item>
+                <Menu.Separator />
                 <Box px="2" py="1.5">
                   <Text textStyle="sm">{user.displayName}</Text>
                   <Text textStyle="xs" color="fg.muted">
