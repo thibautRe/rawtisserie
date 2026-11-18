@@ -1,4 +1,4 @@
-/** The tag manager's view of the tags (`pages/TagsPage.tsx`), and what its changes will do, in words. */
+/** The tags as their management sees them (the Tags filter's menus, `TagEditor`), and what changes will do, in words. */
 import type { TagChange, TagManagerData } from '../api/hooks.ts';
 import { type Shortcut, formatShortcut, samePress, shortcutConflict } from './keys.ts';
 import {
@@ -12,9 +12,6 @@ import {
   tagParent,
   tagTree,
 } from './tags.ts';
-
-/** Where the tag manager is (a tab of the settings). */
-export const TAG_MANAGER_PATH = '/settings/tags';
 
 /** What the manager knows of a tag, besides the tree. */
 export interface TagInfo {

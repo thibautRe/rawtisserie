@@ -61,7 +61,6 @@ import {
   versionLabel,
 } from '../lib/format.ts';
 import { displayTag, normalizeTag } from '../lib/tags.ts';
-import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
 import { ApplyMenu } from './ApplyMenu.tsx';
 import type { BatchEdit } from './batchEdit.ts';
 import { useEditPreview } from './useEditPreview.ts';
@@ -148,8 +147,8 @@ export function InfoPanel({
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
           tag · <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings ·{' '}
-          <b>Ctrl+E</b> export · <b>Del</b> move to trash · arrows to move. Tags get shortcuts of their own in the{' '}
-          <Link to={TAG_MANAGER_PATH}>tag manager</Link> (Settings › Tags).
+          <b>Ctrl+E</b> export · <b>Del</b> move to trash · arrows to move. Tags get shortcuts of their own:{' '}
+          <b>Edit…</b> in a tag’s menu, in the filters.
         </Text>
       </Stack>
     );
@@ -461,7 +460,7 @@ function SinglePanel({
         <CollectionName id={photo.collectionId} />
       </PanelBlock>
 
-      <PanelBlock title="Tags" actions={<ManageTags />}>
+      <PanelBlock title="Tags">
         <PhotoTags key={photo.id} tags={photo.tags} onChange={(tags) => save({ tags })} />
       </PanelBlock>
 
@@ -625,15 +624,6 @@ export function CaptureDetails({ photo }: { photo: Photo }) {
   );
 }
 
-/** To the tag manager, from a block of tags. */
-function ManageTags() {
-  return (
-    <Button asChild size="2xs" variant="ghost" color="fg.muted">
-      <Link to={TAG_MANAGER_PATH}>Manage</Link>
-    </Button>
-  );
-}
-
 /** One photo's tags, completed from the library's. */
 function PhotoTags({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
   const [input, setInput] = useState('');
@@ -768,10 +758,7 @@ function BulkPanel({
           onChange={onPatch}
         />
       </PanelBlock>
-      <PanelBlock
-        title={count > photos.length ? 'Tags in common (of those shown)' : 'Tags in common'}
-        actions={<ManageTags />}
-      >
+      <PanelBlock title={count > photos.length ? 'Tags in common (of those shown)' : 'Tags in common'}>
         <HStack wrap="wrap" gap="1">
           {commonTags.length === 0 && (
             <Text textStyle="xs" color="fg.muted">

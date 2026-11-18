@@ -319,7 +319,7 @@ export function LibraryPage() {
     });
   });
 
-  // The tags' shortcuts (tag manager) toggle a tag on the selection, as P does a flag.
+  // The tags' shortcuts (set from the Tags filter) toggle a tag on the selection, as P does a flag.
   const toggleTag = (tag: string) => {
     if (!grid.count) {
       toaster.create({ type: 'info', title: 'Select photos to tag first', duration: 2000 });

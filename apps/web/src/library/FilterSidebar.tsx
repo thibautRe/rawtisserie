@@ -12,33 +12,16 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Check, ChevronDown, ChevronRight, FolderPlus, Star, StarOff, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FolderPlus, Plus, Star, StarOff, X } from 'lucide-react';
 import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import { useFacets } from '../api/hooks.ts';
 import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
-import { TagSearch } from '../components/TagSearch.tsx';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
-import { type TagNode, displayTag, filterTagTree, isUnder, tagTree } from '../lib/tags.ts';
-import { TAG_MANAGER_PATH } from '../lib/tagManager.ts';
+import { TagTree, useTagManagement } from './TagTree.tsx';
 import { CollectionFilter, useNewCollection } from './CollectionFilter.tsx';
 import { FilterPresetMenu } from './FilterPresetMenu.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
-import {
-  TOP_LEVEL,
-  RATINGS,
-  clickRating,
-  ratingAtLeast,
-  ratingRange,
-  setRatings,
-  cycleTag,
-  isAny,
-  ratingSet,
-  setUntagged,
-  tagGroups,
-  tagState,
-  toggleAny,
-} from './tagFilter.ts';
+import { RATINGS, clickRating, ratingAtLeast, ratingRange, ratingSet, setRatings } from './tagFilter.ts';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
 function FacetList({ name, values, search }: { name: string; values: FacetValue[]; search: LibrarySearch }) {
@@ -74,171 +57,6 @@ function FacetList({ name, values, search }: { name: string; values: FacetValue[
         </Checkbox.Root>
       ))}
     </Stack>
-  );
-}
-
-/**
- * The tags as a tree: a click on a tag shows the photos with it or one under it
- * (`People`: all of People's), again those without it, again all. Picked tags with the
- * same parent go together: all of them, or any (the switch on the parent, or above the
- * tree for top-level tags); different parents' must all match. An excluded tag leaves
- * out photos with it, except for the picked tags under it (`People › Alice` picked and
- * `People` excluded: Alice and nobody else). Folded below the top, except where a tag is
- * picked or excluded, and while searching: then it shows the tags found and the way to
- * them. "No tags" picks the photos without any, and can't go with a picked tag (nothing
- * would match): picking one unpicks the other.
- */
-function TagTree({ values, untagged, search }: { values: FacetValue[]; untagged: number; search: LibrarySearch }) {
-  const p = search.params;
-  const picked = p.getAll('tag');
-  const excluded = p.getAll('notTag');
-  const used = [...picked, ...excluded];
-  const groups = tagGroups(p);
-  const noTags = p.get('untagged') === 'true';
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
-  const [query, setQuery] = useState('');
-  const searching = query.trim() !== '';
-  // Tags in the filters stay listed even when the other filters leave no photo with them.
-  const tree = tagTree([
-    ...values,
-    ...used.filter((s) => !values.some((v) => v.value === s)).map((value) => ({ value, count: 0 })),
-  ]);
-  if (!tree.length && !noTags)
-    return (
-      <Text textStyle="xs" color="fg.subtle">
-        Nothing yet
-      </Text>
-    );
-  const toggle = (path: string) =>
-    setOpen((o) => {
-      const next = new Set(o);
-      if (!next.delete(path)) next.add(path);
-      return next;
-    });
-  /** All or any of a group's picked tags, when it has several. */
-  const groupSwitch = (group: string) =>
-    (groups.get(group)?.length ?? 0) > 1 && (
-      <AnySwitch any={isAny(p, group)} onToggle={() => search.edit((next) => toggleAny(next, group))} />
-    );
-  const rows = (nodes: TagNode[], depth: number): React.ReactNode[] =>
-    nodes.flatMap((n) => {
-      // Open by the user, holding a tag in the filters, or searched.
-      const unfolded = searching || open.has(n.path) || used.some((s) => s !== n.path && isUnder(s, n.path));
-      const state = tagState(p, n.path);
-      return [
-        <HStack key={n.path} gap="1" ps={`${depth * 14}px`} data-tag={n.path} data-state={state ?? undefined}>
-          {n.children.length ? (
-            <IconButton
-              size="2xs"
-              variant="ghost"
-              minW="4"
-              h="4"
-              aria-label={unfolded ? `Fold ${n.name}` : `Unfold ${n.name}`}
-              disabled={searching}
-              onClick={() => toggle(n.path)}
-            >
-              {unfolded ? <ChevronDown /> : <ChevronRight />}
-            </IconButton>
-          ) : (
-            <Box w="4" flexShrink={0} />
-          )}
-          <Checkbox.Root
-            size="xs"
-            flex="1"
-            minW="0"
-            colorPalette={state === 'exclude' ? 'red' : undefined}
-            checked={state === 'include' ? true : state === 'exclude' ? 'indeterminate' : false}
-            title={
-              state === 'include'
-                ? `With ${displayTag(n.path)}: click for the photos without it`
-                : state === 'exclude'
-                  ? `Without ${displayTag(n.path)}: click to stop filtering by it`
-                  : `${displayTag(n.path)}: click for the photos with it, twice for those without`
-            }
-            onCheckedChange={() => search.edit((next) => cycleTag(next, n.path))}
-          >
-            <Checkbox.HiddenInput />
-            <Checkbox.Control />
-            <Checkbox.Label
-              flex="1"
-              truncate
-              textStyle="xs"
-              textDecoration={state === 'exclude' ? 'line-through' : undefined}
-              color={state === 'exclude' ? 'fg.muted' : undefined}
-            >
-              {n.name}
-            </Checkbox.Label>
-            <Text textStyle="xs" color="fg.muted" {...NUMERIC}>
-              {n.count}
-            </Text>
-          </Checkbox.Root>
-          {groupSwitch(n.path)}
-        </HStack>,
-        ...(unfolded ? rows(n.children, depth + 1) : []),
-      ];
-    });
-  const found = filterTagTree(tree, query);
-  return (
-    <Stack gap="2">
-      <TagSearch size="xs" value={query} onChange={setQuery} />
-      {!searching && (
-        <Checkbox.Root
-          size="xs"
-          ps="5"
-          checked={noTags}
-          onCheckedChange={() => search.edit((next) => setUntagged(next, !noTags))}
-        >
-          <Checkbox.HiddenInput />
-          <Checkbox.Control />
-          <Checkbox.Label flex="1" textStyle="xs" fontStyle="italic">
-            No tags
-          </Checkbox.Label>
-          <Text textStyle="xs" color="fg.muted" {...NUMERIC}>
-            {untagged}
-          </Text>
-        </Checkbox.Root>
-      )}
-      {groupSwitch(TOP_LEVEL) && (
-        <HStack ps="5" justify="space-between">
-          <Text textStyle="xs" color="fg.muted">
-            Top-level tags
-          </Text>
-          {groupSwitch(TOP_LEVEL)}
-        </HStack>
-      )}
-      {found.length ? (
-        <Stack gap="1" maxH="60" overflowY="auto">
-          {rows(found, 0)}
-        </Stack>
-      ) : (
-        <Text textStyle="xs" color="fg.subtle">
-          No tag matches
-        </Text>
-      )}
-    </Stack>
-  );
-}
-
-/** A group's picked tags: all of them, or any. */
-function AnySwitch({ any, onToggle }: { any: boolean; onToggle: () => void }) {
-  return (
-    <Button
-      size="2xs"
-      variant="outline"
-      h="4"
-      minW="8"
-      px="1"
-      textStyle="label"
-      flexShrink={0}
-      title={
-        any
-          ? 'Photos with any of the tags picked under it: click for all of them'
-          : 'Photos with all of the tags picked under it: click for any of them'
-      }
-      onClick={onToggle}
-    >
-      {any ? 'any' : 'all'}
-    </Button>
   );
 }
 
@@ -613,6 +431,7 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
   }, [plainRating]);
   const r = facets?.ranges;
   const newCollection = useNewCollection();
+  const manageTags = useTagManagement(search);
 
   return (
     <Stack as="aside" {...BLOCKS_PROPS} w="64" flexShrink={0} borderRightWidth="1px">
@@ -741,12 +560,25 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
       <PanelBlock
         title="Tags"
         actions={
-          <Button asChild size="2xs" variant="ghost" color="fg.muted">
-            <Link to={TAG_MANAGER_PATH}>Manage</Link>
-          </Button>
+          <IconButton
+            size="2xs"
+            variant="ghost"
+            color="fg.muted"
+            aria-label="New tag"
+            title="New tag"
+            onClick={() => manageTags.edit({ parent: null })}
+          >
+            <Plus />
+          </IconButton>
         }
       >
-        <TagTree values={facets?.tags ?? []} untagged={facets?.ranges.untagged ?? 0} search={search} />
+        <TagTree
+          values={facets?.tags ?? []}
+          untagged={facets?.ranges.untagged ?? 0}
+          search={search}
+          manage={manageTags}
+        />
+        {manageTags.dialogs}
       </PanelBlock>
 
       <PanelBlock

@@ -74,11 +74,13 @@ See README.md for the architecture overview and commands.
 - Tags are paths, levels separated by `|` (`People|Alice`, shown People › Alice; `lib/tags.ts`
   ↔ server `photos/tags.ts`), counted under their ancestors (filters, the tree's counts,
   `TAG_LEVELS`; exports write each level to `dc:subject` and the paths to
-  `lr:hierarchicalSubject`). The tag manager (Settings › Tags, `pages/TagsPage.tsx`; its editor sets a tag's path, missing levels created with it, and shortcut; its search (`TagSearch`, `filterTagTree`) is the filters' too) renames, moves, merges and deletes
+  `lr:hierarchicalSubject`). Tags are managed from the library's Tags filter (`library/TagTree.tsx`, each row's menu;
+  the tag manager page it replaced redirects there): its editor (`TagEditor.tsx`) sets a
+  tag's path, missing levels created with it, and shortcut; it renames, moves, merges and deletes
   across every version, trashed ones included, the tags under it too; `user_tags` holds
   tags no photo has yet and the tags' shortcuts. Anything that stores tag names must
   follow a rename there (saved filters do: `filter_presets`, `followTagRename`, in `tag`,
-  `notTag` and `tagAny`). Tag filters (roadmap 8.12) group picked tags by parent, all or any
+  `notTag` and `tagAny`; so does the library's address, `useTagManagement`). Tag filters (roadmap 8.12) group picked tags by parent, all or any
   (`tagAny`), and exclude (`notTag`) except under picked ones: `library/tagFilter.ts` ↔
   server `photos/query.ts` (`tagConditions`). Tag shortcuts (`useTagShortcuts`, `lib/keys.ts`) may be sequences
   (Ctrl+Alt+O, Ctrl+Alt+A), matched by physical key (`code`); they listen first (capture)

@@ -13,7 +13,7 @@ import {
 } from '../lib/keys.ts';
 
 /**
- * The tags' shortcuts (set in the tag manager): `onToggle` gets the tag whose shortcut
+ * The tags' shortcuts (set from a tag's menu in the filters): `onToggle` gets the tag whose shortcut
  * was pressed; null turns them off (another view has them). A sequence that's going on
  * shows at the bottom of the screen; until it ends, its keys do nothing else.
  *

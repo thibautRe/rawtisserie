@@ -1,32 +1,17 @@
-import {
-  Badge,
-  Box,
-  Button,
-  Center,
-  Code,
-  CloseButton,
-  Dialog,
-  Field,
-  HStack,
-  Heading,
-  IconButton,
-  Input,
-  Menu,
-  Portal,
-  Spinner,
-  Stack,
-  Text,
-} from '@chakra-ui/react';
-import { ChevronDown, ChevronRight, CornerDownRight, Ellipsis, Pencil, Plus, Tag, Trash2 } from 'lucide-react';
-import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { useTagChange, useTagManager } from '../api/hooks.ts';
-import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
-import { TagSearch } from '../components/TagSearch.tsx';
+/**
+ * The tag editor (from the Tags filter's menus, roadmap 8.14's way of managing): a new
+ * tag, or one edited: its path (renaming, moving, merging onto another) and its
+ * shortcut. What saving will do is said before it's done; it applies to every photo with
+ * the tag, the trash included, and to the tags inside it.
+ */
+import { Badge, Box, Button, CloseButton, Dialog, Field, HStack, Input, Portal, Stack, Text } from '@chakra-ui/react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useTagChange } from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
 import { type Shortcut, formatShortcut, pressOf } from '../lib/keys.ts';
-import { type TagInfo, describeDelete, managedTags, pathLevels, planEdit, plural } from '../lib/tagManager.ts';
-import { SEPARATOR, type TagNode, displayTag, filterTagTree, isUnder, tagName } from '../lib/tags.ts';
-import { useTagCompletion } from '../library/TagCompletion.tsx';
+import { type TagInfo, pathLevels, planEdit, plural } from '../lib/tagManager.ts';
+import { SEPARATOR, displayTag, isUnder, tagName } from '../lib/tags.ts';
+import { useTagCompletion } from './TagCompletion.tsx';
 
 /**
  * What the tag editor opens on: a tag to edit, or a new one (under `parent`), and the
@@ -38,182 +23,6 @@ export interface EditorTarget {
   /** For a new one: where it goes. */
   parent?: string | null;
   focus?: 'path' | 'shortcut';
-}
-
-/**
- * The tag manager (Settings › Tags): every tag as a tree, with its photos, to create,
- * edit (name, place in the tree, shortcut), merge (moved onto another) or delete them.
- * What a change will do is said before it's made; it applies to every photo with the
- * tag, the trash included, and to the tags inside it.
- */
-export function TagsSettings() {
-  const { data, isPending } = useTagManager();
-  const change = useTagChange();
-  const [query, setQuery] = useState('');
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
-  const [editing, setEditing] = useState<EditorTarget | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const { tree, info } = useMemo(
-    () => (data ? managedTags(data) : { tree: [], info: new Map<string, TagInfo>() }),
-    [data],
-  );
-
-  // Searching shows the tags matching and the way to them, unfolded.
-  const searching = query.trim() !== '';
-  const found = useMemo(() => filterTagTree(tree, query), [tree, query]);
-  const rows = (nodes: TagNode[], depth: number): ReactNode[] =>
-    nodes.flatMap((n) => {
-      const i = info.get(n.path)!;
-      const open = searching || !folded.has(n.path);
-      return [
-        <HStack
-          key={n.path}
-          data-managed-tag={n.path}
-          gap="2"
-          ps={`${8 + depth * 20}px`}
-          pe="2"
-          py="1.5"
-          borderBottomWidth="1px"
-          _hover={{ bg: 'bg.muted' }}
-        >
-          {n.children.length ? (
-            <IconButton
-              size={{ base: 'xs', md: '2xs' }}
-              variant="ghost"
-              aria-label={open ? `Fold ${n.name}` : `Unfold ${n.name}`}
-              onClick={() =>
-                setFolded((f) => {
-                  const next = new Set(f);
-                  if (!next.delete(n.path)) next.add(n.path);
-                  return next;
-                })
-              }
-            >
-              {open ? <ChevronDown /> : <ChevronRight />}
-            </IconButton>
-          ) : (
-            <Box w="6" flexShrink={0} />
-          )}
-          <Tag size={14} />
-          <Text
-            as="button"
-            textStyle="sm"
-            flex="1"
-            truncate
-            textAlign="start"
-            cursor="pointer"
-            title={`Edit ${displayTag(n.path)}`}
-            onClick={() => setEditing({ tag: n.path })}
-          >
-            {n.name}
-          </Text>
-          {/* Keyboard shortcuts: not on phones, where they'd squeeze the name out. */}
-          {i.shortcut && (
-            <Text
-              as="kbd"
-              hideBelow="md"
-              textStyle="xs"
-              fontFamily="numeric"
-              px="1.5"
-              borderWidth="1px"
-              rounded="l1"
-              color="fg.muted"
-            >
-              {formatShortcut(i.shortcut)}
-            </Text>
-          )}
-          <Text
-            textStyle="xs"
-            color="fg.muted"
-            fontFamily="numeric"
-            fontVariantNumeric="tabular-nums"
-            minW="20"
-            textAlign="end"
-          >
-            {plural(i.photos, 'photo')}
-          </Text>
-          <Menu.Root positioning={{ placement: 'bottom-end' }}>
-            <Menu.Trigger asChild>
-              <IconButton size={{ base: 'sm', md: '2xs' }} variant="ghost" aria-label={`Change ${n.name}`}>
-                <Ellipsis />
-              </IconButton>
-            </Menu.Trigger>
-            <Portal>
-              <Menu.Positioner>
-                <Menu.Content>
-                  <Menu.Item value="edit" onSelect={() => setEditing({ tag: n.path })}>
-                    <Pencil /> Edit…
-                  </Menu.Item>
-                  <Menu.Item value="create" onSelect={() => setEditing({ parent: n.path })}>
-                    <CornerDownRight /> New child tag…
-                  </Menu.Item>
-                  <Menu.Separator />
-                  <Menu.Item value="delete" color="fg.error" onSelect={() => setDeleting(n.path)}>
-                    <Trash2 /> Delete…
-                  </Menu.Item>
-                </Menu.Content>
-              </Menu.Positioner>
-            </Portal>
-          </Menu.Root>
-        </HStack>,
-        ...(open ? rows(n.children, depth + 1) : []),
-      ];
-    });
-
-  return (
-    <Stack gap="4">
-      <HStack gap="3">
-        <Heading size="lg" flex="1">
-          Tags
-        </Heading>
-        <Button size="sm" colorPalette="orange" onClick={() => setEditing({ parent: null })}>
-          <Plus /> New tag
-        </Button>
-      </HStack>
-      <Text textStyle="sm" color="fg.muted">
-        Tags can contain other tags: <b>People › Alice</b> is the tag Alice, inside People. When tagging a photo, type{' '}
-        <b>|</b> between the levels: <Code size="sm">People|Alice</Code>
-      </Text>
-      <TagSearch value={query} onChange={setQuery} maxW="xs" />
-      {isPending ? (
-        <Center py="10">
-          <Spinner color="orange.solid" />
-        </Center>
-      ) : tree.length === 0 ? (
-        <Text textStyle="sm" color="fg.subtle" py="6" textAlign="center">
-          No tags yet: add some to photos in the library, or create one here.
-        </Text>
-      ) : found.length === 0 ? (
-        <Text textStyle="sm" color="fg.subtle" py="6" textAlign="center">
-          No tag matches “{query.trim()}”.
-        </Text>
-      ) : (
-        <Box borderTopWidth="1px">{rows(found, 0)}</Box>
-      )}
-      <TagEditor target={editing} info={info} onClose={() => setEditing(null)} />
-      <ConfirmDialog
-        text={deleting ? { title: `Delete ${displayTag(deleting)}?`, body: describeDelete(deleting, info) } : null}
-        confirm="Delete"
-        onClose={() => setDeleting(null)}
-        onConfirm={() => {
-          const tag = deleting!;
-          setDeleting(null);
-          change.mutate(
-            { type: 'delete', tag },
-            {
-              onSuccess: (n) =>
-                toaster.create({
-                  type: 'success',
-                  title: `Deleted ${displayTag(tag)}${n ? ` from ${plural(n, 'photo')}` : ''}`,
-                }),
-              onError: (err) =>
-                toaster.create({ type: 'error', title: 'Could not delete it', description: err.message }),
-            },
-          );
-        }}
-      />
-    </Stack>
-  );
 }
 
 /** The editor's path input. */
@@ -229,10 +38,13 @@ export function TagEditor({
   target,
   info,
   onClose,
+  onRenamed,
 }: {
   target: EditorTarget | null;
   info: ReadonlyMap<string, TagInfo>;
   onClose: () => void;
+  /** A tag renamed (moved, merged): what refers to it by name follows. */
+  onRenamed?: (from: string, to: string) => void;
 }) {
   // Kept while it closes, so it doesn't empty during the animation.
   const shown = useRef(target);
@@ -251,7 +63,7 @@ export function TagEditor({
         <Dialog.Backdrop />
         <Dialog.Positioner>
           {/* A new one starts from the tag as it is. */}
-          {t && <EditorForm key={JSON.stringify(t)} target={t} info={info} onDone={onClose} />}
+          {t && <EditorForm key={JSON.stringify(t)} target={t} info={info} onDone={onClose} onRenamed={onRenamed} />}
         </Dialog.Positioner>
       </Portal>
     </Dialog.Root>
@@ -262,10 +74,12 @@ function EditorForm({
   target,
   info: liveInfo,
   onDone,
+  onRenamed,
 }: {
   target: EditorTarget;
   info: ReadonlyMap<string, TagInfo>;
   onDone: () => void;
+  onRenamed?: (from: string, to: string) => void;
 }) {
   const change = useTagChange();
   const tag = target.tag ?? null;
@@ -315,6 +129,7 @@ function EditorForm({
       for (const c of plan.changes) photos += await change.mutateAsync(c);
       const first = plan.changes[0]!;
       const path = first.type === 'rename' ? first.to : first.tag;
+      if (first.type === 'rename') onRenamed?.(first.from, first.to);
       toaster.create({
         type: 'success',
         title: `${tag === null ? 'Created' : 'Saved'} ${displayTag(path)}${

@@ -452,16 +452,19 @@ test("T focuses the tag input, which completes from the library's tags", async (
 test('tags are a tree: a parent picks what is under it, and `|` types a level', async () => {
   await open('/');
   await cards().first().click();
-  // Folded below the top level.
+  // Folded below the top level; every tag, those no photo here has too (Family, Places).
   const tree = page.locator('[data-tag]');
-  await page.locator('[data-tag="People"]').waitFor();
-  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), ['beach', 'People']);
+  await page.locator('[data-tag="Places"]').waitFor();
+  const top = ['beach', 'Family', 'People', 'Places'];
+  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), top);
   await page.getByRole('button', { name: 'Unfold People' }).click();
   assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), [
     'beach',
+    'Family',
     'People',
     'People|Alice',
     'People|Bob',
+    'Places',
   ]);
   // Searched: what's found and the way to it, unfolded.
   await page.getByRole('button', { name: 'Fold People' }).click();
@@ -471,7 +474,7 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
     'People|Bob',
   ]);
   await page.getByLabel('Find a tag').press('Escape');
-  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), ['beach', 'People']);
+  assert.deepEqual(await tree.evaluateAll((els) => els.map((e) => e.getAttribute('data-tag'))), top);
   await page.locator('[data-tag="People"]').getByText('People').click();
   await page.waitForURL(/[?&]tag=People(&|$)/);
   // The list is read again for the filter: the photo picked once it's in.
@@ -489,15 +492,23 @@ test('tags are a tree: a parent picks what is under it, and `|` types a level', 
   assert.deepEqual(sent.at(-1)?.body, { tags: ['Family|Alice'] });
 });
 
-test('the tag manager (Settings › Tags) edits, merges, creates and deletes, saying first what will happen', async () => {
-  // Its old address leads there.
-  await open('/tags');
-  await page.waitForURL(/\/settings\/tags$/);
-  const row = (tag: string) => page.locator(`[data-managed-tag="${tag}"]`);
+test('tags are managed from the filters: edited, merged, created and deleted, saying first what will happen', async () => {
+  // The tag manager's old addresses lead to the library, where its menus are now.
+  await open('/settings/tags');
+  await page.waitForURL((u) => u.pathname === '/');
+  await cards().first().waitFor();
+  const row = (tag: string) => page.locator(`[data-tag="${tag}"]`);
+  // Every tag, those no photo has too (Places, for Places › Paris).
+  await row('Places').waitFor();
+  await page.getByRole('button', { name: 'Unfold People' }).click();
   await row('People|Alice').waitFor();
+  // Alice in the filters: she follows her renames.
+  await row('People|Alice').getByText('Alice', { exact: true }).click();
+  await page.waitForURL((u) => u.searchParams.get('tag') === 'People|Alice');
   const act = async (tag: string, item: string) => {
+    await row(tag).hover();
     await row(tag)
-      .getByRole('button', { name: /^Change/ })
+      .getByRole('button', { name: /^Manage/ })
       .click();
     await page.getByRole('menuitem', { name: item }).click();
   };
@@ -529,6 +540,10 @@ test('the tag manager (Settings › Tags) edits, merges, creates and deletes, sa
   await button('Save').click();
   await page.getByText('Saved People › Alicia: 3 photos changed').waitFor();
   assert.deepEqual(sent.at(-1), { path: '/api/tags/rename', body: { from: 'People|Alice', to: 'People|Alicia' } });
+  await page.waitForURL((u) => u.searchParams.get('tag') === 'People|Alicia');
+  // Back where the test's (unchanging) library has her.
+  await page.goto(`${URL_}/?tag=People%7CAlice`);
+  await row('People|Alice').waitFor();
 
   // Put inside a tag where one has its name: a merge, said so. The tags are suggested,
   // picking one goes on inside it.
@@ -541,9 +556,10 @@ test('the tag manager (Settings › Tags) edits, merges, creates and deletes, sa
   await button('Merge').click();
   await page.getByText('Saved Family › Alice: 3 photos changed').waitFor();
   assert.deepEqual(sent.at(-1)?.body, { from: 'People|Alice', to: 'Family|Alice' });
+  await page.waitForURL((u) => u.searchParams.get('tag') === 'Family|Alice');
 
   // A new tag, inside another, with a shortcut: created, then given it.
-  await act('Places', 'New child tag…');
+  await act('Places', 'New tag inside…');
   assert.equal(await path.inputValue(), 'Places|');
   await page.keyboard.type('Lyon');
   await editor.locator('[data-shortcut-recorder]').click();
@@ -1060,14 +1076,17 @@ function press(code: string, key: string, mods = '') {
   };
 }
 
-test("a tag's shortcut is recorded in the tag manager, refused if the library has its keys", async () => {
-  await open('/settings/tags');
-  await page
-    .locator('[data-managed-tag="Places|Paris"]')
-    .getByRole('button', { name: /^Change/ })
-    .click();
-  await page.getByRole('menuitem', { name: 'Edit…' }).click();
+test("a tag's shortcut is recorded from its menu in the filters, refused if the library has its keys", async () => {
+  await open('/');
+  await cards().first().waitFor();
+  await page.getByRole('button', { name: 'Unfold Places' }).click();
+  const paris = page.locator('[data-tag="Places|Paris"]');
+  await paris.hover();
+  await paris.getByRole('button', { name: 'Manage Paris' }).click();
+  await page.getByRole('menuitem', { name: 'Give it a shortcut…' }).click();
   const recorder = page.locator('[data-shortcut-recorder]');
+  // Opened on the shortcut.
+  await page.waitForFunction(() => document.activeElement?.hasAttribute('data-shortcut-recorder'));
   await recorder.click();
   await page.keyboard.press('p');
   await page.getByText('P is one of the library’s keys').waitFor();
@@ -1510,11 +1529,6 @@ test('on a phone: filters in a drawer, a tap opens the loupe and a swipe moves o
   await page.getByText('2 selected').waitFor();
   await page.getByRole('button', { name: 'Clear the selection' }).tap();
   await page.getByText('6 photos').waitFor();
-
-  // The settings fit too.
-  await open('/settings/tags', PHONE);
-  await page.getByRole('heading', { name: 'Tags', exact: true }).waitFor();
-  assert.equal(await overflow(), 0, 'the tag manager is wider than the phone');
 });
 
 test('Ctrl+A selects every photo the filters match, loaded or not; actions on it ask first and go by filter', async () => {

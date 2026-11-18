@@ -261,7 +261,7 @@ export function useFacets(search: string) {
 }
 
 /** Every tag in the library with its use count. Under `facets`, so library changes refresh it. */
-/** The tag manager's view: every level with its photos, and the user's own tags. */
+/** For managing tags: every level with its photos, and the user's own tags. */
 export interface TagManagerData {
   levels: { value: string; photos: number; trashed: number }[];
   own: { tag: string; shortcut: Shortcut | null }[];
@@ -288,7 +288,7 @@ export type TagChange =
   | { type: 'delete'; tag: string }
   | { type: 'shortcut'; tag: string; shortcut: Shortcut | null };
 
-/** A change from the tag manager: what shows tags is read again. Answers the versions changed. */
+/** A change to the tags (the Tags filter's menus): what shows tags is read again. Answers the versions changed. */
 export function useTagChange() {
   const qc = useQueryClient();
   return useMutation({

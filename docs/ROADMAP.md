@@ -85,7 +85,9 @@ labels and picks; colour primaries' saturation and brightness in 0.1 % steps, fi
 around 0. Added: 8.14 (collections), and moving rawler to its next release
 (Cross-cutting: upstream has the CR3 fix, unreleased, on a master that needs porting).
 Then 8.14, collections: a tree per photo, in the filters, sorted into at import (by day,
-by shoot, as the folders, all in one).
+by shoot, as the folders, all in one). Then tags managed the same way: from each tag's
+menu in the Tags filter (edit, shortcut, new tag inside, delete), every tag listed, and
+the Settings › Tags page gone (its addresses lead to the library).
 
 Most of the requested features (history, duplicates, autosave, presets, masks, multiple
 instances of a module) depend on the same thing: edits must stop being one fixed struct

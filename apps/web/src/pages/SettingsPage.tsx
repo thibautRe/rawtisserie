@@ -40,12 +40,9 @@ import { TRASH_PATH } from '../components/trash.tsx';
 import { formatBytes, formatDateTime } from '../lib/format.ts';
 
 /** The user's own settings: their account and password, their storage, and the trash. */
-export const SETTINGS_TABS = [
-  { label: 'Profile', to: '/settings' },
-  { label: 'Tags', to: '/settings/tags' },
-];
+export const SETTINGS_TABS = [{ label: 'Profile', to: '/settings' }];
 
-/** The user's settings, in tabs (`Outlet`): their profile and storage, their tags. */
+/** The user's settings, in tabs (`Outlet`): their profile and storage. */
 export function SettingsLayout() {
   return (
     <TabbedPage title="Settings" label="Settings pages" tabs={SETTINGS_TABS} maxW="3xl">

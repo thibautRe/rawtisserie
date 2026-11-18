@@ -20,8 +20,9 @@ export const router = createBrowserRouter([
         children: [
           { path: '/', element: <LibraryPage /> },
           { path: '/versions/:id/develop', element: <LibraryDevelopPage /> },
-          // The tag manager moved to the settings.
-          { path: '/tags', element: <Navigate to="/settings/tags" replace /> },
+          // The tag manager was there, then in the settings: tags are managed from the library's filters.
+          { path: '/tags', element: <Navigate to="/" replace /> },
+          { path: '/settings/tags', element: <Navigate to="/" replace /> },
           // The user's account, storage and trash.
           {
             path: '/settings',
@@ -31,8 +32,6 @@ export const router = createBrowserRouter([
                 index: true,
                 lazy: async () => ({ Component: (await import('./pages/SettingsPage.tsx')).ProfileSettings }),
               },
-              // The tag manager: the tags as a tree, to create, edit (name, place, shortcut), merge, delete.
-              { path: 'tags', lazy: async () => ({ Component: (await import('./pages/TagsPage.tsx')).TagsSettings }) },
             ],
           },
           {

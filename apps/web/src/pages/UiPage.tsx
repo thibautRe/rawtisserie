@@ -657,7 +657,7 @@ export function UiPage() {
                 </TagsInput.Control>
               </TagsInput.Root>
             </Example>
-            <Example label="Tag search (tag manager, filters)">
+            <Example label="Tag search (filters)">
               <TagSearch size="xs" value={tagQuery} onChange={setTagQuery} />
             </Example>
             <Example label="Checkbox and switch">

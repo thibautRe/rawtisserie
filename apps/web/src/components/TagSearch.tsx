@@ -2,7 +2,7 @@ import { CloseButton, Input, InputGroup } from '@chakra-ui/react';
 import { Search } from 'lucide-react';
 
 /**
- * Finds tags in a tree (`filterTagTree` does the finding): the tag manager's, the
+ * Finds tags in a tree (`filterTagTree` does the finding): the Tags filter's, the
  * library's filters. Escape empties it.
  */
 export function TagSearch({
