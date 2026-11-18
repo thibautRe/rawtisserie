@@ -6,6 +6,9 @@ use crate::image::{Image, Mask, Region, Rgb, Rgba8};
 use crate::metadata::PhotoMetadata;
 use crate::output::ColorSpace;
 use std::rc::Rc;
+use std::sync::Arc;
+
+use crate::lens::LensProfile;
 
 use crate::ops::clut::ClutStore;
 use crate::ops::point::{self, FILMIC_LUT_SIZE, FilmicStage, PointOps};
@@ -276,7 +279,7 @@ struct Slot {
     sensor_clip: Option<(GeometryKey, Mask)>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct GeometryKey {
     base_factor: usize,
     /// `retouch::key` of the spots applied to the base.
@@ -512,7 +515,14 @@ impl Developer {
         let identity = Geometry::default();
         let g = params.get::<Geometry>().unwrap_or(&identity);
         geometry::Transform {
-            lens: self.photo.lens.as_ref().and(params.get::<Lens>().copied()),
+            lens: params.get::<Lens>().and_then(|lens| {
+                // Lensfun's profile from the recipe, else the file's embedded one.
+                let profile = match &lens.lensfun {
+                    Some(lensfun) => Arc::new(LensProfile::from_lensfun(lensfun)),
+                    None => Arc::new(self.photo.lens.clone()?),
+                };
+                Some(geometry::LensChoice { profile, strengths: lens.strengths() })
+            }),
             orient: self.photo.orientation.then(g.rotation % 4, g.flip_horizontal),
             angle: g.angle.clamp(-45.0, 45.0),
             perspective: Perspective::new(g, self.focal_length()),
@@ -548,7 +558,7 @@ impl Developer {
         let transform = self.transform(&plain);
         self.ensure_base(Self::binning(scale));
         let (_, base) = self.base.as_ref().expect("base was just built");
-        let img = geometry::apply(base, &transform, self.photo.lens.as_ref(), width, height);
+        let img = geometry::apply(base, &transform, width, height);
         let found = lines::detect(&img, self.focal_length() * width.max(height) as f32, 0.04 * width.max(height) as f32);
         let mapping = self.sensor_mapping(&plain);
         let to_sensor = |p: (f32, f32)| mapping.to_sensor(p.0 / width as f32, p.1 / height as f32);
@@ -572,7 +582,7 @@ impl Developer {
     /// Maps points between the output frame of `params` and the sensor frame, where
     /// shapes live (both normalised).
     pub fn sensor_mapping(&self, params: &EditParams) -> geometry::SensorMapping {
-        geometry::SensorMapping::new(&self.transform(params), self.photo.lens.as_ref(), self.photo.width as f32, self.photo.height as f32)
+        geometry::SensorMapping::new(&self.transform(params), self.photo.width as f32, self.photo.height as f32)
     }
 
     /// Output dimensions and scale (output pixels per full-resolution pixel).
@@ -679,15 +689,14 @@ impl Developer {
         if plan.patch {
             let factor = Self::binning(plan.scale);
             let base = demosaic::base_size(&self.photo, factor);
-            let gkey = GeometryKey { base_factor: factor, retouch: 0, transform, width, height, region: plan.region };
+            let gkey = GeometryKey { base_factor: factor, retouch: 0, transform: transform.clone(), width, height, region: plan.region };
             if self.slots[0].sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
                 // The slot's geometry may come from cache, built from another patch.
-                let bounds = geometry::source_bounds(base, &transform, self.photo.lens.as_ref(), width, height, plan.region);
+                let bounds = geometry::source_bounds(base, &transform, width, height, plan.region);
                 self.ensure_patch(factor, bounds);
                 let patch = self.patch.as_mut().expect("patch was just built");
                 let src = patch.sensor_clip.get_or_insert_with(|| demosaic::clipped_photosites_region(&self.photo, factor, patch.at));
-                let lens = self.photo.lens.as_ref();
-                let mask = geometry::apply_mask_region(src, patch.at, base, &transform, lens, width, height, plan.region);
+                let mask = geometry::apply_mask_region(src, patch.at, base, &transform, width, height, plan.region);
                 self.slots[0].sensor_clip = Some((gkey, mask));
             }
             return &self.slots[0].sensor_clip.as_ref().expect("mask was just built").1;
@@ -704,7 +713,8 @@ impl Developer {
         let base_mask = &self.sensor_clip.as_ref().expect("mask was just built").1;
         let slot = &mut self.slots[0];
         if slot.sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
-            slot.sensor_clip = Some((gkey, geometry::apply_mask(base_mask, &gkey.transform, self.photo.lens.as_ref(), width, height)));
+            let mask = geometry::apply_mask(base_mask, &gkey.transform, width, height);
+            slot.sensor_clip = Some((gkey, mask));
         }
         &slot.sensor_clip.as_ref().expect("mask was just built").1
     }
@@ -754,13 +764,13 @@ impl Developer {
     pub fn spatial(&mut self, params: &EditParams, size: RenderSize) -> (u64, &Image, &[MaskPlane]) {
         self.sync_source(params);
         let (plan, gkey, inner, mut changed) = self.prepare_slot(params, size);
-        let pkey = point_masks_key(params, &plan, gkey);
+        let pkey = point_masks_key(params, &plan, gkey.clone());
         let diffused = &mut self.diffused;
         let slot = &mut self.slots[0];
         if !plan.has_detail() {
             changed |= slot.detail.take().is_some();
         } else {
-            let dkey = DetailKey { geometry: gkey, steps: plan.steps.clone() };
+            let dkey = DetailKey { geometry: gkey.clone(), steps: plan.steps.clone() };
             if slot.detail.as_ref().map(|d| &d.key) != Some(&dkey) {
                 let img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
                 let planes = &slot.masks.as_ref().expect("masks were just built").1;
@@ -829,7 +839,7 @@ impl Developer {
             slot.masks = None;
             slot.geometry = None; // free before allocating
             let img = self.geometry_stage(&gkey, plan.patch, &stamps);
-            self.slots[0].geometry = Some((gkey, img));
+            self.slots[0].geometry = Some((gkey.clone(), img));
             changed = true;
         }
 
@@ -837,7 +847,7 @@ impl Developer {
         let (r, p) = (plan.region, plan.padded);
         let inner = Region { x: r.x - p.x, y: r.y - p.y, ..r };
 
-        let mkey = MasksKey { geometry: gkey, drawn: plan.drawn.clone() };
+        let mkey = MasksKey { geometry: gkey.clone(), drawn: plan.drawn.clone() };
         if self.slots[0].masks.as_ref().map(|(k, ..)| k) != Some(&mkey) {
             // Planes whose shapes didn't change are kept (one mask is edited at a time).
             let old = self.slots[0].masks.take().filter(|(k, ..)| k.geometry == gkey);
@@ -983,11 +993,10 @@ impl Developer {
     /// geometry stage's output over the same pixels).
     fn drawn_plane(&self, drawn: &Drawn, plan: &Plan, transform: &geometry::Transform, guide: &Image) -> Vec<f32> {
         let (width, height) = plan.frame;
-        let lens = self.photo.lens.as_ref();
         let frame = mask::raster_frame((self.photo.width, self.photo.height), plan.scale);
-        let bounds = geometry::source_bounds(frame, transform, lens, width, height, plan.padded);
+        let bounds = geometry::source_bounds(frame, transform, width, height, plan.padded);
         let mut plane = match mask::rasterize(drawn, frame, bounds) {
-            Some((at, alpha)) => geometry::apply_plane_region(&alpha, at, frame, transform, lens, width, height, plan.padded),
+            Some((at, alpha)) => geometry::apply_plane_region(&alpha, at, frame, transform, width, height, plan.padded),
             None => vec![0.0; plan.padded.width * plan.padded.height],
         };
         mask::feather(&mut plane, guide, drawn.feather, drawn.edge_aware, plan.scale);
@@ -1101,22 +1110,21 @@ impl Developer {
     /// Run the geometry stage for `key`, from the whole base or from a patch, retouched
     /// with `stamps` (whose key `key` has).
     fn geometry_stage(&mut self, key: &GeometryKey, patch: bool, stamps: &[Stamp]) -> Image {
-        let lens = self.photo.lens.as_ref();
         let scale = 1.0 / key.base_factor as f32;
         if !patch {
             let (factor, base) = self.base.as_mut().expect("base was just built");
             let frame = (base.width, base.height);
             self.base_retouch.update(base, Region::full(frame.0, frame.1), frame, stamps, key.retouch, 1.0 / *factor as f32);
-            return geometry::apply(base, &key.transform, lens, key.width, key.height);
+            return geometry::apply(base, &key.transform, key.width, key.height);
         }
         let base = demosaic::base_size(&self.photo, key.base_factor);
-        let bounds = geometry::source_bounds(base, &key.transform, lens, key.width, key.height, key.region);
+        let bounds = geometry::source_bounds(base, &key.transform, key.width, key.height, key.region);
         // With what the spots changing those pixels read.
         let bounds = retouch::needed(stamps, base, scale, bounds);
         self.ensure_patch(key.base_factor, bounds);
         let patch = self.patch.as_mut().expect("patch was just built");
         patch.retouch.update(&mut patch.image, patch.at, base, stamps, key.retouch, scale);
-        geometry::apply_region(&patch.image, patch.at, base, &key.transform, self.photo.lens.as_ref(), key.width, key.height, key.region)
+        geometry::apply_region(&patch.image, patch.at, base, &key.transform, key.width, key.height, key.region)
     }
 
     /// Make sure the patch covers `bounds` of the base image for `factor`.

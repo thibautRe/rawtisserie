@@ -744,21 +744,80 @@ pub enum SpotMode {
     Blur,
 }
 
-/// Lens correction from the data embedded in the file (see [`crate::lens`]). Each
-/// strength scales the camera's correction: 0 is off, 1 as specified, up to 2.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+/// Lens correction (see [`crate::lens`]): from the data embedded in the file, or from
+/// lensfun's database (`lensfun`). Each strength scales the correction: 0 is off, 1 as
+/// specified, up to 2.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Lens {
     pub distortion: f32,
     /// Transverse chromatic aberration.
     pub tca: f32,
     pub vignetting: f32,
+    /// Lensfun's correction for this shot, used instead of the file's embedded data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lensfun: Option<LensfunProfile>,
 }
 
 impl Default for Lens {
     fn default() -> Self {
-        Self { distortion: 1.0, tca: 1.0, vignetting: 1.0 }
+        Self { distortion: 1.0, tca: 1.0, vignetting: 1.0, lensfun: None }
     }
+}
+
+/// Lensfun's correction for one shot (roadmap 3.6): a lens of its database, matched (or
+/// chosen) and interpolated for the shot's focal length and aperture by the app
+/// (`lensfun.ts`). Kept in the recipe, so renders don't need the database and an update
+/// of it doesn't move edits. Coefficients are lensfun's, in its own units: see
+/// [`crate::lens::LensProfile::from_lensfun`]. Mirrors `LensfunProfile` in TS.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LensfunProfile {
+    /// The lens's model name in lensfun's database.
+    pub lens: String,
+    /// The camera's crop factor (a full-frame diagonal over its sensor's).
+    pub crop_factor: f32,
+    /// The crop factor and aspect ratio of the sensor the lens was calibrated with.
+    pub calib_crop_factor: f32,
+    pub calib_aspect_ratio: f32,
+    /// What the coefficients were interpolated for (the shot's): mm, and the f-number.
+    pub focal_length: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub f_number: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distortion: Option<LensfunTerms<DistortionModel>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tca: Option<LensfunTerms<TcaModel>>,
+    /// Lensfun's `pa` model: k1, k2, k3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vignetting: Option<[f32; 3]>,
+}
+
+/// A lensfun model and its terms, in the database's order (missing ones are 0).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LensfunTerms<M> {
+    pub model: M,
+    pub terms: Vec<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DistortionModel {
+    /// k1
+    Poly3,
+    /// k1, k2
+    Poly5,
+    /// a, b, c
+    Ptlens,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TcaModel {
+    /// kr, kb
+    Linear,
+    /// vr, vb, cr, cb, br, bb
+    Poly3,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -28,12 +28,17 @@ export interface ModuleParams {
   retouch: {
     spots: Spot[];
   };
-  /** Lens correction from the data embedded in the file. Strengths scale it: 0 = off, 1 = as specified, up to 2. */
+  /**
+   * Lens correction, from the data embedded in the file or from lensfun's database
+   * (`lensfun`). Strengths scale it: 0 = off, 1 = as specified, up to 2.
+   */
   lens: {
     distortion: number;
     /** Transverse chromatic aberration. */
     tca: number;
     vignetting: number;
+    /** Lensfun's correction for this shot (`lensfun.ts`), used instead of the file's embedded data. */
+    lensfun?: LensfunProfile;
   };
   geometry: {
     /** Clockwise quarter turns on top of the camera orientation, 0…3. */
@@ -344,6 +349,36 @@ export type ToneRange = (typeof TONE_RANGES)[number];
 
 export const SPOT_MODES = ['heal', 'clone', 'fill', 'blur'] as const;
 export type SpotMode = (typeof SPOT_MODES)[number];
+
+/**
+ * Lensfun's correction for one shot (roadmap 3.6): a lens of its database, matched or
+ * chosen, its calibration interpolated for the shot (`lensfun.ts`). Kept in the recipe,
+ * so renders don't need the database, and an update of it doesn't move edits. Mirrors
+ * `params::LensfunProfile`, which evaluates it (`LensProfile::from_lensfun`).
+ */
+export interface LensfunProfile {
+  /** The lens's model name in lensfun's database. */
+  lens: string;
+  /** The camera's crop factor (a full-frame diagonal over its sensor's). */
+  cropFactor: number;
+  /** The crop factor and aspect ratio of the sensor the lens was calibrated with. */
+  calibCropFactor: number;
+  calibAspectRatio: number;
+  /** What the coefficients were interpolated for (the shot's): mm, and the f-number. */
+  focalLength: number;
+  fNumber?: number;
+  /** Terms in lensfun's order: poly3 k1; poly5 k1, k2; ptlens a, b, c. */
+  distortion?: { model: LensfunDistortionModel; terms: number[] };
+  /** Terms in lensfun's order: linear kr, kb; poly3 vr, vb, cr, cb, br, bb. */
+  tca?: { model: LensfunTcaModel; terms: number[] };
+  /** Lensfun's `pa` model: k1, k2, k3. */
+  vignetting?: [number, number, number];
+}
+
+export const LENSFUN_DISTORTION_MODELS = ['poly3', 'poly5', 'ptlens'] as const;
+export type LensfunDistortionModel = (typeof LENSFUN_DISTORTION_MODELS)[number];
+export const LENSFUN_TCA_MODELS = ['linear', 'poly3'] as const;
+export type LensfunTcaModel = (typeof LENSFUN_TCA_MODELS)[number];
 
 /** A retouch spot: shape `shape` of the recipe (`EditParams.shapes`), filled according to `mode`. */
 export interface Spot {
@@ -1271,6 +1306,10 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
     const g = params as ModuleParams['glow'];
     if (!GLOW_SHAPES.includes(g.shape)) g.shape = defaultModuleParams.glow.shape;
   }
+  if (kind === 'lens') {
+    const lensfun = lensfunParams(isObject(input) ? input.lensfun : undefined);
+    if (lensfun) (params as ModuleParams['lens']).lensfun = lensfun;
+  }
   if (kind === 'toneCurve') {
     const t = params as ModuleParams['toneCurve'];
     const d = defaultModuleParams.toneCurve;
@@ -1278,6 +1317,39 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
     if (!RGB_NORMS.includes(t.preserveColors)) t.preserveColors = d.preserveColors;
   }
   return params;
+}
+
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isNumbers = (v: unknown): v is number[] => Array.isArray(v) && v.every(isNumber);
+
+/**
+ * A lensfun profile from untrusted input, or `undefined` for junk (Rust refuses it).
+ * Optional parts that aren't valid are dropped.
+ */
+export function lensfunParams(input: unknown): LensfunProfile | undefined {
+  if (!isObject(input) || typeof input.lens !== 'string') return undefined;
+  const { cropFactor, calibCropFactor, calibAspectRatio, focalLength } = input;
+  if (![cropFactor, calibCropFactor, calibAspectRatio, focalLength].every(isNumber)) return undefined;
+  const p: LensfunProfile = {
+    lens: input.lens,
+    cropFactor: cropFactor as number,
+    calibCropFactor: calibCropFactor as number,
+    calibAspectRatio: calibAspectRatio as number,
+    focalLength: focalLength as number,
+  };
+  if (isNumber(input.fNumber)) p.fNumber = input.fNumber;
+  const terms = <M extends string>(v: unknown, models: readonly M[]) =>
+    isObject(v) && models.includes(v.model as M) && isNumbers(v.terms)
+      ? { model: v.model as M, terms: [...v.terms] }
+      : undefined;
+  const distortion = terms(input.distortion, LENSFUN_DISTORTION_MODELS);
+  if (distortion) p.distortion = distortion;
+  const tca = terms(input.tca, LENSFUN_TCA_MODELS);
+  if (tca) p.tca = tca;
+  if (isNumbers(input.vignetting) && input.vignetting.length === 3) {
+    p.vignetting = [...input.vignetting] as [number, number, number];
+  }
+  return p;
 }
 
 /** The LUTs the enabled instances use, without repeats, in pipeline order. Mirrors `EditParams::lut_ids`. */

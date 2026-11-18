@@ -127,6 +127,28 @@ const samples: unknown[] = [
     modules: [{ kind: 'filmic' }, { kind: 'lens', params: { tca: 0 } }, { kind: 'lens', params: { tca: 2 } }],
   },
   {
+    version: 8,
+    modules: [
+      {
+        kind: 'lens',
+        params: {
+          vignetting: 0.5,
+          lensfun: {
+            lens: 'Canon RF 70-200mm F2.8L IS USM',
+            cropFactor: 1,
+            calibCropFactor: 1,
+            calibAspectRatio: 1.5,
+            focalLength: 200,
+            fNumber: 2.8,
+            distortion: { model: 'ptlens', terms: [0.01, -0.02, 0.005] },
+            tca: { model: 'poly3', terms: [1.0002, 0.9998, 0, 0, 0.0001, -0.0001] },
+            vignetting: [-0.3, 0.1, -0.05],
+          },
+        },
+      },
+    ],
+  },
+  {
     version: 6,
     modules: [
       { kind: 'toneCurve', params: { rgb: [0, 0, -0.25, -0.5, 0, 0.125, 0.5, 0.75, 0] } },

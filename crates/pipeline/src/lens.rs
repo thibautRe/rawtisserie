@@ -1,21 +1,41 @@
 //! Lens correction: distortion, transverse chromatic aberration (TCA) and vignetting,
-//! from the correction data that cameras embed in RAW files.
+//! from the correction data that cameras embed in RAW files, or from lensfun's database.
 //!
-//! Only Sony's embedded data is read for now (ARW tags `0x7032`, `0x7035`, `0x7037`).
+//! Embedded data: only Sony's is read for now (ARW tags `0x7032`, `0x7035`, `0x7037`).
 //! The decoding and the model follow darktable's `lens.cc` ("embedded metadata",
-//! version 2). Deviations:
+//! version 2). Lensfun (roadmap 3.6): the app matches the lens and interpolates its
+//! calibration for the shot (`lensfun.ts`), which the recipe keeps
+//! ([`LensfunProfile`]); [`LensProfile::from_lensfun`] evaluates lensfun's models
+//! (`mod-coord.cpp`, `mod-subpix.cpp`, `mod-color.cpp`) into the same tables as the
+//! embedded data. Deviations, for both:
 //! * Vignetting is applied in the geometry resample, at each sample's source
 //!   position, instead of on the input image first. The gain varies slowly, so the
 //!   result is the same, and the cached base image stays independent of the lens.
 //! * The strength of the vignetting correction scales its gain in EV. At 100 % this
 //!   is exactly darktable's correction.
 //! * The image is always scaled to the largest size with no empty borders (darktable
-//!   leaves the scale to the user, with an auto-scale button).
+//!   leaves the scale to the user, with an auto-scale button). So lensfun's rescaling
+//!   for the real focal length, which only changes that scale, isn't needed.
+//! * Lensfun's lens centre offsets (none in its database today) aren't read.
 
 use rawler::formats::tiff::reader::TiffReader;
 use rawler::formats::tiff::{GenericTiffReader, Value};
 
-use crate::params::Lens;
+use crate::params::{DistortionModel, Lens, LensfunProfile, TcaModel};
+
+/// How much of each correction to apply: 0 is off, 1 as specified, up to 2.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Strengths {
+    pub distortion: f32,
+    pub tca: f32,
+    pub vignetting: f32,
+}
+
+impl Lens {
+    pub fn strengths(&self) -> Strengths {
+        Strengths { distortion: self.distortion, tca: self.tca, vignetting: self.vignetting }
+    }
+}
 
 /// Correction data for one image, as functions of the distance from the image centre.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -37,6 +57,7 @@ pub struct LensProfile {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LensSource {
     Sony,
+    Lensfun,
 }
 
 impl LensSource {
@@ -44,6 +65,7 @@ impl LensSource {
     pub fn name(self) -> &'static str {
         match self {
             LensSource::Sony => "sony",
+            LensSource::Lensfun => "lensfun",
         }
     }
 }
@@ -52,6 +74,88 @@ impl LensProfile {
     /// The correction data embedded in a RAW file, if any.
     pub fn embedded(bytes: &[u8], make: &str) -> Option<Self> {
         if make.eq_ignore_ascii_case("sony") { sony(bytes) } else { None }
+    }
+}
+
+/// Knots of a lensfun profile: up to past the corner of a corrected image zoomed out by
+/// the strongest barrel correction.
+const LENSFUN_KNOTS: usize = 64;
+const LENSFUN_MAX_R: f32 = 1.25;
+
+impl LensProfile {
+    /// Lensfun's models evaluated at knots, in this module's units: radii as fractions of
+    /// the image's half-diagonal. Lensfun's distortion and TCA models measure radii in
+    /// Hugin's unit, half the short side of the calibration sensor, and its `pa`
+    /// vignetting model from the centre to its corner; both are converted through the
+    /// sensors' sizes (the crop factors), whatever the images' pixel sizes.
+    pub fn from_lensfun(p: &LensfunProfile) -> Self {
+        let camera = if p.crop_factor > 0.0 { p.crop_factor } else { 1.0 };
+        let calib = if p.calib_crop_factor > 0.0 { p.calib_crop_factor } else { camera };
+        let aspect = if p.calib_aspect_ratio > 0.0 { p.calib_aspect_ratio } else { 1.5 };
+        // Our radius → Hugin's and `pa`'s.
+        let hugin = calib * aspect.hypot(1.0) / camera;
+        let pa = calib / camera;
+        let term = |terms: &[f32], i: usize| terms.get(i).copied().unwrap_or(0.0);
+
+        // Source / corrected radius (green), at corrected radius `ru` (Hugin's unit):
+        // `ModifyCoord_Dist_*` before lensfun's rescaling (`rescale_polynomial_coefficients`).
+        let distortion = |ru: f32| match &p.distortion {
+            None => 1.0,
+            Some(d) => {
+                let t = &d.terms;
+                match d.model {
+                    DistortionModel::Poly3 => 1.0 - term(t, 0) + term(t, 0) * ru * ru,
+                    DistortionModel::Poly5 => 1.0 + term(t, 0) * ru * ru + term(t, 1) * ru.powi(4),
+                    DistortionModel::Ptlens => {
+                        let (a, b, c) = (term(t, 0), term(t, 1), term(t, 2));
+                        a * ru.powi(3) + b * ru * ru + c * ru + 1.0 - a - b - c
+                    }
+                }
+            }
+        };
+        // Red and blue's radius over green's, at green's source radius `rd` (TCA is applied
+        // after distortion, on its output): `ModifyCoord_TCA_*`.
+        let tca = |rd: f32| match &p.tca {
+            None => (1.0, 1.0),
+            Some(c) => {
+                let t = &c.terms;
+                match c.model {
+                    TcaModel::Linear => (term(t, 0), term(t, 1)),
+                    TcaModel::Poly3 => (
+                        term(t, 4) * rd * rd + term(t, 2) * rd + term(t, 0),
+                        term(t, 5) * rd * rd + term(t, 3) * rd + term(t, 1),
+                    ),
+                }
+            }
+        };
+        // Falloff in EV at source radius `r` (`pa`'s unit): lensfun divides by the polynomial.
+        let vignetting = |r: f32| match p.vignetting {
+            None => 0.0,
+            Some([k1, k2, k3]) => {
+                let r2 = r * r;
+                let gain = 1.0 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2;
+                -gain.max(1e-3).log2()
+            }
+        };
+
+        let knots: Vec<f32> = (0..LENSFUN_KNOTS).map(|i| i as f32 / (LENSFUN_KNOTS - 1) as f32 * LENSFUN_MAX_R).collect();
+        let ratio: Vec<f32> = knots.iter().map(|&r| distortion(r * hugin)).collect();
+        let (ca_red, ca_blue) = knots
+            .iter()
+            .zip(&ratio)
+            .map(|(&r, &g)| {
+                let (red, blue) = tca(r * hugin * g);
+                (red - 1.0, blue - 1.0)
+            })
+            .unzip();
+        LensProfile {
+            source: LensSource::Lensfun,
+            distortion: ratio,
+            ca_red,
+            ca_blue,
+            vignetting: knots.iter().map(|&r| vignetting(r * pa)).collect(),
+            knots,
+        }
     }
 }
 
@@ -129,7 +233,7 @@ pub struct Correction {
 
 impl Correction {
     /// `None` if the strengths make it a no-op.
-    pub fn new(profile: &LensProfile, lens: &Lens, width: f32, height: f32) -> Option<Self> {
+    pub fn new(profile: &LensProfile, lens: &Strengths, width: f32, height: f32) -> Option<Self> {
         let (sd, st, sv) = (lens.distortion.clamp(0.0, 2.0), lens.tca.clamp(0.0, 2.0), lens.vignetting.clamp(0.0, 2.0));
         if sd == 0.0 && st == 0.0 && sv == 0.0 {
             return None;
@@ -264,7 +368,80 @@ mod tests {
         }
     }
 
-    const FULL: Lens = Lens { distortion: 1.0, tca: 1.0, vignetting: 1.0 };
+    const FULL: Strengths = Strengths { distortion: 1.0, tca: 1.0, vignetting: 1.0 };
+
+    fn lensfun(crop: f32, calib_crop: f32) -> LensfunProfile {
+        LensfunProfile {
+            lens: "Test 50mm f/2".into(),
+            crop_factor: crop,
+            calib_crop_factor: calib_crop,
+            calib_aspect_ratio: 1.5,
+            focal_length: 50.0,
+            f_number: Some(2.0),
+            distortion: None,
+            tca: None,
+            vignetting: None,
+        }
+    }
+
+    /// The profile's value at radius `r` (a fraction of the half-diagonal).
+    fn at(p: &LensProfile, values: &[f32], r: f32) -> f32 {
+        interpolate(&p.knots, values, r)
+    }
+
+    #[test]
+    fn lensfun_radii_are_in_hugin_units() {
+        use crate::params::LensfunTerms;
+        // Same sensor as the calibration's (3:2): the corner is √(1.5² + 1) half short sides.
+        let k1 = -0.02;
+        let p = LensfunProfile {
+            distortion: Some(LensfunTerms { model: DistortionModel::Poly3, terms: vec![k1] }),
+            ..lensfun(1.0, 1.0)
+        };
+        let profile = LensProfile::from_lensfun(&p);
+        let corner = 1.5f32.hypot(1.0);
+        let poly3 = |ru: f32| 1.0 - k1 + k1 * ru * ru;
+        assert!((at(&profile, &profile.distortion, 1.0) - poly3(corner)).abs() < 1e-4);
+        // At the short side's middle (r = 1/√(1.5² + 1) for 3:2): Hugin's r = 1, where poly3 is 1.
+        assert!((at(&profile, &profile.distortion, 1.0 / corner) - 1.0).abs() < 1e-4);
+        // A camera with a sensor half as wide sees the middle of that field.
+        let small = LensProfile::from_lensfun(&LensfunProfile { crop_factor: 2.0, ..p });
+        assert!((at(&small, &small.distortion, 1.0) - poly3(corner / 2.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn lensfun_vignetting_is_pa_at_the_calibration_corner() {
+        let [k1, k2, k3] = [-0.3, 0.1, -0.05];
+        let p = LensfunProfile { vignetting: Some([k1, k2, k3]), ..lensfun(1.5, 1.5) };
+        let profile = LensProfile::from_lensfun(&p);
+        assert_eq!(profile.source, LensSource::Lensfun);
+        let falloff = -(1.0f32 + k1 + k2 + k3).log2();
+        assert!((at(&profile, &profile.vignetting, 1.0) - falloff).abs() < 1e-3);
+        assert!(at(&profile, &profile.vignetting, 0.0).abs() < 1e-6);
+        // Applied, it brightens the source's corner by that much.
+        let c = Correction::new(&profile, &Strengths { distortion: 0.0, tca: 0.0, ..FULL }, 300.0, 200.0).unwrap();
+        assert!((c.map(0.0, 0.0).1.log2() - falloff).abs() < 0.01);
+    }
+
+    #[test]
+    fn lensfun_tca_is_relative_to_green_after_distortion() {
+        use crate::params::LensfunTerms;
+        let (vr, br) = (1.0005, 0.0002);
+        let p = LensfunProfile {
+            distortion: Some(LensfunTerms { model: DistortionModel::Ptlens, terms: vec![0.01, -0.02, 0.005] }),
+            tca: Some(LensfunTerms { model: TcaModel::Poly3, terms: vec![vr, 1.0, 0.0, 0.0, br, 0.0] }),
+            ..lensfun(1.0, 1.0)
+        };
+        let profile = LensProfile::from_lensfun(&p);
+        let hugin = 1.5f32.hypot(1.0);
+        let rd = 0.8 * hugin * at(&profile, &profile.distortion, 0.8);
+        assert!((at(&profile, &profile.ca_red, 0.8) - (br * rd * rd + vr - 1.0)).abs() < 1e-5);
+        assert!(at(&profile, &profile.ca_blue, 0.8).abs() < 1e-7);
+        let linear = LensfunProfile { tca: Some(LensfunTerms { model: TcaModel::Linear, terms: vec![1.001, 0.999] }), ..p };
+        let profile = LensProfile::from_lensfun(&linear);
+        assert!((at(&profile, &profile.ca_red, 0.5) - 0.001).abs() < 1e-6);
+        assert!((at(&profile, &profile.ca_blue, 0.5) + 0.001).abs() < 1e-6);
+    }
 
     #[test]
     fn interpolation_is_linear_and_clamped() {
@@ -277,7 +454,7 @@ mod tests {
 
     #[test]
     fn zero_strengths_are_a_no_op() {
-        let off = Lens { distortion: 0.0, tca: 0.0, vignetting: 0.0 };
+        let off = Strengths { distortion: 0.0, tca: 0.0, vignetting: 0.0 };
         assert!(Correction::new(&profile(-0.05, 0.001, 1.0), &off, 300.0, 200.0).is_none());
     }
 
@@ -312,9 +489,9 @@ mod tests {
 
     #[test]
     fn vignetting_brightens_the_corners() {
-        let half = Lens { vignetting: 0.5, ..FULL };
+        let half = Strengths { vignetting: 0.5, ..FULL };
         // The corner of the source: 1 EV of falloff at the profile's last knot.
-        let ev = |lens: &Lens| Correction::new(&profile(0.0, 0.0, 1.0), lens, 300.0, 200.0).unwrap().map(0.0, 0.0).1.log2();
+        let ev = |lens: &Strengths| Correction::new(&profile(0.0, 0.0, 1.0), lens, 300.0, 200.0).unwrap().map(0.0, 0.0).1.log2();
         assert!((ev(&FULL) - 1.0).abs() < 0.01, "{}", ev(&FULL));
         assert!((ev(&half) - 0.5).abs() < 0.01);
     }

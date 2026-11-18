@@ -8,14 +8,24 @@
 use super::perspective::{self, Framing, Mat3, Perspective};
 use crate::decode::Orient;
 use crate::image::{Image, Mask, Region};
-use crate::lens::{Correction, LensProfile};
-use crate::params::{AutoCrop, Crop, Lens};
+use std::sync::Arc;
+
+use crate::lens::{Correction, LensProfile, Strengths};
+use crate::params::{AutoCrop, Crop};
+
+/// Lens correction to apply: a profile (the file's embedded one, or lensfun's from the
+/// recipe) and how much of it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LensChoice {
+    pub profile: Arc<LensProfile>,
+    pub strengths: Strengths,
+}
 
 /// Everything needed to map the (sensor-oriented) base image into the output frame.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Transform {
-    /// Strengths of the lens correction, if the file has a profile and it is enabled.
-    pub lens: Option<Lens>,
+    /// The lens correction, if there's a profile and the module is enabled.
+    pub lens: Option<LensChoice>,
     pub orient: Orient,
     /// Straighten angle, degrees, clockwise positive.
     pub angle: f32,
@@ -205,8 +215,8 @@ pub struct LensData {
 
 impl SensorMapping {
     /// For a sensor of `width × height` pixels.
-    pub fn new(t: &Transform, profile: Option<&LensProfile>, width: f32, height: f32) -> Self {
-        Self { width, height, map: Mapping::new(width, height, t, 1, 1), lens: correction(t, profile, width, height) }
+    pub fn new(t: &Transform, width: f32, height: f32) -> Self {
+        Self { width, height, map: Mapping::new(width, height, t, 1, 1), lens: correction(t, width, height) }
     }
 
     /// The sensor position of an output position.
@@ -238,15 +248,16 @@ impl SensorMapping {
     }
 }
 
-fn correction(t: &Transform, profile: Option<&LensProfile>, sw: f32, sh: f32) -> Option<Correction> {
-    Correction::new(profile?, t.lens.as_ref()?, sw, sh)
+fn correction(t: &Transform, sw: f32, sh: f32) -> Option<Correction> {
+    let lens = t.lens.as_ref()?;
+    Correction::new(&lens.profile, &lens.strengths, sw, sh)
 }
 
-/// Render `out_w × out_h` pixels of the transformed `src`, corrected with `profile`
-/// when `t.lens` asks for it.
-pub fn apply(src: &Image, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Image {
+/// Render `out_w × out_h` pixels of the transformed `src`, lens-corrected when `t.lens`
+/// asks for it.
+pub fn apply(src: &Image, t: &Transform, out_w: usize, out_h: usize) -> Image {
     let whole = Region::full(src.width, src.height);
-    apply_region(src, whole, (src.width, src.height), t, profile, out_w, out_h, Region::full(out_w, out_h))
+    apply_region(src, whole, (src.width, src.height), t, out_w, out_h, Region::full(out_w, out_h))
 }
 
 /// `region` of [`apply`]'s output, from a patch of the base image: `src` holds pixels
@@ -257,7 +268,6 @@ pub fn apply_region(
     src_at: Region,
     base: (usize, usize),
     t: &Transform,
-    profile: Option<&LensProfile>,
     out_w: usize,
     out_h: usize,
     region: Region,
@@ -278,7 +288,7 @@ pub fn apply_region(
     let norm = 1.0 / (ss * ss) as f32;
 
     let mut out = Image::new(region.width, region.height);
-    if let Some(lens) = correction(t, profile, sw, sh) {
+    if let Some(lens) = correction(t, sw, sh) {
         apply_lens(src, &m, &lens, ss, at, clip, &mut out);
         return out;
     }
@@ -317,10 +327,10 @@ struct Patch {
 
 /// The pixels of a `base` sized source that [`apply_region`] reads for `region`
 /// (with a margin for the filters and lens correction's per-channel shifts).
-pub fn source_bounds(base: (usize, usize), t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize, region: Region) -> Region {
+pub fn source_bounds(base: (usize, usize), t: &Transform, out_w: usize, out_h: usize, region: Region) -> Region {
     let (sw, sh) = (base.0 as f32, base.1 as f32);
     let m = Mapping::new(sw, sh, t, out_w, out_h);
-    let lens = correction(t, profile, sw, sh);
+    let lens = correction(t, sw, sh);
     // The chain (a homography) maps straight lines to straight lines, except for lens distortion,
     // which is smooth: points along the border are enough.
     const STEPS: usize = 32;
@@ -409,7 +419,6 @@ pub fn apply_plane_region(
     plane_at: Region,
     frame: (usize, usize),
     t: &Transform,
-    profile: Option<&LensProfile>,
     out_w: usize,
     out_h: usize,
     region: Region,
@@ -418,7 +427,7 @@ pub fn apply_plane_region(
     const B: usize = PLANE_BLOCK;
     let (sw, sh) = (frame.0 as f32, frame.1 as f32);
     let m = Mapping::new(sw, sh, t, out_w, out_h);
-    let lens = correction(t, profile, sw, sh);
+    let lens = correction(t, sw, sh);
     let (pw, ph) = (plane_at.width as i64, plane_at.height as i64);
     let tap = |x: i64, y: i64| if x >= 0 && y >= 0 && x < pw && y < ph { plane[(y * pw + x) as usize] } else { 0.0 };
     // Source position of a grid node, in the plane's pixels (minus the half-pixel offset).
@@ -473,9 +482,9 @@ pub fn apply_plane_region(
 pub const PLANE_BLOCK: usize = 16;
 
 /// Render `out_w × out_h` pixels of the transformed `src` mask, by nearest sampling.
-pub fn apply_mask(src: &Mask, t: &Transform, profile: Option<&LensProfile>, out_w: usize, out_h: usize) -> Mask {
+pub fn apply_mask(src: &Mask, t: &Transform, out_w: usize, out_h: usize) -> Mask {
     let whole = Region::full(src.width, src.height);
-    apply_mask_region(src, whole, (src.width, src.height), t, profile, out_w, out_h, Region::full(out_w, out_h))
+    apply_mask_region(src, whole, (src.width, src.height), t, out_w, out_h, Region::full(out_w, out_h))
 }
 
 /// `region` of [`apply_mask`]'s output, from a patch of the mask (as [`apply_region`]).
@@ -485,14 +494,13 @@ pub fn apply_mask_region(
     src_at: Region,
     base: (usize, usize),
     t: &Transform,
-    profile: Option<&LensProfile>,
     out_w: usize,
     out_h: usize,
     region: Region,
 ) -> Mask {
     let (sw, sh) = (base.0 as f32, base.1 as f32);
     let m = Mapping::new(sw, sh, t, out_w, out_h);
-    let lens = correction(t, profile, sw, sh);
+    let lens = correction(t, sw, sh);
     let (min_x, min_y) = (src_at.x as f32, src_at.y as f32);
     let (max_x, max_y) = (min_x + src.width as f32 - 1.0, min_y + src.height as f32 - 1.0);
     let clip = t.clip(sw, sh);
@@ -546,7 +554,7 @@ mod tests {
     //          3 4 5
     #[test]
     fn identity() {
-        let out = apply(&indexed(), &transform(false, 0), None, 3, 2);
+        let out = apply(&indexed(), &transform(false, 0), 3, 2);
         assert_eq!(reds(&out), [0., 1., 2., 3., 4., 5.]);
     }
 
@@ -555,14 +563,14 @@ mod tests {
         // 3 0
         // 4 1
         // 5 2
-        let out = apply(&indexed(), &transform(false, 1), None, 2, 3);
+        let out = apply(&indexed(), &transform(false, 1), 2, 3);
         assert_eq!(reds(&out), [3., 0., 4., 1., 5., 2.]);
     }
 
     #[test]
     fn flip_then_rotate_is_transpose() {
         // EXIF 5 (transpose): 0 3 / 1 4 / 2 5
-        let out = apply(&indexed(), &transform(true, 3), None, 2, 3);
+        let out = apply(&indexed(), &transform(true, 3), 2, 3);
         assert_eq!(reds(&out), [0., 3., 1., 4., 2., 5.]);
     }
 
@@ -577,7 +585,7 @@ mod tests {
             },
             ..transform(false, 0)
         };
-        let out = apply(&indexed(), &t, None, 2, 1);
+        let out = apply(&indexed(), &t, 2, 1);
         assert_eq!(reds(&out), [4., 5.]);
     }
 
@@ -586,7 +594,7 @@ mod tests {
         // Mark source pixel 1 (top middle); rotated clockwise it lands at (1, 1).
         let mut mask = Mask::new(3, 2);
         mask.set(1, 0);
-        let out = apply_mask(&mask, &transform(false, 1), None, 2, 3);
+        let out = apply_mask(&mask, &transform(false, 1), 2, 3);
         let marked: Vec<bool> = (0..3).flat_map(|y| (0..2).map(move |x| (x, y))).map(|(x, y)| out.get(x, y)).collect();
         assert_eq!(marked, [false, false, false, true, false, false]);
     }
@@ -594,16 +602,15 @@ mod tests {
     #[test]
     fn sensor_mapping_round_trips() {
         use crate::lens::{LensProfile, LensSource};
-        let profile = LensProfile {
+        let profile = Arc::new(LensProfile {
             source: LensSource::Sony,
             knots: vec![0.0, 0.5, 1.0],
             distortion: vec![1.0, 0.98, 0.93],
             ca_red: vec![0.0, 0.0, 0.0],
             ca_blue: vec![0.0, 0.0, 0.0],
             vignetting: vec![0.0, 0.0, 0.0],
-        };
+        });
         let t = Transform {
-            lens: Some(Lens { distortion: 1.0, tca: 0.0, vignetting: 0.0 }),
             orient: Orient { flip: true, quarter_turns: 1 },
             angle: 4.0,
             crop: Crop { x: 0.1, y: 0.2, width: 0.7, height: 0.6 },
@@ -611,21 +618,23 @@ mod tests {
         };
         let tilted = Transform {
             perspective: Perspective { vertical: 12.0, horizontal: -6.0, shear: 0.05, aspect: 0.2, focal: 0.7 },
-            ..t
+            ..t.clone()
         };
-        let framed = [AutoCrop::Aspect, AutoCrop::Area, AutoCrop::Off].map(|auto_crop| Transform { auto_crop, ..tilted });
+        let framed = [AutoCrop::Aspect, AutoCrop::Area, AutoCrop::Off].map(|auto_crop| Transform { auto_crop, ..tilted.clone() });
+        let strengths = Strengths { distortion: 1.0, tca: 0.0, vignetting: 0.0 };
         for t in [t, tilted].iter().chain(&framed) {
-            for lens in [None, Some(&profile)] {
-                let m = SensorMapping::new(t, lens, 6000.0, 4000.0);
+            for lens in [None, Some(LensChoice { profile: profile.clone(), strengths })] {
+                let t = Transform { lens, ..t.clone() };
+                let m = SensorMapping::new(&t, 6000.0, 4000.0);
                 for (x, y) in [(0.5, 0.5), (0.0, 0.0), (1.0, 0.3), (0.2, 0.9)] {
                     let (u, v) = m.to_sensor(x, y);
                     let (bx, by) = m.from_sensor(u, v);
-                    assert!((bx - x).abs() < 1e-4 && (by - y).abs() < 1e-4, "{lens:?} ({x}, {y}) → ({u}, {v}) → ({bx}, {by})");
+                    assert!((bx - x).abs() < 1e-4 && (by - y).abs() < 1e-4, "{:?} ({x}, {y}) → ({u}, {v}) → ({bx}, {by})", t.lens);
                 }
             }
         }
         // Without lens correction or geometry, both frames are the same.
-        let m = SensorMapping::new(&transform(false, 0), None, 6000.0, 4000.0);
+        let m = SensorMapping::new(&transform(false, 0), 6000.0, 4000.0);
         let (u, v) = m.to_sensor(0.25, 0.75);
         assert!((u - 0.25).abs() < 1e-6 && (v - 0.75).abs() < 1e-6);
     }
@@ -640,7 +649,7 @@ mod tests {
             ..transform(false, 1)
         };
         for auto_crop in [AutoCrop::Aspect, AutoCrop::Area, AutoCrop::Off] {
-            let t = Transform { auto_crop, ..t };
+            let t = Transform { auto_crop, ..t.clone() };
             let full = Mapping::new(6000.0, 4000.0, &t, 300, 450);
             let binned = Mapping::new(1500.0, 1000.0, &t, 300, 450);
             for (x, y) in [(0.0, 0.0), (300.0, 0.0), (150.0, 225.0), (20.0, 440.0)] {
@@ -653,7 +662,7 @@ mod tests {
     #[test]
     fn sensor_mapping_follows_the_render() {
         // A marked source pixel lands where `from_sensor` says (a quarter turn).
-        let (u, v) = SensorMapping::new(&transform(false, 1), None, 3.0, 2.0).from_sensor(1.5 / 3.0, 0.5 / 2.0);
+        let (u, v) = SensorMapping::new(&transform(false, 1), 3.0, 2.0).from_sensor(1.5 / 3.0, 0.5 / 2.0);
         // Source pixel 1 (top middle) is at (1, 1) of the 2 × 3 output: centre (1.5, 1.5).
         assert!((u - 1.5 / 2.0).abs() < 1e-6 && (v - 1.5 / 3.0).abs() < 1e-6, "({u}, {v})");
     }
@@ -665,7 +674,7 @@ mod tests {
         // Rotate 90° CW then mirror == transpose (EXIF 5).
         assert_eq!(Orient::default().then(1, true), Orient::from_exif(5));
         assert_eq!(
-            reds(&apply(&indexed(), &Transform { orient: Orient::default().then(1, true), ..transform(false, 0) }, None, 2, 3)),
+            reds(&apply(&indexed(), &Transform { orient: Orient::default().then(1, true), ..transform(false, 0) }, 2, 3)),
             [0., 3., 1., 4., 2., 5.]
         );
     }
