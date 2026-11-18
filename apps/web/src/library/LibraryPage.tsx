@@ -565,30 +565,32 @@ export function LibraryPage() {
               <Upload />
             </IconButton>
           ) : (
-            <ButtonGroup size="sm" colorPalette="orange" attached>
-              <Button onClick={() => importFrom('files')} title="Import RAW files">
-                <Upload /> Import
-              </Button>
-              <Menu.Root positioning={{ placement: 'bottom-end' }}>
+            // The menu around the group: the group styles its direct children (the
+            // trigger's corners, where they meet), and a menu inside it would be one.
+            <Menu.Root positioning={{ placement: 'bottom-end' }}>
+              <ButtonGroup size="sm" colorPalette="orange" attached>
+                <Button onClick={() => importFrom('files')} title="Import RAW files">
+                  <Upload /> Import
+                </Button>
                 <Menu.Trigger asChild>
-                  <IconButton aria-label="More ways to import" borderStartWidth="1px" borderColor="orange.emphasized">
+                  <IconButton aria-label="More ways to import" borderStartWidth="1px" borderStartColor="whiteAlpha.500">
                     <ChevronDown />
                   </IconButton>
                 </Menu.Trigger>
-                <Portal>
-                  <Menu.Positioner>
-                    <Menu.Content>
-                      <Menu.Item value="files" onSelect={() => importFrom('files')}>
-                        <Upload /> Files…
-                      </Menu.Item>
-                      <Menu.Item value="folder" onSelect={() => importFrom('folder')}>
-                        <FolderInput /> Folder or card…
-                      </Menu.Item>
-                    </Menu.Content>
-                  </Menu.Positioner>
-                </Portal>
-              </Menu.Root>
-            </ButtonGroup>
+              </ButtonGroup>
+              <Portal>
+                <Menu.Positioner>
+                  <Menu.Content>
+                    <Menu.Item value="files" onSelect={() => importFrom('files')}>
+                      <Upload /> Files…
+                    </Menu.Item>
+                    <Menu.Item value="folder" onSelect={() => importFrom('folder')}>
+                      <FolderInput /> Folder or card…
+                    </Menu.Item>
+                  </Menu.Content>
+                </Menu.Positioner>
+              </Portal>
+            </Menu.Root>
           )}
           <input
             ref={fileInput}
