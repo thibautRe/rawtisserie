@@ -2052,19 +2052,25 @@ it came from.
   span, the order among siblings) and `photos.collection_id` (a photo is in one
   collection; its versions follow it). Not tags: a tag can be on any number of photos
   at once and is shown everywhere (filters, exports' keywords), a collection is a
-  place. The library browses by collection (a tree in the side panel, above or instead
-  of the filters' tags), and `?collection=<id>` is a filter like `?import=`, including
-  the collections under it.
-- **Importing a folder tree:** keep it. The browser already knows each file's path in
-  the picked folder (`PickedFile.path`, `pickedFiles.ts`), but the server doesn't store
-  it: send it with the upload and create the matching collections (`2026/2026-11-09
-Wedding/` → `2026` › `2026-11-09 Wedding`), reusing existing ones with the same path
-  on a later import.
-- **Importing an unsorted card:** make collections, one per day by capture time (EXIF
-  `DateTimeOriginal`, else the file's date), under a parent per year or none. Options
-  in the import review: by day; by gap (a new collection after N hours without photos,
-  which keeps a night shoot together); into one existing or new collection. The review
-  shows the collections it will create, and they can be renamed there.
+  place.
+- **In the filters, not beside them:** collections are one more filter in the library's
+  filter sidebar (a block of its own, as Tags), combined with the others: "collections
+  A, B and C, 2 stars and up, with tag T". `collection` in the address, repeatable (any
+  of them), each including the collections under it; saved filters keep them (and
+  follow a rename, as tags do). The library still opens on all photos. A long tree
+  mustn't scroll inside the sidebar's own scroll: the block shows the recent
+  collections and the branches leading to the picked ones, folded, with a search (as
+  Tags' `TagSearch`) and "Show all" for the rest. Try it first: if the sidebar gets too
+  crowded, a panel of its own comes next.
+- **Imports: the user chooses**, whatever the files' folders are. The import review
+  offers: keep the folder tree; one collection per day (EXIF `DateTimeOriginal`, else
+  the file's date), under a parent per year or none; by gap (a new collection after N
+  hours without photos, which keeps a night shoot together); all into one existing or
+  new collection (named after the folder by default). It shows the collections it will
+  create, which can be renamed there; existing ones with the same path are reused. For
+  the folder tree, the browser already knows each file's path in the picked folder
+  (`PickedFile.path`, `pickedFiles.ts`), but the server doesn't store it: send it with
+  the upload.
 - **Managing:** rename, move (drag in the tree), merge, split a collection at a photo
   (the second event of a day), move photos to another collection (from the selection,
   with a `Target` as 8.13's actions), delete an empty one. Moving photos between
@@ -2073,10 +2079,9 @@ Wedding/` → `2026` › `2026-11-09 Wedding`), reusing existing ones with the s
   `SentVersion` carries the collection's path, created on the receiving side; trashed
   photos keep theirs; a "no collection" filter for photos imported before this.
 
-To settle before building: whether a version can be in another collection than its
-photo (no, for now); whether imports of a folder with no subfolders also get a
-collection by day or one named after the folder; and whether the library opens on the
-collection tree or on all photos.
+Decided (2026-11-18): a collection is per photo, so a version can't be in another
+collection than its photo; imports let the user choose how to sort, whatever the
+folders; collections are a filter in the sidebar, combined with the others.
 
 ---
 
