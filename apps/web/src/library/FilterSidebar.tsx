@@ -636,43 +636,41 @@ export const FilterSidebar = memo(function FilterSidebar({ search }: { search: L
       />
 
       <PanelBlock title="Label">
-        <HStack justify="space-between" rowGap="2" wrap="wrap">
-          <HStack gap="0">
-            <RatingStars ratings={ratings} />
-            <IconButton
-              aria-label="Every rating"
-              title={ratingsOpen ? 'Hide every rating' : 'Every rating, with counts: unrated, ranges, any set'}
-              aria-expanded={ratingsOpen}
-              size={{ base: 'sm', md: '2xs' }}
-              variant="ghost"
-              color="fg.muted"
-              onClick={() => setRatingsOpen((o) => !o)}
-            >
-              {ratingsOpen ? <ChevronDown /> : <ChevronRight />}
-            </IconButton>
-          </HStack>
-          <HStack gap={{ base: '3', md: '1.5' }}>
-            {COLOR_LABELS.map((c) => {
-              const active = p.getAll('colorLabel').includes(c);
-              return (
-                <Circle
-                  key={c}
-                  as="button"
-                  size={{ base: '6', md: '4' }}
-                  bg={LABEL_COLORS[c]}
-                  opacity={active ? 1 : 0.35}
-                  outline={active ? '2px solid' : 'none'}
-                  outlineColor="fg"
-                  outlineOffset="1px"
-                  aria-label={`${c} label`}
-                  aria-pressed={active}
-                  onClick={() => search.toggle('colorLabel', c)}
-                />
-              );
-            })}
-          </HStack>
+        <HStack gap="0">
+          <RatingStars ratings={ratings} />
+          <IconButton
+            aria-label="Every rating"
+            title={ratingsOpen ? 'Hide every rating' : 'Every rating, with counts: unrated, ranges, any set'}
+            aria-expanded={ratingsOpen}
+            size={{ base: 'sm', md: '2xs' }}
+            variant="ghost"
+            color="fg.muted"
+            onClick={() => setRatingsOpen((o) => !o)}
+          >
+            {ratingsOpen ? <ChevronDown /> : <ChevronRight />}
+          </IconButton>
         </HStack>
         {ratingsOpen && <RatingList counts={facets?.ratings ?? []} ratings={ratings} />}
+        <HStack gap={{ base: '3', md: '1.5' }} px="1.5" py="1">
+          {COLOR_LABELS.map((c) => {
+            const active = p.getAll('colorLabel').includes(c);
+            return (
+              <Circle
+                key={c}
+                as="button"
+                size={{ base: '6', md: '4' }}
+                bg={LABEL_COLORS[c]}
+                opacity={active ? 1 : 0.35}
+                outline={active ? '2px solid' : 'none'}
+                outlineColor="fg"
+                outlineOffset="1px"
+                aria-label={`${c} label`}
+                aria-pressed={active}
+                onClick={() => search.toggle('colorLabel', c)}
+              />
+            );
+          })}
+        </HStack>
         <FlagFilter search={search} />
       </PanelBlock>
 
