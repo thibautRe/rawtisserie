@@ -14,7 +14,10 @@ import {
 import { Ban, Copy, FileImage, FolderMinus, Image, Tags } from 'lucide-react';
 import { type ReactNode, useRef } from 'react';
 import { formatBytes } from '../lib/format.ts';
+import type { CaptureTime } from './captureTime.ts';
 import type { FileTags } from './fileTags.ts';
+import { ImportCollections } from './ImportCollections.tsx';
+import { type Sorting, defaultSorting } from './importCollections.ts';
 import { type Picked, type PickedFile, isRaw, withPairs } from './pickedFiles.ts';
 
 /**
@@ -39,6 +42,10 @@ export type Review =
       includePairs: boolean;
       /** What the photos get from their files (`readFileTags`). */
       fileTags: ReadonlyMap<PickedFile, FileTags>;
+      /** When the new photos were taken (`readCaptureTimes`). */
+      times: ReadonlyMap<PickedFile, CaptureTime>;
+      /** Which collections they go to (`importCollections.ts`). */
+      sorting: Sorting;
     };
 
 /** What a ready review imports: its files, and the JPEGs next to their RAWs if asked for. */
@@ -70,11 +77,13 @@ export function ImportReview({
   review,
   onImport,
   onIncludePairs,
+  onSorting,
   onClose,
 }: {
   review: Review | null;
   onImport: () => void;
   onIncludePairs: (include: boolean) => void;
+  onSorting: (sorting: Sorting) => void;
   onClose: () => void;
 }) {
   const shown = useRef(review);
@@ -90,7 +99,7 @@ export function ImportReview({
       : 'Import';
 
   return (
-    <Dialog.Root open={!!review} onOpenChange={(e) => !e.open && onClose()} size="sm">
+    <Dialog.Root open={!!review} onOpenChange={(e) => !e.open && onClose()} size="md" scrollBehavior="inside">
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
@@ -99,7 +108,7 @@ export function ImportReview({
               <Dialog.Title>{title}</Dialog.Title>
             </Dialog.Header>
             <Dialog.Body>
-              <ReviewBody review={r} onIncludePairs={onIncludePairs} />
+              <ReviewBody review={r} onIncludePairs={onIncludePairs} onSorting={onSorting} />
             </Dialog.Body>
             <Dialog.Footer>
               <Dialog.ActionTrigger asChild>
@@ -125,9 +134,11 @@ export function ImportReview({
 export function ReviewBody({
   review,
   onIncludePairs,
+  onSorting,
 }: {
   review: Review | null;
   onIncludePairs?: (include: boolean) => void;
+  onSorting?: (sorting: Sorting) => void;
 }) {
   if (review?.phase !== 'ready') return <Scanning label={review?.label ?? null} progress={review?.progress} />;
   const picked = reviewedFiles(review);
@@ -193,6 +204,15 @@ export function ReviewBody({
           ? `${plural(counts.fresh.length, 'new photo')} · ${bytes(counts.fresh)}`
           : 'Nothing new to import'}
       </Text>
+      {counts.fresh.length > 0 && (
+        <ImportCollections
+          files={counts.fresh}
+          times={review.times}
+          sorting={review.sorting}
+          label={review.picked.label}
+          onChange={onSorting}
+        />
+      )}
     </Stack>
   );
 }
@@ -213,12 +233,18 @@ export function sampleReview(n: number, known: number, ignored: number, pairs = 
   // Sizes without the bytes: what the review adds up.
   for (const f of files) Object.defineProperty(f.file, 'size', { value: 36e6 });
   for (const f of jpegs) Object.defineProperty(f.file, 'size', { value: 9e6 });
+  // Two days of shooting, an evening each.
+  const times = new Map(
+    files.map((f, i) => [f, `2026-11-${i < n / 2 ? '09' : '10'}T${String(18 + (i % 4)).padStart(2, '0')}:00:00`]),
+  );
   return {
     phase: 'ready',
     picked: { files, pairs: jpegs, sidecars: [], refused: [], ignored, label: 'DCIM' },
     known: new Set(files.slice(0, known)),
     includePairs: false,
     fileTags: new Map(files.slice(known, known + pairs).map((f) => [f, { tags: ['Holidays'] }])),
+    times,
+    sorting: defaultSorting(files),
   };
 }
 
@@ -228,7 +254,7 @@ function Scanning({ label, progress }: { label: string | null; progress?: ScanPr
     progress?.step === 'checking'
       ? `Checking ${plural(progress.photos, 'photo')} against your library…`
       : progress?.step === 'reading'
-        ? 'Reading the files’ tags…'
+        ? 'Reading the files’ tags and dates…'
         : `Looking through ${label ?? 'the files'}…`;
   return (
     <Stack gap="2" textStyle="sm">

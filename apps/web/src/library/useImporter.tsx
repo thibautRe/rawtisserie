@@ -17,6 +17,14 @@ import {
   useImportRun,
 } from './imports.ts';
 import { photosToRead, readFileTags } from './fileTags.ts';
+import { readCaptureTimes } from './captureTime.ts';
+import {
+  type Sorting,
+  defaultSorting,
+  planCollections,
+  rememberSorting,
+  rememberedSorting,
+} from './importCollections.ts';
 import { ImportReview, type Review, type ScanProgress, reviewedFiles } from './ImportReview.tsx';
 import {
   type Listing,
@@ -127,12 +135,20 @@ export function useImporter() {
       show();
       const known = await findKnown(withPairs(picked, true).files);
       if (token !== latest.current) return;
-      // Then the files' tags, for the new photos only: what the library has is skipped.
+      // Then the files' tags and capture times (for collections by day), for the new
+      // photos only: what the library has is skipped.
       step = 'reading';
-      total = photosToRead(picked, known).length;
+      const fresh = photosToRead(picked, known);
+      total = fresh.length * 2;
       show();
-      const fileTags = await readFileTags(picked, { skip: known, progress: read, signal: abort.signal });
-      if (token === latest.current) setReview({ phase: 'ready', picked, known, includePairs: false, fileTags });
+      const [fileTags, times] = await Promise.all([
+        readFileTags(picked, { skip: known, progress: read, signal: abort.signal }),
+        readCaptureTimes(fresh, { progress: read, signal: abort.signal }),
+      ]);
+      const all = [...picked.files, ...picked.pairs];
+      const sorting = rememberedSorting(defaultSorting(all), all);
+      if (token === latest.current)
+        setReview({ phase: 'ready', picked, known, includePairs: false, fileTags, times, sorting });
     } finally {
       clearInterval(timer);
     }
@@ -145,13 +161,19 @@ export function useImporter() {
   const confirm = () => {
     if (review?.phase !== 'ready') return;
     close();
-    navigate(importPath(startImport(reviewedFiles(review), deps, review.known, from.current, review.fileTags)));
+    const files = reviewedFiles(review);
+    rememberSorting(review.sorting, [...review.picked.files, ...review.picked.pairs]);
+    const plan = planCollections(files.files, review.times, review.sorting);
+    navigate(importPath(startImport(files, deps, review.known, from.current, review.fileTags, plan.of)));
   };
   const includePairs = (include: boolean) =>
     setReview((r) => (r?.phase === 'ready' ? { ...r, includePairs: include } : r));
+  const sort = (sorting: Sorting) => setReview((r) => (r?.phase === 'ready' ? { ...r, sorting } : r));
   return {
     start,
-    review: <ImportReview review={review} onImport={confirm} onIncludePairs={includePairs} onClose={close} />,
+    review: (
+      <ImportReview review={review} onImport={confirm} onIncludePairs={includePairs} onSorting={sort} onClose={close} />
+    ),
   };
 }
 

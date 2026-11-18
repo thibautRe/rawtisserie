@@ -884,6 +884,73 @@ test("a card: its folders walked through, what the library has, JPEGs next to th
   await done.getByRole('button', { name: 'Close' }).click();
 });
 
+/** A RAW-like TIFF file with an EXIF capture time (`2026:11:09 22:10:00`). */
+function tiffTaken(taken: string): Buffer {
+  const b = Buffer.alloc(1024);
+  b.write('II', 0, 'latin1');
+  b.writeUInt16LE(42, 2);
+  b.writeUInt32LE(8, 4);
+  b.writeUInt16LE(1, 8);
+  // IFD0: the EXIF IFD at 40, which has DateTimeOriginal at 80.
+  b.writeUInt16LE(0x8769, 10);
+  b.writeUInt16LE(4, 12);
+  b.writeUInt32LE(1, 14);
+  b.writeUInt32LE(40, 18);
+  b.writeUInt16LE(1, 40);
+  b.writeUInt16LE(0x9003, 42);
+  b.writeUInt16LE(2, 44);
+  b.writeUInt32LE(20, 46);
+  b.writeUInt32LE(80, 50);
+  b.write(`${taken}\0`, 80, 'latin1');
+  return b;
+}
+
+test('a card sorted into collections at import: by day or by shoot, renamed, under a year (8.14)', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const card = join(await mkdtemp(join(tmpdir(), 'card-')), 'DCIM');
+  const dir = join(card, '100MSDCF');
+  await mkdir(dir, { recursive: true });
+  // A night out across midnight, then a walk two days later.
+  for (const [name, taken] of [
+    ['DSC00001.ARW', '2026:11:09 22:10:00'],
+    ['DSC00002.ARW', '2026:11:09 23:40:00'],
+    ['DSC00003.ARW', '2026:11:10 01:30:00'],
+    ['DSC00004.ARW', '2026:11:12 09:00:00'],
+  ] as const)
+    await writeFile(join(dir, name), tiffTaken(taken));
+  await page.locator('input[type=file][webkitdirectory]').setInputFiles(card);
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  const groups = () =>
+    review.locator('[data-group]').evaluateAll((els) => els.map((e) => e.getAttribute('data-group')));
+  // A card: by day, newest first; 2026-11-09 isn't in 2026 here, so all three are new.
+  assert.deepEqual(await groups(), ['2026-11-12', '2026-11-10', '2026-11-09']);
+  assert.match(await review.locator('[data-import-collections]').innerText(), /3 new collections/);
+  // By shoot: the night stays together.
+  await review.getByLabel('Sort the new photos into collections').selectOption('gap');
+  assert.deepEqual(await groups(), ['2026-11-12', '2026-11-09']);
+  await review.getByLabel('Name of 2026-11-09').fill('Party');
+  await review.getByText('Inside a collection per year').click();
+  assert.deepEqual(await groups(), ['2026/2026-11-12', '2026/Party']);
+  if (process.env.COLLECTION_SHOTS)
+    await review.screenshot({ path: `${process.env.COLLECTION_SHOTS}/collections-import.png` });
+  await review.getByRole('button', { name: 'Import 4 photos' }).click();
+  await page.locator('[data-import-state=done]').waitFor({ timeout: 20_000 });
+  assert.deepEqual(
+    started().map((u) => [u.name, (u as { collection?: string[] }).collection?.join(' › ')]),
+    [
+      ['DSC00001.ARW', '2026 › Party'],
+      ['DSC00002.ARW', '2026 › Party'],
+      ['DSC00003.ARW', '2026 › Party'],
+      ['DSC00004.ARW', '2026 › 2026-11-12'],
+    ],
+  );
+});
+
 test('nothing new on a card: the review says so', async () => {
   await open('/');
   await cards().first().waitFor();

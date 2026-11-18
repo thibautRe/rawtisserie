@@ -41,6 +41,8 @@ export interface ImportItem {
   uploadId?: string;
   /** Tags, rating and label from its files (`fileTags.ts`), given to the version it creates. */
   fileTags?: FileTags;
+  /** The collection it goes to (`importCollections.ts`), as a path of names. */
+  collection?: string[];
 }
 
 export interface ImportRun {
@@ -121,7 +123,7 @@ export interface ImportDeps {
  * Import what was picked: added to the run still going, if any (same id), else a new
  * run. Returns the run's id. `known` (from `findKnown`) are listed as already in the
  * library, without being hashed or sent. `fileTags` (`readFileTags`) go to the versions
- * created.
+ * created, and the photos to their `collections` (`planCollections`).
  */
 export function startImport(
   picked: Picked,
@@ -129,6 +131,7 @@ export function startImport(
   known: ReadonlySet<PickedFile> = new Set(),
   from: PickedFrom = { kind: picked.label ? 'folder' : 'files', handles: null },
   fileTags: ReadonlyMap<PickedFile, FileTags> = new Map(),
+  collections: ReadonlyMap<PickedFile, string[]> = new Map(),
 ): string {
   const refused = picked.refused.map((f): ImportItem => ({
     key: crypto.randomUUID(),
@@ -148,7 +151,8 @@ export function startImport(
     if (known.has(f)) return { ...item, status: 'skipped', kind: 'duplicate', reason: 'Already in your library' };
     files.set(key, f.file);
     const tags = fileTags.get(f);
-    return { ...item, status: 'waiting', ...(tags && { fileTags: tags }) };
+    const collection = collections.get(f);
+    return { ...item, status: 'waiting', ...(tags && { fileTags: tags }), ...(collection && { collection }) };
   });
   const all = [...items, ...refused];
   const active = runs.findLast((r) => !r.done);
@@ -320,6 +324,7 @@ async function process(runId: string, deps: ImportDeps) {
           allowDeleted: !!item.allowDeleted,
           uploadId: item.uploadId,
           fileTags: item.fileTags,
+          collection: item.collection,
           onStart: (uploadId) => updateItem(runId, item.key, { uploadId }),
           onProgress: (sent) => updateItem(runId, item.key, { sent }),
         });
@@ -469,6 +474,7 @@ interface UploadOptions {
   /** An upload started before, to resume. */
   uploadId?: string;
   fileTags?: FileTags;
+  collection?: string[];
   onStart: (uploadId: string) => void;
   onProgress: (sent: number) => void;
 }
@@ -502,6 +508,7 @@ async function upload(file: File, o: UploadOptions): Promise<UploadResult> {
         label: o.fileTags.label,
         flag: o.fileTags.rejected ? 'rejected' : undefined,
       }),
+      ...(o.collection?.length && { collection: o.collection }),
     });
     if (started.skipped) return { created: [], skipped: [started.skipped] };
     id = started.id!;
