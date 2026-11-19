@@ -20,7 +20,7 @@ import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { config } from '../config.ts';
 import { HttpError } from '../errors.ts';
-import { db, sql, uploads } from '../db.ts';
+import { db, sql, uploads, versions } from '../db.ts';
 import type Uploads from '../__generated__/uploads.ts';
 import type Versions from '../__generated__/versions.ts';
 import type { RenderQueue } from '../render/queue.ts';
@@ -47,6 +47,66 @@ class UploadError extends HttpError {
     super(statusCode, message);
     this.body = body;
   }
+}
+
+/** What a version gets from its files (an upload's own, and each of darktable's duplicates). */
+const VersionFields = z.object({
+  /** What the file says about itself (its XMP, sidecars, its JPEG). */
+  tags: z.array(Tag).max(500).optional(),
+  rating: z.number().int().min(0).max(5).optional(),
+  label: z.enum(['red', 'yellow', 'green', 'blue', 'purple']).optional(),
+  flag: z.enum(['picked', 'rejected']).optional(),
+  /** Its name in the application it comes from (darktable's version name). */
+  versionName: z.string().trim().max(200).optional(),
+  /** Edits made in another application (a darktable sidecar), imported when it's first rendered. */
+  importedEdits: z.string().max(MAX_IMPORTED_EDITS_LENGTH).optional(),
+});
+
+/** `VersionFields` as an upload keeps them (its columns, and each of its `duplicates`). */
+type UploadColumns = Pick<Uploads, 'tags' | 'rating' | 'color_label' | 'flag' | 'version_name' | 'imported_edits'>;
+
+const uploadColumns = (f: z.infer<typeof VersionFields>): UploadColumns => ({
+  tags: [...new Set(f.tags ?? [])],
+  rating: f.rating ?? 0,
+  color_label: f.label ?? null,
+  flag: f.flag ?? null,
+  version_name: f.versionName || null,
+  // Only what we import: the sidecar may carry other applications' data too.
+  imported_edits: f.importedEdits && detectImportedEdits(f.importedEdits) ? f.importedEdits : null,
+});
+
+const versionColumns = (u: UploadColumns): Partial<Versions> => ({
+  tags: u.tags,
+  rating: u.rating,
+  color_label: u.color_label as Versions['color_label'],
+  flag: u.flag as Versions['flag'],
+  name: u.version_name,
+  imported_edits: u.imported_edits,
+});
+
+/**
+ * More versions of `versionId`'s photo, after its others (darktable's duplicates), as many
+ * as the photo may still have. Returns their ids.
+ */
+async function addDuplicates(versionId: string, duplicates: Partial<Versions>[]): Promise<string[]> {
+  if (!duplicates.length) return [];
+  return db.tx(async (tx) => {
+    const [version] = await versions(tx).find({ id: versionId }).select('photo_id').all();
+    const photo_id = version!.photo_id;
+    // Locked: positions follow the others'.
+    const siblings = (await tx.query(sql`
+      SELECT position FROM versions WHERE photo_id = ${photo_id} ORDER BY position FOR UPDATE`)) as {
+      position: number;
+    }[];
+    const room = Math.max(0, MAX_COUNT.versionsPerPhoto - siblings.length);
+    const last = Math.max(0, ...siblings.map((s) => s.position));
+    const ids: string[] = [];
+    for (const [i, columns] of duplicates.slice(0, room).entries()) {
+      const [row] = await versions(tx).insert({ ...columns, photo_id, position: last + 1 + i });
+      ids.push(row!.id);
+    }
+    return ids;
+  });
 }
 
 /** Uploads with a chunk being written: one at a time each. */
@@ -82,16 +142,15 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         modified: z.number().int().optional(),
         import: z.uuid().optional(),
         allowDeleted: z.boolean().optional(),
-        /** What the file says about itself (its XMP, sidecars, its JPEG): for the version. */
-        tags: z.array(Tag).max(500).optional(),
-        rating: z.number().int().min(0).max(5).optional(),
-        label: z.enum(['red', 'yellow', 'green', 'blue', 'purple']).optional(),
-        flag: z.enum(['picked', 'rejected']).optional(),
         /** The collection it goes to (roadmap 8.14), as a path of names: made if needed. */
         collection: CollectionPath.optional(),
-        /** Edits made in another application (a darktable sidecar), imported when it's first rendered. */
-        importedEdits: z.string().max(MAX_IMPORTED_EDITS_LENGTH).optional(),
+        /** darktable's duplicates of the photo: more versions, created with it. */
+        duplicates: z
+          .array(VersionFields)
+          .max(MAX_COUNT.versionsPerPhoto - 1)
+          .optional(),
       })
+      .extend(VersionFields.shape)
       .parse(request.body);
     const filename = path.basename(body.name);
     const skip = (kind: SkipKind, reason: string) => reply.send({ skipped: { filename, kind, reason } });
@@ -117,13 +176,9 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
       file_modified_at: body.modified === undefined ? null : new Date(body.modified),
       import_id: body.import ?? null,
       allow_deleted: body.allowDeleted ?? false,
-      tags: [...new Set(body.tags ?? [])],
-      rating: body.rating ?? 0,
-      color_label: body.label ?? null,
-      flag: body.flag ?? null,
+      ...uploadColumns(body),
       collection: body.collection ?? null,
-      // Only what we import: the sidecar may carry other applications' data too.
-      imported_edits: body.importedEdits && detectImportedEdits(body.importedEdits) ? body.importedEdits : null,
+      duplicates: body.duplicates?.length ? JSON.stringify(body.duplicates.map(uploadColumns)) : null,
     });
     await mkdir(uploadsDir(), { recursive: true });
     await writeFile(fileOf(row!.id), '');
@@ -193,14 +248,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         // Gone from the table first: the file is moved (or removed) by taking it in.
         await uploads(db).delete({ id: row.id });
         // Checked like the versions' columns when stored.
-        const columns: Partial<Versions> = {
-          import_id: row.import_id,
-          tags: row.tags,
-          rating: row.rating,
-          color_label: row.color_label as Versions['color_label'],
-          flag: row.flag as Versions['flag'],
-          imported_edits: row.imported_edits,
-        };
+        const columns: Partial<Versions> = { import_id: row.import_id, ...versionColumns(row) };
         const result = await ingestReceived(
           user.id,
           row.filename,
@@ -218,10 +266,23 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
               UPDATE photos SET collection_id = ${collectionId}
               WHERE id = (SELECT photo_id FROM versions WHERE id = ${taken.versionId}) AND collection_id IS NULL`);
           });
-        const [version] = (await db.query(sql`
-          SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ${taken.versionId}`)) as VersionRow[];
-        renderQueue.enqueue(taken.versionId);
-        return reply.code(201).send({ created: [versionDto(version!)], skipped: [] });
+        const duplicates = (row.duplicates ?? []) as UploadColumns[];
+        const ids = [
+          taken.versionId,
+          ...(await addDuplicates(
+            taken.versionId,
+            duplicates.map((d) => ({ import_id: row.import_id, ...versionColumns(d) })),
+          )),
+        ];
+        const created = (await db.query(sql`
+          SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM} WHERE v.id = ANY(${ids})
+          ORDER BY v.position, v.id`)) as VersionRow[];
+        for (const id of ids) renderQueue.enqueue(id);
+        // The upload's own version first.
+        return reply.code(201).send({
+          created: created.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)).map(versionDto),
+          skipped: [],
+        });
       } finally {
         writing.delete(row.id);
       }

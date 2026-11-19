@@ -187,10 +187,10 @@ export function useImporter() {
   };
 }
 
-/** `fileTags` without edits from other applications (the review was told not to import them). */
+/** `fileTags` without edits from other applications, nor their duplicates (the review was told not to import them). */
 function withoutEdits(fileTags: ReadonlyMap<PickedFile, FileTags>): ReadonlyMap<PickedFile, FileTags> {
   const out = new Map<PickedFile, FileTags>();
-  for (const [f, { edits: _, ...rest }] of fileTags) if (!isEmpty(rest)) out.set(f, rest);
+  for (const [f, { edits: _, duplicates: __, ...rest }] of fileTags) if (!isEmpty(rest)) out.set(f, rest);
   return out;
 }
 

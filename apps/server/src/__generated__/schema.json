@@ -1062,6 +1062,13 @@
         "typeName": "TIMESTAMPTZ"
       },
       {
+        "name": "duplicates",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 3802,
+        "typeName": "JSONB"
+      },
+      {
         "name": "file_modified_at",
         "isNullable": true,
         "hasDefault": false,
@@ -1137,6 +1144,13 @@
         "hasDefault": true,
         "typeId": 1184,
         "typeName": "TIMESTAMPTZ"
+      },
+      {
+        "name": "version_name",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 25,
+        "typeName": "TEXT"
       }
     ]
   },

@@ -479,6 +479,16 @@ interface UploadOptions {
   onProgress: (sent: number) => void;
 }
 
+/** What a version gets from its files (`/api/uploads`' fields, also each duplicate's). */
+const versionFields = (t: FileTags) => ({
+  tags: t.tags,
+  rating: t.rating,
+  label: t.label,
+  flag: t.rejected ? ('rejected' as const) : undefined,
+  versionName: t.versionName,
+  importedEdits: t.edits?.text,
+});
+
 /**
  * One file through `/api/uploads`, in chunks: a chunk that fails is tried again from
  * what the server has, and an upload started before (`uploadId`) resumes where it
@@ -503,11 +513,8 @@ async function upload(file: File, o: UploadOptions): Promise<UploadResult> {
       allowDeleted: o.allowDeleted,
       // For the version it creates.
       ...(o.fileTags && {
-        tags: o.fileTags.tags,
-        rating: o.fileTags.rating,
-        label: o.fileTags.label,
-        flag: o.fileTags.rejected ? 'rejected' : undefined,
-        importedEdits: o.fileTags.edits?.text,
+        ...versionFields(o.fileTags),
+        ...(o.fileTags.duplicates?.length && { duplicates: o.fileTags.duplicates.map(versionFields) }),
       }),
       ...(o.collection?.length && { collection: o.collection }),
     });

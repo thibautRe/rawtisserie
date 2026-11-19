@@ -23,8 +23,9 @@ export interface Picked {
    */
   pairs: PickedFile[];
   /**
-   * XMP sidecars (`DSC01234.xmp`, `DSC01234.ARW.xmp`), read for their photos' tags,
-   * rating and label (`fileTags.ts`), not imported.
+   * XMP sidecars (`DSC01234.xmp`, `DSC01234.ARW.xmp`, darktable's duplicates
+   * `DSC01234_01.ARW.xmp`), read for their photos' tags, rating, label and edits
+   * (`fileTags.ts`), not imported.
    */
   sidecars: PickedFile[];
   /** Files picked one by one that aren't RAW files or images (reported, as the user chose them). */
@@ -51,6 +52,29 @@ const isSidecar = (name: string) => extension(name) === '.xmp';
 export function sidecarsOf(picked: Pick<Picked, 'sidecars'>, path: string): PickedFile[] {
   const names = new Set([`${stem(path)}.xmp`, `${path.toLowerCase()}.xmp`]);
   return picked.sidecars.filter((s) => names.has(s.path.toLowerCase()));
+}
+/**
+ * darktable's duplicates of the photo at `path`: `DSC01234_01.ARW.xmp`, `_02`… (each an
+ * edit of its own, a version here), in their order. A sidecar that's a picked photo's own
+ * (`DSC01234_01.ARW` picked too) isn't one.
+ */
+export function duplicatesOf(picked: Pick<Picked, 'sidecars' | 'files' | 'pairs'>, path: string): PickedFile[] {
+  const lower = path.toLowerCase();
+  const dot = lower.lastIndexOf('.');
+  if (dot < 0) return [];
+  const [base, ext] = [lower.slice(0, dot), lower.slice(dot)];
+  const own = new Set([...picked.files, ...picked.pairs].map((f) => `${f.path.toLowerCase()}.xmp`));
+  const number = (s: PickedFile) => {
+    const p = s.path.toLowerCase();
+    if (!p.startsWith(`${base}_`) || !p.endsWith(`${ext}.xmp`) || own.has(p)) return null;
+    const n = p.slice(base.length + 1, p.length - ext.length - 4);
+    return /^\d+$/.test(n) ? Number(n) : null;
+  };
+  return picked.sidecars
+    .map((s) => [s, number(s)] as const)
+    .filter((e): e is readonly [PickedFile, number] => e[1] !== null)
+    .sort((a, b) => a[1] - b[1])
+    .map(([s]) => s);
 }
 /** Hidden files and folders (`.Trashes`, macOS's `._DSC01234.ARW`). */
 const isHidden = (path: string) => path.split('/').some((part) => part.startsWith('.'));

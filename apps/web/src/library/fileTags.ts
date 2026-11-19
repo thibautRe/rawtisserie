@@ -7,7 +7,7 @@
  */
 import { type ImportApp, detectImportedEdits } from '@rawtisserie/pipeline';
 import type { ColorLabel } from '../api/types.ts';
-import { type Picked, type PickedFile, isImage, isRaw, sidecarsOf, stem } from './pickedFiles.ts';
+import { type Picked, type PickedFile, duplicatesOf, isImage, isRaw, sidecarsOf, stem } from './pickedFiles.ts';
 
 /** What a file carries: absent fields say nothing. */
 export interface FileTags {
@@ -23,6 +23,13 @@ export interface FileTags {
    * with the photo (`importedEdits.ts` in the pipeline package).
    */
   edits?: { app: ImportApp; text: string };
+  /** The version's name there (darktable's `version_name`). */
+  versionName?: string;
+  /**
+   * darktable's duplicates of the photo (`DSC01234_01.ARW.xmp`…, `duplicatesOf`): more
+   * versions of it, each with what its own sidecar says.
+   */
+  duplicates?: FileTags[];
 }
 
 const LABELS: readonly ColorLabel[] = ['red', 'yellow', 'green', 'blue', 'purple'];
@@ -227,16 +234,21 @@ export function mergeTags(all: readonly FileTags[]): FileTags {
   if (!rating && all.some((t) => t.rejected)) out.rejected = true;
   const edits = all.find((t) => t.edits)?.edits;
   if (edits) out.edits = edits;
+  const versionName = all.find((t) => t.versionName)?.versionName;
+  if (versionName) out.versionName = versionName;
   return out;
 }
 
-export const isEmpty = (t: FileTags) => !t.tags && !t.rating && !t.label && !t.rejected && !t.edits;
+export const isEmpty = (t: FileTags) =>
+  !t.tags && !t.rating && !t.label && !t.rejected && !t.edits && !t.versionName && !t.duplicates?.length;
 
-/** A sidecar's tags, rating and label, and the edits it holds if we import them. */
+/** A sidecar's tags, rating and label, its version name, and the edits it holds if we import them. */
 export function readSidecar(text: string): FileTags {
   const out = parseXmp(text);
   const app = detectImportedEdits(text);
   if (app) out.edits = { app, text };
+  const versionName = value(text, 'darktable:version_name');
+  if (versionName) out.versionName = versionName;
   return out;
 }
 
@@ -284,6 +296,9 @@ export async function readFileTags(
         ...(isRaw(f.path) ? (images.get(stem(f.path)) ?? []).map(own) : []),
       ]);
       const merged = mergeTags(sources);
+      // Each duplicate is a version of its own: only its sidecar.
+      const duplicates = await Promise.all(duplicatesOf(picked, f.path).map((s) => sidecar(s).catch(() => ({}))));
+      if (duplicates.length) merged.duplicates = duplicates;
       if (!isEmpty(merged)) out.set(f, merged);
       if (progress) progress.done++;
     }

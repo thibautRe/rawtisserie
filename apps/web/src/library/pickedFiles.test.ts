@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type Entry, type PickedFile, sortPicked, walk, withPairs } from './pickedFiles.ts';
+import { type Entry, type PickedFile, duplicatesOf, sortPicked, walk, withPairs } from './pickedFiles.ts';
 
 const file = (name: string): Entry => ({
   name,
@@ -83,4 +83,34 @@ test('what was picked is sorted out', () => {
     ['Photos/2019/IMG_1.jpeg', 'Photos/2019/scan.tif', 'Photos/2020/IMG_1.CR2'],
   );
   assert.deepEqual([library.pairs.length, library.ignored], [0, 1]);
+});
+
+test("darktable's duplicates of a photo, in their order, not another photo's own sidecar", () => {
+  const picked = sortPicked(
+    [
+      'Trip/DSC05143.ARW',
+      'Trip/DSC05143.ARW.xmp',
+      'Trip/DSC05143_10.ARW.xmp',
+      'Trip/DSC05143_02.ARW.xmp',
+      'Trip/DSC05143_01.ARW.xmp',
+      'Trip/DSC05143_x.ARW.xmp',
+      'Trip/DSC051430.ARW.xmp',
+      'Trip/IMG_1.JPG',
+      'Trip/IMG_1_01.JPG.xmp',
+      'Trip/IMG.JPG',
+    ].map((path): PickedFile => ({ path, file: new File([], path.split('/').pop()!) })),
+  );
+  assert.deepEqual(
+    duplicatesOf(picked, 'Trip/DSC05143.ARW').map((f) => f.path),
+    ['Trip/DSC05143_01.ARW.xmp', 'Trip/DSC05143_02.ARW.xmp', 'Trip/DSC05143_10.ARW.xmp'],
+  );
+  // IMG_1.JPG is a photo of its own: its sidecar isn't one of IMG.JPG's duplicates.
+  assert.deepEqual(
+    duplicatesOf(picked, 'Trip/IMG.JPG').map((f) => f.path),
+    [],
+  );
+  assert.deepEqual(
+    duplicatesOf(picked, 'Trip/IMG_1.JPG').map((f) => f.path),
+    ['Trip/IMG_1_01.JPG.xmp'],
+  );
 });

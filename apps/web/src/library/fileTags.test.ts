@@ -172,3 +172,19 @@ test("a darktable sidecar's edits come with its tags; an exported JPEG's don't",
   assert.deepEqual(of('DCIM/DSC2.ARW'), { rating: 2 });
   assert.deepEqual(of('DCIM/DSC2.JPG'), { rating: 2 });
 });
+
+test("darktable's duplicates: more versions, each with its own sidecar's tags, name and edits", async () => {
+  const sidecar = (rating: number, name = '') =>
+    `<x:xmpmeta><rdf:Description xmp:Rating="${rating}" darktable:version_name="${name}"/></x:xmpmeta>`;
+  const picked = sortPicked([
+    file('DCIM/DSC1.ARW'),
+    file('DCIM/DSC1.ARW.xmp', sidecar(1)),
+    file('DCIM/DSC1_01.ARW.xmp', sidecar(4, 'black and white')),
+    file('DCIM/DSC1_02.ARW.xmp', sidecar(0)),
+  ]);
+  const tags = await readFileTags(picked);
+  assert.deepEqual(tags.get(picked.files[0]!), {
+    rating: 1,
+    duplicates: [{ rating: 4, versionName: 'black and white' }, {}],
+  });
+});

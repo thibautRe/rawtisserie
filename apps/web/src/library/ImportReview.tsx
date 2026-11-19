@@ -67,13 +67,16 @@ export function reviewCounts(
   const raw = picked.files.filter((f) => isRaw(f.path));
   const images = picked.files.filter((f) => !isRaw(f.path));
   const tagged = fresh.filter((f) => fileTags.has(f)).length;
-  // The applications whose edits new photos have, and how many of them.
+  // The applications whose edits new photos have, how many of them, and their duplicates.
   const edited = new Map<ImportApp, number>();
+  let duplicates = 0;
   for (const f of fresh) {
-    const app = fileTags.get(f)?.edits?.app;
-    if (app) edited.set(app, (edited.get(app) ?? 0) + 1);
+    const t = fileTags.get(f);
+    duplicates += t?.duplicates?.length ?? 0;
+    const apps = new Set([t?.edits?.app, ...(t?.duplicates ?? []).map((d) => d.edits?.app)]);
+    for (const app of apps) if (app) edited.set(app, (edited.get(app) ?? 0) + 1);
   }
-  return { raw, images, fresh, known: picked.files.length - fresh.length, tagged, edited };
+  return { raw, images, fresh, known: picked.files.length - fresh.length, tagged, edited, duplicates };
 }
 
 /**
@@ -203,6 +206,7 @@ export function ReviewBody({
             <HStack as="span" gap="1.5">
               <SlidersHorizontal size={14} />
               Import the {apps} edits of {plural(edited, 'new photo')}
+              {counts.duplicates > 0 && `, and ${plural(counts.duplicates, 'duplicate')} as versions`}
             </HStack>
             <Text as="span" display="block" color="fg.muted" textStyle="xs">
               From their sidecars, as close as RAWtisserie’s modules get: never quite the same image. The developer
@@ -290,7 +294,10 @@ export function sampleReview(n: number, known: number, ignored: number, pairs = 
       ...files.slice(known, known + pairs).map((f): [PickedFile, FileTags] => [f, { tags: ['Holidays'] }]),
       ...files
         .slice(known, known + edited)
-        .map((f): [PickedFile, FileTags] => [f, { edits: { app: 'darktable', text: '' } }]),
+        .map((f, i): [PickedFile, FileTags] => [
+          f,
+          { edits: { app: 'darktable', text: '' }, ...(i % 3 === 0 && { duplicates: [{ rating: 3 }] }) },
+        ]),
     ]),
     times,
     sorting: defaultSorting(files),
