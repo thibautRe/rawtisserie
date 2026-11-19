@@ -41,6 +41,8 @@ import { Culling } from '../library/InfoPanel.tsx';
 import { SelectionBar } from '../library/LibraryStatusBar.tsx';
 import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
+import { ImportReportNotice } from '../develop/ImportNotice.tsx';
+import type { ImportReport } from '@rawtisserie/pipeline';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import { TransferSummary } from '../components/transfer.tsx';
 import { ImportSummary, InterruptedImport } from '../library/ImportToast.tsx';
@@ -771,6 +773,15 @@ export function UiPage() {
         </Block>
 
         <Block
+          title="Imported edits"
+          guide="Over the developer's image while the current history entry is an import from darktable or Ansel: never quite the same image, so it says so; Details lists how each of their modules came through."
+        >
+          <Box maxW="2xl" borderWidth="1px" borderRadius="l2" overflow="hidden">
+            <ImportReportNotice report={IMPORT_REPORT} />
+          </Box>
+        </Block>
+
+        <Block
           title="Storage breakdown"
           guide="On the settings page: the library and the trash against the quota (or splitting what's stored, when unlimited)."
         >
@@ -901,7 +912,27 @@ const IMPORT_REVIEWS: [string, Review][] = [
   ['Review: a card', sampleReview(412, 380, 415)],
   ['Review: RAW + JPEG', sampleReview(212, 0, 3, 212)],
   ['Review: nothing new', sampleReview(24, 24, 0)],
+  ['Review: darktable edits', sampleReview(36, 0, 0, 0, 30)],
 ];
+
+const IMPORT_REPORT: ImportReport = {
+  app: 'darktable',
+  items: [
+    { module: 'raw black/white point', instance: null, status: 'builtIn', note: null },
+    { module: 'demosaic', instance: null, status: 'builtIn', note: null },
+    { module: 'exposure', instance: null, status: 'mapped', note: null },
+    {
+      module: 'exposure',
+      instance: 'shadows',
+      status: 'approximated',
+      note: 'Automatic (deflicker) mode: its exposure was measured on the image, kept as set',
+    },
+    { module: 'color calibration', instance: null, status: 'mapped', note: null },
+    { module: 'sigmoid', instance: null, status: 'approximated', note: 'Tone curve fitted onto filmic' },
+    { module: 'color equalizer', instance: null, status: 'skipped', note: null },
+    { module: 'denoise (profiled)', instance: null, status: 'skipped', note: null },
+  ],
+};
 
 const INTERRUPTED: [string, ImportRun][] = [
   [

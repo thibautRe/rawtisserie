@@ -5,6 +5,7 @@ import {
   denoiseKeyName,
   normalizeEditParams,
   originalRecipe,
+  startingHistory,
 } from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -240,6 +241,39 @@ function autoApplied(metadata: PhotoMetadata): HistorySnapshot {
   return { entries: [{ label: AUTO_RECIPE_LABEL, recipe, createdAt: new Date().toISOString() }], end: 1 };
 }
 
+/**
+ * What a version without history starts with (`needed`): `autoApplied`, then the import
+ * of the edits it came with, if any, as the server records them at its first render
+ * (`startingHistory`). Null when it has a history; undefined while worked out. Worked
+ * out once: the developer reads it when it opens.
+ */
+function useStartingHistory(
+  id: string | undefined,
+  metadata: PhotoMetadata | null,
+  needed: boolean,
+  edits: string | null,
+): HistorySnapshot | null | undefined {
+  // By version: the page stays as the film roll goes to the next photo.
+  const [start, setStart] = useState<{ id: string; history: HistorySnapshot | null } | null>(null);
+  const known = !!id && start?.id === id;
+  useEffect(() => {
+    if (!id || !metadata || known) return;
+    if (!needed) return setStart({ id, history: null });
+    const auto = autoApplied(metadata);
+    if (!edits) return setStart({ id, history: auto });
+    let cancelled = false;
+    const createdAt = auto.entries[0]!.createdAt;
+    void startingHistory(auto.entries[0]!.recipe, AUTO_RECIPE_LABEL, edits, metadata).then((entries) => {
+      if (!cancelled)
+        setStart({ id, history: { entries: entries.map((e) => ({ ...e, createdAt })), end: entries.length } });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, metadata, needed, edits, known]);
+  return known ? start.history : undefined;
+}
+
 // ── Library developer: originals fetched from the server, recipes saved back ──
 
 export function LibraryDevelopPage() {
@@ -309,6 +343,7 @@ function LibraryDeveloper({ id }: { id: string }) {
     };
   }, [backend, originalUrl]);
   const metadata = loaded && loaded.url === originalUrl ? loaded.metadata : null;
+  const startWith = useStartingHistory(photo?.id, metadata, photo?.history.length === 0, photo?.importedEdits ?? null);
 
   const err = error ?? (photoError instanceof Error ? photoError.message : null);
   if (err) {
@@ -324,7 +359,7 @@ function LibraryDeveloper({ id }: { id: string }) {
     );
   }
   if (!photo || !backend) return <Loading label="Loading…" />;
-  if (!metadata)
+  if (!metadata || startWith === undefined)
     return (
       <Loading
         label={progress < 1 ? `Downloading ${photo.filename}…` : `Decoding ${photo.filename}…`}
@@ -347,8 +382,9 @@ function LibraryDeveloper({ id }: { id: string }) {
       save={save}
       revision={photo.revision}
       // No history: the server hasn't rendered it yet, and would record its automatic
-      // entry after the developer opened (the version keeps it either way).
-      startWith={photo.history.length === 0 ? autoApplied(metadata) : null}
+      // entry (and its import) after the developer opened (the version keeps it either way).
+      startWith={startWith}
+      importedEdits={photo.importedEdits}
       versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
       onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
     />

@@ -507,6 +507,7 @@ async function upload(file: File, o: UploadOptions): Promise<UploadResult> {
         rating: o.fileTags.rating,
         label: o.fileTags.label,
         flag: o.fileTags.rejected ? 'rejected' : undefined,
+        importedEdits: o.fileTags.edits?.text,
       }),
       ...(o.collection?.length && { collection: o.collection }),
     });

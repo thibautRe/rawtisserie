@@ -66,6 +66,7 @@ export class ZoomRenderer {
       sourceKey: src.sourceKey,
       params: src.params,
       autoDefaults: src.autoDefaults,
+      importedEdits: src.importedEdits,
       luts: src.luts,
     };
     const res = await new Promise<ZoomResponse>((resolve) => {

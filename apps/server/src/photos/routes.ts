@@ -352,6 +352,8 @@ export async function photoRoutes(
         history_end: fromOriginal ? 0 : source.history_end,
         edited: fromOriginal ? false : source.edited,
         edited_at: fromOriginal ? null : source.edited_at,
+        // With the history, the import it may hold (the developer reports on it).
+        imported_edits: fromOriginal ? null : source.imported_edits,
       });
       await setPositions(
         tx,
@@ -423,7 +425,7 @@ export async function photoRoutes(
     const user = currentUser(request);
     const { ids } = Ids.parse(request.body);
     const rows = (await db.query(sql`
-      SELECT v.id, v.history_end, v.revision, v.render_status, h.recipe, p.exif,
+      SELECT v.id, v.history_end, v.revision, v.render_status, h.recipe, p.exif, v.imported_edits IS NOT NULL AS imports,
         NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
       FROM ${VERSIONS_FROM}
       LEFT JOIN history_entries h ON h.version_id = v.id AND h.seq = v.history_end
@@ -432,10 +434,13 @@ export async function photoRoutes(
       'id' | 'history_end' | 'revision' | 'render_status'
     > &
       Pick<HistoryEntries, 'recipe'> &
-      Pick<Photos, 'exif'> & { no_history: boolean })[];
+      Pick<Photos, 'exif'> & { no_history: boolean; imports: boolean })[];
     // Without history, a version starts from the recipe for its file, which needs its
     // metadata: not known yet for a new upload. Undone to the original, it's the default.
-    const notReady = (r: (typeof rows)[number]) => r.no_history && !r.exif && r.render_status === 'pending';
+    // Nor, for one imported with edits from another application, until its first render
+    // records the import (`startingHistory`).
+    const notReady = (r: (typeof rows)[number]) =>
+      r.no_history && (r.imports || (!r.exif && r.render_status === 'pending'));
     return {
       versions: rows
         .filter((r) => !notReady(r))

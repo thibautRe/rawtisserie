@@ -11,7 +11,8 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Ban, Copy, FileImage, FolderMinus, Image, Tags } from 'lucide-react';
+import { Ban, Copy, FileImage, FolderMinus, Image, SlidersHorizontal, Tags } from 'lucide-react';
+import { IMPORT_APP_NAMES, type ImportApp } from '@rawtisserie/pipeline';
 import { type ReactNode, useRef } from 'react';
 import { formatBytes } from '../lib/format.ts';
 import type { CaptureTime } from './captureTime.ts';
@@ -31,7 +32,8 @@ export type ScanProgress =
 
 /**
  * What an import is about to do, while it's being looked at, then once it's known.
- * `includePairs`: whether the JPEGs next to their RAW files are imported too.
+ * `includePairs`: whether the JPEGs next to their RAW files are imported too;
+ * `importEdits`: whether edits from other applications in their sidecars are.
  */
 export type Review =
   | { phase: 'scanning'; label: string | null; progress: ScanProgress }
@@ -40,6 +42,7 @@ export type Review =
       picked: Picked;
       known: ReadonlySet<PickedFile>;
       includePairs: boolean;
+      importEdits: boolean;
       /** What the photos get from their files (`readFileTags`). */
       fileTags: ReadonlyMap<PickedFile, FileTags>;
       /** When the new photos were taken (`readCaptureTimes`). */
@@ -64,7 +67,13 @@ export function reviewCounts(
   const raw = picked.files.filter((f) => isRaw(f.path));
   const images = picked.files.filter((f) => !isRaw(f.path));
   const tagged = fresh.filter((f) => fileTags.has(f)).length;
-  return { raw, images, fresh, known: picked.files.length - fresh.length, tagged };
+  // The applications whose edits new photos have, and how many of them.
+  const edited = new Map<ImportApp, number>();
+  for (const f of fresh) {
+    const app = fileTags.get(f)?.edits?.app;
+    if (app) edited.set(app, (edited.get(app) ?? 0) + 1);
+  }
+  return { raw, images, fresh, known: picked.files.length - fresh.length, tagged, edited };
 }
 
 /**
@@ -77,12 +86,14 @@ export function ImportReview({
   review,
   onImport,
   onIncludePairs,
+  onImportEdits,
   onSorting,
   onClose,
 }: {
   review: Review | null;
   onImport: () => void;
   onIncludePairs: (include: boolean) => void;
+  onImportEdits: (include: boolean) => void;
   onSorting: (sorting: Sorting) => void;
   onClose: () => void;
 }) {
@@ -108,7 +119,12 @@ export function ImportReview({
               <Dialog.Title>{title}</Dialog.Title>
             </Dialog.Header>
             <Dialog.Body>
-              <ReviewBody review={r} onIncludePairs={onIncludePairs} onSorting={onSorting} />
+              <ReviewBody
+                review={r}
+                onIncludePairs={onIncludePairs}
+                onImportEdits={onImportEdits}
+                onSorting={onSorting}
+              />
             </Dialog.Body>
             <Dialog.Footer>
               <Dialog.ActionTrigger asChild>
@@ -134,16 +150,20 @@ export function ImportReview({
 export function ReviewBody({
   review,
   onIncludePairs,
+  onImportEdits,
   onSorting,
 }: {
   review: Review | null;
   onIncludePairs?: (include: boolean) => void;
+  onImportEdits?: (include: boolean) => void;
   onSorting?: (sorting: Sorting) => void;
 }) {
   if (review?.phase !== 'ready') return <Scanning label={review?.label ?? null} progress={review?.progress} />;
   const picked = reviewedFiles(review);
   const pairs = review.picked.pairs;
   const counts = reviewCounts(picked, review.known, review.fileTags);
+  const edited = [...counts.edited.values()].reduce((a, b) => a + b, 0);
+  const apps = [...counts.edited.keys()].map((app) => IMPORT_APP_NAMES[app]).join(' or ');
   return (
     <Stack gap="2" textStyle="sm">
       {(counts.raw.length > 0 || !counts.images.length) && (
@@ -167,6 +187,29 @@ export function ReviewBody({
         <Line icon={<Tags size={14} />} muted>
           {plural(counts.tagged, 'new photo')} with tags, ratings or labels from their files
         </Line>
+      )}
+      {edited > 0 && (
+        <Checkbox.Root
+          size="sm"
+          checked={review.importEdits}
+          disabled={!onImportEdits}
+          onCheckedChange={(e) => onImportEdits?.(!!e.checked)}
+          alignItems="flex-start"
+          data-import-edits
+        >
+          <Checkbox.HiddenInput />
+          <Checkbox.Control mt="0.5" />
+          <Checkbox.Label fontWeight="normal">
+            <HStack as="span" gap="1.5">
+              <SlidersHorizontal size={14} />
+              Import the {apps} edits of {plural(edited, 'new photo')}
+            </HStack>
+            <Text as="span" display="block" color="fg.muted" textStyle="xs">
+              From their sidecars, as close as RAWtisserie’s modules get: never quite the same image. The developer
+              lists what came through.
+            </Text>
+          </Checkbox.Label>
+        </Checkbox.Root>
       )}
       {pairs.length > 0 && (
         <Checkbox.Root
@@ -219,9 +262,9 @@ export function ReviewBody({
 
 /**
  * A review of `n` files from a card, `known` of them in the library already, with
- * `pairs` JPEGs next to their RAWs (for `/ui`).
+ * `pairs` JPEGs next to their RAWs and `edited` new ones with darktable edits (for `/ui`).
  */
-export function sampleReview(n: number, known: number, ignored: number, pairs = 0): Review {
+export function sampleReview(n: number, known: number, ignored: number, pairs = 0, edited = 0): Review {
   const files = Array.from({ length: n }, (_, i) => ({
     path: `DCIM/100MSDCF/DSC0${1000 + i}.ARW`,
     file: new File([], `DSC0${1000 + i}.ARW`),
@@ -242,7 +285,13 @@ export function sampleReview(n: number, known: number, ignored: number, pairs = 
     picked: { files, pairs: jpegs, sidecars: [], refused: [], ignored, label: 'DCIM' },
     known: new Set(files.slice(0, known)),
     includePairs: false,
-    fileTags: new Map(files.slice(known, known + pairs).map((f) => [f, { tags: ['Holidays'] }])),
+    importEdits: true,
+    fileTags: new Map([
+      ...files.slice(known, known + pairs).map((f): [PickedFile, FileTags] => [f, { tags: ['Holidays'] }]),
+      ...files
+        .slice(known, known + edited)
+        .map((f): [PickedFile, FileTags] => [f, { edits: { app: 'darktable', text: '' } }]),
+    ]),
     times,
     sorting: defaultSorting(files),
   };

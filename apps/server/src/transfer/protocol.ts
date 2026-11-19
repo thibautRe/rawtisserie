@@ -4,6 +4,7 @@
  * at different releases: `PROTOCOL` changes when they'd no longer understand each other.
  */
 import { z } from 'zod';
+import { MAX_IMPORTED_EDITS_LENGTH } from '@rawtisserie/pipeline';
 import { CollectionPath } from '../photos/collections.ts';
 import { HistoryEntryInput, Sha256, VersionPatch } from '../photos/routes.ts';
 
@@ -64,6 +65,12 @@ export const SentVersion = z.object({
    * Optional: added after `PROTOCOL` 1 (an older receiver ignores it).
    */
   collection: CollectionPath.nullable().optional(),
+  /**
+   * Edits from another application it was imported with (`versions.imported_edits`).
+   * Optional: added after `PROTOCOL` 1 (an older receiver ignores it, and its developer
+   * then doesn't report on the import).
+   */
+  importedEdits: z.string().max(MAX_IMPORTED_EDITS_LENGTH).nullable().optional(),
   /** Culling, metadata and the photo's corrections, as the library edits them. */
   patch: SentPatch,
   /** The photo's extracted metadata, so the receiver doesn't extract it over the corrections. */

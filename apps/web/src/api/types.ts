@@ -169,6 +169,8 @@ export interface PhotoDetail extends Photo {
   /** Bumped on every history change (optimistic concurrency). */
   revision: number;
   history: HistoryEntry[];
+  /** Edits from another application it was imported with (a darktable sidecar), or null. */
+  importedEdits: string | null;
   /** All versions of the photo, in order (this one included). */
   versions: VersionSummary[];
 }

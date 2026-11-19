@@ -86,6 +86,15 @@ See README.md for the architecture overview and commands.
   (Ctrl+Alt+O, Ctrl+Alt+A), matched by physical key (`code`); they listen first (capture)
   and, while a sequence goes on, its keys do nothing else. A new app shortcut must go
   into `reservedPress`'s lists, or a tag's could hide it.
+- Edits from darktable and Ansel (roadmap 8.15) are imported from sidecars at import only:
+  the review reads them (`fileTags.ts`), the version keeps the sidecar's text
+  (`versions.imported_edits`, in `SentVersion` too), and `startingHistory`
+  (`importedEdits.ts`) makes the entry `importLabel(app)` after the starting one, in the
+  render worker, the zoom worker and the developer alike (a pure function of the text and
+  the photo, like the report the developer shows while that entry is current). Their
+  modules are C structs read by `darktable/struct.ts` layouts copied from upstream
+  (compare with it, as for the Ansel ports); a translator per module (`darktable/modules.ts`)
+  decides our kinds it covers, and every enabled module of theirs lands in the report.
 - Collections (roadmap 8.14) are where photos come from, a tree like folders
   (`collections`, `photos.collection_id`: per photo, its versions with it; server
   `photos/collections.ts` ↔ `lib/collections.ts`). Names are unique among siblings and never

@@ -13,6 +13,8 @@ export interface RenderSource {
   params: EditParams | null;
   /** The version has no history yet: render the recipe a new image starts with. */
   autoDefaults: boolean;
+  /** With `autoDefaults`: edits from another application to import on top of it (`startingHistory`). */
+  importedEdits: string | null;
   /** The photo's metadata hasn't been read yet. */
   needsMetadata: boolean;
   /** Bumped on every history change. */
@@ -23,7 +25,7 @@ export interface RenderSource {
 
 export async function renderSource(versionId: string): Promise<RenderSource | null> {
   const [row] = (await db.query(sql`
-    SELECT v.photo_id, v.revision, p.owner_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
+    SELECT v.photo_id, v.revision, v.imported_edits, p.owner_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
       NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
     FROM versions v
     JOIN photos p ON p.id = v.photo_id
@@ -31,6 +33,7 @@ export async function renderSource(versionId: string): Promise<RenderSource | nu
     WHERE v.id = ${versionId}`)) as {
     photo_id: string;
     revision: number;
+    imported_edits: string | null;
     owner_id: string;
     storage_key: string;
     needs_metadata: boolean;
@@ -44,6 +47,7 @@ export async function renderSource(versionId: string): Promise<RenderSource | nu
     sourceKey: originalKey(row.storage_key),
     params: row.recipe,
     autoDefaults: row.no_history,
+    importedEdits: row.no_history ? row.imported_edits : null,
     needsMetadata: row.needs_metadata,
     revision: row.revision,
     luts: row.recipe ? await usableLuts(db, row.owner_id, lutIds(normalizeEditParams(row.recipe))) : [],

@@ -71,6 +71,7 @@ const detail = (p: Photo): PhotoDetail => ({
   historyEnd: 0,
   revision: 0,
   history: [],
+  importedEdits: null,
   versions: [{ id: p.id, name: null, index: 1, edited: false, thumbUrl: null }],
 });
 

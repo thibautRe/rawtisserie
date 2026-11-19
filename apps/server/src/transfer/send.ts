@@ -331,6 +331,7 @@ async function sendVersion(
     filename: row.original_filename,
     fileModifiedAt: row.file_modified_at?.getTime() ?? null,
     collection: row.collection_id ? await collectionPath(db, ownerId, row.collection_id) : null,
+    importedEdits: row.imported_edits,
     patch: {
       versionName: row.name,
       title: row.title,

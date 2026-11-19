@@ -152,3 +152,23 @@ test('a RAW file gets the tags of the JPEG next to it, and of its sidecar', asyn
   );
   assert.equal(progress.done, 2);
 });
+
+test("a darktable sidecar's edits come with its tags; an exported JPEG's don't", async () => {
+  const darktable = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description xmp:Rating="2"
+    darktable:xmp_version="5" darktable:history_end="1" darktable:history_basic_hash="00">
+    <darktable:history><rdf:Seq><rdf:li darktable:num="0" darktable:operation="exposure" darktable:enabled="1"
+      darktable:modversion="7" darktable:params="00" darktable:multi_name="" darktable:multi_priority="0"/>
+    </rdf:Seq></darktable:history></rdf:Description></rdf:RDF></x:xmpmeta>`;
+  const picked = sortPicked([
+    file('DCIM/DSC1.ARW'),
+    file('DCIM/DSC1.ARW.xmp', darktable),
+    file('DCIM/DSC2.ARW'),
+    file('DCIM/DSC2.JPG', jpeg({ xmp: darktable })),
+  ]);
+  const tags = await readFileTags(picked);
+  const of = (path: string) => tags.get([...picked.files, ...picked.pairs].find((f) => f.path === path)!);
+  assert.deepEqual(of('DCIM/DSC1.ARW'), { rating: 2, edits: { app: 'darktable', text: darktable } });
+  // A JPEG darktable exported carries the history of its RAW file: not the JPEG's edits.
+  assert.deepEqual(of('DCIM/DSC2.ARW'), { rating: 2 });
+  assert.deepEqual(of('DCIM/DSC2.JPG'), { rating: 2 });
+});

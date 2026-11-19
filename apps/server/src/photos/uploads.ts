@@ -15,6 +15,7 @@ import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { MAX_IMPORTED_EDITS_LENGTH, detectImportedEdits } from '@rawtisserie/pipeline';
 import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { config } from '../config.ts';
@@ -88,6 +89,8 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
         flag: z.enum(['picked', 'rejected']).optional(),
         /** The collection it goes to (roadmap 8.14), as a path of names: made if needed. */
         collection: CollectionPath.optional(),
+        /** Edits made in another application (a darktable sidecar), imported when it's first rendered. */
+        importedEdits: z.string().max(MAX_IMPORTED_EDITS_LENGTH).optional(),
       })
       .parse(request.body);
     const filename = path.basename(body.name);
@@ -119,6 +122,8 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
       color_label: body.label ?? null,
       flag: body.flag ?? null,
       collection: body.collection ?? null,
+      // Only what we import: the sidecar may carry other applications' data too.
+      imported_edits: body.importedEdits && detectImportedEdits(body.importedEdits) ? body.importedEdits : null,
     });
     await mkdir(uploadsDir(), { recursive: true });
     await writeFile(fileOf(row!.id), '');
@@ -194,6 +199,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
           rating: row.rating,
           color_label: row.color_label as Versions['color_label'],
           flag: row.flag as Versions['flag'],
+          imported_edits: row.imported_edits,
         };
         const result = await ingestReceived(
           user.id,

@@ -238,6 +238,7 @@ export class RenderQueue {
       sourceKey: job.sourceKey,
       params: job.params,
       autoDefaults: job.autoDefaults,
+      importedEdits: job.importedEdits,
       extractMetadata: job.needsMetadata,
       luts: job.luts,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
@@ -261,7 +262,7 @@ export class RenderQueue {
         SET render_status = 'ready', render_error = NULL, render_version = render_version + 1, render_format = ${FORMAT},
           render_attempts = 0, render_retry_at = NULL, render_failed_build = NULL
         WHERE id = ${versionId}`);
-      if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe);
+      if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe, result.imported);
       if (result.resolvedRecipe && job.params) await resolveEntry(tx, versionId, job.params, result.resolvedRecipe);
       if (result.metadata) {
         await photos(tx).update({ id: job.photoId }, metadataColumns(result.metadata));
@@ -280,16 +281,29 @@ export class RenderQueue {
 
 /**
  * Record the recipe a new image starts with (auto-tuned) as its first history
- * entry, if the version still has no history. The revision isn't bumped: a developer
- * opened before this ran saves over it instead of getting a conflict.
+ * entry, and the import of edits from another application after it (`imported`), if the
+ * version still has no history. The revision isn't bumped: a developer opened before
+ * this ran saves over it instead of getting a conflict. An import is an edit.
  */
-async function addDefaultRecipe(tx: Queryable, versionId: string, recipe: EditParams) {
+async function addDefaultRecipe(
+  tx: Queryable,
+  versionId: string,
+  recipe: EditParams,
+  imported: { label: string; recipe: EditParams } | null,
+) {
+  const entries = [{ label: AUTO_RECIPE_LABEL, recipe }, ...(imported ? [imported] : [])];
   const inserted = await tx.query(sql`
     INSERT INTO history_entries (version_id, seq, label, recipe)
-    SELECT ${versionId}, 1, ${AUTO_RECIPE_LABEL}, ${JSON.stringify(recipe)}::jsonb
+    SELECT ${versionId}, e.seq, e.label, e.recipe
+    FROM jsonb_to_recordset(${JSON.stringify(entries.map((e, i) => ({ ...e, seq: i + 1 })))}::jsonb)
+      AS e(seq int, label text, recipe jsonb)
     WHERE NOT EXISTS (SELECT 1 FROM history_entries WHERE version_id = ${versionId})
     RETURNING seq`);
-  if (inserted.length) await versions(tx).update({ id: versionId, history_end: 0 }, { history_end: 1 });
+  if (inserted.length)
+    await versions(tx).update(
+      { id: versionId, history_end: 0 },
+      { history_end: entries.length, ...(imported && { edited: true }) },
+    );
 }
 
 /**

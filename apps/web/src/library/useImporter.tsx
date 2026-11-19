@@ -16,7 +16,7 @@ import {
   uploadDeleted,
   useImportRun,
 } from './imports.ts';
-import { photosToRead, readFileTags } from './fileTags.ts';
+import { type FileTags, isEmpty, photosToRead, readFileTags } from './fileTags.ts';
 import { readCaptureTimes } from './captureTime.ts';
 import {
   type Sorting,
@@ -148,7 +148,7 @@ export function useImporter() {
       const all = [...picked.files, ...picked.pairs];
       const sorting = rememberedSorting(defaultSorting(all), all);
       if (token === latest.current)
-        setReview({ phase: 'ready', picked, known, includePairs: false, fileTags, times, sorting });
+        setReview({ phase: 'ready', picked, known, includePairs: false, importEdits: true, fileTags, times, sorting });
     } finally {
       clearInterval(timer);
     }
@@ -164,17 +164,34 @@ export function useImporter() {
     const files = reviewedFiles(review);
     rememberSorting(review.sorting, [...review.picked.files, ...review.picked.pairs]);
     const plan = planCollections(files.files, review.times, review.sorting);
-    navigate(importPath(startImport(files, deps, review.known, from.current, review.fileTags, plan.of)));
+    const fileTags = review.importEdits ? review.fileTags : withoutEdits(review.fileTags);
+    navigate(importPath(startImport(files, deps, review.known, from.current, fileTags, plan.of)));
   };
+  const importEdits = (include: boolean) =>
+    setReview((r) => (r?.phase === 'ready' ? { ...r, importEdits: include } : r));
   const includePairs = (include: boolean) =>
     setReview((r) => (r?.phase === 'ready' ? { ...r, includePairs: include } : r));
   const sort = (sorting: Sorting) => setReview((r) => (r?.phase === 'ready' ? { ...r, sorting } : r));
   return {
     start,
     review: (
-      <ImportReview review={review} onImport={confirm} onIncludePairs={includePairs} onSorting={sort} onClose={close} />
+      <ImportReview
+        review={review}
+        onImport={confirm}
+        onIncludePairs={includePairs}
+        onImportEdits={importEdits}
+        onSorting={sort}
+        onClose={close}
+      />
     ),
   };
+}
+
+/** `fileTags` without edits from other applications (the review was told not to import them). */
+function withoutEdits(fileTags: ReadonlyMap<PickedFile, FileTags>): ReadonlyMap<PickedFile, FileTags> {
+  const out = new Map<PickedFile, FileTags>();
+  for (const [f, { edits: _, ...rest }] of fileTags) if (!isEmpty(rest)) out.set(f, rest);
+  return out;
 }
 
 const toastId = (runId: string) => `import-${runId}`;

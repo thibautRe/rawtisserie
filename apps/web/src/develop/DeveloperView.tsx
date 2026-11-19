@@ -86,6 +86,7 @@ import { useStableCallback } from './useStableCallback.ts';
 import { type ZoomLayout, visibleRegion } from './zoom.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { useZoom } from './useZoom.ts';
+import { ImportNotice } from './ImportNotice.tsx';
 
 interface Props {
   backend: RenderBackend;
@@ -105,6 +106,8 @@ interface Props {
    * upload opened before its first render): shown and saved at once.
    */
   startWith?: HistorySnapshot | null;
+  /** Edits from another application the version was imported with: warned about while their entry is current. */
+  importedEdits?: string | null;
   /** Extra toolbar actions, given the current history. */
   actions?: (history: HistorySnapshot) => React.ReactNode;
   /** Shown next to the file name (the version switcher), given a way to wait for pending saves. */
@@ -334,6 +337,7 @@ export function DeveloperView({
   save,
   revision = 0,
   startWith,
+  importedEdits = null,
   actions,
   versions,
   onBack,
@@ -1311,6 +1315,7 @@ export function DeveloperView({
               onCompare={setComparing}
               onExport={openExport}
             />
+            <ImportNotice edits={importedEdits} metadata={metadata} label={history.entries[history.end - 1]?.label} />
             <ExportDialog
               open={exportOpen}
               source={canvas}

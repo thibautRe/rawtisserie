@@ -5,6 +5,7 @@
  * those of the JPEG next to it (a camera shooting both, tagged in another application),
  * whether that JPEG is imported or not. Only for photos new to the library.
  */
+import { type ImportApp, detectImportedEdits } from '@rawtisserie/pipeline';
 import type { ColorLabel } from '../api/types.ts';
 import { type Picked, type PickedFile, isImage, isRaw, sidecarsOf, stem } from './pickedFiles.ts';
 
@@ -17,6 +18,11 @@ export interface FileTags {
   label?: ColorLabel;
   /** XMP's rating −1 (Lightroom's "rejected"). */
   rejected?: boolean;
+  /**
+   * Edits made in another application: a darktable or Ansel sidecar's text, imported
+   * with the photo (`importedEdits.ts` in the pipeline package).
+   */
+  edits?: { app: ImportApp; text: string };
 }
 
 const LABELS: readonly ColorLabel[] = ['red', 'yellow', 'green', 'blue', 'purple'];
@@ -219,10 +225,20 @@ export function mergeTags(all: readonly FileTags[]): FileTags {
   const label = all.find((t) => t.label)?.label;
   if (label) out.label = label;
   if (!rating && all.some((t) => t.rejected)) out.rejected = true;
+  const edits = all.find((t) => t.edits)?.edits;
+  if (edits) out.edits = edits;
   return out;
 }
 
-export const isEmpty = (t: FileTags) => !t.tags && !t.rating && !t.label && !t.rejected;
+export const isEmpty = (t: FileTags) => !t.tags && !t.rating && !t.label && !t.rejected && !t.edits;
+
+/** A sidecar's tags, rating and label, and the edits it holds if we import them. */
+export function readSidecar(text: string): FileTags {
+  const out = parseXmp(text);
+  const app = detectImportedEdits(text);
+  if (app) out.edits = { app, text };
+  return out;
+}
 
 /** Files read at a time: a disk's seeks overlap (a USB hard disk: 3.5 times faster than one by one). */
 const READS = 8;
@@ -251,7 +267,7 @@ export async function readFileTags(
       );
     return embedded.get(f)!;
   };
-  const sidecar = async (f: PickedFile) => parseXmp(await f.file.text());
+  const sidecar = async (f: PickedFile) => readSidecar(await f.file.text());
   const all = [...picked.files, ...picked.pairs];
   const images = new Map<string, PickedFile[]>();
   for (const f of all.filter((f) => isImage(f.path)))

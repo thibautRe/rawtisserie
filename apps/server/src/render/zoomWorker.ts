@@ -4,7 +4,13 @@
  * asks for many tiles of the same photo.
  */
 import { parentPort } from 'node:worker_threads';
-import { defaultRecipe, developerMeasures, hasPendingAutoTune, resolveAutoTunes } from '@rawtisserie/pipeline';
+import {
+  defaultRecipe,
+  developerMeasures,
+  hasPendingAutoTune,
+  importEdits,
+  resolveAutoTunes,
+} from '@rawtisserie/pipeline';
 import { Developer, initPipeline, lensfun } from '@rawtisserie/pipeline/node';
 import { readLut } from '../luts/files.ts';
 import { storage } from '../storage/index.ts';
@@ -41,7 +47,7 @@ async function prepare(source: ZoomSource) {
     const lut = await readLut(id);
     if (lut) dev.loadLut(lut);
   }
-  const recipe = source.autoDefaults ? defaultRecipe(JSON.parse(dev.metadata()), lensfun()) : source.params;
+  const recipe = source.autoDefaults ? await startingRecipe(dev, source.importedEdits) : source.params;
   const params = JSON.stringify(recipe ?? {});
   if (recipe && hasPendingAutoTune(recipe)) {
     if (!resolved.has(params)) {
@@ -50,6 +56,14 @@ async function prepare(source: ZoomSource) {
     return { dev, params: resolved.get(params)! };
   }
   return { dev, params };
+}
+
+/** What a version without history shows: the default recipe, or the edits it was imported with on top. */
+async function startingRecipe(dev: Developer, importedEdits: string | null) {
+  const metadata = JSON.parse(dev.metadata());
+  const base = defaultRecipe(metadata, lensfun());
+  if (!importedEdits) return base;
+  return (await importEdits(importedEdits, { base, metadata }).catch(() => null))?.recipe ?? base;
 }
 
 function levels(dev: Developer, params: string): ZoomLevels {

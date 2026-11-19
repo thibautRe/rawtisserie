@@ -9,6 +9,8 @@ export interface ZoomSource {
   sourceKey: string;
   params: EditParams | null;
   autoDefaults: boolean;
+  /** With `autoDefaults`: edits from another application, imported on top of the default recipe. */
+  importedEdits: string | null;
   /** Ids of the LUTs the recipe may use. */
   luts: string[];
 }

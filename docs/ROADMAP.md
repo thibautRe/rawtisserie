@@ -2120,6 +2120,32 @@ folders; collections are a filter in the sidebar, combined with the others.
 
 ---
 
+### 8.15 Import darktable and Ansel edits (L)
+
+> **In progress: plumbing done** 2026-11-19 (`packages/pipeline/src/importedEdits.ts`,
+> `darktable/`; migration 00028; web `fileTags.ts`, `ImportReview.tsx`,
+> `develop/ImportNotice.tsx`). The import review reads the edits in a photo's sidecar
+> (`NAME.ARW.xmp`, xmp_version 2+), a checkbox imports them; the sidecar's text is kept
+> with the version (`versions.imported_edits`, travels with transfers) and the render
+> worker (or the developer, opened first) makes the history entry "Imported from
+> darktable/Ansel" after the starting one (`startingHistory`). The developer warns while
+> that entry is current, with a report of each module (came through, approximated, left
+> out, done our own way). Their parameters are C structs (`darktable/struct.ts`, layouts
+> from darktable 5.6.2 and Ansel's master); which application wrote a history is told by
+> the modules and versions only one has. Translated so far: exposure.
+
+Best effort, never the same pixels: our pipeline differs (demosaic, highlight
+reconstruction, profiles). Phase 1, from a survey of ~100 of the user's sidecars:
+colour calibration (with white balance folded in), filmic rgb, **sigmoid and AgX fitted
+onto filmic** (no new module), colour balance rgb, lens correction (lensfun or embedded),
+orientation, crop, rotate and perspective, LUT 3D (G'MIC HaldCLUT files, matched to the
+user's LUTs by name). Phase 2: masks and blending, retouch, tone equalizer, rgb curve,
+diffuse, contrast equalizer, colour primaries / rgb primaries, colour balance's 4 ways.
+Later: darktable duplicates (`NAME_01.ARW.xmp`) as versions; Lightroom (`crs:` XMP) and
+Capture One (`.cos`) through the same report and warning.
+
+---
+
 ### 8.5 Export options (M, before 1.0) — done
 
 The export dialog has, on top of 4.9's frame and the size:

@@ -7,6 +7,8 @@ export interface RenderJob {
   params: EditParams | null;
   /** The version has no history: render the recipe a new image starts with (`defaultRecipe`). */
   autoDefaults: boolean;
+  /** With `autoDefaults`: edits from another application, imported on top of the default recipe. */
+  importedEdits: string | null;
   extractMetadata: boolean;
   /** Ids of the LUTs the recipe may use (built-in, or the owner's). */
   luts: string[];
@@ -21,6 +23,8 @@ export type RenderResult =
       metadata: PhotoMetadata | null;
       /** With `autoDefaults`, the recipe rendered: `defaultRecipe`, its auto-tunes run. */
       defaultRecipe: EditParams | null;
+      /** With `importedEdits`, their import on top of `defaultRecipe` (what was rendered then). */
+      imported: { label: string; recipe: EditParams } | null;
       /** `params` with its pending auto-tunes resolved (what was rendered), if it had any. */
       resolvedRecipe: EditParams | null;
     }

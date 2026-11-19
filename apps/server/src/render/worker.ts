@@ -10,6 +10,7 @@ import {
   developerMeasures,
   type EditParams,
   hasPendingAutoTune,
+  importEdits,
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
 import { Developer, initPipeline, lensfun, readMetadata } from '@rawtisserie/pipeline/node';
@@ -26,6 +27,7 @@ parentPort!.on('message', async (job: RenderJob) => {
     if (!bytes) throw new Error(`Original not found: ${job.sourceKey}`);
     const metadata = job.extractMetadata || job.autoDefaults ? JSON.parse(readMetadata(bytes)) : null;
     let defaultRecipe: EditParams | null = null;
+    let imported: { label: string; recipe: EditParams } | null = null;
     const dev = new Developer(bytes);
     let resolvedRecipe: EditParams | null = null;
     try {
@@ -37,10 +39,15 @@ parentPort!.on('message', async (job: RenderJob) => {
       // measured first, at the preview's size, so the renders below reuse the cached base.
       if (job.autoDefaults) {
         defaultRecipe = await resolveAutoTunes(recipeFor(metadata, lensfun()), developerMeasures(dev));
+        // Edits from another application: the entry after the default recipe, on top of it.
+        if (job.importedEdits) {
+          const edits = await importEdits(job.importedEdits, { base: defaultRecipe, metadata }).catch(() => null);
+          if (edits) imported = { label: edits.label, recipe: edits.recipe };
+        }
       } else if (hasPendingAutoTune(job.params)) {
         resolvedRecipe = await resolveAutoTunes(job.params!, developerMeasures(dev));
       }
-      const params = JSON.stringify(defaultRecipe ?? resolvedRecipe ?? job.params ?? {});
+      const params = JSON.stringify(imported?.recipe ?? defaultRecipe ?? resolvedRecipe ?? job.params ?? {});
       // Largest first, so the smaller renders can reuse the cached base image.
       for (const output of [...job.outputs].sort((a, b) => b.maxSize - a.maxSize)) {
         const img = dev.renderFinal(params, output.maxSize, output.maxSize);
@@ -63,6 +70,7 @@ parentPort!.on('message', async (job: RenderJob) => {
       ok: true,
       metadata: job.extractMetadata ? metadata : null,
       defaultRecipe,
+      imported,
       resolvedRecipe,
     };
   } catch (err) {

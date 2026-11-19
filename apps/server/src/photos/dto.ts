@@ -111,6 +111,8 @@ export function versionDetailDto(
     historyEnd: v.history_end,
     revision: v.revision,
     history: entries,
+    /** Edits from another application it was imported with (`importEdits`: the developer reports how that went). */
+    importedEdits: v.imported_edits,
     versions: siblings.map((s, i) => ({
       id: s.id,
       name: s.name,

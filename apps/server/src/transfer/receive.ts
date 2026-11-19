@@ -248,7 +248,12 @@ async function update(userId: string, versionId: string, meta: SentVersion, isNe
     // Sent again: it comes back from the trash, and belongs to this transfer's import.
     await versions(tx).update(
       { id: versionId },
-      { ...toColumns<Versions>(meta.patch, VERSION_FIELDS), trashed_at: null, import_id: meta.importId },
+      {
+        ...toColumns<Versions>(meta.patch, VERSION_FIELDS),
+        trashed_at: null,
+        import_id: meta.importId,
+        ...(meta.importedEdits !== undefined && { imported_edits: meta.importedEdits }),
+      },
     );
     const photo = toColumns<Photos>(meta.patch, PHOTO_FIELDS);
     if (meta.exif) Object.assign(photo, { exif: meta.exif });
