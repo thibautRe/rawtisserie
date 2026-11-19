@@ -2193,7 +2193,9 @@ developer's panels, assume a wide window.
   goes through the phone's file picker (files only: folders and cards stay desktop).
   The developer isn't offered (10.2). `test:library` and `test:ui` have phone cases.
   2026-11-19 (NOTES.md): the loupe scrolls down to the photo's info panel (without its
-  preview), the photo shown selected meanwhile. Not done: pinching the grid to change its
+  preview, rating, flag and label: the loupe has them), the photo shown selected
+  meanwhile. Capture lines (loupe, developer, info panel) put the settings first: focal
+  length, aperture, shutter speed, ISO, then the lens and the camera last (`captureLine`). Not done: pinching the grid to change its
   columns, swiping a sheet closed.
 - **10.2 Developer (after M6):** phones can't develop full RAWs in wasm at an acceptable
   speed, so wait for cloud processing; then the panels as a bottom sheet over the image.

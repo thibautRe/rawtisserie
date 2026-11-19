@@ -14,7 +14,7 @@ import { useZoomInfo } from '../api/hooks.ts';
 import { type BulkPatch, COLOR_LABELS, type Photo } from '../api/types.ts';
 import { useZoom } from '../develop/useZoom.ts';
 import type { ZoomLayout } from '../develop/zoom.ts';
-import { formatAperture, formatDateTime, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
+import { captureLine, formatDateTime } from '../lib/format.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { FilmRoll } from './FilmRoll.tsx';
@@ -533,16 +533,14 @@ function estimateSource(photo: Photo, preview: { width: number; height: number }
 }
 
 function exifLine(p: Photo) {
-  const camera = [p.cameraMake, p.cameraModel].filter(Boolean).join(' ');
-  return [
-    camera,
-    p.lens,
-    formatFocal(p.focalLength),
-    formatAperture(p.fNumber),
-    formatExposureTime(p.exposureTime),
-    formatIso(p.iso),
-    formatDateTime(p.capturedAt),
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  return captureLine({
+    focalLength: p.focalLength,
+    fNumber: p.fNumber,
+    exposureTime: p.exposureTime,
+    iso: p.iso,
+    takenAt: formatDateTime(p.capturedAt),
+    lens: p.lens,
+    make: p.cameraMake,
+    model: p.cameraModel,
+  }).join(' · ');
 }

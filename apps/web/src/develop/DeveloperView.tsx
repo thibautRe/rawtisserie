@@ -31,7 +31,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExt
 import { AppMenu } from '../components/AppMenu.tsx';
 import { backendMeasures } from './autoTune.ts';
 import { toaster } from '../components/toaster.tsx';
-import { formatAperture, formatExposureTime, formatFocal, formatIso } from '../lib/format.ts';
+import { captureLine } from '../lib/format.ts';
 import {
   type CropAspect,
   FREE_ASPECT,
@@ -220,14 +220,15 @@ const Toolbar = memo(function Toolbar({
   /** Opens the export dialog. */
   onExport: () => void;
 }) {
-  const exif = [
-    [metadata.make, metadata.model].filter(Boolean).join(' '),
-    metadata.lensModel,
-    formatFocal(metadata.focalLength),
-    formatExposureTime(metadata.exposureTime),
-    formatAperture(metadata.fNumber),
-    formatIso(metadata.iso),
-  ].filter(Boolean);
+  const exif = captureLine({
+    focalLength: metadata.focalLength,
+    fNumber: metadata.fNumber,
+    exposureTime: metadata.exposureTime,
+    iso: metadata.iso,
+    lens: metadata.lensModel,
+    make: metadata.make,
+    model: metadata.model,
+  });
 
   return (
     <HStack px="3" py="2" borderBottomWidth="1px" gap="2">

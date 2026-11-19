@@ -1519,9 +1519,13 @@ test('on a phone: filters in a drawer, a tap opens the loupe and a swipe moves o
     () => document.querySelector('[data-loupe-details]')!.getBoundingClientRect().top < window.innerHeight / 2,
   );
   assert.equal(await overflow(), 0, 'the details are wider than the phone');
-  await details.getByRole('radio', { name: '4 stars (4)' }).click();
+  // The rating, flag and label are the loupe's own, not repeated there.
+  assert.equal(await details.getByRole('radio', { name: '4 stars (4)' }).count(), 0);
+  // Typing there isn't taken for the loupe's keys; Enter picks the completion.
+  await details.locator('#library-tag-input').fill('sea');
+  await details.locator('#library-tag-input').press('Enter');
   await page.waitForTimeout(300);
-  assert.deepEqual(sent.at(-1), { path: `/api/versions/${shownId}`, body: { rating: 4 } });
+  assert.deepEqual(sent.at(-1), { path: `/api/versions/${shownId}`, body: { tags: ['seascape'] } });
   sent.length = 0;
   // A click: Chrome takes a tap right after a swipe's fling as stopping the fling (no click).
   await page.getByRole('button', { name: 'Close (Esc)' }).click();

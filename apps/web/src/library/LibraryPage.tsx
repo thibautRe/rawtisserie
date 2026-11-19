@@ -768,9 +768,7 @@ export function LibraryPage() {
           onDevelop={narrow ? undefined : (id) => navigate(`/versions/${id}/develop`)}
           // Phones: the info panel is below the photo, for the photo shown (selected meanwhile).
           onShow={narrow ? selectOne : undefined}
-          details={
-            narrow ? (photo) => <InfoPanel selected={[photo]} count={1} noPreview {...infoActions} /> : undefined
-          }
+          details={narrow ? (photo) => <InfoPanel selected={[photo]} count={1} inLoupe {...infoActions} /> : undefined}
         />
       )}
     </Flex>

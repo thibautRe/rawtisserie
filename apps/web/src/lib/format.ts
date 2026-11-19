@@ -1,8 +1,36 @@
-export { formatExposureTime } from '@rawtisserie/pipeline';
+import { formatExposureTime } from '@rawtisserie/pipeline';
+
+export { formatExposureTime };
 
 export const formatAperture = (f: number | null | undefined) => (f ? `ƒ/${Number(f.toFixed(1))}` : null);
 export const formatFocal = (mm: number | null | undefined) => (mm ? `${Math.round(mm)} mm` : null);
 export const formatIso = (iso: number | null | undefined) => (iso ? `ISO ${iso}` : null);
+
+/**
+ * A capture in one line's parts, what matters most first: focal length, aperture,
+ * shutter speed and ISO, then when (if given), the lens and the camera last.
+ */
+export function captureLine(c: {
+  focalLength: number | null | undefined;
+  fNumber: number | null | undefined;
+  exposureTime: number | null | undefined;
+  iso: number | null | undefined;
+  takenAt?: string | null;
+  lens: string | null | undefined;
+  make: string | null | undefined;
+  model: string | null | undefined;
+}): string[] {
+  return [
+    formatFocal(c.focalLength),
+    formatAperture(c.fNumber),
+    formatExposureTime(c.exposureTime),
+    formatIso(c.iso),
+    c.takenAt ?? null,
+    c.lens ?? null,
+    [c.make, c.model].filter(Boolean).join(' ') || null,
+  ].filter((part): part is string => !!part);
+}
+
 export const formatBias = (ev: number | null | undefined) =>
   ev == null ? null : `${ev > 0 ? '+' : ev < 0 ? '−' : '±'}${Math.abs(Number(ev.toFixed(1)))} EV`;
 

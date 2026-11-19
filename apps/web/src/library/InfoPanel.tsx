@@ -157,15 +157,15 @@ export function DuplicateMenu({
 export function InfoPanel({
   selected,
   count = selected.length,
-  noPreview,
+  inLoupe,
   ...actions
 }: {
   /** The selected photos shown (loaded). */
   selected: Photo[];
   /** How many are selected, shown or not (roadmap 8.13: all the filters match). */
   count?: number;
-  /** Without the photo's preview (shown above it already: the loupe on phones). */
-  noPreview?: boolean;
+  /** Under the loupe (phones): without the preview and the rating, flag and label, which the loupe has. */
+  inLoupe?: boolean;
 } & Actions) {
   if (count === 0) {
     return (
@@ -181,7 +181,7 @@ export function InfoPanel({
     );
   }
   if (count > 1 || !selected[0]) return <BulkPanel photos={selected} count={count} {...actions} />;
-  return <SinglePanel photo={selected[0]} noPreview={noPreview} {...actions} />;
+  return <SinglePanel photo={selected[0]} inLoupe={inLoupe} {...actions} />;
 }
 
 // ── Shared culling controls ─────────────────────────────────────────────────
@@ -331,8 +331,8 @@ function SinglePanel({
   onSend,
   onMoveToCollection,
   onShowFilter,
-  noPreview,
-}: { photo: Photo; noPreview?: boolean } & Actions) {
+  inLoupe,
+}: { photo: Photo; inLoupe?: boolean } & Actions) {
   const { data: instances = [] } = useInstances();
   const { data: detail } = usePhoto(listPhoto.id);
   // The render state comes from the list: it's polled while previews are rendered, the detail isn't.
@@ -368,7 +368,7 @@ function SinglePanel({
           flexShrink={0}
           bg="bg.muted"
           borderRadius="sm"
-          display={noPreview ? 'none' : undefined}
+          display={inLoupe ? 'none' : undefined}
         >
           {photo.previewUrl && (
             <Image
@@ -483,7 +483,7 @@ function SinglePanel({
           </Menu.Root>
         </HStack>
 
-        <Culling rating={photo.rating} flag={photo.flag} colorLabel={photo.colorLabel} onChange={save} />
+        {!inLoupe && <Culling rating={photo.rating} flag={photo.flag} colorLabel={photo.colorLabel} onChange={save} />}
       </PanelBlock>
 
       <PanelBlock
@@ -623,15 +623,16 @@ export function CaptureDetails({ photo }: { photo: Photo }) {
   // Label, value, and whether it's a number (in the numeric font).
   const rows: [string, string | null, boolean?][] = [
     ['Taken', formatDateTime(photo.capturedAt), true],
-    ['Camera', camera || null],
-    ['Lens', photo.lens],
+    // Settings first, then the gear (as `captureLine`).
+    ['Focal length', formatFocal(photo.focalLength), true],
     [
       'Exposure',
-      join(formatExposureTime(photo.exposureTime), formatAperture(photo.fNumber), formatIso(photo.iso)),
+      join(formatAperture(photo.fNumber), formatExposureTime(photo.exposureTime), formatIso(photo.iso)),
       true,
     ],
-    ['Focal length', formatFocal(photo.focalLength), true],
     ['Bias', photo.exposureBias ? formatBias(photo.exposureBias) : null, true],
+    ['Lens', photo.lens],
+    ['Camera', camera || null],
     [
       'Location',
       photo.gpsLatitude != null && photo.gpsLongitude != null
