@@ -557,3 +557,47 @@ test("tone equalizer: our Tones preserving detail, nodes where their mask's −8
   // The fitted Gaussians pass near the sliders.
   t.rgb.forEach((v, i) => assert.ok(Math.abs(v - sliders[i]!) < 0.15, `node ${i}: ${v} vs ${sliders[i]}`));
 });
+
+test('diffuse or sharpen maps parameter for parameter, its uniform opacity as the mask’s', async () => {
+  const params = await packed([
+    ['i32', 4],
+    ['f32', 0.1],
+    ['i32', 128],
+    ...f32s(2, 0.5, -1, 2, 0, 3, 0.25, -0.5, 0.25, 0, 0.125),
+    ['i32', 16],
+  ]);
+  const blend = await encodeBlob(
+    writeStruct(
+      new Layout([
+        ['mode', 'u32'],
+        ['cst', 'i32'],
+        ['blend', 'u32'],
+        ['parameter', 'f32'],
+        ['opacity', 'f32'],
+      ]),
+      {
+        mode: 1,
+        blend: 0x18,
+        opacity: 40,
+      },
+    ),
+  );
+  const text = sidecar([{ operation: 'diffuse', modversion: 2, params }]).replace(
+    /darktable:blendop_params="[^"]*"/,
+    `darktable:blendop_params="${blend}"`,
+  );
+  const d = findModule((await importEdits(text, { base: defaultEditParams, metadata }))!.recipe, 'diffuse')!;
+  assert.deepEqual(
+    [
+      d.params.iterations,
+      d.params.radius,
+      d.params.radiusCenter,
+      d.params.speed1,
+      d.params.speed4,
+      d.params.anisotropy2,
+      d.params.edgeSensitivity,
+    ],
+    [4, 128, 16, -0.5, 0.125, 2, 2],
+  );
+  assert.equal(d.mask?.opacity, 0.4);
+});

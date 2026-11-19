@@ -13,6 +13,7 @@ import { colorBalance } from './colorbalance.ts';
 import { lens } from './lens.ts';
 import { colorPrimaries, splitToning } from './ansel.ts';
 import { toneEqualizer } from './toneequal.ts';
+import { diffuse } from './diffuse.ts';
 import { type Translator, instance, unreadable } from './translate.ts';
 
 export type { TranslateContext, Translation, Translator } from './translate.ts';
@@ -232,4 +233,5 @@ export const TRANSLATORS: readonly Translator[] = [
   colorPrimaries,
   splitToning,
   toneEqualizer,
+  diffuse,
 ];
