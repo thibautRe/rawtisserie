@@ -12,6 +12,7 @@ import { GEOMETRY_TRANSLATORS } from './geometry.ts';
 import { colorBalance } from './colorbalance.ts';
 import { lens } from './lens.ts';
 import { colorPrimaries, splitToning } from './ansel.ts';
+import { toneEqualizer } from './toneequal.ts';
 import { type Translator, instance, unreadable } from './translate.ts';
 
 export type { TranslateContext, Translation, Translator } from './translate.ts';
@@ -230,4 +231,5 @@ export const TRANSLATORS: readonly Translator[] = [
   lens,
   colorPrimaries,
   splitToning,
+  toneEqualizer,
 ];

@@ -541,3 +541,19 @@ test("lens correction: the photo's own choice, with their corrections as strengt
   const none = (await importEdits(sidecar([{ operation: 'rawprepare' }]), { base: withLens, metadata }))!;
   assert.equal(findModule(none.recipe, 'lens'), undefined);
 });
+
+test("tone equalizer: our Tones preserving detail, nodes where their mask's −8 … 0 EV are", async () => {
+  const sliders = [0, 0, 0, 0.5, 0.5, 0, 0, -1, -1];
+  const params = await packed([...f32s(...sliders, 5, Math.SQRT2, 1, 0, 0, -1), ['i32', 4], ['i32', 4], ['i32', 1]]);
+  const { recipe } = (await importEdits(sidecar([{ operation: 'toneequal', modversion: 2, params }]), {
+    base: defaultEditParams,
+    metadata,
+  }))!;
+  const t = findModule(recipe, 'toneCurve')!.params;
+  assert.deepEqual([t.preserveDetail, t.preserveColors, t.smoothing, t.edgeRefinement], [true, 'norm', 0.05, 1]);
+  // Mask: the 2-norm (√3 a grey's value), 1 EV down: its 0 EV is a grey at log2(2 / (√3·0.1845)) EV.
+  assert.ok(Math.abs(t.range[1]! - Math.log2(2 / (Math.sqrt(3) * 0.1845))) < 1e-3, `${t.range}`);
+  assert.ok(Math.abs(t.range[1]! - t.range[0]! - 8) < 1e-3);
+  // The fitted Gaussians pass near the sliders.
+  t.rgb.forEach((v, i) => assert.ok(Math.abs(v - sliders[i]!) < 0.15, `node ${i}: ${v} vs ${sliders[i]}`));
+});
