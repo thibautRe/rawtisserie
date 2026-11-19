@@ -2191,8 +2191,10 @@ developer's panels, assume a wide window.
   The trash works the same way; the settings and admin pages fit in one column (the admin
   tables scroll sideways in their card); tag shortcuts aren't shown on phones. Import
   goes through the phone's file picker (files only: folders and cards stay desktop).
-  The developer isn't offered (10.2). `test:library` and `test:ui` have phone cases. Not
-  done: pinching the grid to change its columns, swiping a sheet closed.
+  The developer isn't offered (10.2). `test:library` and `test:ui` have phone cases.
+  2026-11-19 (NOTES.md): the loupe scrolls down to the photo's info panel (without its
+  preview), the photo shown selected meanwhile. Not done: pinching the grid to change its
+  columns, swiping a sheet closed.
 - **10.2 Developer (after M6):** phones can't develop full RAWs in wasm at an acceptable
   speed, so wait for cloud processing; then the panels as a bottom sheet over the image.
 

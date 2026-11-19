@@ -1501,10 +1501,33 @@ test('on a phone: filters in a drawer, a tap opens the loupe and a swipe moves o
     for (let x = 300; x >= 100; x -= 25) await touch('touchMove', [[x, 405]]);
     await touch('touchEnd', []);
     await page.getByText('3 / 6').waitFor();
+    // An upward swipe scrolls towards the photo's details (below it), back down for what follows.
+    await touch('touchStart', [[200, 600]]);
+    for (let y = 600; y >= 300; y -= 25) await touch('touchMove', [[205, y]]);
+    await touch('touchEnd', []);
+    await page.waitForFunction(() => document.querySelector('[data-loupe-details]')!.parentElement!.scrollTop > 100);
+    await page.evaluate(() => document.querySelector('[data-loupe-details]')!.parentElement!.scrollTo(0, 0));
+    await page.getByText('3 / 6').waitFor();
   }
+  // The photo's details are below it (the info panel, for the photo shown): its button
+  // scrolls down to them, and what's done there is done to that photo.
+  const [shownId, shownName] = process.env.BROWSER !== 'firefox' ? ['v3', 'beach-3.ARW'] : ['v2', 'city-2.ARW'];
+  const details = page.locator('[data-loupe-details]');
+  await page.getByRole('button', { name: 'Scroll to the details' }).click();
+  await details.getByText(shownName).waitFor();
+  await page.waitForFunction(
+    () => document.querySelector('[data-loupe-details]')!.getBoundingClientRect().top < window.innerHeight / 2,
+  );
+  assert.equal(await overflow(), 0, 'the details are wider than the phone');
+  await details.getByRole('radio', { name: '4 stars (4)' }).click();
+  await page.waitForTimeout(300);
+  assert.deepEqual(sent.at(-1), { path: `/api/versions/${shownId}`, body: { rating: 4 } });
+  sent.length = 0;
   // A click: Chrome takes a tap right after a swipe's fling as stopping the fling (no click).
   await page.getByRole('button', { name: 'Close (Esc)' }).click();
   await page.getByRole('button', { name: 'Close (Esc)' }).waitFor({ state: 'detached' });
+  // The photo shown was selected for the details: closing leaves no selection.
+  await page.getByText('6 photos').waitFor();
 
   // A long press selects, then taps add to the selection rather than opening the loupe.
   const card = (await page.locator('[data-photo-id="v1"]').boundingBox())!;

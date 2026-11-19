@@ -452,6 +452,23 @@ export function LibraryPage() {
   };
   latest.current = { copyFrom, pasteToSelection, exportSelection, duplicateSelection, trashSelection };
 
+  /** What the info panel does, on the selection. */
+  const infoActions = {
+    onPatch: applyToSelection,
+    onDelete: trashSelection,
+    onDuplicate: duplicateSelection,
+    onApplyEdit: editSelection,
+    onCopy: () => void copyFrom(true),
+    onExport: exportSelection,
+    onSend: sendSelection,
+    onMoveToCollection: moveSelectionToCollection,
+    onShowFilter: (key: 'tag' | 'collection', value: string) =>
+      search.edit((next) => {
+        for (const k of [...new Set(next.keys())]) if (k !== 'sort') next.delete(k);
+        next.set(key, value);
+      }),
+  };
+
   const sortSelect = (
     <NativeSelect.Root size="sm" w={{ base: 'full', md: '44' }}>
       <NativeSelect.Field
@@ -689,6 +706,7 @@ export function LibraryPage() {
         )}
       </Flex>
 
+      {/* The selection's (on phones in the loupe, the photo shown is selected while it's open). */}
       <PanelDrawer
         narrow={narrow}
         open={infoOpen}
@@ -696,24 +714,7 @@ export function LibraryPage() {
         placement="bottom"
         title="Details"
       >
-        <InfoPanel
-          selected={selectedPhotos}
-          count={grid.count}
-          onPatch={applyToSelection}
-          onDelete={trashSelection}
-          onDuplicate={duplicateSelection}
-          onApplyEdit={editSelection}
-          onCopy={() => void copyFrom(true)}
-          onExport={exportSelection}
-          onSend={sendSelection}
-          onMoveToCollection={moveSelectionToCollection}
-          onShowFilter={(key, value) =>
-            search.edit((next) => {
-              for (const k of [...new Set(next.keys())]) if (k !== 'sort') next.delete(k);
-              next.set(key, value);
-            })
-          }
-        />
+        <InfoPanel selected={selectedPhotos} count={grid.count} {...infoActions} />
       </PanelDrawer>
       <CollectionPicker request={collectionPicker} onClose={() => setCollectionPicker(null)} />
       <LibraryExportDialog photos={exporting} preview={exportPreview} onClose={() => setExporting(null)} />
@@ -761,9 +762,15 @@ export function LibraryPage() {
           onClose={(id) => {
             setLoupe(null);
             // On phones a selection means taps select: closing doesn't start one.
-            if (!narrow) selectOne(id);
+            if (narrow) grid.clear();
+            else selectOne(id);
           }}
           onDevelop={narrow ? undefined : (id) => navigate(`/versions/${id}/develop`)}
+          // Phones: the info panel is below the photo, for the photo shown (selected meanwhile).
+          onShow={narrow ? selectOne : undefined}
+          details={
+            narrow ? (photo) => <InfoPanel selected={[photo]} count={1} noPreview {...infoActions} /> : undefined
+          }
         />
       )}
     </Flex>

@@ -157,12 +157,15 @@ export function DuplicateMenu({
 export function InfoPanel({
   selected,
   count = selected.length,
+  noPreview,
   ...actions
 }: {
   /** The selected photos shown (loaded). */
   selected: Photo[];
   /** How many are selected, shown or not (roadmap 8.13: all the filters match). */
   count?: number;
+  /** Without the photo's preview (shown above it already: the loupe on phones). */
+  noPreview?: boolean;
 } & Actions) {
   if (count === 0) {
     return (
@@ -178,7 +181,7 @@ export function InfoPanel({
     );
   }
   if (count > 1 || !selected[0]) return <BulkPanel photos={selected} count={count} {...actions} />;
-  return <SinglePanel photo={selected[0]} {...actions} />;
+  return <SinglePanel photo={selected[0]} noPreview={noPreview} {...actions} />;
 }
 
 // ── Shared culling controls ─────────────────────────────────────────────────
@@ -328,7 +331,8 @@ function SinglePanel({
   onSend,
   onMoveToCollection,
   onShowFilter,
-}: { photo: Photo } & Actions) {
+  noPreview,
+}: { photo: Photo; noPreview?: boolean } & Actions) {
   const { data: instances = [] } = useInstances();
   const { data: detail } = usePhoto(listPhoto.id);
   // The render state comes from the list: it's polled while previews are rendered, the detail isn't.
@@ -357,7 +361,15 @@ function SinglePanel({
   return (
     <Stack {...PANEL_PROPS} {...BLOCKS_PROPS}>
       <PanelBlock>
-        <Box position="relative" w="full" aspectRatio="1" flexShrink={0} bg="bg.muted" borderRadius="sm">
+        <Box
+          position="relative"
+          w="full"
+          aspectRatio="1"
+          flexShrink={0}
+          bg="bg.muted"
+          borderRadius="sm"
+          display={noPreview ? 'none' : undefined}
+        >
           {photo.previewUrl && (
             <Image
               src={photo.previewUrl}

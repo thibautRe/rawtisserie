@@ -3,11 +3,13 @@
  * Arrow keys move, ratings, flags and colour labels are one key each (moving on to the
  * next photo with auto-advance), and a click or Z zooms to 100 % with tiles rendered
  * by the server (`/api/versions/:id/zoom`). The zoom stays where it is from one photo
- * to the next, to compare the focus across a burst.
+ * to the next, to compare the focus across a burst. With `details` (phones, where the
+ * library's info panel is otherwise a selection away), the photo's details sit below
+ * it: the loupe scrolls to them.
  */
-import { Box, Circle, Flex, HStack, IconButton, Image, Spinner, Switch, Text } from '@chakra-ui/react';
-import { Check, Info, SlidersHorizontal, Star, X } from 'lucide-react';
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Box, Circle, Flex, HStack, IconButton, Image, Spinner, Switch, Text, Theme } from '@chakra-ui/react';
+import { Check, ChevronDown, Info, SlidersHorizontal, Star, X } from 'lucide-react';
+import { type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useZoomInfo } from '../api/hooks.ts';
 import { type BulkPatch, COLOR_LABELS, type Photo } from '../api/types.ts';
 import { useZoom } from '../develop/useZoom.ts';
@@ -36,6 +38,10 @@ interface Props {
   /** Closed on this photo. */
   onClose: (id: string) => void;
   onDevelop?: (id: string) => void;
+  /** Shown on this photo (the first, then after each move). */
+  onShow?: (id: string) => void;
+  /** The photo's details, below the loupe (which then scrolls). */
+  details?: (photo: Photo) => ReactNode;
 }
 
 /** How long a photo must stay before its zoom levels are asked (which decodes it on the server). */
@@ -61,6 +67,8 @@ export function Loupe({
   onChange,
   onClose,
   onDevelop,
+  onShow,
+  details,
 }: Props) {
   const [opened] = useState(() => photos.map((p) => p.id));
   const [offset] = useState(offsetNow);
@@ -80,6 +88,8 @@ export function Loupe({
   const [id, setId] = useState(startId);
   const index = Math.max(0, order.indexOf(id));
   const photo = seen.current.get(id)!;
+  useEffect(() => onShow?.(id), [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const below = useRef<HTMLDivElement>(null);
 
   const [autoAdvance, setAutoAdvance] = useState(() => stored('loupe.autoAdvance', true));
   const [showInfo, setShowInfo] = useState(() => stored('loupe.info', true));
@@ -226,8 +236,14 @@ export function Loupe({
   const scale = zoom?.scale ?? layout?.fitScale;
   const rejected = photo.flag === 'rejected';
 
-  return (
-    <Flex position="fixed" inset="0" zIndex="modal" direction="column" bg="black" color="white" userSelect="none">
+  const loupe = (
+    <Flex
+      direction="column"
+      bg="black"
+      color="white"
+      userSelect="none"
+      {...(details ? { h: '100dvh', position: 'relative' } : { position: 'fixed', inset: '0', zIndex: 'modal' })}
+    >
       {tagSequence}
       {showInfo && (
         <HStack px="3" py="2" gap="3" bg="blackAlpha.800" flexShrink="0">
@@ -303,7 +319,16 @@ export function Loupe({
         </HStack>
       )}
 
-      <Box ref={win} flex="1" minH="0" position="relative" overflow="hidden" touchAction="none" cursor="zoom-in">
+      {/* With details below, a vertical swipe at fit scrolls to them. */}
+      <Box
+        ref={win}
+        flex="1"
+        minH="0"
+        position="relative"
+        overflow="hidden"
+        touchAction={details && !zoom ? 'pan-y' : 'none'}
+        cursor="zoom-in"
+      >
         {/* Always there, so that the preview loads (its size makes the layout). */}
         <Box
           ref={stage}
@@ -449,6 +474,18 @@ export function Loupe({
           >
             {exifLine(photo)}
           </Text>
+          {details && (
+            <IconButton
+              size={TOUCH_SIZE}
+              variant="ghost"
+              color="whiteAlpha.700"
+              aria-label="Scroll to the details"
+              title="Scroll to the details"
+              onClick={() => below.current?.scrollIntoView({ behavior: 'smooth' })}
+            >
+              <ChevronDown />
+            </IconButton>
+          )}
           <Text color="whiteAlpha.600" whiteSpace="nowrap" hideBelow="lg">
             {onChange
               ? '← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · A auto-advance · Esc close'
@@ -472,6 +509,15 @@ export function Loupe({
         </IconButton>
       )}
     </Flex>
+  );
+  if (!details) return loupe;
+  return (
+    <Box position="fixed" inset="0" zIndex="modal" overflowY="auto" overscrollBehavior="contain" bg="black">
+      {loupe}
+      <Theme appearance="dark" ref={below} data-loupe-details css={{ '& > aside': { width: 'full', borderWidth: 0 } }}>
+        {details(photo)}
+      </Theme>
+    </Box>
   );
 }
 

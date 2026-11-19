@@ -214,7 +214,8 @@ See README.md for the architecture overview and commands.
   browser: `npm run test:picker -w @rawtisserie/web`.
 - Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
   trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press
-  selects (`longPress.ts`; closing the loupe doesn't select there). Layout-only changes
+  selects (`longPress.ts`; closing the loupe doesn't select there). The loupe's
+  `details` (the info panel) sit below the photo there, which stays selected while shown. Layout-only changes
   go in responsive style props; touch targets are `{ base: 'sm', md: '2xs' }`. A new
   side panel or toolbar must work at 390 px: `test:library` has a phone case.
 - `/ui` (`pages/UiPage.tsx`) shows the UI's building blocks on one page, with static data
