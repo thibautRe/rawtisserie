@@ -139,6 +139,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { InfoTip } from '../components/InfoTip.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
@@ -151,11 +152,13 @@ import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import { type ShapeUi, hexToRec2020, isEditing, rec2020ToHex } from './retouch.ts';
 import { MaskEditor } from './MaskEditor.tsx';
+import type { MaskLayout } from './maskLayout.ts';
+import { MaskFold, MaskSidebar, type MaskedInstance } from './MaskSidebar.tsx';
 import { LutMenu } from './LutMenu.tsx';
 import { LensSource } from './LensPicker.tsx';
 import { useRecipePreview } from './preview.ts';
 import type { LutChoice, LutLibrary } from './luts.ts';
-import type { RangeKey } from './masks.ts';
+import { type RangeKey, maskSummary } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
 import type {
   DenoiseStatus,
@@ -228,6 +231,10 @@ interface Props {
   /** Retouch tools and selection, shared with the overlay on the image. */
   shapeUi: ShapeUi;
   onShapeUi: (patch: Partial<ShapeUi>) => void;
+  /** Where the mask editor goes (4.13's prototype, `maskLayout.ts`). */
+  maskLayout: MaskLayout;
+  /** The sidebar's element, for the `push` and `overlay` layouts (the editor is rendered into it). */
+  maskHost: HTMLElement | null;
   /** Built-in and user LUTs (`useLutLibrary`), and those whose table couldn't be had. */
   luts: LutLibrary;
   missingLuts: ReadonlySet<string>;
@@ -354,11 +361,14 @@ export function Module({
   actions,
   onToggle,
   onReset,
+  highlight,
   children,
 }: {
   title: string;
   enabled: boolean;
   modified: boolean;
+  /** Its mask is open in the sidebar. */
+  highlight?: boolean;
   /** Absent for single-instance kinds. */
   menu?: React.ReactNode;
   /** Header buttons, shown left of the reset button and the switch. */
@@ -370,7 +380,14 @@ export function Module({
   return (
     // A block a shade lighter than the panel's background, with gaps between them, shows
     // where each module starts and ends.
-    <Stack gap="1.5" px="3" pt="2" pb="3" bg="bg.panel">
+    <Stack
+      gap="1.5"
+      px="3"
+      pt="2"
+      pb="3"
+      bg="bg.panel"
+      boxShadow={highlight ? 'inset 2px 0 0 var(--chakra-colors-orange-solid)' : undefined}
+    >
       <HStack justify="space-between" h="6">
         <Heading
           size="xs"
@@ -1282,7 +1299,10 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     autoTuning,
     detecting,
     shapeUi,
+    maskLayout,
+    maskHost,
   } = props;
+  const sidebarLayout = maskLayout === 'push' || maskLayout === 'overlay' ? maskLayout : null;
   const { guides, fittingPerspective } = props;
   const { toneInputs, fittingTone, toneView, rangeView } = props;
   const { luts, missingLuts } = props;
@@ -1293,6 +1313,20 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   });
   // What each instance shows, by id.
   const [views, setViews] = useState<Record<string, InstanceView>>({});
+  // The instance whose mask is in the sidebar (`push` and `overlay` layouts).
+  const [maskPanel, setMaskPanel] = useState<string | null>(null);
+  /** Show this instance's mask in the sidebar (null: close it), leaving the shapes of the one there. */
+  const openMaskPanel = useStableCallback((id: string | null) => {
+    const ui = latest.current.shapeUi;
+    if (maskPanel && maskPanel !== id && isEditing(ui, 'mask', maskPanel))
+      latest.current.onShapeUi({ editing: false, tool: 'select', selected: null });
+    setMaskPanel(id);
+  });
+  // Its instance gone (removed, or undone), the sidebar closes.
+  const maskPanelGone = maskPanel !== null && !params.modules.some((m) => m.id === maskPanel);
+  useEffect(() => {
+    if (maskPanelGone) setMaskPanel(null);
+  }, [maskPanelGone]);
 
   // The same angles, for handlers: updated as soon as they are set.
   const angles = useRef<Record<string, Record<string, number>>>({});
@@ -1368,6 +1402,42 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     };
   }
 
+  /** An instance's mask editor, in its module or in the sidebar. */
+  function maskEditor(
+    kind: ModuleKind,
+    id: string,
+    mask: NonNullable<ModuleInstance['mask']>,
+    shapeTypes: (ShapeType | undefined)[],
+    view: InstanceView,
+    framed: boolean,
+  ) {
+    return (
+      <MaskEditor
+        kind={kind}
+        id={id}
+        mask={mask}
+        shapeTypes={shapeTypes}
+        ui={shapeUi}
+        framed={framed}
+        params={() => latest.current.params}
+        title={() => {
+          const now = latest.current.params.modules.find((x) => x.id === id);
+          return now ? instanceTitle(latest.current.params, now) : MODULE_TITLES[kind];
+        }}
+        onChange={(p) => latest.current.onChange(p)}
+        onCommit={(p, label) => latest.current.onCommit(p, label)}
+        onUi={(patch) => latest.current.onShapeUi(patch)}
+        remembered={view.maskRanges}
+        onRemember={(key, range) =>
+          setViews((v) => {
+            const next = { ...DEFAULT_VIEW, ...v[id] };
+            return { ...v, [id]: { ...next, maskRanges: { ...next.maskRanges, [key]: range } } };
+          })
+        }
+      />
+    );
+  }
+
   /**
    * A section per instance of a kind (or one for the kind, without any). Sections are
    * keyed by instance id and an empty kind's first instance takes the kind as its id,
@@ -1394,6 +1464,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       const maskTypes = m?.mask?.drawn.map((d) => params.shapes?.[d.shape]?.type);
       const maskDeps = maskable
         ? [
+            maskLayout,
+            sidebarLayout && maskPanel === id,
             maskTypes?.join(),
             isEditing(shapeUi, 'mask', id) ? shapeUi : null,
             shapeUi.maskOverlay?.id === id ? shapeUi.maskOverlay : null,
@@ -1406,24 +1478,33 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           render={() => {
             const e = editor(kind, m, position);
             const mask = m?.mask;
-            const maskButton = maskable && (
+            const maskState = mask ? (mask.enabled ? 'on' : 'off') : 'none';
+            // In a sidebar layout the button opens the sidebar on this mask, else it unfolds
+            // the editor in the module (the accordion's fold does the same from below).
+            const inSidebar = sidebarLayout !== null && maskPanel === id;
+            const onMaskClick = () => {
+              // Read when clicked: the button keeps its first handler.
+              const now = latest.current.params.modules.find((x) => x.id === id)?.mask;
+              if (sidebarLayout) {
+                if (!now) commit((p) => updateMask(p, kind, id, {}), `${title}: mask added`);
+                openMaskPanel(!now || !inSidebar ? id : null);
+              } else if (!now) {
+                e.setView({ maskOpen: true });
+                commit((p) => updateMask(p, kind, id, {}), `${title}: mask added`);
+              } else e.setView({ maskOpen: !(views[id] ?? DEFAULT_VIEW).maskOpen });
+            };
+            const maskButton = maskable && maskLayout !== 'accordion' && (
               <MaskButton
                 title={title}
-                state={mask ? (mask.enabled ? 'on' : 'off') : 'none'}
-                open={e.view.maskOpen}
-                onClick={() => {
-                  // Read when clicked: the button keeps its first handler.
-                  const now = latest.current.params.modules.find((x) => x.id === id)?.mask;
-                  if (!now) {
-                    e.setView({ maskOpen: true });
-                    commit((p) => updateMask(p, kind, id, {}), `${title}: mask added`);
-                  } else e.setView({ maskOpen: !(views[id] ?? DEFAULT_VIEW).maskOpen });
-                }}
+                state={maskState}
+                open={sidebarLayout ? inSidebar : e.view.maskOpen}
+                onClick={onMaskClick}
               />
             );
             return (
               <Module
                 title={title}
+                highlight={inSidebar}
                 enabled={m?.enabled ?? false}
                 modified={isInstanceModified(params, kind, id, original)}
                 onToggle={(on) =>
@@ -1482,36 +1563,67 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 }
               >
                 {content(e)}
-                {mask && e.view.maskOpen && (
-                  <MaskEditor
-                    kind={kind}
-                    id={id}
-                    mask={mask}
-                    shapeTypes={maskTypes ?? []}
-                    ui={shapeUi}
-                    params={() => latest.current.params}
-                    title={() => {
-                      const now = latest.current.params.modules.find((x) => x.id === id);
-                      return now ? instanceTitle(latest.current.params, now) : MODULE_TITLES[kind];
-                    }}
-                    onChange={(p) => latest.current.onChange(p)}
-                    onCommit={(p, label) => latest.current.onCommit(p, label)}
-                    onUi={(patch) => latest.current.onShapeUi(patch)}
-                    remembered={e.view.maskRanges}
-                    onRemember={(key, range) =>
-                      setViews((v) => {
-                        const view = { ...DEFAULT_VIEW, ...v[id] };
-                        return { ...v, [id]: { ...view, maskRanges: { ...view.maskRanges, [key]: range } } };
-                      })
-                    }
+                {maskable && maskLayout === 'accordion' && (
+                  <MaskFold
+                    title={title}
+                    summary={mask ? maskSummary(mask) : null}
+                    state={maskState}
+                    open={e.view.maskOpen}
+                    onClick={onMaskClick}
                   />
                 )}
+                {mask &&
+                  !sidebarLayout &&
+                  e.view.maskOpen &&
+                  maskEditor(kind, id, mask, maskTypes ?? [], e.view, maskLayout === 'inline')}
               </Module>
             );
           }}
         />
       );
     });
+  }
+
+  /** The sidebar's content: the mask of the instance `id`, and the recipe's other masks. */
+  function maskSidebar(layout: 'push' | 'overlay', id: string) {
+    const m = params.modules.find((x) => x.id === id);
+    if (!m) return null;
+    const title = instanceTitle(params, m);
+    const masked: MaskedInstance[] = params.modules.flatMap((x) =>
+      x.mask && MASKABLE_KINDS.includes(x.kind)
+        ? [{ id: x.id, title: instanceTitle(params, x), summary: maskSummary(x.mask), enabled: x.mask.enabled }]
+        : [],
+    );
+    const maskTypes = m.mask?.drawn.map((d) => params.shapes?.[d.shape]?.type);
+    const view = views[id] ?? DEFAULT_VIEW;
+    return (
+      <Section
+        key={id}
+        deps={[
+          layout,
+          m,
+          title,
+          JSON.stringify(masked),
+          maskTypes?.join(),
+          isEditing(shapeUi, 'mask', id) ? shapeUi : null,
+          shapeUi.maskOverlay?.id === id ? shapeUi.maskOverlay : null,
+          view,
+        ]}
+        render={() => (
+          <MaskSidebar
+            layout={layout}
+            title={title}
+            current={id}
+            masked={masked}
+            onSelect={openMaskPanel}
+            onClose={() => openMaskPanel(null)}
+            onAdd={() => commit((p) => updateMask(p, m.kind, id, {}), `${title}: mask added`)}
+          >
+            {m.mask && maskEditor(m.kind, id, m.mask, maskTypes ?? [], view, false)}
+          </MaskSidebar>
+        )}
+      />
+    );
   }
 
   // What the retouch section shows of the spots' shapes: their types, and the selected
@@ -3646,6 +3758,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
           </>
         );
       })}
+      {sidebarLayout && maskPanel && maskHost && createPortal(maskSidebar(sidebarLayout, maskPanel), maskHost)}
       <RenameDialog
         title={`Rename ${renamed ? MODULE_TITLES[renamed.kind].toLowerCase() : 'module'}`}
         hint="Leave empty to number it automatically."

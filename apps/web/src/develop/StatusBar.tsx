@@ -1,10 +1,23 @@
-import { Box, Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  Center,
+  HStack,
+  IconButton,
+  Menu,
+  NativeSelect,
+  Portal,
+  Separator,
+  Spinner,
+  Text,
+} from '@chakra-ui/react';
 import { ChevronDown, CloudAlert, CloudCheck, Frame, Pipette, SunMoon, Zap, ZoomIn } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { FIGURE_SPACE, SampleValues } from './PinnedSamples.tsx';
 import { usePixelSample } from './picker.ts';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
+import { MASK_LAYOUTS, type MaskLayout, setMaskLayout, useMaskLayout } from './maskLayout.ts';
 
 /** Clipping indicator settings; display options, not part of the recipe. */
 export interface ClippingSettings {
@@ -100,6 +113,38 @@ export function StatusBar({
         assessment={assessment}
         onAssessmentChange={onAssessmentChange}
       />
+      <Box flex="1" />
+      <MaskLayoutSwitch />
+    </HStack>
+  );
+}
+
+/** Roadmap 4.13's prototype: where the mask editor goes, to try each (`maskLayout.ts`). */
+function MaskLayoutSwitch() {
+  const layout = useMaskLayout();
+  return (
+    <HStack
+      gap="1"
+      title="Prototype (4.13): where the mask editor goes. ?masks=push (or overlay, accordion, inline) picks one for a tab."
+    >
+      <Text textStyle="2xs" color="fg.subtle" whiteSpace="nowrap">
+        Mask UI
+      </Text>
+      <NativeSelect.Root size="xs" variant="plain" w="28">
+        <NativeSelect.Field
+          aria-label="Mask UI (prototype)"
+          value={layout}
+          onChange={(e) => setMaskLayout(e.target.value as MaskLayout)}
+          textStyle="2xs"
+        >
+          {MASK_LAYOUTS.map((l) => (
+            <option key={l.value} value={l.value} title={l.hint}>
+              {l.label}
+            </option>
+          ))}
+        </NativeSelect.Field>
+        <NativeSelect.Indicator />
+      </NativeSelect.Root>
     </HStack>
   );
 }

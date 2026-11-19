@@ -266,3 +266,20 @@ export function maskIsActive(mask: Mask | undefined): boolean {
       mask.blend !== 'normal')
   );
 }
+
+/**
+ * What a mask does, in a few words (`2 shapes · luminance · 60 %`), for where it's
+ * folded or listed: its shapes, ranges, inversion, opacity and blend mode.
+ */
+export function maskSummary(mask: Mask): string {
+  const n = mask.drawn.length;
+  const parts = [
+    n ? `${n} shape${n === 1 ? '' : 's'}` : null,
+    ...RANGE_KEYS.filter((k) => mask[k]).map((k) => RANGES[k].label.toLowerCase()),
+    mask.invert ? 'inverted' : null,
+    mask.opacity < 1 ? `${Math.round(mask.opacity * 100)} %` : null,
+    mask.blend !== 'normal' ? mask.blend.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`) : null,
+  ].filter(Boolean);
+  if (!mask.enabled) return parts.length ? `off · ${parts.join(' · ')}` : 'off';
+  return parts.join(' · ') || 'everywhere';
+}

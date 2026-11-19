@@ -1338,6 +1338,17 @@ global" gap.
 
 ### 4.13 Mask UI redesign (M–L, before 1.0, needs a prototype)
 
+> **Prototype** 2026-11-19: four layouts to compare (`develop/maskLayout.ts`), picked in
+> the developer's status bar ("Mask UI") or per tab with `?masks=…`, so several windows
+> show them side by side. `inline`: as 4.5 built it. `push`: a sidebar right of the
+> modules, which move left (over the image below 1280 px wide). `overlay`: the sidebar
+> over the modules, with a way back. Both keep only the header's mask button in the
+> module (its block marked while its mask is open) and list the recipe's other masks to
+> jump between them (`MaskSidebar.tsx`). `accordion`: no button in the header; a fold
+> at the bottom of each maskable module says what its mask does (`maskSummary`) and
+> opens the editor under it. The editor itself is unchanged in all four. Once one is
+> picked, the others and the switch go.
+
 The mask editor (4.5) is confusing and clutters the panel: a mask button in each
 maskable module's header opens, inside the module, a switch, the shape tools, an op per
 shape, up to seven range sliders with four handles, feather, opacity and invert. It

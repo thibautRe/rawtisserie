@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { RANGES, growSpan, hueCss, maskIsActive, moveHandle, rangePolygons, shiftRange, trackSpan } from './masks.ts';
+import {
+  RANGES,
+  growSpan,
+  hueCss,
+  maskIsActive,
+  maskSummary,
+  moveHandle,
+  rangePolygons,
+  shiftRange,
+  trackSpan,
+} from './masks.ts';
 import { defaultMask } from '@rawtisserie/pipeline';
 
 const L = RANGES.luminance;
@@ -76,4 +86,14 @@ test('a track widens while a handle is held past its end', () => {
   assert.deepEqual(growSpan([-12, 6], -1, 0.5, L), [-14.25, 6]);
   assert.deepEqual(growSpan([-12, 16], 1, 2, L), [-12, 18]);
   assert.deepEqual(growSpan([0, 360], 1, 1, H), [0, 360]);
+});
+
+test('a mask in a few words', () => {
+  assert.equal(maskSummary({ ...defaultMask }), 'everywhere');
+  const shape = { shape: 's1', op: 'union' as const };
+  assert.equal(
+    maskSummary({ ...defaultMask, drawn: [shape, shape], luminance: [-3, -1, 1, 3], opacity: 0.6, blend: 'softLight' }),
+    '2 shapes · luminance · 60 % · soft light',
+  );
+  assert.equal(maskSummary({ ...defaultMask, invert: true, enabled: false }), 'off · inverted');
 });

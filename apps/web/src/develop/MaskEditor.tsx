@@ -355,6 +355,8 @@ interface Props {
   /** Ranges as they were when switched off (kept by the panel, not in the recipe). */
   remembered: Partial<Record<RangeKey, MaskRange>>;
   onRemember: (key: RangeKey, range: MaskRange) => void;
+  /** Set apart from the module's settings above it by a dashed line (inline), or not (in a panel of its own). */
+  framed?: boolean;
 }
 
 /**
@@ -375,6 +377,7 @@ export function MaskEditor({
   onUi,
   remembered,
   onRemember,
+  framed = true,
 }: Props) {
   const editing = isEditing(ui, 'mask', id);
   const sel = editing && ui.selected !== null && ui.selected < mask.drawn.length ? ui.selected : null;
@@ -396,7 +399,7 @@ export function MaskEditor({
     onCommit: (v: number) => onCommit(edit({ [key]: v })),
   });
   return (
-    <Stack gap="1.5" pt="2" mt="1" borderTopWidth="1px" borderStyle="dashed">
+    <Stack gap="1.5" {...(framed ? { pt: '2', mt: '1', borderTopWidth: '1px', borderStyle: 'dashed' } : {})}>
       <HStack justify="space-between">
         <Switch.Root
           size="xs"
@@ -417,7 +420,7 @@ export function MaskEditor({
             textTransform="uppercase"
             letterSpacing="wider"
           >
-            Mask
+            {framed ? 'Mask' : mask.enabled ? 'On' : 'Off'}
           </Switch.Label>
         </Switch.Root>
         <HStack gap="0.5">
