@@ -2132,17 +2132,19 @@ folders; collections are a filter in the sidebar, combined with the others.
 > that entry is current, with a report of each module (came through, approximated, left
 > out, done our own way). Their parameters are C structs (`darktable/struct.ts`, layouts
 > from darktable 5.6.2 and Ansel's master); which application wrote a history is told by
-> the modules and versions only one has. Translated so far: exposure.
+> the modules and versions only one has. darktable's duplicates (`NAME_01.ARW.xmp`…)
+> become versions of the photo, with their own tags, name and edits. LUT 3D: referred to
+> by name and darktable's path until the user adds a LUT of that name (the server then
+> fills in every reference waiting for it and renders those photos again); the report
+> and the LUT module say which file to add. Translated so far: exposure, LUT 3D.
 
 Best effort, never the same pixels: our pipeline differs (demosaic, highlight
 reconstruction, profiles). Phase 1, from a survey of ~100 of the user's sidecars:
 colour calibration (with white balance folded in), filmic rgb, **sigmoid and AgX fitted
 onto filmic** (no new module), colour balance rgb, lens correction (lensfun or embedded),
-orientation, crop, rotate and perspective, LUT 3D (G'MIC HaldCLUT files, matched to the
-user's LUTs by name). Phase 2: masks and blending, retouch, tone equalizer, rgb curve,
+orientation, crop, rotate and perspective. Phase 2: masks and blending, retouch, tone equalizer, rgb curve,
 diffuse, contrast equalizer, colour primaries / rgb primaries, colour balance's 4 ways.
-Later: darktable duplicates (`NAME_01.ARW.xmp`) as versions; Lightroom (`crs:` XMP) and
-Capture One (`.cos`) through the same report and warning.
+Later: Lightroom (`crs:` XMP) and Capture One (`.cos`) through the same report and warning.
 
 ---
 

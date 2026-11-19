@@ -313,9 +313,15 @@ export interface ModuleParams {
  * given the tables separately; one they don't have is skipped.
  */
 export interface LutRef {
+  /**
+   * Empty for a LUT imported from another application that the user doesn't have yet
+   * (`path`): filled in when they add one of that name (`resolveLutRefs`).
+   */
   id: string;
   /** Its name when it was chosen, to tell the user which LUT is missing. */
   name: string;
+  /** Where the application it was imported from found it (darktable's path in its LUT folder). */
+  path?: string;
 }
 
 /** How a LUT is interpolated between its nodes. Mirrors `clut::Interpolation`. */
@@ -1320,7 +1326,11 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
     const l = params as ModuleParams['lut'];
     const ref: unknown = isObject(input) ? input.lut : null;
     l.lut = isObject(ref)
-      ? { id: typeof ref.id === 'string' ? ref.id : '', name: typeof ref.name === 'string' ? ref.name : '' }
+      ? {
+          id: typeof ref.id === 'string' ? ref.id : '',
+          name: typeof ref.name === 'string' ? ref.name : '',
+          ...(typeof ref.path === 'string' && { path: ref.path }),
+        }
       : null;
     if (!LUT_INTERPOLATIONS.includes(l.interpolation)) l.interpolation = defaultModuleParams.lut.interpolation;
   }
@@ -1379,7 +1389,38 @@ export function lutIds(params: EditParams): string[] {
   const ids = params.modules.flatMap((m) =>
     m.enabled && m.kind === 'lut' ? [(m as ModuleInstance<'lut'>).params.lut?.id] : [],
   );
-  return [...new Set(ids.filter((id): id is string => id !== undefined))];
+  return [...new Set(ids.filter((id): id is string => !!id))];
+}
+
+/** How a LUT's name is compared with an imported reference's (`resolveLutRefs`). */
+export const lutNameKey = (name: string) => name.trim().toLowerCase();
+
+/** The names of the LUTs `params` refers to without having them yet (imported, `LutRef.path`). */
+export function unresolvedLutNames(params: EditParams): string[] {
+  const names = params.modules.flatMap((m) =>
+    m.kind === 'lut' && (m as ModuleInstance<'lut'>).params.lut?.id === ''
+      ? [(m as ModuleInstance<'lut'>).params.lut!.name]
+      : [],
+  );
+  return [...new Set(names)];
+}
+
+/**
+ * `params` with the LUTs it refers to without having them (imported) given the user's
+ * LUT of the same name (case aside), if any; the same object if none changes.
+ */
+export function resolveLutRefs(params: EditParams, luts: readonly { id: string; name: string }[]): EditParams {
+  const byName = new Map(luts.map((l) => [lutNameKey(l.name), l.id]));
+  let changed = false;
+  const modules = params.modules.map((m) => {
+    if (m.kind !== 'lut') return m;
+    const ref = (m as ModuleInstance<'lut'>).params.lut;
+    const id = ref && !ref.id ? byName.get(lutNameKey(ref.name)) : undefined;
+    if (!id) return m;
+    changed = true;
+    return { ...m, params: { ...m.params, lut: { ...ref!, id } } } as ModuleInstance;
+  });
+  return changed ? { ...params, modules } : params;
 }
 
 /** A spot from untrusted input: missing or invalid fields get their defaults. */

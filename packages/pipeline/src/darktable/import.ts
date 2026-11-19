@@ -18,9 +18,9 @@ import { type DarktableXmp, activeEntries, decodeBlob } from './xmp.ts';
 
 export async function importDarktable(
   xmp: DarktableXmp,
-  { base, metadata }: ImportContext,
+  { base, metadata, luts = [] }: ImportContext,
 ): Promise<{ recipe: EditParams; items: ImportReportItem[] }> {
-  const ctx = { app: xmp.app, metadata };
+  const ctx = { app: xmp.app, metadata, luts };
   const translatorOf = new Map<string, Translator>();
   for (const t of TRANSLATORS) for (const op of t.operations) translatorOf.set(op, t);
   const decided = new Set<ModuleKind>();
@@ -30,13 +30,14 @@ export async function importDarktable(
 
   for (const entry of activeEntries(xmp)) {
     const translator = translatorOf.get(entry.operation);
-    const item = (status: ImportReportItem['status'], note?: string) =>
+    const item = (status: ImportReportItem['status'], note?: string, file?: ImportReportItem['file']) =>
       entry.enabled &&
       items.push({
         module: darktableModuleName(entry.operation),
         instance: entry.multiName || null,
         status,
         note: note ?? null,
+        ...(file && { file }),
       });
     if (!translator) {
       item(BUILT_IN_OPERATIONS.has(entry.operation) ? 'builtIn' : 'skipped');
@@ -48,7 +49,7 @@ export async function importDarktable(
       continue;
     }
     const result = translator.translate(entry, bytes, ctx);
-    item(result.status, result.note);
+    item(result.status, result.note, result.file);
     if (!result.instance) continue;
     // Their blending and masks aren't translated yet: such an instance would apply everywhere.
     imported.push({

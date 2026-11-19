@@ -4,7 +4,7 @@
  * modules (`Translator`). Struct layouts are copied from upstream, darktable 5.6.2
  * (commit 20891f6) and Ansel's master (commit fa3c276), `src/iop/<operation>.c`.
  */
-import type { ModuleInstance, ModuleKind, ModuleParams } from '../params.ts';
+import { type ModuleInstance, type ModuleKind, type ModuleParams, resolveLutRefs } from '../params.ts';
 import type { ImportMetadata, ImportStatus } from '../importedEdits.ts';
 import type { DarktableApp, DarktableEntry } from './xmp.ts';
 import { Layout } from './struct.ts';
@@ -117,6 +117,8 @@ export const BUILT_IN_OPERATIONS: ReadonlySet<string> = new Set([
 export interface TranslateContext {
   app: DarktableApp;
   metadata: ImportMetadata;
+  /** The user's LUTs (`resolveLutRefs`). */
+  luts: readonly { id: string; name: string }[];
 }
 
 /** One entry's import: its instance (null: nothing of ours), and how well it went. */
@@ -124,6 +126,7 @@ export interface Translation {
   instance: ModuleInstance | null;
   status: Exclude<ImportStatus, 'builtIn'>;
   note?: string;
+  file?: { name: string; path: string };
 }
 
 /**
@@ -190,5 +193,60 @@ const exposure: Translator = {
   },
 };
 
+// ── LUT 3D ─────────────────────────────────────────────────────────────────────
+
+/** darktable's and Ansel's (v3, the same struct). */
+const LUT3D_V3 = new Layout([
+  ['filepath', { char: 512 }],
+  ['colorspace', 'i32'],
+  ['interpolation', 'i32'],
+  ['nb_keypoints', 'i32'],
+  ['c_clut', { array: 'u8', n: 2048 * 2 * 3 }],
+  ['lutname', { char: 128 }],
+]);
+/** `dt_iop_lut3d_colorspace_t`; 5 is ProPhoto in darktable, BT.1886 in Ansel. */
+const LUT_SPACES = ['sRGB', 'Adobe RGB', 'gamma Rec709', 'linear Rec709', 'linear Rec2020'];
+const LUT_INTERPOLATIONS_DT = ['tetrahedral', 'trilinear', 'pyramid'] as const;
+
+const lut3d: Translator = {
+  operations: ['lut3d'],
+  kinds: ['lut'],
+  translate(entry, bytes, { app, luts }) {
+    const p = entry.modversion === 3 ? LUT3D_V3.read(bytes) : null;
+    if (!p) return unreadable(entry);
+    const path = (p.filepath as string).trim();
+    if (!path) return { instance: null, status: 'skipped', note: 'No LUT file chosen' };
+    if ((p.nb_keypoints as number) > 0)
+      return { instance: null, status: 'skipped', note: `A compressed G'MIC LUT (${p.lutname as string}): not read` };
+    const file = path.split(/[\\/]/).pop()!;
+    const name = file.replace(/\.[^.]*$/, '');
+    const notes: string[] = [];
+    const space = p.colorspace as number;
+    if (space !== 0)
+      notes.push(`Applied on sRGB, not ${LUT_SPACES[space] ?? (app === 'ansel' ? 'BT.1886' : 'linear ProPhoto RGB')}`);
+    const ref = resolveLutRefs(
+      {
+        version: 0,
+        modules: [instance('lut', { lut: { id: '', name, path }, interpolation: 'tetrahedral' })],
+      },
+      luts,
+    ).modules[0] as ModuleInstance<'lut'>;
+    const interpolation = LUT_INTERPOLATIONS_DT[p.interpolation as number] ?? 'tetrahedral';
+    const result = instance('lut', { ...ref.params, interpolation });
+    if (!ref.params.lut!.id)
+      return {
+        instance: result,
+        status: 'needsFile',
+        note: [`Add “${file}” to your LUTs`, ...notes].join('. '),
+        file: { name: file, path },
+      };
+    return {
+      instance: result,
+      status: notes.length ? 'approximated' : 'mapped',
+      ...(notes.length && { note: notes.join('. ') }),
+    };
+  },
+};
+
 /** Every translator, in no particular order: each takes its own operations. */
-export const TRANSLATORS: readonly Translator[] = [exposure];
+export const TRANSLATORS: readonly Translator[] = [exposure, lut3d];

@@ -1,7 +1,7 @@
 /** What renders a version: its original, its current recipe and the LUTs it may use. */
 import { type EditParams, lutIds, normalizeEditParams } from '@rawtisserie/pipeline';
 import { db, sql } from '../db.ts';
-import { usableLuts } from '../luts/storage.ts';
+import { usableLuts, userLutNames } from '../luts/storage.ts';
 import { originalKey } from '../photos/storage.ts';
 
 export interface RenderSource {
@@ -15,6 +15,8 @@ export interface RenderSource {
   autoDefaults: boolean;
   /** With `autoDefaults`: edits from another application to import on top of it (`startingHistory`). */
   importedEdits: string | null;
+  /** With `importedEdits`: the owner's LUTs by name, for those the edits refer to (`ImportContext.luts`). */
+  userLuts: { id: string; name: string }[];
   /** The photo's metadata hasn't been read yet. */
   needsMetadata: boolean;
   /** Bumped on every history change. */
@@ -48,6 +50,7 @@ export async function renderSource(versionId: string): Promise<RenderSource | nu
     params: row.recipe,
     autoDefaults: row.no_history,
     importedEdits: row.no_history ? row.imported_edits : null,
+    userLuts: row.no_history && row.imported_edits ? await userLutNames(db, row.owner_id) : [],
     needsMetadata: row.needs_metadata,
     revision: row.revision,
     luts: row.recipe ? await usableLuts(db, row.owner_id, lutIds(normalizeEditParams(row.recipe))) : [],

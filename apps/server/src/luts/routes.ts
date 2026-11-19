@@ -6,6 +6,8 @@ import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import { HttpError, badRequest, conflict, notFound } from '../errors.ts';
 import { storeLut, streamLut } from './files.ts';
+import { resolveImportedLuts } from './storage.ts';
+import type { RenderQueue } from '../render/queue.ts';
 import { MAX_COUNT, MAX_LUT_BYTES, checkCount } from '../limits.ts';
 import { formatBytes } from '../accounts/quota.ts';
 
@@ -103,7 +105,12 @@ const nameTaken = (name: string) => (err: { code?: string }) => {
  * The user's LUTs, and every LUT's table. Built-in LUTs are listed in the app
  * (`BUILTIN_LUTS`); their tables are public, for the developer without an account.
  */
-export async function lutRoutes(app: FastifyInstance) {
+export async function lutRoutes(app: FastifyInstance, { renderQueue }: { renderQueue: RenderQueue }) {
+  /** Photos imported with edits waiting for a LUT of this name get it, and are rendered again. */
+  const resolveImported = async (userId: string, row: Row) => {
+    for (const id of await resolveImportedLuts(db, userId, { id: row.lut_id, name: row.name })) renderQueue.enqueue(id);
+  };
+
   initPipeline();
   acceptPackedLuts(app);
 
@@ -123,7 +130,10 @@ export async function lutRoutes(app: FastifyInstance) {
    */
   app.post('/api/luts', { preHandler: requireUser }, async (request, reply) => {
     const { name } = z.object({ name: Name }).parse(request.query);
-    return reply.code(201).send(lutDto(await addLut(currentUser(request).id, name, request.body)));
+    const user = currentUser(request);
+    const row = await addLut(user.id, name, request.body);
+    await resolveImported(user.id, row);
+    return reply.code(201).send(lutDto(row));
   });
 
   app.patch('/api/luts/:id', { preHandler: requireUser }, async (request) => {
@@ -140,6 +150,7 @@ export async function lutRoutes(app: FastifyInstance) {
       )
       .catch(nameTaken(name))) as Row[];
     if (!row) throw notFound('LUT not found');
+    await resolveImported(user.id, row);
     return lutDto(row);
   });
 

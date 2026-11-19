@@ -78,7 +78,7 @@ export async function buildApp() {
   await app.register(presetRoutes);
   await app.register(filterPresetRoutes);
   await app.register(exportRoutes);
-  await app.register(lutRoutes);
+  await app.register(lutRoutes, { renderQueue });
   await app.register(denoiseRoutes);
   await app.register(accountRoutes, { renderQueue });
 

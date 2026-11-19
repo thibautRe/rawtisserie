@@ -3132,7 +3132,14 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 </NativeSelect.Root>
               )}
             </SelectRow>
-            {current && missingLuts.has(current.id) && (
+            {current && !current.id && (
+              <Text textStyle="xs" color="fg.warning" data-lut-waiting>
+                “{current.name}” isn’t one of your LUTs yet
+                {current.path ? ` (where this photo was edited: ${current.path})` : ''}: add that file to use it. Photos
+                waiting for it pick it up.
+              </Text>
+            )}
+            {current && current.id && missingLuts.has(current.id) && (
               <Text textStyle="xs" color="fg.warning">
                 “{current.name || 'This LUT'}” isn’t available{luts.local ? ' in this browser' : ''}: add its file again
                 to use it.

@@ -11,6 +11,8 @@ export interface ZoomSource {
   autoDefaults: boolean;
   /** With `autoDefaults`: edits from another application, imported on top of the default recipe. */
   importedEdits: string | null;
+  /** With `importedEdits`: the owner's LUTs by name. */
+  userLuts: { id: string; name: string }[];
   /** Ids of the LUTs the recipe may use. */
   luts: string[];
 }

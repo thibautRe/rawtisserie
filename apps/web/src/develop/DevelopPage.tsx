@@ -27,6 +27,7 @@ import { LocalRenderBackend } from './localRenderBackend.ts';
 import { fetchDenoiseModel } from './denoiseModels.ts';
 import { lutTable } from './luts.ts';
 import { defaultRecipeFor, preloadLensfun } from './lensfun.ts';
+import { useUserLutNames } from './luts.ts';
 
 function useLocalBackend() {
   const [backend, setBackend] = useState<LocalRenderBackend | null>(null);
@@ -252,6 +253,8 @@ function useStartingHistory(
   metadata: PhotoMetadata | null,
   needed: boolean,
   edits: string | null,
+  /** The user's LUTs, which the edits may refer to (undefined while loading). */
+  luts: readonly { id: string; name: string }[] | undefined,
 ): HistorySnapshot | null | undefined {
   // By version: the page stays as the film roll goes to the next photo.
   const [start, setStart] = useState<{ id: string; history: HistorySnapshot | null } | null>(null);
@@ -261,16 +264,17 @@ function useStartingHistory(
     if (!needed) return setStart({ id, history: null });
     const auto = autoApplied(metadata);
     if (!edits) return setStart({ id, history: auto });
+    if (!luts) return;
     let cancelled = false;
     const createdAt = auto.entries[0]!.createdAt;
-    void startingHistory(auto.entries[0]!.recipe, AUTO_RECIPE_LABEL, edits, metadata).then((entries) => {
+    void startingHistory(auto.entries[0]!.recipe, AUTO_RECIPE_LABEL, edits, metadata, luts).then((entries) => {
       if (!cancelled)
         setStart({ id, history: { entries: entries.map((e) => ({ ...e, createdAt })), end: entries.length } });
     });
     return () => {
       cancelled = true;
     };
-  }, [id, metadata, needed, edits, known]);
+  }, [id, metadata, needed, edits, luts, known]);
   return known ? start.history : undefined;
 }
 
@@ -343,7 +347,14 @@ function LibraryDeveloper({ id }: { id: string }) {
     };
   }, [backend, originalUrl]);
   const metadata = loaded && loaded.url === originalUrl ? loaded.metadata : null;
-  const startWith = useStartingHistory(photo?.id, metadata, photo?.history.length === 0, photo?.importedEdits ?? null);
+  const userLuts = useUserLutNames();
+  const startWith = useStartingHistory(
+    photo?.id,
+    metadata,
+    photo?.history.length === 0,
+    photo?.importedEdits ?? null,
+    userLuts,
+  );
 
   const err = error ?? (photoError instanceof Error ? photoError.message : null);
   if (err) {

@@ -11,6 +11,7 @@ import {
   type EditParams,
   hasPendingAutoTune,
   importEdits,
+  lutIds,
   resolveAutoTunes,
 } from '@rawtisserie/pipeline';
 import { Developer, initPipeline, lensfun, readMetadata } from '@rawtisserie/pipeline/node';
@@ -41,8 +42,17 @@ parentPort!.on('message', async (job: RenderJob) => {
         defaultRecipe = await resolveAutoTunes(recipeFor(metadata, lensfun()), developerMeasures(dev));
         // Edits from another application: the entry after the default recipe, on top of it.
         if (job.importedEdits) {
-          const edits = await importEdits(job.importedEdits, { base: defaultRecipe, metadata }).catch(() => null);
+          const edits = await importEdits(job.importedEdits, {
+            base: defaultRecipe,
+            metadata,
+            luts: job.userLuts,
+          }).catch(() => null);
           if (edits) imported = { label: edits.label, recipe: edits.recipe };
+          // The user's LUTs it found by name.
+          for (const id of imported ? lutIds(imported.recipe) : []) {
+            const lut = job.luts.includes(id) ? null : await readLut(id);
+            if (lut) dev.loadLut(lut);
+          }
         }
       } else if (hasPendingAutoTune(job.params)) {
         resolvedRecipe = await resolveAutoTunes(job.params!, developerMeasures(dev));

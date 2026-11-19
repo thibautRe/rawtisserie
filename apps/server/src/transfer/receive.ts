@@ -23,6 +23,7 @@ import { HttpError, badRequest, conflict } from '../errors.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
 import { acceptPackedLuts, addLut } from '../luts/routes.ts';
+import { resolveImportedLuts } from '../luts/storage.ts';
 import { collectionAt } from '../photos/collections.ts';
 import { ingestFile } from '../photos/ingest.ts';
 import { PHOTO_FIELDS, Sha256, VERSION_FIELDS, applyHistoryChange, toColumns } from '../photos/routes.ts';
@@ -120,6 +121,9 @@ export async function receiveRoutes(app: FastifyInstance, { renderQueue }: { ren
     for (let n = 1; ; n++) {
       try {
         const lut = await addLut(user.id, n === 1 ? name : `${name} (${n})`, request.body);
+        // Edits imported here from another application may be waiting for it.
+        const lutRef = { id: lut.lut_id, name: lut.name };
+        for (const id of await resolveImportedLuts(db, user.id, lutRef)) renderQueue.enqueue(id);
         return { lutId: lut.lut_id };
       } catch (err) {
         if (!(err instanceof HttpError && err.statusCode === 409) || n >= 20) throw err;

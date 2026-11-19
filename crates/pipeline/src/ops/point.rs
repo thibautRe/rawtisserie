@@ -925,7 +925,7 @@ mod tests {
 
     /// A LUT instance using `lut`, and point ops for `p` with `luts` loaded.
     fn add_lut(p: &mut EditParams, lut: &Clut, interpolation: Interpolation) {
-        p.add(params::Lut { lut: Some(params::LutRef { id: lut.id().into(), name: "test".into() }), interpolation });
+        p.add(params::Lut { lut: Some(params::LutRef { id: lut.id().into(), name: "test".into(), path: None }), interpolation });
     }
 
     fn ops_with_luts(p: &EditParams, luts: &[&Clut], lut_size: Option<usize>, space: ColorSpace) -> PointOps {

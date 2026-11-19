@@ -345,6 +345,8 @@ const samples: unknown[] = [
       { kind: 'lut', params: { lut: { id: 'def' } }, mask: { opacity: 0.5, blend: 'multiply' } },
       { kind: 'lut', params: { lut: null } },
       { kind: 'lut', enabled: false },
+      // Imported, waiting for the user's LUT of that name (roadmap 8.15).
+      { kind: 'lut', params: { lut: { id: '', name: 'Fuji Astia', path: 'HaldCLUT/Fuji Astia.png' } } },
     ],
   },
   // Pending auto-tunes (roadmap 8.7): only on kinds that have one, and only `true`.

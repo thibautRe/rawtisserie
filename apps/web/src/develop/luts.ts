@@ -149,6 +149,25 @@ const userLutChoice = (l: UserLut): LutChoice => ({
 
 const byName = (a: LutChoice, b: LutChoice) => a.name.localeCompare(b.name);
 
+/**
+ * The user's LUTs by name, for edits imported from another application that refer to
+ * them (`ImportContext.luts`): undefined while loading, none without an account.
+ */
+export function useUserLutNames(): readonly { id: string; name: string }[] | undefined {
+  const { data: me, isPending } = useMe();
+  const { data } = useQuery({
+    queryKey: ['luts'],
+    queryFn: async () => (await api.get<{ luts: UserLut[] }>('/api/luts')).luts,
+    enabled: !!me,
+    staleTime: Infinity,
+  });
+  return useMemo(() => {
+    if (isPending) return undefined;
+    if (!me) return [];
+    return data?.map((l) => ({ id: l.lutId, name: l.name }));
+  }, [isPending, me, data]);
+}
+
 export function useLutLibrary(): LutLibrary {
   const { data: me } = useMe();
   const qc = useQueryClient();

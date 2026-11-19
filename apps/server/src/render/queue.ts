@@ -239,6 +239,7 @@ export class RenderQueue {
       params: job.params,
       autoDefaults: job.autoDefaults,
       importedEdits: job.importedEdits,
+      userLuts: job.userLuts,
       extractMetadata: job.needsMetadata,
       luts: job.luts,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({

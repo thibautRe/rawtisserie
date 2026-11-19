@@ -37,10 +37,11 @@ export const isImportLabel = (label: string) =>
  * How a module of the other application came through:
  * - `mapped`: our module does the same, with its settings;
  * - `approximated`: something like it, or with some settings left out (`note` says which);
+ * - `needsFile`: ours, waiting for a file the user hasn't added (a LUT, `file`);
  * - `skipped`: nothing of ours does it, or its settings couldn't be read;
  * - `builtIn`: our pipeline does that step its own way (demosaicing, colour profiles…).
  */
-export type ImportStatus = 'mapped' | 'approximated' | 'skipped' | 'builtIn';
+export type ImportStatus = 'mapped' | 'approximated' | 'needsFile' | 'skipped' | 'builtIn';
 
 export interface ImportReportItem {
   /** The module's name in the other application. */
@@ -49,6 +50,8 @@ export interface ImportReportItem {
   instance: string | null;
   status: ImportStatus;
   note: string | null;
+  /** With `needsFile`: the file to add, and where the other application found it. */
+  file?: { name: string; path: string };
 }
 
 export interface ImportReport {
@@ -66,6 +69,8 @@ export interface ImportContext {
   /** The recipe the photo starts with (`defaultRecipe`): what nothing imported replaces stays. */
   base: EditParams;
   metadata: ImportMetadata;
+  /** The user's LUTs, for those the edits refer to by name (`resolveLutRefs`). */
+  luts?: readonly { id: string; name: string }[];
 }
 
 export interface ImportedEdits {
@@ -102,10 +107,11 @@ export async function startingHistory(
   baseLabel: string,
   importedEdits: string | null | undefined,
   metadata: ImportMetadata,
+  luts: ImportContext['luts'] = [],
 ): Promise<{ label: string; recipe: EditParams }[]> {
   const entries = [{ label: baseLabel, recipe: base }];
   if (!importedEdits) return entries;
-  const imported = await importEdits(importedEdits, { base, metadata }).catch(() => null);
+  const imported = await importEdits(importedEdits, { base, metadata, luts }).catch(() => null);
   if (imported) entries.push({ label: imported.label, recipe: imported.recipe });
   return entries;
 }

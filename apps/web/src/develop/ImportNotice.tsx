@@ -16,32 +16,36 @@ import {
   originalEditParams,
 } from '@rawtisserie/pipeline';
 import { memo, useEffect, useState } from 'react';
+import { useUserLutNames } from './luts.ts';
 
 const STATUS_TEXT: Record<ImportStatus, string> = {
   mapped: 'Came through',
   approximated: 'Approximated',
+  needsFile: 'Waiting for a file: add it to your LUTs (the LUT module’s menu), photos waiting for it pick it up',
   skipped: 'Left out',
   builtIn: 'Done by RAWtisserie its own way',
 };
-const ORDER: readonly ImportStatus[] = ['skipped', 'approximated', 'mapped', 'builtIn'];
+const ORDER: readonly ImportStatus[] = ['needsFile', 'skipped', 'approximated', 'mapped', 'builtIn'];
 
 const name = (i: ImportReportItem) => (i.instance ? `${i.module} (${i.instance})` : i.module);
 
 /** The report of `edits` for this photo, once worked out (null: none, or not readable). */
 function useReport(edits: string | null, metadata: PhotoMetadata): ImportReport | null {
   const [report, setReport] = useState<ImportReport | null>(null);
+  // Which LUTs it's waiting for: the user's, as they are now.
+  const luts = useUserLutNames();
   useEffect(() => {
     let cancelled = false;
     setReport(null);
-    if (!edits) return;
+    if (!edits || !luts) return;
     // The report doesn't depend on the starting recipe: any will do.
-    importEdits(edits, { base: originalEditParams, metadata })
+    importEdits(edits, { base: originalEditParams, metadata, luts })
       .then((r) => !cancelled && setReport(r?.report ?? null))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [edits, metadata]);
+  }, [edits, metadata, luts]);
   return report;
 }
 
@@ -68,6 +72,7 @@ export function ImportReportNotice({ report }: { report: ImportReport }) {
   const summary = [
     `${count('mapped')} modules came through`,
     count('approximated') && `${count('approximated')} approximated`,
+    count('needsFile') && `${count('needsFile')} waiting for a LUT file`,
     count('skipped') && `${count('skipped')} left out`,
   ]
     .filter(Boolean)
@@ -102,6 +107,7 @@ export function ImportReportNotice({ report }: { report: ImportReport }) {
                       <Text key={n} color="fg.muted">
                         {name(i)}
                         {i.note && ` — ${i.note}`}
+                        {i.file && ` (there: ${i.file.path})`}
                       </Text>
                     ))
                   )}

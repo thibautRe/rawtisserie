@@ -929,6 +929,13 @@ const IMPORT_REPORT: ImportReport = {
     },
     { module: 'color calibration', instance: null, status: 'mapped', note: null },
     { module: 'sigmoid', instance: null, status: 'approximated', note: 'Tone curve fitted onto filmic' },
+    {
+      module: 'LUT 3D',
+      instance: null,
+      status: 'needsFile',
+      note: 'Add “Fuji Astia 100 Generic.png” to your LUTs',
+      file: { name: 'Fuji Astia 100 Generic.png', path: 'HaldCLUT/Color/Fuji/Fuji Astia 100 Generic.png' },
+    },
     { module: 'color equalizer', instance: null, status: 'skipped', note: null },
     { module: 'denoise (profiled)', instance: null, status: 'skipped', note: null },
   ],

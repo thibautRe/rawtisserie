@@ -95,6 +95,10 @@ See README.md for the architecture overview and commands.
   modules are C structs read by `darktable/struct.ts` layouts copied from upstream
   (compare with it, as for the Ansel ports); a translator per module (`darktable/modules.ts`)
   decides our kinds it covers, and every enabled module of theirs lands in the report.
+  darktable's duplicates (`NAME_01.ARW.xmp`, `duplicatesOf`) become more versions of the
+  photo (`uploads.duplicates`). Their LUTs are referred to by name and path (`LutRef.path`,
+  `id` empty) until the user has a LUT of that name: `resolveLutRefs`, at import and by
+  the server when a LUT is added or renamed (`resolveImportedLuts`, in place, re-rendered).
 - Collections (roadmap 8.14) are where photos come from, a tree like folders
   (`collections`, `photos.collection_id`: per photo, its versions with it; server
   `photos/collections.ts` ↔ `lib/collections.ts`). Names are unique among siblings and never

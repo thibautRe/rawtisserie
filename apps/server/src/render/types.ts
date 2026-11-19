@@ -9,6 +9,8 @@ export interface RenderJob {
   autoDefaults: boolean;
   /** With `autoDefaults`: edits from another application, imported on top of the default recipe. */
   importedEdits: string | null;
+  /** With `importedEdits`: the owner's LUTs by name (theirs: they may render with them). */
+  userLuts: { id: string; name: string }[];
   extractMetadata: boolean;
   /** Ids of the LUTs the recipe may use (built-in, or the owner's). */
   luts: string[];

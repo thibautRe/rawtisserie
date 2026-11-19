@@ -10,7 +10,15 @@ import {
   startingHistory,
   type ImportMetadata,
 } from './importedEdits.ts';
-import { AUTO_RECIPE_LABEL, defaultEditParams, findModule } from './params.ts';
+import {
+  AUTO_RECIPE_LABEL,
+  defaultEditParams,
+  findModule,
+  lutIds,
+  normalizeEditParams,
+  resolveLutRefs,
+  unresolvedLutNames,
+} from './params.ts';
 
 const EXPOSURE_V7 = new Layout([
   ['mode', 'i32'],
@@ -77,6 +85,16 @@ function sidecar(entries: FixtureEntry[], { app = 'darktable', historyEnd = entr
 
 const exposure = (values: Record<string, unknown>, compress = false) =>
   encodeBlob(writeStruct(EXPOSURE_V7, { deflicker_percentile: 50, deflicker_target_level: -4, ...values }), compress);
+
+const LUT3D_V3 = new Layout([
+  ['filepath', { char: 512 }],
+  ['colorspace', 'i32'],
+  ['interpolation', 'i32'],
+  ['nb_keypoints', 'i32'],
+  ['c_clut', { array: 'u8', n: 2048 * 2 * 3 }],
+  ['lutname', { char: 128 }],
+]);
+const lut3d = (values: Record<string, unknown>) => encodeBlob(writeStruct(LUT3D_V3, values), true);
 
 const metadata: ImportMetadata = { make: 'SONY', model: 'ILCE-7M3', exposureBias: -0.7 };
 
@@ -203,4 +221,57 @@ test('the starting history: the import after the starting recipe, if there is on
   );
   assert.equal((await startingHistory(defaultEditParams, AUTO_RECIPE_LABEL, null, metadata)).length, 1);
   assert.equal((await startingHistory(defaultEditParams, AUTO_RECIPE_LABEL, '<x/>', metadata)).length, 1);
+});
+
+test('a LUT is referred to by name until the user has one of that name', async () => {
+  assert.equal(LUT3D_V3.size, 12940);
+  const astia = 'HaldCLUT/Color/Fuji/Fuji Astia 100 Generic.png';
+  const text = sidecar([
+    { operation: 'lut3d', modversion: 3, params: await lut3d({ filepath: astia, interpolation: 1 }) },
+    {
+      operation: 'lut3d',
+      modversion: 3,
+      params: await lut3d({ filepath: 'Kodak/Portra.cube', colorspace: 4 }),
+      multiPriority: 1,
+      multiName: 'portra',
+    },
+  ]);
+  const { recipe, report } = (await importEdits(text, { base: defaultEditParams, metadata }))!;
+  const refs = recipe.modules.filter((m) => m.kind === 'lut').map((m) => (m.params as { lut: unknown }).lut);
+  assert.deepEqual(refs, [
+    { id: '', name: 'Fuji Astia 100 Generic', path: astia },
+    { id: '', name: 'Portra', path: 'Kodak/Portra.cube' },
+  ]);
+  assert.deepEqual(
+    report.items.map((i) => [i.status, i.file?.name]),
+    [
+      ['needsFile', 'Fuji Astia 100 Generic.png'],
+      ['needsFile', 'Portra.cube'],
+    ],
+  );
+  // Kept through normalisation (as stored), without counting as a LUT to load.
+  const stored = normalizeEditParams(JSON.parse(JSON.stringify(recipe)));
+  assert.deepEqual(lutIds(stored), []);
+  assert.deepEqual(unresolvedLutNames(stored), ['Fuji Astia 100 Generic', 'Portra']);
+  const resolved = resolveLutRefs(stored, [{ id: 'f'.repeat(64), name: 'fuji astia 100 generic ' }]);
+  assert.deepEqual(lutIds(resolved), ['f'.repeat(64)]);
+  assert.deepEqual(unresolvedLutNames(resolved), ['Portra']);
+  assert.equal(resolveLutRefs(resolved, []), resolved);
+
+  // The user has it already: used at once, with darktable's interpolation.
+  const withLuts = (await importEdits(text, {
+    base: defaultEditParams,
+    metadata,
+    luts: [{ id: 'a'.repeat(64), name: 'Fuji Astia 100 Generic' }],
+  }))!;
+  const astiaInstance = withLuts.recipe.modules.find((m) => m.kind === 'lut')!;
+  assert.deepEqual(astiaInstance.params, {
+    lut: { id: 'a'.repeat(64), name: 'Fuji Astia 100 Generic', path: astia },
+    interpolation: 'trilinear',
+  });
+  assert.deepEqual(
+    withLuts.report.items.map((i) => i.status),
+    ['mapped', 'needsFile'],
+  );
+  assert.match(withLuts.report.items[1]!.note!, /Applied on sRGB, not linear Rec2020/);
 });

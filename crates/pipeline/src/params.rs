@@ -1625,9 +1625,15 @@ pub struct Lut {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct LutRef {
+    /// Empty for a LUT imported from another application that the user doesn't have yet
+    /// (`path`): it's filled in when they add one of that name.
     pub id: String,
     /// Its name when it was chosen, to tell the user which LUT is missing.
     pub name: String,
+    /// Where the application it was imported from found it (darktable's path in its LUT
+    /// folder); absent for LUTs chosen here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl EditParams {
@@ -2043,7 +2049,7 @@ mod tests {
         assert_eq!(kinds(&p), [ModuleKind::Filmic, ModuleKind::Lut, ModuleKind::Lut, ModuleKind::Lut, ModuleKind::Lut, ModuleKind::Lut]);
         let lut = p.get::<Lut>().unwrap();
         assert_eq!((lut.lut.as_ref().unwrap().name.as_str(), lut.interpolation), ("Vivid", crate::ops::clut::Interpolation::Pyramid));
-        assert_eq!(p.all::<Lut>().nth(1).unwrap().lut, Some(LutRef { id: "a".into(), name: String::new() }));
+        assert_eq!(p.all::<Lut>().nth(1).unwrap().lut, Some(LutRef { id: "a".into(), name: String::new(), path: None }));
         assert_eq!(p.all::<Lut>().nth(2).unwrap().lut, None);
         assert_eq!(p.lut_ids(), ["b", "a"]);
         // Maskable, with a blend mode; filmic isn't.
