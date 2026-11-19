@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { decodeBlob, encodeBlob, parseDarktableXmp, activeEntries } from './darktable/xmp.ts';
 import { Layout, writeStruct } from './darktable/struct.ts';
+import { FilmicCurve, fitFilmic } from './darktable/tone.ts';
 import {
   detectImportedEdits,
   importEdits,
@@ -13,6 +14,7 @@ import {
 import {
   AUTO_RECIPE_LABEL,
   defaultEditParams,
+  defaultModuleParams,
   findModule,
   lutIds,
   normalizeEditParams,
@@ -96,6 +98,12 @@ const LUT3D_V3 = new Layout([
 ]);
 const lut3d = (values: Record<string, unknown>) => encodeBlob(writeStruct(LUT3D_V3, values), true);
 
+/** A starting recipe with a module no darktable one maps to. */
+const withGlow = normalizeEditParams({
+  ...defaultEditParams,
+  modules: [...defaultEditParams.modules, { kind: 'glow', id: 'glow', enabled: true, label: null, params: {} }],
+});
+
 const metadata: ImportMetadata = { make: 'SONY', model: 'ILCE-7M3', exposureBias: -0.7 };
 
 test('decodes parameters as hex and as compressed base64', async () => {
@@ -175,15 +183,15 @@ test('imports exposure, keeps what nothing imported decides, and reports every m
     },
     { operation: 'lens', modversion: 99 },
   ]);
-  const imported = (await importEdits(text, { base: defaultEditParams, metadata }))!;
+  const imported = (await importEdits(text, { base: withGlow, metadata }))!;
   assert.equal(imported.label, 'Imported from darktable');
   const exposures = imported.recipe.modules.filter((m) => m.kind === 'exposure');
   assert.equal(exposures.length, 2);
   assert.ok(Math.abs((exposures[0]!.params as { ev: number }).ev - 1.7) < 1e-6);
   assert.equal(exposures[1]!.enabled, false);
   assert.equal(exposures[1]!.label, 'shadows');
-  // Not translated yet: the starting recipe's stays.
-  assert.ok(findModule(imported.recipe, 'filmic'));
+  // Nothing of theirs decides it: the starting recipe's stays.
+  assert.ok(findModule(imported.recipe, 'glow'));
   assert.deepEqual(
     imported.report.items.map((i) => [i.module, i.status]),
     [
@@ -207,9 +215,11 @@ test("darktable's black level correction becomes ours", async () => {
 
 test('a module darktable never applied is left out', async () => {
   const text = sidecar([{ operation: 'rawprepare' }]);
-  const { recipe } = (await importEdits(text, { base: defaultEditParams, metadata }))!;
+  const { recipe } = (await importEdits(text, { base: withGlow, metadata }))!;
   assert.equal(findModule(recipe, 'exposure'), undefined);
-  assert.ok(findModule(recipe, 'colorCalibration'));
+  assert.equal(findModule(recipe, 'colorCalibration'), undefined);
+  // Nothing of theirs decides it: the starting recipe's stays.
+  assert.ok(findModule(recipe, 'glow'));
 });
 
 test('the starting history: the import after the starting recipe, if there is one', async () => {
@@ -274,4 +284,48 @@ test('a LUT is referred to by name until the user has one of that name', async (
     ['mapped', 'needsFile'],
   );
   assert.match(withLuts.report.items[1]!.note!, /Applied on sRGB, not linear Rec2020/);
+});
+
+test("our filmic's curve in TS gives Rust's values (filmic.rs's ts_parity)", () => {
+  const cases: [Partial<typeof defaultModuleParams.filmic>, number[], number[]][] = [
+    [{}, [0, 0.08, 0.1845, 1, 6], [0.00015176, 0.0650907, 0.1845, 0.8075885, 1]],
+    [
+      {
+        whiteExposure: 5,
+        blackExposure: -7,
+        contrast: 1.6,
+        toe: 30,
+        shoulder: 5,
+        autoHardness: false,
+        hardness: 3,
+        blackTarget: 0.5,
+        whiteTarget: 90,
+      },
+      [0.001, 0.05, 0.1845, 2, 12],
+      [0.005, 0.0203031, 0.1845, 0.851754, 0.9],
+    ],
+  ];
+  for (const [p, xs, want] of cases) {
+    const curve = new FilmicCurve({ ...defaultModuleParams.filmic, ...p });
+    xs.forEach((x, i) =>
+      assert.ok(Math.abs(curve.toneMap(x) - want[i]!) < 1e-5, `${x}: ${curve.toneMap(x)} vs ${want[i]}`),
+    );
+  }
+});
+
+test('a curve that is our filmic is fitted back onto it', () => {
+  const p = {
+    ...defaultModuleParams.filmic,
+    whiteExposure: 4.5,
+    blackExposure: -9,
+    contrast: 1.4,
+    toe: 25,
+    shoulder: 15,
+    autoHardness: false,
+    hardness: 2.5,
+  };
+  const curve = new FilmicCurve(p);
+  const fit = fitFilmic((v) => curve.toneMap(v), defaultModuleParams.filmic);
+  assert.ok(fit.error < 0.005, `error ${fit.error}`);
+  assert.ok(Math.abs(fit.offset) < 0.05, `offset ${fit.offset}`);
 });

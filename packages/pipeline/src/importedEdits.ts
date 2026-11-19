@@ -62,7 +62,22 @@ export interface ImportReport {
 
 /** What translators may read of the photo. */
 export type ImportMetadata = Partial<
-  Pick<PhotoMetadata, 'make' | 'model' | 'lensModel' | 'focalLength' | 'fNumber' | 'exposureBias' | 'imageFormat'>
+  Pick<
+    PhotoMetadata,
+    | 'make'
+    | 'model'
+    | 'lensModel'
+    | 'focalLength'
+    | 'fNumber'
+    | 'exposureBias'
+    | 'imageFormat'
+    | 'asShotIlluminant'
+    | 'cameraWhite'
+    | 'width'
+    | 'height'
+    | 'orientation'
+    | 'lensCorrection'
+  >
 >;
 
 export interface ImportContext {

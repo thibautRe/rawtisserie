@@ -505,6 +505,18 @@ fn as_shot_wb(raw: &RawImage) -> [f32; 3] {
     [c[0] / g, 1.0, c[2] / g]
 }
 
+/// The as-shot and D65 reference white balance multipliers, and CIE XYZ from camera RGB
+/// balanced with the reference, if the file has colour (`metadata::CameraWhite`).
+pub(crate) fn camera_white(raw: &RawImage) -> Option<([f32; 3], [f32; 3], color::Mat3)> {
+    if raw.cpp == 1 && matches!(raw.photometric, RawPhotometricInterpretation::BlackIsZero) {
+        return None;
+    }
+    let xyz_to_cam = camera_matrix(raw);
+    let reference = color::reference_wb(&xyz_to_cam)?;
+    let m = color::mul(&color::xyz_from_rec2020(), &color::working_from_camera(&xyz_to_cam));
+    Some((as_shot_wb(raw), reference, m))
+}
+
 /// The xy chromaticity of the light the camera balanced for, if the file has colour.
 pub(crate) fn as_shot_illuminant(raw: &RawImage) -> Option<[f32; 2]> {
     if raw.cpp == 1 && matches!(raw.photometric, RawPhotometricInterpretation::BlackIsZero) {

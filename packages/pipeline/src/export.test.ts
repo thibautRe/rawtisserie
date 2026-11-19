@@ -39,6 +39,15 @@ const photo: PhotoMetadata = {
   gpsAltitude: 35,
   lensCorrection: 'sony',
   asShotIlluminant: [0.3127, 0.329],
+  cameraWhite: {
+    asShot: [2.4, 1, 1.5],
+    reference: [2.7, 1, 1.4],
+    xyzFromCamera: [
+      [0.6, 0.3, 0],
+      [0.3, 1, -0.2],
+      [0, -0.2, 1.3],
+    ],
+  },
   imageFormat: null,
 };
 

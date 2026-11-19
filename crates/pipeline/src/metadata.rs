@@ -48,9 +48,24 @@ pub struct PhotoMetadata {
     /// CIE 1931 xy chromaticity of the light the camera's white balance was set for
     /// (colour calibration's "as shot" illuminant), if the file has colour.
     pub as_shot_illuminant: Option<[f64; 2]>,
+    /// The camera's white balance multipliers and colour matrix, if the file has colour:
+    /// what edits imported from another application need to read its white balance.
+    pub camera_white: Option<CameraWhite>,
     /// For an image that isn't a RAW file (developed already: `"jpeg"`, `"png"`,
     /// `"tiff"`, `"webp"`), its format. See [`crate::bitmap`].
     pub image_format: Option<String>,
+}
+
+/// A camera's white balance multipliers (normalised to green = 1) and its colour matrix.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraWhite {
+    /// As shot.
+    pub as_shot: [f64; 3],
+    /// For D65 light: what the base image is balanced with.
+    pub reference: [f64; 3],
+    /// CIE XYZ from camera RGB balanced with `reference` (a D65 white maps to D65), row-major.
+    pub xyz_from_camera: [[f64; 3]; 3],
 }
 
 /// Read metadata without decoding (decompressing) the sensor data.
@@ -95,6 +110,11 @@ pub(crate) fn extract(source: &RawSource, raw: &RawImage) -> PhotoMetadata {
     }
     let round = |v: f32| (v as f64 * 1e6).round() / 1e6;
     meta.as_shot_illuminant = crate::decode::as_shot_illuminant(raw).map(|xy| xy.map(round));
+    meta.camera_white = crate::decode::camera_white(raw).map(|(as_shot, reference, m)| CameraWhite {
+        as_shot: as_shot.map(round),
+        reference: reference.map(round),
+        xyz_from_camera: m.map(|row| row.map(round)),
+    });
     meta
 }
 

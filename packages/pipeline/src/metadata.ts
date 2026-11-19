@@ -32,11 +32,24 @@ export interface PhotoMetadata {
   /** CIE 1931 xy chromaticity of the light the camera's white balance was set for (colour calibration's "as shot"). */
   asShotIlluminant?: [number, number] | null;
   /**
+   * The camera's white balance multipliers (green = 1), as shot and for D65 light (what
+   * the base image is balanced with), and CIE XYZ from camera RGB balanced with the
+   * latter (row-major): what edits imported from another application need to read its
+   * white balance. Mirrors `metadata::CameraWhite`.
+   */
+  cameraWhite?: CameraWhite | null;
+  /**
    * For an image that isn't a RAW file (developed already: `"jpeg"`, `"png"`, `"tiff"`,
    * `"webp"`), its format. Such a photo starts with an empty recipe and has no filmic or
    * lens correction (`RAW_ONLY_KINDS`).
    */
   imageFormat?: string | null;
+}
+
+export interface CameraWhite {
+  asShot: [number, number, number];
+  reference: [number, number, number];
+  xyzFromCamera: [[number, number, number], [number, number, number], [number, number, number]];
 }
 
 /** `0.004` → `"1/250"`, `2.5` → `"2.5″"`. */

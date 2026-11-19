@@ -4,10 +4,13 @@
  * modules (`Translator`). Struct layouts are copied from upstream, darktable 5.6.2
  * (commit 20891f6) and Ansel's master (commit fa3c276), `src/iop/<operation>.c`.
  */
-import { type ModuleInstance, type ModuleKind, type ModuleParams, resolveLutRefs } from '../params.ts';
-import type { ImportMetadata, ImportStatus } from '../importedEdits.ts';
-import type { DarktableApp, DarktableEntry } from './xmp.ts';
+import { type ModuleInstance, resolveLutRefs } from '../params.ts';
 import { Layout } from './struct.ts';
+import { calibration } from './calibration.ts';
+import { TONE_TRANSLATORS } from './tone.ts';
+import { type Translator, instance, unreadable } from './translate.ts';
+
+export type { TranslateContext, Translation, Translator } from './translate.ts';
 
 /** The names darktable shows for its modules (operation ids otherwise). */
 export const DARKTABLE_MODULE_NAMES: Readonly<Record<string, string>> = {
@@ -113,42 +116,6 @@ export const BUILT_IN_OPERATIONS: ReadonlySet<string> = new Set([
   'scalepixels',
 ]);
 
-/** What a translator is given for the photo. */
-export interface TranslateContext {
-  app: DarktableApp;
-  metadata: ImportMetadata;
-  /** The user's LUTs (`resolveLutRefs`). */
-  luts: readonly { id: string; name: string }[];
-}
-
-/** One entry's import: its instance (null: nothing of ours), and how well it went. */
-export interface Translation {
-  instance: ModuleInstance | null;
-  status: Exclude<ImportStatus, 'builtIn'>;
-  note?: string;
-  file?: { name: string; path: string };
-}
-
-/**
- * Turns a darktable module (or several, of one job) into ours. It decides `kinds`: what
- * the photo's starting recipe has of those is replaced by what it gives, nothing when
- * the history doesn't have its modules (darktable didn't apply them).
- */
-export interface Translator {
-  operations: readonly string[];
-  kinds: readonly ModuleKind[];
-  translate(entry: DarktableEntry, params: Uint8Array, ctx: TranslateContext): Translation;
-}
-
-const instance = <K extends ModuleKind>(kind: K, params: ModuleParams[K]): ModuleInstance<K> =>
-  ({ id: '', label: null, enabled: true, kind, params }) as ModuleInstance<K>;
-
-const unreadable = (entry: DarktableEntry): Translation => ({
-  instance: null,
-  status: 'skipped',
-  note: `Version ${entry.modversion} of its settings isn't supported`,
-});
-
 // ── Exposure ───────────────────────────────────────────────────────────────────
 
 const EXPOSURE_V6 = new Layout([
@@ -249,4 +216,4 @@ const lut3d: Translator = {
 };
 
 /** Every translator, in no particular order: each takes its own operations. */
-export const TRANSLATORS: readonly Translator[] = [exposure, lut3d];
+export const TRANSLATORS: readonly Translator[] = [exposure, lut3d, calibration, ...TONE_TRANSLATORS];

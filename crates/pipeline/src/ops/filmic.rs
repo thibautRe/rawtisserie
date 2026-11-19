@@ -666,3 +666,39 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+mod ts_parity {
+    use super::*;
+
+    /// The values `importedEdits.test.ts` expects of `FilmicCurve` (TS's port of the spline).
+    #[test]
+    fn spline_values_shared_with_ts() {
+        let cases = [
+            (FilmicParams::default(), [0.0, 0.08, 0.1845, 1.0, 6.0]),
+            (
+                FilmicParams {
+                    white_exposure: 5.0,
+                    black_exposure: -7.0,
+                    contrast: 1.6,
+                    toe: 30.0,
+                    shoulder: 5.0,
+                    auto_hardness: false,
+                    hardness: 3.0,
+                    black_target: 0.5,
+                    white_target: 90.0,
+                    ..FilmicParams::default()
+                },
+                [0.001, 0.05, 0.1845, 2.0, 12.0],
+            ),
+        ];
+        let expected = [[0.000_151_76, 0.065_090_7, 0.1845, 0.807_588_5, 1.0], [0.005, 0.020_303_1, 0.1845, 0.851_754, 0.9]];
+        for ((p, xs), want) in cases.iter().zip(expected) {
+            let s = Spline::new(p);
+            for (x, w) in xs.iter().zip(want) {
+                let got = s.tone_map(*x);
+                assert!((got - w).abs() < 1e-5, "{x}: {got} vs {w}");
+            }
+        }
+    }
+}
