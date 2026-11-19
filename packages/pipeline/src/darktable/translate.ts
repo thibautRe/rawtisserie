@@ -2,7 +2,7 @@
  * What a translator is (`modules.ts` lists them): it turns a darktable module's
  * parameters into our module instances, with how well that went.
  */
-import type { ModuleInstance, ModuleKind, ModuleParams } from '../params.ts';
+import type { EditParams, ModuleInstance, ModuleKind, ModuleParams } from '../params.ts';
 import type { ImportMetadata, ImportStatus } from '../importedEdits.ts';
 import type { DarktableApp, DarktableEntry } from './xmp.ts';
 
@@ -12,6 +12,8 @@ export interface TranslateContext {
   metadata: ImportMetadata;
   /** The user's LUTs (`resolveLutRefs`). */
   luts: readonly { id: string; name: string }[];
+  /** The recipe the photo starts with: what our own defaults chose for it (its lens correction). */
+  base: EditParams;
   /** The history as it applies (`activeEntries`), and each entry's parameters (null if damaged). */
   active: readonly DarktableEntry[];
   paramsOf: (entry: DarktableEntry) => Uint8Array | null;

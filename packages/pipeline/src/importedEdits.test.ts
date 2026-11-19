@@ -329,3 +329,215 @@ test('a curve that is our filmic is fitted back onto it', () => {
   assert.ok(fit.error < 0.005, `error ${fit.error}`);
   assert.ok(Math.abs(fit.offset) < 0.05, `offset ${fit.offset}`);
 });
+
+// ── Phase 1 translators, on synthetic histories ─────────────────────────────
+
+const f32s = (...v: number[]) => v.map((x) => ['f32', x] as const);
+/** Parameters as a C struct from (type, value) pairs, in order. */
+function packed(fields: readonly (readonly [string, unknown])[]) {
+  const layout = new Layout(fields.map(([t], i) => [`f${i}`, t as never] as const));
+  return encodeBlob(writeStruct(layout, Object.fromEntries(fields.map(([, v], i) => [`f${i}`, v]))));
+}
+const calibrationV3 = (illuminant: number, temperature: number, adaptation = 1) =>
+  packed([
+    ['f32', 1],
+    ['f32', 0],
+    ['f32', 0],
+    ['f32', 0],
+    ['f32', 0],
+    ['f32', 1],
+    ['f32', 0],
+    ['f32', 0],
+    ['f32', 0],
+    ['f32', 0],
+    ['f32', 1],
+    ['f32', 0],
+    ...Array.from({ length: 12 }, () => ['f32', 0] as const),
+    ...Array.from({ length: 6 }, () => ['gboolean', 1] as const),
+    ['i32', illuminant],
+    ['i32', 2],
+    ['i32', 4],
+    ['i32', adaptation],
+    ...f32s(0.33, 0.33, temperature, 1),
+    ['gboolean', 1],
+    ['i32', 3],
+  ]);
+
+test("colour calibration: their D50 is our D65, 'pipeline' and 'as shot' keep their meaning", async () => {
+  const run = async (illuminant: number, temperature: number) => {
+    const text = sidecar([
+      { operation: 'channelmixerrgb', modversion: 3, params: await calibrationV3(illuminant, temperature) },
+    ]);
+    return findModule((await importEdits(text, { base: defaultEditParams, metadata }))!.recipe, 'colorCalibration')!
+      .params;
+  };
+  const d50 = await run(2, 5003);
+  assert.equal(d50.illuminant, 'daylight');
+  assert.ok(Math.abs(d50.temperature - 6504) < 60, `${d50.temperature}`);
+  assert.equal((await run(0, 5003)).illuminant, 'pipeline');
+  assert.equal((await run(10, 5003)).illuminant, 'asShot');
+});
+
+test('a white balance other than the camera reference is folded into colour calibration', async () => {
+  const cameraWhite = {
+    asShot: [2.4, 1, 1.5] as [number, number, number],
+    reference: [2.74, 1, 1.37] as [number, number, number],
+    xyzFromCamera: [
+      [0.665, 0.253, 0.033],
+      [0.261, 0.966, -0.227],
+      [0.034, -0.209, 1.264],
+    ] as never,
+  };
+  const temperature = (r: number, b: number, preset: number) => packed([...f32s(r, 1, b, 1), ['i32', preset]]);
+  const text = async (r: number, b: number, preset: number) =>
+    sidecar([
+      { operation: 'temperature', modversion: 4, params: await temperature(r, b, preset) },
+      { operation: 'channelmixerrgb', modversion: 3, params: await calibrationV3(0, 5003) },
+    ]);
+  const imported = async (r: number, b: number, preset: number) =>
+    (await importEdits(await text(r, b, preset), { base: defaultEditParams, metadata: { ...metadata, cameraWhite } }))!;
+  // The reference, or darktable 5's late correction: nothing to fold.
+  for (const [r, b, preset] of [
+    [2.74, 1.37, 3],
+    [2.4, 1.5, 4],
+  ] as const) {
+    const p = findModule((await imported(r, b, preset)).recipe, 'colorCalibration')!.params;
+    assert.equal(p.illuminant, 'pipeline');
+  }
+  // Warmer than the reference (less blue gain): the light it took as white is warmer than D65.
+  const folded = await imported(2.4, 1.1, -1);
+  const p = findModule(folded.recipe, 'colorCalibration')!.params;
+  assert.notEqual(p.illuminant, 'pipeline');
+  assert.equal(p.adaptation, 'cat16');
+  assert.ok(folded.report.items.some((i) => i.module === 'white balance' && i.status === 'approximated'));
+});
+
+test("sigmoid's default curve fits our filmic closely, middle grey kept", async () => {
+  const sigmoid = await packed([
+    ...f32s(1.5, 0, 100, 0.0152),
+    ['i32', 0],
+    ...f32s(100, 0, 0, 0, 0, 0, 0, 0),
+    ['i32', 0],
+  ]);
+  const { recipe, report } = (await importEdits(sidecar([{ operation: 'sigmoid', modversion: 3, params: sigmoid }]), {
+    base: defaultEditParams,
+    metadata,
+  }))!;
+  const filmic = findModule(recipe, 'filmic')!;
+  assert.ok(!filmic.autoTune);
+  const within = Number(/within ([\d.]+) %/.exec(report.items[0]!.note!)![1]);
+  assert.ok(within < 1.5, `${within} %`);
+  // Sigmoid keeps middle grey: no brightness exposure added.
+  assert.equal(recipe.modules.filter((m) => m.kind === 'exposure').length, 0);
+});
+
+test('geometry: orientation as ours on top of the camera, and a crop', async () => {
+  const flip = (o: number) => packed([['i32', o]]);
+  const crop = packed([...f32s(0.1, 0.2, 0.9, 0.7), ['i32', -1], ['i32', -1]]);
+  const geometryOf = async (entries: FixtureEntry[], orientation: number) =>
+    findModule(
+      (await importEdits(sidecar(entries), {
+        base: defaultEditParams,
+        metadata: { ...metadata, width: 6000, height: 4000, orientation },
+      }))!.recipe,
+      'geometry',
+    )!.params;
+  // "Autodetect": the camera's own, nothing on top.
+  let g = await geometryOf([{ operation: 'flip', modversion: 2, params: await flip(-1) }], 6);
+  assert.deepEqual([g.rotation, g.flipHorizontal, g.autoCrop], [0, false, 'aspect']);
+  // Rotated a quarter turn clockwise in darktable (ORIENTATION_ROTATE_CW_90_DEG).
+  g = await geometryOf([{ operation: 'flip', modversion: 2, params: await flip(5) }], 1);
+  assert.deepEqual([g.rotation, g.flipHorizontal], [1, false]);
+  // A crop: the same rectangle, with nothing else.
+  g = await geometryOf(
+    [
+      { operation: 'flip', modversion: 2, params: await flip(-1) },
+      { operation: 'crop', modversion: 3, params: await crop },
+    ],
+    1,
+  );
+  const c = g.crop;
+  assert.ok(Math.abs(g.angle) < 0.01 && Math.abs(g.vertical) < 0.01, JSON.stringify(g));
+  assert.ok(
+    Math.abs(c.x - 0.1) < 1e-3 &&
+      Math.abs(c.y - 0.2) < 1e-3 &&
+      Math.abs(c.width - 0.8) < 1e-3 &&
+      Math.abs(c.height - 0.5) < 1e-3,
+    JSON.stringify(c),
+  );
+});
+
+test('colour balance: global and range settings add up; contrast becomes a tone curve', async () => {
+  const values: number[] = Array(32).fill(0);
+  Object.assign(values, { 12: 1, 14: 1, 28: 0.1845, 30: 0.1845 });
+  values[17] = 0.2; // chroma global
+  values[15] = 0.1; // chroma shadows
+  values[19] = 0.3; // saturation global
+  values[23] = 0.4; // hue angle
+  values[31] = 0.25; // contrast
+  const params = await packed([...values.map((v) => ['f32', v] as const), ['i32', 1]]);
+  const { recipe } = (await importEdits(sidecar([{ operation: 'colorbalancergb', modversion: 5, params }]), {
+    base: defaultEditParams,
+    metadata,
+  }))!;
+  const cb = findModule(recipe, 'colorBalance')!.params;
+  assert.deepEqual(
+    cb.chroma.map((v) => Math.round(v * 100) / 100),
+    [0.3, 0.2, 0.2],
+  );
+  assert.deepEqual(
+    cb.saturation.map((v) => Math.round(v * 100) / 100),
+    [0.3, 0.3, 0.3],
+  );
+  const curve = findModule(recipe, 'toneCurve')!;
+  assert.equal(curve.label, 'Colour balance contrast');
+  // EV offsets growing with exposure, through 0 at middle grey (the fulcrum).
+  assert.ok(curve.params.rgb[0]! < 0 && curve.params.rgb.at(-1)! > 0);
+});
+
+test("lens correction: the photo's own choice, with their corrections as strengths", async () => {
+  const withLens = normalizeEditParams({
+    ...defaultEditParams,
+    modules: [{ kind: 'lens', id: 'lens', enabled: true, label: null, params: {} }, ...defaultEditParams.modules],
+  });
+  // Built field by field (the strings): distortion and vignetting, no TCA.
+  const layout = new Layout([
+    ['method', 'i32'],
+    ['modify_flags', 'i32'],
+    ['inverse', 'i32'],
+    ['scale', 'f32'],
+    ['crop', 'f32'],
+    ['focal', 'f32'],
+    ['aperture', 'f32'],
+    ['distance', 'f32'],
+    ['target_geom', 'i32'],
+    ['camera', { char: 128 }],
+    ['lens', { char: 128 }],
+    ['tca_override', 'gboolean'],
+    ['tca_r', 'f32'],
+    ['tca_b', 'f32'],
+    ['cor_dist_ft', 'f32'],
+    ['cor_vig_ft', 'f32'],
+    ['cor_ca_r_ft', 'f32'],
+    ['cor_ca_b_ft', 'f32'],
+    ['scale_md_v1', 'f32'],
+    ['md_version', 'i32'],
+    ['scale_md', 'f32'],
+    ['has_been_set', 'gboolean'],
+    ['v_strength', 'f32'],
+    ['v_radius', 'f32'],
+    ['v_steepness', 'f32'],
+    ['reserved', { array: 'f32', n: 2 }],
+  ]);
+  const params = await encodeBlob(
+    writeStruct(layout, { method: 1, modify_flags: 6, scale: 1, target_geom: 1, scale_md: 1 }),
+  );
+  const lens = findModule(
+    (await importEdits(sidecar([{ operation: 'lens', modversion: 10, params }]), { base: withLens, metadata }))!.recipe,
+    'lens',
+  )!;
+  assert.deepEqual([lens.params.distortion, lens.params.vignetting, lens.params.tca], [1, 1, 0]);
+  // None in their history: none here either.
+  const none = (await importEdits(sidecar([{ operation: 'rawprepare' }]), { base: withLens, metadata }))!;
+  assert.equal(findModule(none.recipe, 'lens'), undefined);
+});

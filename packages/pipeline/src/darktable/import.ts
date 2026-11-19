@@ -67,7 +67,7 @@ export async function importDarktable(
   // colour calibration).
   const bytes = new Map<DarktableEntry, Uint8Array | null>();
   for (const e of active) bytes.set(e, await decodeBlob(e.params));
-  const ctx: TranslateContext = { app: xmp.app, metadata, luts, active, paramsOf: (e) => bytes.get(e) ?? null };
+  const ctx: TranslateContext = { app: xmp.app, metadata, luts, base, active, paramsOf: (e) => bytes.get(e) ?? null };
   const translatorOf = new Map<string, Translator>();
   for (const t of TRANSLATORS) for (const op of t.operations) translatorOf.set(op, t);
   const decided = new Set<ModuleKind>();
@@ -99,11 +99,13 @@ export async function importDarktable(
     const blend = result.instance ? blending(result.instance, await decodeBlob(entry.blendopParams ?? '')) : null;
     const notes = [result.note, blend?.note].filter(Boolean).join('. ');
     item(blend?.note && result.status === 'mapped' ? 'approximated' : result.status, notes || undefined, result.file);
-    imported.push(...(result.extra ?? []));
+    // What comes with an instance is on when it is (a masked one comes switched off).
+    const on = entry.enabled && !blend?.off;
+    imported.push(...(result.extra ?? []).map((x) => ({ ...x, enabled: x.enabled && on }) as ModuleInstance));
     if (!result.instance) continue;
     imported.push({
       ...result.instance,
-      enabled: entry.enabled && !blend?.off,
+      enabled: on,
       label: entry.multiName || result.instance.label,
       ...(blend?.mask && { mask: blend.mask }),
     } as ModuleInstance);

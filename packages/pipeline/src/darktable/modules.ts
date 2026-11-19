@@ -9,6 +9,9 @@ import { Layout } from './struct.ts';
 import { calibration } from './calibration.ts';
 import { TONE_TRANSLATORS } from './tone.ts';
 import { GEOMETRY_TRANSLATORS } from './geometry.ts';
+import { colorBalance } from './colorbalance.ts';
+import { lens } from './lens.ts';
+import { colorPrimaries, splitToning } from './ansel.ts';
 import { type Translator, instance, unreadable } from './translate.ts';
 
 export type { TranslateContext, Translation, Translator } from './translate.ts';
@@ -223,4 +226,8 @@ export const TRANSLATORS: readonly Translator[] = [
   calibration,
   ...TONE_TRANSLATORS,
   ...GEOMETRY_TRANSLATORS,
+  colorBalance,
+  lens,
+  colorPrimaries,
+  splitToning,
 ];
