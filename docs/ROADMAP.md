@@ -2122,29 +2122,39 @@ folders; collections are a filter in the sidebar, combined with the others.
 
 ### 8.15 Import darktable and Ansel edits (L)
 
-> **In progress: plumbing done** 2026-11-19 (`packages/pipeline/src/importedEdits.ts`,
-> `darktable/`; migration 00028; web `fileTags.ts`, `ImportReview.tsx`,
-> `develop/ImportNotice.tsx`). The import review reads the edits in a photo's sidecar
-> (`NAME.ARW.xmp`, xmp_version 2+), a checkbox imports them; the sidecar's text is kept
-> with the version (`versions.imported_edits`, travels with transfers) and the render
-> worker (or the developer, opened first) makes the history entry "Imported from
-> darktable/Ansel" after the starting one (`startingHistory`). The developer warns while
-> that entry is current, with a report of each module (came through, approximated, left
-> out, done our own way). Their parameters are C structs (`darktable/struct.ts`, layouts
-> from darktable 5.6.2 and Ansel's master); which application wrote a history is told by
-> the modules and versions only one has. darktable's duplicates (`NAME_01.ARW.xmp`…)
-> become versions of the photo, with their own tags, name and edits. LUT 3D: referred to
-> by name and darktable's path until the user adds a LUT of that name (the server then
-> fills in every reference waiting for it and renders those photos again); the report
-> and the LUT module say which file to add. Translated so far: exposure, LUT 3D.
+> **Phase 1 done** 2026-11-19 (`packages/pipeline/src/importedEdits.ts`, `darktable/`;
+> migrations 00028–00029; web `fileTags.ts`, `ImportReview.tsx`, `develop/ImportNotice.tsx`).
+> The import review reads the edits in a photo's sidecar (`NAME.ARW.xmp`, xmp_version
+> 2+) and darktable's duplicates (`NAME_01.ARW.xmp`…, more versions); a checkbox imports
+> them. The sidecar's text is kept with the version (`versions.imported_edits`, travels
+> with transfers) and the render worker (or the developer, opened first) makes the
+> history entry "Imported from darktable/Ansel" after the starting one
+> (`startingHistory`). The developer warns while that entry is current, with a report of
+> each module (came through, approximated, waiting for a file, left out, done our own
+> way). Parameters are C structs (`darktable/struct.ts`, layouts from darktable 5.6.2 and
+> Ansel's master); which application wrote a history is told by the modules and
+> versions only one has.
+>
+> Translated: exposure; colour calibration and white balance (their D50-relative
+> illuminants adapted to our D65; a white balance other than the camera reference
+> folded in, from the camera's multipliers and matrix now in the metadata); filmic rgb
+> (parameter for parameter); sigmoid and AgX (their curve fitted onto filmic, within
+> 0.1–1 % on the user's files, with an exposure where it moves middle grey); colour
+> balance rgb (master tab; 4 ways as split-toning mixers; contrast as a tone curve);
+> lens correction (our choice of data, their strengths); orientation, rotate and
+> perspective, and crop (fitted: their chain against ours, crop proportions kept);
+> LUT 3D (by name and path until the user adds a LUT of that name); Ansel's colour
+> primaries and split-toning rgb. Uniform opacity becomes the mask's; a masked
+> instance comes switched off. Against darktable's/Ansel's own renders of 13 of the
+> user's photos (`darktable-cli`, `ansel-cli`): mean ΔE2000 1.2–6.4 for 10, 8–10 for
+> the rest; ~60 ms per import.
 
 Best effort, never the same pixels: our pipeline differs (demosaic, highlight
-reconstruction, profiles). Phase 1, from a survey of ~100 of the user's sidecars:
-colour calibration (with white balance folded in), filmic rgb, **sigmoid and AgX fitted
-onto filmic** (no new module), colour balance rgb, lens correction (lensfun or embedded),
-orientation, crop, rotate and perspective. Phase 2: masks and blending, retouch, tone equalizer, rgb curve,
-diffuse, contrast equalizer, colour primaries / rgb primaries, colour balance's 4 ways.
-Later: Lightroom (`crs:` XMP) and Capture One (`.cos`) through the same report and warning.
+reconstruction, profiles). Phase 2, by use in the user's files: masks and blending
+(drawn shapes from `masks_history`, parametric ranges), tone equalizer, contrast
+equalizer, diffuse or sharpen, rgb primaries (darktable's), colour equalizer, retouch,
+rgb curve; denoise as raw denoise. Later: Lightroom (`crs:` XMP) and Capture One
+(`.cos`) through the same report and warning.
 
 ---
 
