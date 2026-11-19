@@ -8,6 +8,7 @@ import { type ModuleInstance, resolveLutRefs } from '../params.ts';
 import { Layout } from './struct.ts';
 import { calibration } from './calibration.ts';
 import { TONE_TRANSLATORS } from './tone.ts';
+import { GEOMETRY_TRANSLATORS } from './geometry.ts';
 import { type Translator, instance, unreadable } from './translate.ts';
 
 export type { TranslateContext, Translation, Translator } from './translate.ts';
@@ -216,4 +217,10 @@ const lut3d: Translator = {
 };
 
 /** Every translator, in no particular order: each takes its own operations. */
-export const TRANSLATORS: readonly Translator[] = [exposure, lut3d, calibration, ...TONE_TRANSLATORS];
+export const TRANSLATORS: readonly Translator[] = [
+  exposure,
+  lut3d,
+  calibration,
+  ...TONE_TRANSLATORS,
+  ...GEOMETRY_TRANSLATORS,
+];

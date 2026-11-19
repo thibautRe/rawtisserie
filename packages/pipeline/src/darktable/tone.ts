@@ -364,7 +364,7 @@ function agxCurve(p: Record<string, unknown>): (v: number) => number {
 // ── Fitting ───────────────────────────────────────────────────────────────────
 
 /** Minimise `f` from `start` (Nelder–Mead, `steps` the initial simplex's size along each axis). */
-function nelderMead(f: (x: number[]) => number, start: number[], steps: number[], iterations = 3000): number[] {
+export function nelderMead(f: (x: number[]) => number, start: number[], steps: number[], iterations = 3000): number[] {
   const n = start.length;
   let simplex = [start, ...steps.map((s, i) => start.map((v, j) => (i === j ? v + s : v)))].map((x) => ({
     x,
