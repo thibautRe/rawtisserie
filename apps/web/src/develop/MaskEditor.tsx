@@ -356,6 +356,24 @@ interface Props {
   onRemember: (key: RangeKey, range: MaskRange) => void;
 }
 
+/** A group's header, as colour balance's (Saturation, Brilliance). */
+function GroupTitle({ children, hint, first }: { children: string; hint: string; first?: boolean }) {
+  return (
+    <Text
+      textStyle="xs"
+      fontFamily="label"
+      fontWeight="medium"
+      textTransform="uppercase"
+      letterSpacing="wider"
+      color="fg.subtle"
+      pt={first ? '0' : '2'}
+      title={hint}
+    >
+      {children}
+    </Text>
+  );
+}
+
 /**
  * An instance's mask (roadmap 4.5): its drawn shapes (edited on the image with the
  * shape tools), its parametric ranges, feather, invert and opacity, how the module's
@@ -396,6 +414,9 @@ export function MaskEditor({
   return (
     <Stack gap="1.5">
       <Stack gap="1.5" opacity={mask.enabled ? 1 : 0.5}>
+        <GroupTitle first hint="Circles, ellipses, gradients, paths and brush strokes drawn on the image">
+          Shapes
+        </GroupTitle>
         <ShapeToolBar ui={ui} target="mask" id={id} kind={kind} noun="mask shapes" onUi={onUi} />
         {editing && ui.tool !== 'select' && mask.drawn.length > 0 && (
           <HStack gap="2">
@@ -473,6 +494,9 @@ export function MaskEditor({
             ))}
           </Stack>
         )}
+        <GroupTitle hint="Where the module applies by the image's own values: luminance, saturation, hue and channels">
+          Parametric
+        </GroupTitle>
         {/* Tabs, like colour calibration's: one range at a time, with its controls. */}
         <Tabs.Root size="sm" variant="line" value={rangeTab} onValueChange={(d) => setRangeTab(d.value as RangeKey)}>
           <Tabs.List aria-label="Mask ranges" gap="0">
@@ -523,37 +547,9 @@ export function MaskEditor({
             }}
           />
         ))}
-        {(mask.drawn.length > 0 || hasRanges) && (
-          <>
-            <ParamSlider
-              label="Feather"
-              min={0}
-              max={200}
-              hardMax={1000}
-              step={1}
-              format={(v) => `${v.toFixed(0)} px`}
-              {...bind('feather')}
-            />
-            <Switch.Root
-              size="xs"
-              colorPalette="orange"
-              checked={mask.edgeAware}
-              disabled={mask.feather <= 0}
-              onCheckedChange={(d) => onCommit(edit({ edgeAware: d.checked }))}
-              title={
-                hasRanges
-                  ? 'The feathered mask follows the image’s edges (a guided filter), rather than a plain blur. With ranges, the mask is computed with the spatial stages: edits before this module re-render like spatial edits.'
-                  : 'The feathered edge follows the image’s edges (a guided filter), rather than a plain blur'
-              }
-            >
-              <Switch.HiddenInput />
-              <Switch.Control />
-              <Switch.Label textStyle="2xs" color="fg.muted">
-                Follow the image’s edges
-              </Switch.Label>
-            </Switch.Root>
-          </>
-        )}
+        <GroupTitle hint="How the module's output mixes with its input, and how the mask's edge is refined">
+          Blending
+        </GroupTitle>
         <ParamSlider
           label="Opacity"
           min={0}
@@ -605,6 +601,37 @@ export function MaskEditor({
             format={signedEv}
             {...bind('blendFulcrum')}
           />
+        )}
+        {(mask.drawn.length > 0 || hasRanges) && (
+          <>
+            <ParamSlider
+              label="Feather"
+              min={0}
+              max={200}
+              hardMax={1000}
+              step={1}
+              format={(v) => `${v.toFixed(0)} px`}
+              {...bind('feather')}
+            />
+            <Switch.Root
+              size="xs"
+              colorPalette="orange"
+              checked={mask.edgeAware}
+              disabled={mask.feather <= 0}
+              onCheckedChange={(d) => onCommit(edit({ edgeAware: d.checked }))}
+              title={
+                hasRanges
+                  ? 'The feathered mask follows the image’s edges (a guided filter), rather than a plain blur. With ranges, the mask is computed with the spatial stages: edits before this module re-render like spatial edits.'
+                  : 'The feathered edge follows the image’s edges (a guided filter), rather than a plain blur'
+              }
+            >
+              <Switch.HiddenInput />
+              <Switch.Control />
+              <Switch.Label textStyle="2xs" color="fg.muted">
+                Follow the image’s edges
+              </Switch.Label>
+            </Switch.Root>
+          </>
         )}
         <Switch.Root
           size="xs"
