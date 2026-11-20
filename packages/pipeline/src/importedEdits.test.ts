@@ -704,3 +704,38 @@ test('retouch: their forms as spots, with their algorithm, shape and source offs
   assert.deepEqual([shape.type, shape.type === 'ellipse' && shape.radii[0]], ['ellipse', 0.019999999552965164]);
   assert.equal(report.items[0]!.status, 'mapped');
 });
+
+test("darktable's colour equalizer: its curves read at our control colours", async () => {
+  const names = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'lavender', 'magenta'];
+  const layout = new Layout([
+    ...['threshold', 'smoothing_hue', 'contrast', 'white_level', 'chroma_size', 'param_size'].map(
+      (n) => [n, 'f32'] as const,
+    ),
+    ['use_filter', 'gboolean'],
+    ...['sat', 'hue', 'bright'].flatMap((k) => names.map((n) => [`${k}_${n}`, 'f32'] as const)),
+    ['hue_shift', 'f32'],
+  ]);
+  const flat = Object.fromEntries([...names.map((n) => [`sat_${n}`, 1]), ...names.map((n) => [`bright_${n}`, 1])]);
+  const read = async (values: Record<string, number>) =>
+    findModule(
+      (await importEdits(
+        sidecar([
+          {
+            operation: 'colorequal',
+            modversion: 4,
+            params: await encodeBlob(writeStruct(layout, { smoothing_hue: 1, white_level: 1, ...flat, ...values })),
+          },
+        ]),
+        { base: defaultEditParams, metadata },
+      ))!.recipe,
+      'colorPrimaries',
+    )!.params;
+  // Untouched: nothing moves.
+  const neutral = await read({});
+  for (const k of ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta'] as const)
+    assert.ok(Math.abs(neutral[k].saturation) < 1e-3 && Math.abs(neutral[k].hue) < 1e-3, `${k}`);
+  // Blues desaturated: our blue loses saturation, our yellow keeps it.
+  const blue = await read({ sat_blue: 0.5 });
+  assert.ok(blue.blue.saturation < -10, `${blue.blue.saturation}`);
+  assert.ok(Math.abs(blue.yellow.saturation) < 5, `${blue.yellow.saturation}`);
+});
