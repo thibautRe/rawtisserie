@@ -129,20 +129,32 @@ export function MaskFold({
     </HStack>
   );
   const body = expanded && children;
-  if (!on)
-    return (
-      <Box borderTopWidth="1px" borderStyle="dashed" mt="1" pt="1" display="flex" flexDirection="column" gap="1.5">
-        {header}
-        {body}
-      </Box>
-    );
-  // A card at the module's foot, inside it: its header in the other appearance, its
-  // settings in the app's (a whole card in the other one drew the eye off the photo).
+  // A card at the module's foot, inside it, the same size on or off (no shift when
+  // switched). On, its header is in the other appearance, so masked modules stand out;
+  // its settings stay in the app's, a shade off the module (a whole card in the other
+  // appearance drew the eye off the photo). Off, the header is like the settings.
+  const headerBox = {
+    px: '2',
+    py: '1',
+    borderWidth: '1px',
+    borderRadius: body ? 'md md 0 0' : 'md',
+  } as const;
   return (
-    <Box data-mask-fold mt="1" borderRadius="md" overflow="hidden">
-      <Theme appearance={other} px="2" py="1">
-        {header}
-      </Theme>
+    <Box data-mask-fold mt="1">
+      {on ? (
+        <Theme appearance={other} {...headerBox} borderColor="bg">
+          {header}
+        </Theme>
+      ) : (
+        <Box
+          {...headerBox}
+          bg="bg.nested"
+          borderColor="border.emphasized"
+          borderBottomColor={body ? 'bg.nested' : undefined}
+        >
+          {header}
+        </Box>
+      )}
       {body && (
         <Stack
           gap="1.5"

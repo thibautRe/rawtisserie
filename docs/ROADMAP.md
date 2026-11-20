@@ -1345,7 +1345,8 @@ global" gap.
 > module whose mask is on has its fold's header in the other appearance (light in the
 > dark app, and the other way round), open or closed, so masked modules stand out in the
 > panel; the settings under it stay in the app's, a shade off the module (`bg.nested`):
-> a whole light card drew the eye off the photo.
+> a whole light card drew the eye off the photo. Off, the header is framed like the
+> settings, at the same size, so switching it doesn't move the panel.
 > There's no adding or removing a mask: the fold's switch turns it on (adding it) and
 > off (keeping its settings; a mask with none is dropped). The fold's header keeps the
 > switch and the "show the mask" button; closing it takes the mask off the image (its
