@@ -11,7 +11,6 @@ import {
   type ShapeType,
   defaultMask,
   isDisplayReferred,
-  removeMask,
   removeMaskShape,
   updateMask,
 } from '@rawtisserie/pipeline';
@@ -379,7 +378,6 @@ export function MaskEditor({
   const editing = isEditing(ui, 'mask', id);
   const sel = editing && ui.selected !== null && ui.selected < mask.drawn.length ? ui.selected : null;
   const overlay = ui.maskOverlay?.id === id ? ui.maskOverlay : null;
-  const showing = overlay?.part === 'mask' && !overlay.values;
   const show = (view: MaskView | null) => onUi({ maskOverlay: view && { id, ...view } });
   const hasRanges = RANGE_KEYS.some((k) => mask[k]);
   // The range tab shown: the first range in use when the editor opens.
@@ -397,56 +395,6 @@ export function MaskEditor({
   });
   return (
     <Stack gap="1.5">
-      <HStack justify="space-between">
-        <Switch.Root
-          size="xs"
-          colorPalette="orange"
-          checked={mask.enabled}
-          onCheckedChange={(d) =>
-            onCommit(edit({ enabled: d.checked }), `${title()}: mask ${d.checked ? 'on' : 'off'}`)
-          }
-          title={mask.enabled ? 'Switch the mask off: the module applies everywhere' : 'Switch the mask on'}
-        >
-          <Switch.HiddenInput />
-          <Switch.Control />
-          <Switch.Label
-            textStyle="2xs"
-            fontWeight="medium"
-            color="fg.muted"
-            fontFamily="label"
-            textTransform="uppercase"
-            letterSpacing="wider"
-          >
-            {mask.enabled ? 'On' : 'Off'}
-          </Switch.Label>
-        </Switch.Root>
-        <HStack gap="0.5">
-          <IconButton
-            size="2xs"
-            variant={showing ? 'subtle' : 'ghost'}
-            colorPalette={showing ? 'yellow' : 'gray'}
-            aria-pressed={showing}
-            aria-label={showing ? 'Hide the mask' : 'Show the mask'}
-            title={showing ? 'Hide the mask' : 'Show where the module applies, in yellow'}
-            onClick={() => show(showing ? null : { part: 'mask', values: false })}
-          >
-            <ScanEye />
-          </IconButton>
-          <IconButton
-            size="2xs"
-            variant="ghost"
-            aria-label="Remove the mask"
-            title="Remove the mask: the module applies everywhere"
-            onClick={() => {
-              if (editing) onUi({ editing: false, tool: 'select', selected: null });
-              if (overlay) onUi({ maskOverlay: null });
-              onCommit(removeMask(params(), id), `${title()}: mask removed`);
-            }}
-          >
-            <Trash2 />
-          </IconButton>
-        </HStack>
-      </HStack>
       <Stack gap="1.5" opacity={mask.enabled ? 1 : 0.5}>
         <ShapeToolBar ui={ui} target="mask" id={id} kind={kind} noun="mask shapes" onUi={onUi} />
         {editing && ui.tool !== 'select' && mask.drawn.length > 0 && (

@@ -95,5 +95,5 @@ test('a mask in a few words', () => {
     maskSummary({ ...defaultMask, drawn: [shape, shape], luminance: [-3, -1, 1, 3], opacity: 0.6, blend: 'softLight' }),
     '2 shapes · luminance · 60 % · soft light',
   );
-  assert.equal(maskSummary({ ...defaultMask, invert: true, enabled: false }), 'off · inverted');
+  assert.equal(maskSummary({ ...defaultMask, invert: true, enabled: false }), 'inverted');
 });

@@ -280,6 +280,6 @@ export function maskSummary(mask: Mask): string {
     mask.opacity < 1 ? `${Math.round(mask.opacity * 100)} %` : null,
     mask.blend !== 'normal' ? mask.blend.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`) : null,
   ].filter(Boolean);
-  if (!mask.enabled) return parts.length ? `off · ${parts.join(' · ')}` : 'off';
+  // Whether it's on is the fold's switch.
   return parts.join(' · ') || 'everywhere';
 }

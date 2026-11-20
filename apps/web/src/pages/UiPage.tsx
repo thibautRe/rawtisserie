@@ -643,7 +643,10 @@ export function UiPage() {
                     summary="1 shape · luminance · 60 %"
                     state="on"
                     open={maskOpen}
-                    onClick={() => setMaskOpen((o) => !o)}
+                    onOpen={setMaskOpen}
+                    onSwitch={() => {}}
+                    showing={false}
+                    onShow={() => {}}
                   >
                     {maskOpen && (
                       <ParamSlider
@@ -661,7 +664,16 @@ export function UiPage() {
                   </MaskFold>
                 </Module>
                 <Module title="Sharpen" enabled={false} modified={false} onToggle={() => {}} onReset={() => {}}>
-                  <MaskFold title="Sharpen" summary={null} state="none" open={false} onClick={() => {}} />
+                  <MaskFold
+                    title="Sharpen"
+                    summary={null}
+                    state="none"
+                    open={false}
+                    onOpen={() => {}}
+                    onSwitch={() => {}}
+                    showing={false}
+                    onShow={() => {}}
+                  />
                 </Module>
               </Panel>
             </Example>

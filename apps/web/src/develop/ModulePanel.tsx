@@ -95,6 +95,7 @@ import {
   MASKABLE_KINDS,
   addInstance,
   applyModulePreset,
+  defaultMask,
   defaultModuleParams,
   filmicAutoHardness,
   instanceDefaults,
@@ -113,6 +114,7 @@ import {
   removeSpot,
   updateShape,
   updateSpot,
+  removeMask,
   updateMask,
   type LensfunShot,
   setLensProfile,
@@ -1402,14 +1404,32 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             const e = editor(kind, m, position);
             const mask = m?.mask;
             const maskState = mask ? (mask.enabled ? 'on' : 'off') : 'none';
-            // The fold adds a mask (and opens it), then shows or hides its settings.
-            const onMaskClick = () => {
-              // Read when clicked: the fold keeps its first handler.
+            const overlay = shapeUi.maskOverlay?.id === id ? shapeUi.maskOverlay : null;
+            /** Stop showing this mask on the image: its shapes, and what its overlays show. */
+            const hideOnImage = () => {
+              const ui = latest.current.shapeUi;
+              if (isEditing(ui, 'mask', id))
+                latest.current.onShapeUi({ editing: false, tool: 'select', selected: null });
+              if (ui.maskOverlay?.id === id) latest.current.onShapeUi({ maskOverlay: null });
+            };
+            const onMaskOpen = (open: boolean) => {
+              if (!open) hideOnImage();
+              e.setView({ maskOpen: open });
+            };
+            // On adds the mask (opened); off keeps its settings, or drops it if it has none.
+            const onMaskSwitch = (on: boolean) => {
+              // Read when switched: the fold keeps its first handler.
               const now = latest.current.params.modules.find((x) => x.id === id)?.mask;
-              if (!now) {
-                e.setView({ maskOpen: true });
-                commit((p) => updateMask(p, kind, id, {}), `${title}: mask added`);
-              } else e.setView({ maskOpen: !(views[id] ?? DEFAULT_VIEW).maskOpen });
+              if (on) {
+                if (!now) e.setView({ maskOpen: true });
+                commit((p) => updateMask(p, kind, id, { enabled: true }), `${title}: mask on`);
+              } else if (now) {
+                const unset = JSON.stringify({ ...defaultMask, ...now, enabled: true }) === JSON.stringify(defaultMask);
+                if (unset) {
+                  hideOnImage();
+                  commit((p) => removeMask(p, id), `${title}: mask off`);
+                } else commit((p) => updateMask(p, kind, id, { enabled: false }), `${title}: mask off`);
+              }
             };
             return (
               <Module
@@ -1473,7 +1493,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     summary={mask ? maskSummary(mask) : null}
                     state={maskState}
                     open={e.view.maskOpen}
-                    onClick={onMaskClick}
+                    onOpen={onMaskOpen}
+                    onSwitch={onMaskSwitch}
+                    showing={overlay?.part === 'mask' && !overlay.values}
+                    onShow={(show) =>
+                      latest.current.onShapeUi({ maskOverlay: show ? { id, part: 'mask', values: false } : null })
+                    }
                   >
                     {mask && e.view.maskOpen && maskEditor(kind, id, mask, maskTypes ?? [], e.view)}
                   </MaskFold>

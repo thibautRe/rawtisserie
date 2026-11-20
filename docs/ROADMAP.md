@@ -1342,9 +1342,13 @@ global" gap.
 > a sidebar pushing the modules left, a sidebar over them, and a fold): the **fold**. The
 > header's mask button is gone; each maskable module ends with a fold that says what its
 > mask does (`maskSummary`) and opens the editor under it (`develop/MaskFold.tsx`). A
-> module with a mask has its fold in the other appearance (light in the dark app, and
-> the other way round), open or closed, so masked modules stand out in the panel. Still
-> to do below: what the editor shows by default, and its overlays.
+> module whose mask is on has its fold in the other appearance (light in the dark app,
+> and the other way round), open or closed, so masked modules stand out in the panel.
+> There's no adding or removing a mask: the fold's switch turns it on (adding it) and
+> off (keeping its settings; a mask with none is dropped). The fold's header keeps the
+> switch and the "show the mask" button; closing it takes the mask off the image (its
+> shapes, and what its overlays show). Still to do below: what the editor shows by
+> default.
 
 The mask editor (4.5) is confusing and clutters the panel: a mask button in each
 maskable module's header opens, inside the module, a switch, the shape tools, an op per
