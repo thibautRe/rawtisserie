@@ -4,7 +4,8 @@
  */
 import type { EditParams, ModuleInstance, ModuleKind, ModuleParams } from '../params.ts';
 import type { ImportMetadata, ImportStatus } from '../importedEdits.ts';
-import type { DarktableApp, DarktableEntry } from './xmp.ts';
+import type { DarktableApp, DarktableEntry, DarktableMaskEntry } from './xmp.ts';
+import type { Shape } from '../shapes.ts';
 
 /** What a translator is given for the photo. */
 export interface TranslateContext {
@@ -14,6 +15,9 @@ export interface TranslateContext {
   luts: readonly { id: string; name: string }[];
   /** The recipe the photo starts with: what our own defaults chose for it (its lens correction). */
   base: EditParams;
+  /** Drawn forms as they stood at the history's end (`formsAt`), and the sensor's width over its height. */
+  forms: readonly DarktableMaskEntry[];
+  aspect: number;
   /** The history as it applies (`activeEntries`), and each entry's parameters (null if damaged). */
   active: readonly DarktableEntry[];
   paramsOf: (entry: DarktableEntry) => Uint8Array | null;
@@ -27,6 +31,8 @@ export interface Translation {
   file?: { name: string; path: string };
   /** More instances it needs (an exposure that a fitted tone curve shifts by). */
   extra?: ModuleInstance[];
+  /** Shapes its instance refers to (retouch's spots). */
+  shapes?: Record<string, Shape>;
 }
 
 /**
@@ -37,7 +43,7 @@ export interface Translation {
 export interface Translator {
   operations: readonly string[];
   kinds: readonly ModuleKind[];
-  translate(entry: DarktableEntry, params: Uint8Array, ctx: TranslateContext): Translation;
+  translate(entry: DarktableEntry, params: Uint8Array, ctx: TranslateContext): Translation | Promise<Translation>;
 }
 
 export const instance = <K extends ModuleKind>(kind: K, params: ModuleParams[K]): ModuleInstance<K> =>

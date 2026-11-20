@@ -16,6 +16,7 @@ import { toneEqualizer } from './toneequal.ts';
 import { diffuse } from './diffuse.ts';
 import { rgbPrimaries } from './primaries.ts';
 import { contrastEqualizer } from './equalizer.ts';
+import { retouch } from './retouch.ts';
 import { type Translator, instance, unreadable } from './translate.ts';
 
 export type { TranslateContext, Translation, Translator } from './translate.ts';
@@ -238,4 +239,5 @@ export const TRANSLATORS: readonly Translator[] = [
   diffuse,
   rgbPrimaries,
   contrastEqualizer,
+  retouch,
 ];

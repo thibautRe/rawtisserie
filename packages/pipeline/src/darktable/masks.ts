@@ -351,8 +351,19 @@ async function points(form: DarktableMaskEntry, layout: Layout): Promise<Record<
   return Array.from({ length: form.nb }, (_, i) => layout.readAt(view, i * layout.size));
 }
 
-/** One of their forms as our shape, or null (and why) if it isn't one we draw. */
-async function shapeOf(
+const BRUSH_POINT = new Layout([
+  ['corner', { array: 'f32', n: 2 }],
+  ['ctrl1', { array: 'f32', n: 2 }],
+  ['ctrl2', { array: 'f32', n: 2 }],
+  ['border', { array: 'f32', n: 2 }],
+  ['density', 'f32'],
+  ['hardness', 'f32'],
+  ['state', 'i32'],
+]);
+const TYPE_BRUSH = 64;
+
+/** One of their forms as our shape, or why it isn't one we draw. */
+export async function shapeOf(
   form: DarktableMaskEntry,
   aspect: number,
   opacity: number,
@@ -422,7 +433,42 @@ async function shapeOf(
       },
     };
   }
-  return { why: 'A brush stroke (not imported in masks)' };
+  if (form.type & TYPE_BRUSH) {
+    const nodes = await points(form, BRUSH_POINT);
+    if (!nodes?.length) return { why: 'A damaged brush stroke' };
+    const density = nodes.reduce((s, n) => s + (n.density as number), 0) / nodes.length;
+    return {
+      shape: {
+        type: 'brush',
+        points: nodes.map((n) => {
+          const [c, b] = [n.corner, n.border] as [[number, number], [number, number]];
+          return [c[0], c[1], (b[0] + b[1]) / 2, Math.min(1, Math.max(0, n.hardness as number))] as [
+            number,
+            number,
+            number,
+            number,
+          ];
+        }),
+        opacity: opacity * Math.min(1, Math.max(0, density)),
+      },
+    };
+  }
+  return { why: 'A shape we don’t draw' };
+}
+
+/** A clone form's source (`mask_src`, normalised) as an offset from the shape: its centre, or its first node. */
+export async function sourceOffset(form: DarktableMaskEntry, shape: Shape): Promise<[number, number]> {
+  const src = await decodeBlob(form.src);
+  if (!src || src.length < 8) return [0, 0];
+  const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
+  const [sx, sy] = [view.getFloat32(0, true), view.getFloat32(4, true)];
+  const anchor =
+    shape.type === 'ellipse'
+      ? shape.center
+      : shape.type === 'path' || shape.type === 'brush'
+        ? [shape.points[0]![0], shape.points[0]![1]]
+        : shape.anchor;
+  return [sx - anchor[0]!, sy - anchor[1]!];
 }
 
 /** Their drawn mask (the group `id` in the forms as they stood) as our shapes and how they combine. */
@@ -544,6 +590,13 @@ export async function blending(
   if (p.contrast !== 0 || p.brightness !== 0 || p.details !== 0)
     notes.push('Mask refinement (contrast, brightness, details) not imported');
   return { mask, ...(shapes && { shapes }), notes };
+}
+
+/** The members of group `id` and their opacity (a group's points), by form id. */
+export async function groupOpacities(forms: readonly DarktableMaskEntry[], id: number): Promise<Map<number, number>> {
+  const group = forms.find((f) => f.id === id && f.type & TYPE_GROUP);
+  const members = group ? ((await points(group, GROUP_POINT)) ?? []) : [];
+  return new Map(members.map((m) => [m.formid as number, Math.min(1, Math.max(0, m.opacity as number))]));
 }
 
 /** The forms as they stood at history entry `num` (their last state up to it). */

@@ -34,7 +34,7 @@ export async function importDarktable(
   // colour calibration).
   const bytes = new Map<DarktableEntry, Uint8Array | null>();
   for (const e of active) bytes.set(e, await decodeBlob(e.params));
-  const ctx: TranslateContext = { app: xmp.app, metadata, luts, base, active, paramsOf: (e) => bytes.get(e) ?? null };
+
   const translatorOf = new Map<string, Translator>();
   for (const t of TRANSLATORS) for (const op of t.operations) translatorOf.set(op, t);
   const decided = new Set<ModuleKind>();
@@ -48,6 +48,17 @@ export async function importDarktable(
   const { width, height, orientation } = metadata;
   const swap = (orientation ?? 1) >= 5 && (orientation ?? 1) <= 8;
   const aspect = width && height ? (swap ? height / width : width / height) : 1.5;
+
+  const ctx: TranslateContext = {
+    app: xmp.app,
+    metadata,
+    luts,
+    base,
+    active,
+    forms,
+    aspect,
+    paramsOf: (e) => bytes.get(e) ?? null,
+  };
 
   for (const entry of active) {
     const translator = translatorOf.get(entry.operation);
@@ -69,7 +80,7 @@ export async function importDarktable(
       item('skipped', 'Its settings are damaged');
       continue;
     }
-    const result = translator.translate(entry, params, ctx);
+    const result = await translator.translate(entry, params, ctx);
     const blend = result.instance
       ? await blending(
           await decodeBlob(entry.blendopParams ?? ''),
@@ -79,6 +90,7 @@ export async function importDarktable(
         )
       : null;
     if (blend?.shapes) Object.assign(shapes, blend.shapes);
+    if (result.shapes) Object.assign(shapes, result.shapes);
     const notes = [result.note, ...(blend?.notes ?? [])].filter(Boolean).join('. ');
     item(
       blend?.notes.length && result.status === 'mapped' ? 'approximated' : result.status,

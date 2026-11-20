@@ -657,3 +657,50 @@ test('contrast equalizer: their curves at our nodes (theirs moved: read between 
   const moved = await read(xs.map((x) => [...x.slice(0, 5), 0.9].map((v, i) => (i === 5 ? 0.9 : v))));
   assert.ok(Math.abs(moved.lumaDenoise[5]! - 0.2) < 1e-6);
 });
+
+test('retouch: their forms as spots, with their algorithm, shape and source offset', async () => {
+  const formData = new Layout([
+    ['formid', 'i32'],
+    ['scale', 'i32'],
+    ['algorithm', 'i32'],
+    ['blur_type', 'i32'],
+    ['blur_radius', 'f32'],
+    ['fill_mode', 'i32'],
+    ['fill_color', { array: 'f32', n: 3 }],
+    ['fill_brightness', 'f32'],
+    ['distort_mode', 'i32'],
+  ]);
+  const params = new Uint8Array(formData.size * 300 + 64);
+  params.set(writeStruct(formData, { formid: 7, algorithm: 2, blur_radius: 10, distort_mode: 2 }), 0);
+  params.set(writeStruct(formData, { formid: 8, algorithm: 3, blur_radius: 12, distort_mode: 2 }), formData.size);
+  const circle = await encodeBlob(
+    writeStruct(
+      new Layout([
+        ['c', { array: 'f32', n: 2 }],
+        ['r', 'f32'],
+        ['b', 'f32'],
+      ]),
+      { c: [0.3, 0.4], r: 0.02, b: 0.01 },
+    ),
+  );
+  const src = await encodeBlob(writeStruct(new Layout([['s', { array: 'f32', n: 2 }]]), { s: [0.35, 0.38] }));
+  const masks = `<darktable:masks_history><rdf:Seq>
+    <rdf:li darktable:mask_num="0" darktable:mask_id="7" darktable:mask_type="9" darktable:mask_name="a" darktable:mask_version="6" darktable:mask_points="${circle}" darktable:mask_nb="1" darktable:mask_src="${src}"/>
+    <rdf:li darktable:mask_num="0" darktable:mask_id="8" darktable:mask_type="9" darktable:mask_name="b" darktable:mask_version="6" darktable:mask_points="${circle}" darktable:mask_nb="1" darktable:mask_src="${src}"/>
+  </rdf:Seq></darktable:masks_history>`;
+  const text = sidecar([{ operation: 'retouch', modversion: 3, params: await encodeBlob(params) }]).replace(
+    '</darktable:history>',
+    `</darktable:history>\n${masks}`,
+  );
+  const { recipe, report } = (await importEdits(text, { base: defaultEditParams, metadata }))!;
+  const spots = findModule(recipe, 'retouch')!.params.spots;
+  assert.deepEqual(
+    spots.map((s) => s.mode),
+    ['heal', 'blur'],
+  );
+  assert.ok(Math.abs(spots[0]!.source[0] - 0.05) < 1e-6 && Math.abs(spots[0]!.source[1] + 0.02) < 1e-6);
+  assert.equal(spots[1]!.radius, 12);
+  const shape = recipe.shapes![spots[0]!.shape]!;
+  assert.deepEqual([shape.type, shape.type === 'ellipse' && shape.radii[0]], ['ellipse', 0.019999999552965164]);
+  assert.equal(report.items[0]!.status, 'mapped');
+});
