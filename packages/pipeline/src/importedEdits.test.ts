@@ -619,3 +619,41 @@ test("darktable's rgb primaries: a colour calibration mix, identity untouched, w
   assert.deepEqual([c.params.adaptation, c.params.illuminant, c.params.normalizeRed], ['none', 'pipeline', false]);
   assert.ok(Math.abs(c.params.red[0]! - edited[0]![0]!) < 1e-5);
 });
+
+test('contrast equalizer: their curves at our nodes (theirs moved: read between them)', async () => {
+  const xs = Array.from({ length: 5 }, () => [0, 0.2, 0.4, 0.6, 0.8, 1]);
+  const ys = [
+    [0.7, 0.65, 0.6, 0.55, 0.5, 0.5],
+    [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+    [0.3, 0.35, 0.4, 0.45, 0.5, 0.5],
+    [0, 0, 0, 0, 0.1, 0.2],
+    [0, 0, 0, 0, 0, 0],
+  ];
+  const layout = new Layout([
+    ['octaves', 'i32'],
+    ['x', { array: { array: 'f32', n: 6 }, n: 5 }],
+    ['y', { array: { array: 'f32', n: 6 }, n: 5 }],
+    ['mix', 'f32'],
+  ]);
+  const read = async (x: number[][]) =>
+    findModule(
+      (await importEdits(
+        sidecar([
+          {
+            operation: 'atrous',
+            modversion: 2,
+            params: await encodeBlob(writeStruct(layout, { octaves: 3, x, y: ys, mix: 1.5 })),
+          },
+        ]),
+        { base: defaultEditParams, metadata },
+      ))!.recipe,
+      'contrastEqualizer',
+    )!.params;
+  const p = await read(xs);
+  assert.ok(p.luma.every((v, i) => Math.abs(v - ys[0]![i]!) < 1e-6));
+  assert.ok(p.lumaDenoise.every((v, i) => Math.abs(v - ys[3]![i]!) < 1e-6));
+  assert.ok(Math.abs(p.mix - 1.5) < 1e-6);
+  // The fine end's node moved to 0.9: our last node (1) takes its value, the one before (0.8) between.
+  const moved = await read(xs.map((x) => [...x.slice(0, 5), 0.9].map((v, i) => (i === 5 ? 0.9 : v))));
+  assert.ok(Math.abs(moved.lumaDenoise[5]! - 0.2) < 1e-6);
+});
