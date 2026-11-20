@@ -424,9 +424,62 @@ export function MaskEditor({
   return (
     <Stack gap="1.5">
       <Stack gap="1.5" opacity={mask.enabled ? 1 : 0.5}>
-        <GroupTitle first hint="Circles, ellipses, gradients, paths and brush strokes drawn on the image">
-          Shapes
+        <GroupTitle first hint="How the module's output mixes with its input, inside the mask">
+          Blending
         </GroupTitle>
+        <ParamSlider
+          label="Opacity"
+          min={0}
+          max={1}
+          step={0.01}
+          scale={100}
+          format={(v) => `${Math.round(v * 100)} %`}
+          {...bind('opacity')}
+        />
+        <HStack gap="2">
+          <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+            <label htmlFor={blendSelectId}>Blend</label>
+          </Text>
+          <NativeSelect.Root size="xs" flex="1">
+            <NativeSelect.Field
+              id={blendSelectId}
+              value={mask.blend}
+              title={`${BLEND_TITLES[mask.blend]}. ${
+                display
+                  ? 'After filmic, it blends display-referred (encoded sRGB).'
+                  : 'Before filmic, it blends scene-referred (linear).'
+              }`}
+              onChange={(ev) => {
+                const blend = ev.target.value as BlendMode;
+                onCommit(edit({ blend }), `${title()}: blend ${BLEND_LABELS[blend].toLowerCase()}`);
+              }}
+            >
+              {BLEND_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.modes.map((mode) => (
+                    <option key={mode} value={mode} title={BLEND_TITLES[mode]}>
+                      {BLEND_LABELS[mode]}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </NativeSelect.Field>
+            <NativeSelect.Indicator />
+          </NativeSelect.Root>
+        </HStack>
+        {!display && FULCRUM_BLEND_MODES.includes(mask.blend) && (
+          <ParamSlider
+            label="Fulcrum"
+            min={-3}
+            max={3}
+            hardMin={-10}
+            hardMax={10}
+            step={0.05}
+            format={signedEv}
+            {...bind('blendFulcrum')}
+          />
+        )}
+        <GroupTitle hint="Circles, ellipses, gradients, paths and brush strokes drawn on the image">Shapes</GroupTitle>
         <ShapeToolBar ui={ui} target="mask" id={id} kind={kind} noun="mask shapes" onUi={onUi} />
         {editing && ui.tool !== 'select' && mask.drawn.length > 0 && (
           <HStack gap="2">
@@ -557,63 +610,12 @@ export function MaskEditor({
             }}
           />
         ))}
-        <GroupTitle hint="How the module's output mixes with its input, and how the mask's edge is refined">
-          Blending
-        </GroupTitle>
-        <ParamSlider
-          label="Opacity"
-          min={0}
-          max={1}
-          step={0.01}
-          scale={100}
-          format={(v) => `${Math.round(v * 100)} %`}
-          {...bind('opacity')}
-        />
-        <HStack gap="2">
-          <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
-            <label htmlFor={blendSelectId}>Blend</label>
-          </Text>
-          <NativeSelect.Root size="xs" flex="1">
-            <NativeSelect.Field
-              id={blendSelectId}
-              value={mask.blend}
-              title={`${BLEND_TITLES[mask.blend]}. ${
-                display
-                  ? 'After filmic, it blends display-referred (encoded sRGB).'
-                  : 'Before filmic, it blends scene-referred (linear).'
-              }`}
-              onChange={(ev) => {
-                const blend = ev.target.value as BlendMode;
-                onCommit(edit({ blend }), `${title()}: blend ${BLEND_LABELS[blend].toLowerCase()}`);
-              }}
-            >
-              {BLEND_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.modes.map((mode) => (
-                    <option key={mode} value={mode} title={BLEND_TITLES[mode]}>
-                      {BLEND_LABELS[mode]}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </NativeSelect.Field>
-            <NativeSelect.Indicator />
-          </NativeSelect.Root>
-        </HStack>
-        {!display && FULCRUM_BLEND_MODES.includes(mask.blend) && (
-          <ParamSlider
-            label="Fulcrum"
-            min={-3}
-            max={3}
-            hardMin={-10}
-            hardMax={10}
-            step={0.05}
-            format={signedEv}
-            {...bind('blendFulcrum')}
-          />
-        )}
-        {(mask.drawn.length > 0 || hasRanges) && (
+        {/* Nothing to refine without shapes or ranges (an inverted one stays reachable). */}
+        {(mask.drawn.length > 0 || hasRanges || mask.invert) && (
           <>
+            <GroupTitle hint="The mask's edge and which side of it the module applies to, shapes and ranges together">
+              Refine
+            </GroupTitle>
             <ParamSlider
               label="Feather"
               min={0}
@@ -641,20 +643,20 @@ export function MaskEditor({
                 Follow the image’s edges
               </Switch.Label>
             </Switch.Root>
+            <Switch.Root
+              size="xs"
+              colorPalette="orange"
+              checked={mask.invert}
+              onCheckedChange={(d) => onCommit(edit({ invert: d.checked }))}
+            >
+              <Switch.HiddenInput />
+              <Switch.Control />
+              <Switch.Label textStyle="2xs" color="fg.muted">
+                Invert
+              </Switch.Label>
+            </Switch.Root>
           </>
         )}
-        <Switch.Root
-          size="xs"
-          colorPalette="orange"
-          checked={mask.invert}
-          onCheckedChange={(d) => onCommit(edit({ invert: d.checked }))}
-        >
-          <Switch.HiddenInput />
-          <Switch.Control />
-          <Switch.Label textStyle="2xs" color="fg.muted">
-            Invert
-          </Switch.Label>
-        </Switch.Root>
       </Stack>
     </Stack>
   );
