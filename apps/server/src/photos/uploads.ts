@@ -178,7 +178,8 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
       allow_deleted: body.allowDeleted ?? false,
       ...uploadColumns(body),
       collection: body.collection ?? null,
-      duplicates: body.duplicates?.length ? JSON.stringify(body.duplicates.map(uploadColumns)) : null,
+      // pg-typed encodes jsonb columns itself.
+      duplicates: body.duplicates?.length ? body.duplicates.map(uploadColumns) : null,
     });
     await mkdir(uploadsDir(), { recursive: true });
     await writeFile(fileOf(row!.id), '');
@@ -266,7 +267,9 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
               UPDATE photos SET collection_id = ${collectionId}
               WHERE id = (SELECT photo_id FROM versions WHERE id = ${taken.versionId}) AND collection_id IS NULL`);
           });
-        const duplicates = (row.duplicates ?? []) as UploadColumns[];
+        // Uploads started before the fix kept them as a JSON string.
+        const stored = typeof row.duplicates === 'string' ? (JSON.parse(row.duplicates) as unknown) : row.duplicates;
+        const duplicates = (Array.isArray(stored) ? stored : []) as UploadColumns[];
         const ids = [
           taken.versionId,
           ...(await addDuplicates(
