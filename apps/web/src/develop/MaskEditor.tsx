@@ -238,9 +238,10 @@ function RangeSlider({
           onCheckedChange={(d) => onCommit(d.checked ? (restore ?? c.initial) : null)}
           title={c.hint}
         >
-          <Switch.HiddenInput />
+          <Switch.HiddenInput aria-label={`Select by ${c.label.toLowerCase()}`} />
           <Switch.Control />
-          <Switch.Label textStyle="xs">Select by {c.label.toLowerCase()}</Switch.Label>
+          {/* Short: with a range, its values share the row. */}
+          <Switch.Label textStyle="xs">Enable</Switch.Label>
         </Switch.Root>
         <HStack gap="0.5">
           <Text textStyle="2xs" color="fg.muted" fontFamily="numeric" fontVariantNumeric="tabular-nums" mr="1">
@@ -400,6 +401,15 @@ export function MaskEditor({
   const hasRanges = RANGE_KEYS.some((k) => mask[k]);
   // The range tab shown: the first range in use when the editor opens.
   const [rangeTab, setRangeTab] = useState<RangeKey>(() => RANGE_KEYS.find((k) => mask[k]) ?? 'luminance');
+  /**
+   * Another range's tab. A range overlay follows it: the module's input shown as the new
+   * range's values, or where the new range applies (if it's on; nothing to show if not).
+   */
+  const switchRangeTab = (key: RangeKey) => {
+    setRangeTab(key);
+    if (!overlay || !RANGE_KEYS.includes(overlay.part as RangeKey) || overlay.part === key) return;
+    show(overlay.values || mask[key] ? { part: key, values: overlay.values } : null);
+  };
   const opSelectId = useId();
   const blendSelectId = useId();
   const display = isDisplayReferred(kind);
@@ -498,7 +508,7 @@ export function MaskEditor({
           Parametric
         </GroupTitle>
         {/* Tabs, like colour calibration's: one range at a time, with its controls. */}
-        <Tabs.Root size="sm" variant="line" value={rangeTab} onValueChange={(d) => setRangeTab(d.value as RangeKey)}>
+        <Tabs.Root size="sm" variant="line" value={rangeTab} onValueChange={(d) => switchRangeTab(d.value as RangeKey)}>
           <Tabs.List aria-label="Mask ranges" gap="0">
             {RANGE_KEYS.map((key) => (
               <Tabs.Trigger
