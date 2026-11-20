@@ -101,18 +101,20 @@ export function MaskFold({
         <Text as="span" {...LABEL_PROPS} color={on ? 'fg' : 'fg.muted'}>
           Mask
         </Text>
-        {/* Under the label, to leave room for the buttons; without a mask, it applies everywhere. */}
-        <Text
-          as="span"
-          textStyle="2xs"
-          color={on ? 'fg.muted' : 'fg.subtle'}
-          truncate
-          maxW="full"
-          fontFamily="numeric"
-          lineHeight="short"
-        >
-          {summary ?? 'everywhere'}
-        </Text>
+        {/* Under the label, to leave room for the buttons; nothing without a mask. */}
+        {summary !== null && (
+          <Text
+            as="span"
+            textStyle="2xs"
+            color={on ? 'fg.muted' : 'fg.subtle'}
+            truncate
+            maxW="full"
+            fontFamily="numeric"
+            lineHeight="short"
+          >
+            {summary}
+          </Text>
+        )}
       </chakra.button>
       {/* Open or folded, while the mask is on and limits the module. */}
       {on && selective && (
