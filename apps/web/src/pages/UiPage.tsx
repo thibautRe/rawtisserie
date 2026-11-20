@@ -647,6 +647,8 @@ export function UiPage() {
                     open={maskOpen}
                     onOpen={setMaskOpen}
                     onSwitch={() => {}}
+                    modified
+                    onReset={() => {}}
                     showing={false}
                     onShow={() => {}}
                   >
@@ -673,6 +675,8 @@ export function UiPage() {
                     open={false}
                     onOpen={() => {}}
                     onSwitch={() => {}}
+                    modified={false}
+                    onReset={() => {}}
                     showing={false}
                     onShow={() => {}}
                   />

@@ -1416,6 +1416,18 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
               if (!open) hideOnImage();
               e.setView({ maskOpen: open });
             };
+            /** The mask as a new one would be, apart from whether it's on. */
+            const isUnset = (x: NonNullable<typeof mask>) =>
+              JSON.stringify({ ...defaultMask, ...x, enabled: true }) === JSON.stringify(defaultMask);
+            // Back to a new mask's settings: kept on if it is, else dropped.
+            const onMaskReset = () => {
+              const now = latest.current.params.modules.find((x) => x.id === id)?.mask;
+              if (!now) return;
+              hideOnImage();
+              if (now.enabled)
+                commit((p) => updateMask(p, kind, id, { ...defaultMask, enabled: true }), `${title}: mask reset`);
+              else commit((p) => removeMask(p, id), `${title}: mask reset`);
+            };
             // On adds the mask (opened); off keeps its settings, or drops it if it has none.
             const onMaskSwitch = (on: boolean) => {
               // Read when switched: the fold keeps its first handler.
@@ -1424,8 +1436,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 if (!now) e.setView({ maskOpen: true });
                 commit((p) => updateMask(p, kind, id, { enabled: true }), `${title}: mask on`);
               } else if (now) {
-                const unset = JSON.stringify({ ...defaultMask, ...now, enabled: true }) === JSON.stringify(defaultMask);
-                if (unset) {
+                if (isUnset(now)) {
                   hideOnImage();
                   commit((p) => removeMask(p, id), `${title}: mask off`);
                 } else commit((p) => updateMask(p, kind, id, { enabled: false }), `${title}: mask off`);
@@ -1496,6 +1507,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     onOpen={onMaskOpen}
                     onSwitch={onMaskSwitch}
                     showing={overlay?.part === 'mask' && !overlay.values}
+                    modified={!!mask && !isUnset(mask)}
+                    onReset={onMaskReset}
                     selective={!!mask && (mask.drawn.length > 0 || RANGE_KEYS.some((k) => mask[k]) || mask.opacity < 1)}
                     onShow={(show) =>
                       latest.current.onShapeUi({ maskOverlay: show ? { id, part: 'mask', values: false } : null })

@@ -4,7 +4,7 @@
  * card a shade off the module (a little brighter while the mask is on).
  */
 import { Box, HStack, IconButton, Stack, Switch, Text, chakra } from '@chakra-ui/react';
-import { ChevronDown, ScanEye } from 'lucide-react';
+import { ChevronDown, RotateCcw, ScanEye } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 const LABEL_PROPS = {
@@ -22,6 +22,8 @@ export function MaskFold({
   open,
   onOpen,
   onSwitch,
+  modified,
+  onReset,
   showing,
   selective = false,
   onShow,
@@ -36,6 +38,9 @@ export function MaskFold({
   onOpen: (open: boolean) => void;
   /** Switch the mask on (adding it) or off. */
   onSwitch: (on: boolean) => void;
+  /** The mask differs from a new one, and its reset. */
+  modified: boolean;
+  onReset: () => void;
   /** Whether the image shows where the module applies. */
   showing: boolean;
   /** The mask limits the module (shapes, ranges, opacity below 100 %): something to show. */
@@ -51,7 +56,7 @@ export function MaskFold({
   const foldable = state !== 'none';
   const expanded = foldable && open;
   const header = (
-    <HStack gap="1.5" h="7">
+    <HStack gap="1.5" minH="9">
       <Switch.Root
         size="xs"
         colorPalette="orange"
@@ -80,8 +85,9 @@ export function MaskFold({
         minW="0"
         h="full"
         display="flex"
-        alignItems="center"
-        gap="1.5"
+        flexDirection="column"
+        alignItems="flex-start"
+        justifyContent="center"
         textAlign="start"
         cursor={foldable ? 'pointer' : 'default'}
         disabled={!foldable}
@@ -95,8 +101,17 @@ export function MaskFold({
         <Text as="span" {...LABEL_PROPS} color={on ? 'fg' : 'fg.muted'}>
           Mask
         </Text>
-        <Text as="span" textStyle="2xs" color={on ? 'fg.muted' : 'fg.subtle'} truncate flex="1" fontFamily="numeric">
-          {summary}
+        {/* Under the label, to leave room for the buttons; without a mask, it applies everywhere. */}
+        <Text
+          as="span"
+          textStyle="2xs"
+          color={on ? 'fg.muted' : 'fg.subtle'}
+          truncate
+          maxW="full"
+          fontFamily="numeric"
+          lineHeight="short"
+        >
+          {summary ?? 'everywhere'}
         </Text>
       </chakra.button>
       {/* Open or folded, while the mask is on and limits the module. */}
@@ -111,6 +126,18 @@ export function MaskFold({
           onClick={() => onShow(!showing)}
         >
           <ScanEye />
+        </IconButton>
+      )}
+      {foldable && (
+        <IconButton
+          size="2xs"
+          variant="ghost"
+          aria-label={`Reset the ${title} mask`}
+          title="Reset the mask: no shapes or ranges, full opacity, normal blending"
+          disabled={!modified}
+          onClick={onReset}
+        >
+          <RotateCcw />
         </IconButton>
       )}
       {foldable && (
