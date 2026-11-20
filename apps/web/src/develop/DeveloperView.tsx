@@ -45,7 +45,6 @@ import { CropOverlay } from './CropOverlay.tsx';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
-import { type MaskLayout, useMaskLayout } from './maskLayout.ts';
 import {
   copyEdits,
   lastSelection,
@@ -121,53 +120,6 @@ interface Props {
  * text. What's typed into fields stays selectable.
  */
 const NO_SELECT = { userSelect: 'none', '& input, & textarea': { userSelect: 'text' } } as const;
-
-/** A sidebar's width (`w="80"`). */
-const SIDEBAR_W = 'var(--chakra-sizes-80)';
-
-/**
- * The modules' side of the developer, with the mask sidebar (roadmap 4.13's prototype,
- * `maskLayout.ts`): `push` puts it right of the modules, which move left (over the image
- * when the window is too narrow to shrink it), `overlay` over them. Empty, it's hidden.
- */
-function maskLayoutCss(layout: MaskLayout) {
-  const host = {
-    width: SIDEBAR_W,
-    flexShrink: 0,
-    overflowY: 'auto',
-    bg: 'bg',
-    borderLeftWidth: '1px',
-    ...NO_SELECT,
-  } as const;
-  if (layout === 'push')
-    return {
-      '& > [data-mask-host]': host,
-      '& > [data-mask-host]:empty': { display: 'none' },
-      '@media (max-width: 1279px)': {
-        '&:has(> [data-mask-host]:not(:empty)) > [data-modules]': {
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          right: SIDEBAR_W,
-          zIndex: 1,
-          boxShadow: 'lg',
-        },
-      },
-    };
-  if (layout === 'overlay')
-    return {
-      '& > [data-mask-host]': {
-        ...host,
-        position: 'absolute',
-        inset: 0,
-        width: 'auto',
-        zIndex: 1,
-        animation: 'slide-from-right-full 150ms ease-out',
-      },
-      '& > [data-mask-host]:empty': { display: 'none' },
-    };
-  return {};
-}
 
 const MAX_PREVIEW = 3200;
 /** Rendering takes ~70 ns per pixel, so this allows ~25 image updates per second during a drag. */
@@ -1256,9 +1208,6 @@ export function DeveloperView({
     };
   });
 
-  const maskLayout = useMaskLayout();
-  const [maskHost, setMaskHost] = useState<HTMLDivElement | null>(null);
-
   const { entries, end } = history;
   const versionsNode = useMemo(() => versions?.(autosave.whenSaved), [versions, autosave.whenSaved]);
   const actionsNode = useMemo(() => actions?.({ entries, end }), [actions, entries, end]);
@@ -1509,67 +1458,51 @@ export function DeveloperView({
             />
           </Flex>
 
-          <Flex position="relative" flexShrink={0} minH="0" css={maskLayoutCss(maskLayout)}>
-            <Box
-              as="aside"
-              data-modules
-              w="80"
-              flexShrink={0}
-              borderLeftWidth="1px"
-              bg="bg"
-              overflowY="auto"
-              css={NO_SELECT}
-            >
-              <ModulePanel
-                params={params}
-                denoise={denoise}
-                lensCorrection={metadata.lensCorrection ?? null}
-                lensShot={lensShot}
-                asShotIlluminant={metadata.asShotIlluminant ?? null}
-                imageFormat={metadata.imageFormat ?? null}
-                original={original}
-                onChange={onLiveChange}
-                onCommit={onPanelCommit}
-                presets={presets.modulePresets}
-                onSavePreset={presets.save}
-                onRenamePreset={presets.rename}
-                onDeletePreset={presets.remove}
-                luts={luts}
-                missingLuts={missingLuts}
-                onAddLut={onAddLut}
-                onRenameLut={luts.rename}
-                onRemoveLut={onRemoveLut}
-                cropping={!!cropDraft}
-                aspect={aspect}
-                onAspectChange={onAspectChange}
-                onCustomAspectChange={onCustomAspectChange}
-                onFlipAspect={onFlipAspect}
-                onStartCrop={onStartCrop}
-                guides={guides !== null}
-                onStartGuides={onStartGuides}
-                onFitPerspective={onFitPerspective}
-                fittingPerspective={fittingPerspective}
-                onAutoTuneFilmic={onAutoTuneFilmic}
-                autoTuning={autoTuning}
-                onDetectIlluminant={onDetectIlluminant}
-                detecting={detecting}
-                toneInputs={toneInputs}
-                onFitToneCurve={onFitToneCurve}
-                fittingTone={fittingTone}
-                toneView={toneOverlay}
-                onToneView={onToneView}
-                rangeView={rangeOverlay}
-                onRangeView={onRangeView}
-                shapeUi={shapeUi}
-                onShapeUi={onShapeUi}
-                maskLayout={maskLayout}
-                maskHost={maskHost}
-              />
-            </Box>
-            {(maskLayout === 'push' || maskLayout === 'overlay') && (
-              <Box key={maskLayout} ref={setMaskHost} data-mask-host aria-label="Mask" role="complementary" />
-            )}
-          </Flex>
+          <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
+            <ModulePanel
+              params={params}
+              denoise={denoise}
+              lensCorrection={metadata.lensCorrection ?? null}
+              lensShot={lensShot}
+              asShotIlluminant={metadata.asShotIlluminant ?? null}
+              imageFormat={metadata.imageFormat ?? null}
+              original={original}
+              onChange={onLiveChange}
+              onCommit={onPanelCommit}
+              presets={presets.modulePresets}
+              onSavePreset={presets.save}
+              onRenamePreset={presets.rename}
+              onDeletePreset={presets.remove}
+              luts={luts}
+              missingLuts={missingLuts}
+              onAddLut={onAddLut}
+              onRenameLut={luts.rename}
+              onRemoveLut={onRemoveLut}
+              cropping={!!cropDraft}
+              aspect={aspect}
+              onAspectChange={onAspectChange}
+              onCustomAspectChange={onCustomAspectChange}
+              onFlipAspect={onFlipAspect}
+              onStartCrop={onStartCrop}
+              guides={guides !== null}
+              onStartGuides={onStartGuides}
+              onFitPerspective={onFitPerspective}
+              fittingPerspective={fittingPerspective}
+              onAutoTuneFilmic={onAutoTuneFilmic}
+              autoTuning={autoTuning}
+              onDetectIlluminant={onDetectIlluminant}
+              detecting={detecting}
+              toneInputs={toneInputs}
+              onFitToneCurve={onFitToneCurve}
+              fittingTone={fittingTone}
+              toneView={toneOverlay}
+              onToneView={onToneView}
+              rangeView={rangeOverlay}
+              onRangeView={onRangeView}
+              shapeUi={shapeUi}
+              onShapeUi={onShapeUi}
+            />
+          </Box>
           {copying && (
             <CopyEditsDialog
               recipe={store.getState().live}

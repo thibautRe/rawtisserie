@@ -42,6 +42,7 @@ import { SelectionBar } from '../library/LibraryStatusBar.tsx';
 import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { ImportReportNotice } from '../develop/ImportNotice.tsx';
+import { MaskFold } from '../develop/MaskFold.tsx';
 import type { ImportReport } from '@rawtisserie/pipeline';
 import { StorageBreakdown, StorageMeter } from '../components/StorageMeter.tsx';
 import { TransferSummary } from '../components/transfer.tsx';
@@ -212,6 +213,7 @@ export function UiPage() {
   const [preset, setPreset] = useState(2);
   const [page, setPage] = useState<'scene' | 'look' | 'options'>('scene');
   const [enabled, setEnabled] = useState(true);
+  const [maskOpen, setMaskOpen] = useState(false);
   const [range, setRange] = useState<'global' | 'shadows' | 'midtones' | 'highlights'>('shadows');
   const [blockOpen, setBlockOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -619,6 +621,47 @@ export function UiPage() {
                     onChange={setExposure}
                     onCommit={setExposure}
                   />
+                </Module>
+              </Panel>
+            </Example>
+            <Example label="Masked modules">
+              <Panel w="80" modules>
+                <Module title="Colour balance" enabled modified onToggle={() => {}} onReset={() => {}}>
+                  <ParamSlider
+                    label="Vibrance"
+                    value={0.2}
+                    min={-1}
+                    max={1}
+                    step={0.01}
+                    defaultValue={0}
+                    format={fmt.signed2}
+                    onChange={() => {}}
+                    onCommit={() => {}}
+                  />
+                  <MaskFold
+                    title="Colour balance"
+                    summary="1 shape · luminance · 60 %"
+                    state="on"
+                    open={maskOpen}
+                    onClick={() => setMaskOpen((o) => !o)}
+                  >
+                    {maskOpen && (
+                      <ParamSlider
+                        label="Opacity"
+                        value={60}
+                        min={0}
+                        max={100}
+                        step={1}
+                        defaultValue={100}
+                        format={fmt.signed2}
+                        onChange={() => {}}
+                        onCommit={() => {}}
+                      />
+                    )}
+                  </MaskFold>
+                </Module>
+                <Module title="Sharpen" enabled={false} modified={false} onToggle={() => {}} onReset={() => {}}>
+                  <MaskFold title="Sharpen" summary={null} state="none" open={false} onClick={() => {}} />
                 </Module>
               </Panel>
             </Example>

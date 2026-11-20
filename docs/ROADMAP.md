@@ -1338,16 +1338,13 @@ global" gap.
 
 ### 4.13 Mask UI redesign (M–L, before 1.0, needs a prototype)
 
-> **Prototype** 2026-11-19: four layouts to compare (`develop/maskLayout.ts`), picked in
-> the developer's status bar ("Mask UI") or per tab with `?masks=…`, so several windows
-> show them side by side. `inline`: as 4.5 built it. `push`: a sidebar right of the
-> modules, which move left (over the image below 1280 px wide). `overlay`: the sidebar
-> over the modules, with a way back. Both keep only the header's mask button in the
-> module (its block marked while its mask is open) and list the recipe's other masks to
-> jump between them (`MaskSidebar.tsx`). `accordion`: no button in the header; a fold
-> at the bottom of each maskable module says what its mask does (`maskSummary`) and
-> opens the editor under it. The editor itself is unchanged in all four. Once one is
-> picked, the others and the switch go.
+> **Layout picked** 2026-11-20, from a prototype of four (2026-11-19: as 4.5 built it,
+> a sidebar pushing the modules left, a sidebar over them, and a fold): the **fold**. The
+> header's mask button is gone; each maskable module ends with a fold that says what its
+> mask does (`maskSummary`) and opens the editor under it (`develop/MaskFold.tsx`). A
+> module with a mask has its fold in the other appearance (light in the dark app, and
+> the other way round), open or closed, so masked modules stand out in the panel. Still
+> to do below: what the editor shows by default, and its overlays.
 
 The mask editor (4.5) is confusing and clutters the panel: a mask button in each
 maskable module's header opens, inside the module, a switch, the shape tools, an op per
@@ -2213,6 +2210,12 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   state (drop zone, short pitch, sample RAWs to try, link to sign up) and polish its
   empty and loading states.
 - Check light and dark themes (`_light` before `_dark` in semantic tokens).
+- **Light theme for the app (after 1.0):** the app is dark only (`class="dark"` in
+  `index.html`), though the semantic tokens have their light values (`/ui` shows both).
+  Still to do: a setting (dark, light, the system's), the image's surroundings in the
+  developer and the loupe (which should stay dark or neutral grey for judging photos:
+  the loupe's details are forced dark today), and a pass over every page. The mask fold
+  already follows it (the other appearance).
 - **Design system (M):** with the new fonts, settle the UI's vocabulary before it grows
   further, and make it visible:
   - A component gallery: a `/ui` route in the app, everything on one page (decided
