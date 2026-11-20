@@ -103,6 +103,8 @@ export const RAW_ACCEPT =
 export const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.tif,.tiff,.webp';
 /** Everything that can be imported or developed: RAW files and images. */
 export const PHOTO_ACCEPT = `${RAW_ACCEPT},${IMAGE_ACCEPT}`;
+/** What an import's file pickers take: photos and their XMP sidecars (tags, edits). */
+export const IMPORT_ACCEPT = `${PHOTO_ACCEPT},.xmp`;
 
 /** "B&W", or "Version 2" for an unnamed version. */
 export const versionLabel = (v: { name: string | null; index: number }) => v.name ?? `Version ${v.index}`;

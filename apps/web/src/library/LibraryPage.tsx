@@ -40,7 +40,7 @@ import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { hostOf, startTransfer } from '../components/transfer.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';
 import { toaster } from '../components/toaster.tsx';
-import { PHOTO_ACCEPT } from '../lib/format.ts';
+import { IMPORT_ACCEPT } from '../lib/format.ts';
 import {
   copyEdits,
   lastSelection,
@@ -613,7 +613,7 @@ export function LibraryPage() {
             ref={fileInput}
             type="file"
             multiple
-            accept={PHOTO_ACCEPT}
+            accept={IMPORT_ACCEPT}
             hidden
             onChange={(e) => {
               void startImport(fromInput(e.target.files ?? []));

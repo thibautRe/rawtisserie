@@ -5,7 +5,7 @@
  * and macOS's `._` files next to the RAWs). A JPEG next to a RAW file of the same name
  * (a camera shooting both) is set apart: imported only if asked for.
  */
-import { IMAGE_ACCEPT, PHOTO_ACCEPT, RAW_ACCEPT } from '../lib/format.ts';
+import { IMAGE_ACCEPT, IMPORT_ACCEPT, RAW_ACCEPT } from '../lib/format.ts';
 
 export interface PickedFile {
   file: File;
@@ -266,13 +266,18 @@ export async function pickFolder(): Promise<Picking | null> {
   }
 }
 
-/** RAW files and images, through the browser's picker: null if cancelled. */
+/** RAW files and images (and their sidecars), through the browser's picker: null if cancelled. */
 export async function pickFiles(): Promise<Picking | null> {
   try {
     const handles = await pickers.showOpenFilePicker!({
       id: 'import',
       multiple: true,
-      types: [{ description: 'RAW files and images', accept: { 'application/octet-stream': PHOTO_ACCEPT.split(',') } }],
+      types: [
+        {
+          description: 'RAW files, images and sidecars',
+          accept: { 'application/octet-stream': IMPORT_ACCEPT.split(',') },
+        },
+      ],
     });
     const listing = { found: 0 };
     return { files: walkHandles(handles, '', listing), from: { kind: 'files', handles }, listing };
