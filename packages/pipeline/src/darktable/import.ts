@@ -8,8 +8,6 @@
 import {
   EDIT_PARAMS_VERSION,
   MASKABLE_KINDS,
-  type Mask,
-  defaultMask,
   type EditParams,
   type ModuleInstance,
   type ModuleKind,
@@ -24,39 +22,8 @@ import {
   darktableModuleName,
 } from './modules.ts';
 import { type DarktableEntry, type DarktableXmp, activeEntries, decodeBlob } from './xmp.ts';
-
-/** `dt_develop_blend_params_t`'s mask modes: drawn, parametric, raster (any of them: a mask). */
-const MASKED = (1 << 1) | (1 << 2) | (1 << 3);
-/** `DEVELOP_BLEND_NORMAL2`, `DEVELOP_BLEND_BOUNDED`. */
-const NORMAL_BLENDS = [0x18, 0x19];
-
-/**
- * How an instance blends, from its blending parameters (`blend.h`; the first fields are
- * the same in every version since darktable 3: mask mode, colour space, blend mode,
- * its parameter, opacity). A uniform opacity becomes the mask's; a mask isn't
- * translated yet, so the instance comes switched off rather than applied everywhere.
- */
-function blending(
-  instance: ModuleInstance,
-  bytes: Uint8Array | null,
-): { mask?: Mask; off?: boolean; note?: string } | null {
-  if (!bytes || bytes.length < 20) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const mode = view.getUint32(0, true);
-  // Without `DEVELOP_MASK_ENABLED`, the other bits mean nothing (Ansel sets them all).
-  if (!(mode & 1)) return null;
-  const maskable = MASKABLE_KINDS.includes(instance.kind);
-  if (mode & MASKED) return { off: true, note: 'Masked there: imported switched off (its mask isn’t imported)' };
-  const opacity = clamp(view.getFloat32(16, true) / 100, 0, 1);
-  const notes: string[] = [];
-  if (!NORMAL_BLENDS.includes(view.getUint32(8, true) & 0xff)) notes.push('Blend mode not imported');
-  if (opacity < 1 && !maskable) notes.push('Opacity not imported');
-  return {
-    ...(opacity < 1 && maskable && { mask: { ...defaultMask, opacity } }),
-    ...(notes.length && { note: notes.join('. ') }),
-  };
-}
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+import { blending, formsAt } from './masks.ts';
+import type { Shape } from '../shapes.ts';
 
 export async function importDarktable(
   xmp: DarktableXmp,
@@ -74,6 +41,13 @@ export async function importDarktable(
   const imported: ModuleInstance[] = [];
   const items: ImportReportItem[] = [];
   for (const t of TRANSLATORS) for (const kind of t.kinds) decided.add(kind);
+
+  // Drawn forms as they stood at the history's end (they're shared by every module).
+  const forms = formsAt(xmp.masks, xmp.historyEnd - 1);
+  const shapes: Record<string, Shape> = {};
+  const { width, height, orientation } = metadata;
+  const swap = (orientation ?? 1) >= 5 && (orientation ?? 1) <= 8;
+  const aspect = width && height ? (swap ? height / width : width / height) : 1.5;
 
   for (const entry of active) {
     const translator = translatorOf.get(entry.operation);
@@ -96,12 +70,38 @@ export async function importDarktable(
       continue;
     }
     const result = translator.translate(entry, params, ctx);
-    const blend = result.instance ? blending(result.instance, await decodeBlob(entry.blendopParams ?? '')) : null;
-    const notes = [result.note, blend?.note].filter(Boolean).join('. ');
-    item(blend?.note && result.status === 'mapped' ? 'approximated' : result.status, notes || undefined, result.file);
-    // What comes with an instance is on when it is (a masked one comes switched off).
+    const blend = result.instance
+      ? await blending(
+          await decodeBlob(entry.blendopParams ?? ''),
+          forms,
+          MASKABLE_KINDS.includes(result.instance.kind),
+          aspect,
+        )
+      : null;
+    if (blend?.shapes) Object.assign(shapes, blend.shapes);
+    const notes = [result.note, ...(blend?.notes ?? [])].filter(Boolean).join('. ');
+    item(
+      blend?.notes.length && result.status === 'mapped' ? 'approximated' : result.status,
+      notes || undefined,
+      result.file,
+    );
+    // What comes with an instance is on when it is (a masked one comes switched off)…
     const on = entry.enabled && !blend?.off;
-    imported.push(...(result.extra ?? []).map((x) => ({ ...x, enabled: x.enabled && on }) as ModuleInstance));
+    // …and, when it's masked, where it is (a tone curve standing for its contrast).
+    imported.push(
+      ...(result.extra ?? []).map(
+        (x) =>
+          ({
+            ...x,
+            enabled: x.enabled && on,
+            // Where it applies, blended normally: theirs blends once, after the whole module.
+            ...(blend?.mask &&
+              MASKABLE_KINDS.includes(x.kind) && {
+                mask: { ...blend.mask, blend: 'normal' as const, blendFulcrum: 0 },
+              }),
+          }) as ModuleInstance,
+      ),
+    );
     if (!result.instance) continue;
     imported.push({
       ...result.instance,
@@ -115,7 +115,7 @@ export async function importDarktable(
   const recipe = normalizeEditParams({
     version: EDIT_PARAMS_VERSION,
     modules: [...kept, ...imported],
-    ...(base.shapes && { shapes: base.shapes }),
+    shapes: { ...base.shapes, ...shapes },
   });
   return { recipe, items };
 }

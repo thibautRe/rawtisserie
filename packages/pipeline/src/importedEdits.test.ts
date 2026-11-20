@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { decodeBlob, encodeBlob, parseDarktableXmp, activeEntries } from './darktable/xmp.ts';
 import { Layout, writeStruct } from './darktable/struct.ts';
 import { FilmicCurve, fitFilmic } from './darktable/tone.ts';
+import { BLEND_PARAMS } from './darktable/masks.ts';
 import {
   detectImportedEdits,
   importEdits,
@@ -20,6 +21,7 @@ import {
   normalizeEditParams,
   resolveLutRefs,
   unresolvedLutNames,
+  type ModuleInstance,
 } from './params.ts';
 
 const EXPOSURE_V7 = new Layout([
@@ -567,20 +569,7 @@ test('diffuse or sharpen maps parameter for parameter, its uniform opacity as th
     ['i32', 16],
   ]);
   const blend = await encodeBlob(
-    writeStruct(
-      new Layout([
-        ['mode', 'u32'],
-        ['cst', 'i32'],
-        ['blend', 'u32'],
-        ['parameter', 'f32'],
-        ['opacity', 'f32'],
-      ]),
-      {
-        mode: 1,
-        blend: 0x18,
-        opacity: 40,
-      },
-    ),
+    writeStruct(BLEND_PARAMS, { mask_mode: 1, blend_cst: 4, blend_mode: 0x18, opacity: 40 }),
   );
   const text = sidecar([{ operation: 'diffuse', modversion: 2, params }]).replace(
     /darktable:blendop_params="[^"]*"/,
@@ -600,4 +589,33 @@ test('diffuse or sharpen maps parameter for parameter, its uniform opacity as th
     [4, 128, 16, -0.5, 0.125, 2, 2],
   );
   assert.equal(d.mask?.opacity, 0.4);
+});
+
+test("darktable's rgb primaries: a colour calibration mix, identity untouched, white kept", async () => {
+  const { primariesMatrix } = await import('./darktable/primaries.ts');
+  const neutral = {
+    achromatic_tint_hue: 0,
+    achromatic_tint_purity: 0,
+    red_hue: 0,
+    red_purity: 1,
+    green_hue: 0,
+    green_purity: 1,
+    blue_hue: 0,
+    blue_purity: 1,
+  };
+  primariesMatrix(neutral).forEach((row, i) =>
+    row.forEach((v, j) => assert.ok(Math.abs(v - (i === j ? 1 : 0)) < 1e-5)),
+  );
+  const edited = primariesMatrix({ ...neutral, red_hue: 0.2, blue_purity: 0.7 });
+  edited.forEach((row) => assert.ok(Math.abs(row.reduce((a, b) => a + b, 0) - 1) < 1e-4));
+  const params = await packed(f32s(0, 0, 0.2, 1, 0, 1, 0, 0.7));
+  const { recipe } = (await importEdits(sidecar([{ operation: 'primaries', modversion: 1, params }]), {
+    base: defaultEditParams,
+    metadata,
+  }))!;
+  const c = recipe.modules.find(
+    (m) => m.kind === 'colorCalibration' && m.label === 'rgb primaries',
+  ) as ModuleInstance<'colorCalibration'>;
+  assert.deepEqual([c.params.adaptation, c.params.illuminant, c.params.normalizeRed], ['none', 'pipeline', false]);
+  assert.ok(Math.abs(c.params.red[0]! - edited[0]![0]!) < 1e-5);
 });
