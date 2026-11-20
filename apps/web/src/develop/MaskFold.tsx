@@ -137,7 +137,8 @@ export function MaskFold({
     px: '2',
     py: '1',
     borderWidth: '1px',
-    borderRadius: body ? 'md md 0 0' : 'md',
+    borderTopRadius: 'md',
+    borderBottomRadius: body ? '0' : 'md',
   } as const;
   return (
     <Box data-mask-fold mt="1">
