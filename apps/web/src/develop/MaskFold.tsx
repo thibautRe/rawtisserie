@@ -6,7 +6,7 @@
  */
 import { Box, HStack, IconButton, Stack, Switch, Text, Theme, chakra } from '@chakra-ui/react';
 import { ChevronDown, ScanEye } from 'lucide-react';
-import { type ReactNode, useSyncExternalStore } from 'react';
+import { type ReactNode, useState, useSyncExternalStore } from 'react';
 
 const LABEL_PROPS = {
   textStyle: '2xs',
@@ -55,7 +55,10 @@ export function MaskFold({
   children?: ReactNode;
 }) {
   const other = useOtherAppearance();
-  const on = state === 'on';
+  // Shown switched at once, the recipe changed a frame later: the commit re-renders the
+  // module (its editor too), which would hold the switch and the colours back.
+  const [pending, setPending] = useState<boolean | null>(null);
+  const on = pending ?? state === 'on';
   const foldable = state !== 'none';
   const expanded = foldable && open;
   const header = (
@@ -64,7 +67,15 @@ export function MaskFold({
         size="xs"
         colorPalette="orange"
         checked={on}
-        onCheckedChange={(d) => onSwitch(d.checked)}
+        onCheckedChange={(d) => {
+          setPending(d.checked);
+          requestAnimationFrame(() =>
+            setTimeout(() => {
+              onSwitch(d.checked);
+              setPending(null);
+            }),
+          );
+        }}
         title={
           on
             ? 'Switch the mask off: the module applies everywhere'
@@ -142,20 +153,16 @@ export function MaskFold({
   } as const;
   return (
     <Box data-mask-fold mt="1">
-      {on ? (
-        <Theme appearance={other} {...headerBox} borderColor="bg">
-          {header}
-        </Theme>
-      ) : (
-        <Box
-          {...headerBox}
-          bg="bg.nested"
-          borderColor="border.emphasized"
-          borderBottomColor={body ? 'bg.nested' : undefined}
-        >
-          {header}
-        </Box>
-      )}
+      {/* One element either way: switching restyles the header rather than remounting it. */}
+      <Theme
+        appearance={on ? other : other === 'light' ? 'dark' : 'light'}
+        {...headerBox}
+        {...(on
+          ? { borderColor: 'bg' }
+          : { bg: 'bg.nested', borderColor: 'border.emphasized', borderBottomColor: body ? 'bg.nested' : undefined })}
+      >
+        {header}
+      </Theme>
       {body && (
         <Stack
           gap="1.5"
