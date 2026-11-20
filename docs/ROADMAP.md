@@ -1342,8 +1342,10 @@ global" gap.
 > a sidebar pushing the modules left, a sidebar over them, and a fold): the **fold**. The
 > header's mask button is gone; each maskable module ends with a fold that says what its
 > mask does (`maskSummary`) and opens the editor under it (`develop/MaskFold.tsx`). A
-> module whose mask is on has its fold in the other appearance (light in the dark app,
-> and the other way round), open or closed, so masked modules stand out in the panel.
+> module whose mask is on has its fold's header in the other appearance (light in the
+> dark app, and the other way round), open or closed, so masked modules stand out in the
+> panel; the settings under it stay in the app's, a shade off the module (`bg.nested`):
+> a whole light card drew the eye off the photo.
 > There's no adding or removing a mask: the fold's switch turns it on (adding it) and
 > off (keeping its settings; a mask with none is dropped). The fold's header keeps the
 > switch and the "show the mask" button; closing it takes the mask off the image (its

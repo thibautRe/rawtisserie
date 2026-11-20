@@ -31,6 +31,8 @@ const config = defineConfig({
           panel: { value: { _light: '#ffffff', _dark: '#232120' } },
           muted: { value: { _light: '#eeebe6', _dark: '#2c2a28' } },
           emphasized: { value: { _light: '#e2ded8', _dark: '#3b3836' } },
+          // What's tied to a block of `panel` inside it (a mask fold's settings): a shade off it.
+          nested: { value: { _light: '#faf9f7', _dark: '#292725' } },
         },
         // Developer surround: neutral middle grey (sRGB 119 ≈ L* 50) to judge exposure and colour.
         canvas: { value: { _light: '#777777', _dark: '#777777' } },

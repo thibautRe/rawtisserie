@@ -180,6 +180,7 @@ const SAMPLE = 'From raw to well done: 0123456789 — ƒ/2.8 · 1/250 s · ISO 4
 const COLOURS = [
   ['bg', 'page'],
   ['bg.panel', 'panels'],
+  ['bg.nested', 'tied to a panel block (mask settings)'],
   ['bg.muted', 'fields, hover'],
   ['bg.emphasized', 'selected'],
   ['canvas', 'developer surround (L* 50)'],

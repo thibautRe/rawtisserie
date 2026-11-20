@@ -4,7 +4,7 @@
  * module whose mask is on has its fold in the other appearance (light in the dark app),
  * open or closed, so that masked modules stand out in the panel.
  */
-import { Box, HStack, IconButton, Switch, Text, Theme, chakra } from '@chakra-ui/react';
+import { Box, HStack, IconButton, Stack, Switch, Text, Theme, chakra } from '@chakra-ui/react';
 import { ChevronDown, ScanEye } from 'lucide-react';
 import { type ReactNode, useSyncExternalStore } from 'react';
 
@@ -136,22 +136,18 @@ export function MaskFold({
         {body}
       </Box>
     );
-  // A card at the module's foot, inside it, in the other appearance.
+  // A card at the module's foot, inside it: its header in the other appearance, its
+  // settings in the app's (a whole card in the other one drew the eye off the photo).
   return (
-    <Theme
-      appearance={other}
-      data-mask-fold
-      mt="1"
-      borderRadius="md"
-      px="2"
-      py="1"
-      display="flex"
-      flexDirection="column"
-      gap="1.5"
-      css={{ '& > :not(:first-child)': { pb: '1.5' } }}
-    >
-      {header}
-      {body}
-    </Theme>
+    <Box data-mask-fold mt="1" borderRadius="md" overflow="hidden">
+      <Theme appearance={other} px="2" py="1">
+        {header}
+      </Theme>
+      {body && (
+        <Stack gap="1.5" bg="bg.nested" px="2" pt="2" pb="2.5">
+          {body}
+        </Stack>
+      )}
+    </Box>
   );
 }
