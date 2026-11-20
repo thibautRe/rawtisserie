@@ -2149,11 +2149,17 @@ folders; collections are a filter in the sidebar, combined with the others.
 > user's photos (`darktable-cli`, `ansel-cli`): mean ΔE2000 1.2–6.4 for 10, 8–10 for
 > the rest; ~60 ms per import.
 
+> **Phase 2 in progress** 2026-11-20: tone equalizer (our Tones preserving detail, nodes
+> where their mask spans −8 … 0 EV), diffuse or sharpen (parameter for parameter),
+> darktable's rgb primaries (its 3×3 matrix as a colour calibration mix), and masks:
+> parametric ranges (grey, R/G/B, and Jz/Cz/hz through sampled JzAzBz ↔ u′v′ tables),
+> drawn circles, ellipses, gradients and paths from `masks_history` with their group's
+> operations, feathering, blend modes with their fulcrum. On 19 of the user's photos the
+> mean ΔE2000 against darktable's/Ansel's renders is 5.38 (5.74 before masks).
+
 Best effort, never the same pixels: our pipeline differs (demosaic, highlight
-reconstruction, profiles). Phase 2, by use in the user's files: masks and blending
-(drawn shapes from `masks_history`, parametric ranges), tone equalizer, contrast
-equalizer, diffuse or sharpen, rgb primaries (darktable's), colour equalizer, retouch,
-rgb curve; denoise as raw denoise. Later: Lightroom (`crs:` XMP) and Capture One
+reconstruction, profiles). Still to do, by use in the user's files: contrast equalizer,
+colour equalizer, retouch, rgb curve; brushes and raster masks; denoise as raw denoise. Later: Lightroom (`crs:` XMP) and Capture One
 (`.cos`) through the same report and warning.
 
 ---
