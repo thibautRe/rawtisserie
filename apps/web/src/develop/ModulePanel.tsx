@@ -157,7 +157,7 @@ import { LutMenu } from './LutMenu.tsx';
 import { LensSource } from './LensPicker.tsx';
 import { useRecipePreview } from './preview.ts';
 import type { LutChoice, LutLibrary } from './luts.ts';
-import { type RangeKey, maskSummary } from './masks.ts';
+import { RANGE_KEYS, type RangeKey, maskSummary } from './masks.ts';
 import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
 import type {
   DenoiseStatus,
@@ -1496,6 +1496,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     onOpen={onMaskOpen}
                     onSwitch={onMaskSwitch}
                     showing={overlay?.part === 'mask' && !overlay.values}
+                    selective={!!mask && (mask.drawn.length > 0 || RANGE_KEYS.some((k) => mask[k]))}
                     onShow={(show) =>
                       latest.current.onShapeUi({ maskOverlay: show ? { id, part: 'mask', values: false } : null })
                     }
