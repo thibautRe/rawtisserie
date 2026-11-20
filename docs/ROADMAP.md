@@ -2154,12 +2154,15 @@ folders; collections are a filter in the sidebar, combined with the others.
 > darktable's rgb primaries (its 3×3 matrix as a colour calibration mix), and masks:
 > parametric ranges (grey, R/G/B, and Jz/Cz/hz through sampled JzAzBz ↔ u′v′ tables),
 > drawn circles, ellipses, gradients and paths from `masks_history` with their group's
-> operations, feathering, blend modes with their fulcrum. On 19 of the user's photos the
-> mean ΔE2000 against darktable's/Ansel's renders is 5.38 (5.74 before masks).
+> operations, feathering, blend modes with their fulcrum; contrast equalizer (its curves
+> at our nodes); retouch (spots from its forms: clone, heal, blur, fill, with brush
+> strokes). On 19 of the user's photos the mean ΔE2000 against darktable's/Ansel's
+> renders is 5.4 (5.74 before masks); on ~100 sidecars, 768 module entries come
+> through (553 after phase 1) and 183 are left out (396); imports take ≤ 0.1 s.
 
 Best effort, never the same pixels: our pipeline differs (demosaic, highlight
-reconstruction, profiles). Still to do, by use in the user's files: contrast equalizer,
-colour equalizer, retouch, rgb curve; brushes and raster masks; denoise as raw denoise. Later: Lightroom (`crs:` XMP) and Capture One
+reconstruction, profiles). Still to do, by use in the user's files: colour equalizer,
+rgb curve; brushes in masks, raster masks; denoise as raw denoise. Later: Lightroom (`crs:` XMP) and Capture One
 (`.cos`) through the same report and warning.
 
 ---
