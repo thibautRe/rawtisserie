@@ -1,12 +1,11 @@
 /**
  * The fold at the bottom of a maskable module (roadmap 4.13): the mask's switch, what it
- * does (`maskSummary`), a click to show or hide its editor, and the editor under it. A
- * module whose mask is on has its fold in the other appearance (light in the dark app),
- * open or closed, so that masked modules stand out in the panel.
+ * does (`maskSummary`), a click to show or hide its editor, and the editor under it, on a
+ * card a shade off the module (a little brighter while the mask is on).
  */
-import { Box, HStack, IconButton, Stack, Switch, Text, Theme, chakra } from '@chakra-ui/react';
+import { Box, HStack, IconButton, Stack, Switch, Text, chakra } from '@chakra-ui/react';
 import { ChevronDown, ScanEye } from 'lucide-react';
-import { type ReactNode, useState, useSyncExternalStore } from 'react';
+import { type ReactNode, useState } from 'react';
 
 const LABEL_PROPS = {
   textStyle: '2xs',
@@ -15,18 +14,6 @@ const LABEL_PROPS = {
   textTransform: 'uppercase',
   letterSpacing: 'wider',
 } as const;
-
-function subscribe(onChange: () => void) {
-  const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  return () => observer.disconnect();
-}
-
-/** The appearance the app isn't in (the document's `dark` class), followed as it changes. */
-function useOtherAppearance(): 'light' | 'dark' {
-  const dark = useSyncExternalStore(subscribe, () => document.documentElement.classList.contains('dark'));
-  return dark ? 'light' : 'dark';
-}
 
 export function MaskFold({
   title,
@@ -54,7 +41,6 @@ export function MaskFold({
   /** The editor, when open. */
   children?: ReactNode;
 }) {
-  const other = useOtherAppearance();
   // Shown switched at once, the recipe changed a frame later: the commit re-renders the
   // module (its editor too), which would hold the switch and the colours back.
   const [pending, setPending] = useState<boolean | null>(null);
@@ -141,32 +127,26 @@ export function MaskFold({
   );
   const body = expanded && children;
   // A card at the module's foot, inside it, the same size on or off (no shift when
-  // switched). On, its header is in the other appearance, so masked modules stand out;
-  // its settings stay in the app's, a shade off the module (a whole card in the other
-  // appearance drew the eye off the photo). Off, the header is like the settings.
-  const headerBox = {
-    px: '2',
-    py: '1',
-    borderWidth: '1px',
-    borderTopRadius: 'md',
-    borderBottomRadius: body ? '0' : 'md',
-  } as const;
+  // switched): a shade off the module, a little brighter while the mask is on.
+  const bg = on ? 'bg.nested.on' : 'bg.nested';
   return (
     <Box data-mask-fold mt="1">
-      {/* One element either way: switching restyles the header rather than remounting it. */}
-      <Theme
-        appearance={on ? other : other === 'light' ? 'dark' : 'light'}
-        {...headerBox}
-        {...(on
-          ? { borderColor: 'bg' }
-          : { bg: 'bg.nested', borderColor: 'border.emphasized', borderBottomColor: body ? 'bg.nested' : undefined })}
+      <Box
+        px="2"
+        py="1"
+        bg={bg}
+        borderWidth="1px"
+        borderColor="border.emphasized"
+        borderBottomColor={body ? bg : undefined}
+        borderTopRadius="md"
+        borderBottomRadius={body ? '0' : 'md'}
       >
         {header}
-      </Theme>
+      </Box>
       {body && (
         <Stack
           gap="1.5"
-          bg="bg.nested"
+          bg={bg}
           px="2"
           pt="2"
           pb="2.5"

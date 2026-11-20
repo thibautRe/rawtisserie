@@ -181,6 +181,7 @@ const COLOURS = [
   ['bg', 'page'],
   ['bg.panel', 'panels'],
   ['bg.nested', 'tied to a panel block (mask settings)'],
+  ['bg.nested.on', 'the same, on (a mask that’s on)'],
   ['bg.muted', 'fields, hover'],
   ['bg.emphasized', 'selected'],
   ['canvas', 'developer surround (L* 50)'],
