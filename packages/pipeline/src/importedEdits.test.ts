@@ -739,3 +739,88 @@ test("darktable's colour equalizer: its curves read at our control colours", asy
   assert.ok(blue.blue.saturation < -10, `${blue.blue.saturation}`);
   assert.ok(Math.abs(blue.yellow.saturation) < 5, `${blue.yellow.saturation}`);
 });
+
+test('rgb curve: each curve’s gain in EV at our Tones nodes', async () => {
+  const node = new Layout([
+    ['x', 'f32'],
+    ['y', 'f32'],
+  ]);
+  const layout = new Layout([
+    ['curve_nodes', { array: { array: { struct: node }, n: 20 }, n: 3 }],
+    ['curve_num_nodes', { array: 'i32', n: 3 }],
+    ['curve_type', { array: 'i32', n: 3 }],
+    ['curve_autoscale', 'i32'],
+    ['compensate_middle_grey', 'gboolean'],
+    ['preserve_colors', 'i32'],
+  ]);
+  const pad = (nodes: number[][]) => [
+    ...nodes.map(([x, y]) => ({ x, y })),
+    ...Array.from({ length: 20 - nodes.length }, () => ({ x: 0, y: 0 })),
+  ];
+  const read = async (curves: number[][][], extra: Record<string, unknown> = {}) =>
+    findModule(
+      (await importEdits(
+        sidecar([
+          {
+            operation: 'rgbcurve',
+            modversion: 1,
+            params: await encodeBlob(
+              writeStruct(layout, {
+                curve_nodes: curves.map(pad),
+                curve_num_nodes: curves.map((c) => c.length),
+                curve_type: [2, 2, 2],
+                preserve_colors: 1,
+                ...extra,
+              }),
+            ),
+          },
+        ]),
+        { base: defaultEditParams, metadata },
+      ))!.recipe,
+      'toneCurve',
+    )!.params;
+  const identity = [
+    [0, 0],
+    [1, 1],
+  ];
+  const flat = await read([identity, identity, identity]);
+  assert.ok(
+    flat.rgb.every((v) => Math.abs(v) < 1e-6),
+    `${flat.rgb}`,
+  );
+  assert.deepEqual([flat.channels, flat.preserveColors, flat.preserveDetail], ['linked', 'luminance', false]);
+  // Middle grey doubled: +1 EV there (our node 6 of 9 over −9 … +3 EV is at 0 EV).
+  const lifted = await read([
+    [
+      [0, 0],
+      [0.1845, 0.369],
+      [1, 1],
+    ],
+    identity,
+    identity,
+  ]);
+  assert.ok(Math.abs(lifted.rgb[6]! - 1) < 0.01, `${lifted.rgb}`);
+  // Through lightness, an identity is still one.
+  const compensated = await read([identity, identity, identity], { compensate_middle_grey: 1 });
+  assert.ok(
+    compensated.rgb.every((v) => Math.abs(v) < 1e-3),
+    `${compensated.rgb}`,
+  );
+  // Per channel: ours too.
+  const manual = await read(
+    [
+      identity,
+      lifted
+        ? [
+            [0, 0],
+            [0.1845, 0.369],
+            [1, 1],
+          ]
+        : identity,
+      identity,
+    ],
+    { curve_autoscale: 1 },
+  );
+  assert.equal(manual.channels, 'independent');
+  assert.ok(Math.abs(manual.green[6]! - 1) < 0.01 && Math.abs(manual.red[6]!) < 1e-6);
+});

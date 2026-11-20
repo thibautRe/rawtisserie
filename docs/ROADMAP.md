@@ -2163,14 +2163,9 @@ folders; collections are a filter in the sidebar, combined with the others.
 Best effort, never the same pixels: our pipeline differs (demosaic, highlight
 reconstruction, profiles). darktable's colour equalizer comes through as our colour
 primaries (its curves read at our six control colours). Still to do, by use in the
-user's files: brushes in masks, raster masks; denoise as raw denoise; rgb curve, better
-done as its own port (see below) than squeezed into our Tones' EV offsets; Ansel's
-colour equalizer (rings of curves, another module).
-
-**rgb curve port (later, M).** darktable's and Ansel's `rgbcurve.c`: output against
-input through free nodes (cubic spline or monotone Hermite) on 0 … 1, per channel or
-linked through a norm, with an "auto scale" of the input. Our Tones keeps the EV-offset
-curve; a port next to it would let imports of rgb curve (and tone curve) be exact. Later: Lightroom (`crs:` XMP) and Capture One
+user's files: brushes in masks, raster masks; denoise as raw denoise; Ansel's colour
+equalizer (rings of curves, another module). rgb curve comes through as Tones (each
+curve's gain in EV at our nodes, linked through its norm or per channel). Later: Lightroom (`crs:` XMP) and Capture One
 (`.cos`) through the same report and warning.
 
 ---

@@ -18,6 +18,7 @@ import { rgbPrimaries } from './primaries.ts';
 import { contrastEqualizer } from './equalizer.ts';
 import { retouch } from './retouch.ts';
 import { colorEqualizer } from './colorequal.ts';
+import { rgbCurve } from './rgbcurve.ts';
 import { type Translator, instance, unreadable } from './translate.ts';
 
 export type { TranslateContext, Translation, Translator } from './translate.ts';
@@ -242,4 +243,5 @@ export const TRANSLATORS: readonly Translator[] = [
   contrastEqualizer,
   retouch,
   colorEqualizer,
+  rgbCurve,
 ];
