@@ -2220,8 +2220,7 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
   `index.html`), though the semantic tokens have their light values (`/ui` shows both).
   Still to do: a setting (dark, light, the system's), the image's surroundings in the
   developer and the loupe (which should stay dark or neutral grey for judging photos:
-  the loupe's details are forced dark today), and a pass over every page. The mask fold
-  already follows it (the other appearance).
+  the loupe's details are forced dark today), and a pass over every page.
 - **Design system (M):** with the new fonts, settle the UI's vocabulary before it grows
   further, and make it visible:
   - A component gallery: a `/ui` route in the app, everything on one page (decided
