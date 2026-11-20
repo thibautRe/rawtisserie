@@ -107,6 +107,9 @@ import {
   updateInstance,
   LUT_INTERPOLATIONS,
   type LutInterpolation,
+  EXPOSURE_BLENDS,
+  type ExposureBlend,
+  type PhotoRef,
   SPOT_MODES,
   type ShapeType,
   type SpotMode,
@@ -239,7 +242,25 @@ interface Props {
   onRemoveLut: (lut: LutChoice) => unknown;
   /** Where the recipe's raw denoise stands (null: nothing heard yet). */
   denoise: DenoiseStatus | null;
+  /** Ask the user for another photo to blend in (multiple exposure); null if they didn't pick one. */
+  onChooseExposure: (current: PhotoRef | null) => Promise<PhotoRef | null>;
+  /** The other photos recipes refer to that can't be had, by SHA-256. */
+  missingExposures: ReadonlySet<string>;
 }
+
+const EXPOSURE_BLEND_LABELS: Record<ExposureBlend, string> = {
+  additive: 'Additive',
+  average: 'Average',
+  lighten: 'Lighten',
+  darken: 'Darken',
+};
+
+const EXPOSURE_BLEND_HINTS: Record<ExposureBlend, string> = {
+  additive: 'Their sum, as two exposures on one frame of film: brighter than either',
+  average: 'Their mean: as bright as each',
+  lighten: 'The brighter of the two at each pixel',
+  darken: 'The darker of the two at each pixel',
+};
 
 type InstanceAction = 'new' | 'rename' | 'up' | 'down' | 'delete';
 
@@ -1248,7 +1269,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   } = props;
   const { guides, fittingPerspective } = props;
   const { toneInputs, fittingTone, toneView, rangeView } = props;
-  const { luts, missingLuts } = props;
+  const { luts, missingLuts, missingExposures } = props;
   // Handlers of a section that didn't re-render must still see the latest recipe and callbacks.
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -3577,6 +3598,75 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                 )}
               </Stack>
             )}
+          </>
+        );
+      })}
+      {sections('multipleExposure', [missingExposures], (e) => {
+        const photo = e.values.photo;
+        const instance = params.modules.find((m) => m.id === e.id);
+        const title = instance ? instanceTitle(params, instance) : MODULE_TITLES.multipleExposure;
+        const choose = () =>
+          void latest.current.onChooseExposure(photo).then((picked) => {
+            if (picked)
+              commit(
+                (p) => updateInstance(p, 'multipleExposure', e.id, { enabled: true, params: { photo: picked } }),
+                `${title}: ${picked.name}`,
+              );
+          });
+        return (
+          <>
+            <SelectRow label="Photo">
+              {(id) => (
+                <Button
+                  id={id}
+                  size="xs"
+                  variant="outline"
+                  flex="1"
+                  minW="0"
+                  justifyContent="start"
+                  onClick={choose}
+                  title="The photo to blend in"
+                  data-exposure-photo
+                >
+                  <Text truncate>{photo ? photo.name || 'Unnamed photo' : 'Choose a photo…'}</Text>
+                </Button>
+              )}
+            </SelectRow>
+            {photo && missingExposures.has(photo.sha256) && (
+              <Text textStyle="xs" color="fg.warning">
+                “{photo.name || 'This photo'}” isn’t available: it was deleted, or opened from another file. Choose it
+                again to blend it in.
+              </Text>
+            )}
+            <SelectRow label="Blend">
+              {(id) => (
+                <NativeSelect.Root size="xs" flex="1" title={EXPOSURE_BLEND_HINTS[e.values.blend]}>
+                  <NativeSelect.Field
+                    id={id}
+                    value={e.values.blend}
+                    onChange={(ev) => e.set({ blend: ev.target.value as ExposureBlend })}
+                  >
+                    {EXPOSURE_BLENDS.map((b) => (
+                      <option key={b} value={b}>
+                        {EXPOSURE_BLEND_LABELS[b]}
+                      </option>
+                    ))}
+                  </NativeSelect.Field>
+                  <NativeSelect.Indicator />
+                </NativeSelect.Root>
+              )}
+            </SelectRow>
+            <ParamSlider
+              label="Its exposure"
+              min={-4}
+              max={4}
+              hardMin={-10}
+              hardMax={10}
+              step={0.05}
+              format={fmt.ev}
+              track={tracks.grey}
+              {...e.bind('ev')}
+            />
           </>
         );
       })}

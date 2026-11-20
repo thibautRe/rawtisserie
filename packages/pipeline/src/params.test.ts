@@ -33,6 +33,7 @@ import {
   removeMask,
   removeMaskShape,
   updateMask,
+  exposurePhotos,
   lutIds,
   toneRangeWeights,
   forPhoto,
@@ -349,6 +350,18 @@ const samples: unknown[] = [
       { kind: 'lut', params: { lut: { id: '', name: 'Fuji Astia', path: 'HaldCLUT/Fuji Astia.png' } } },
     ],
   },
+  // Multiple exposure: one instance, before retouch.
+  {
+    version: 8,
+    modules: [
+      { kind: 'exposure' },
+      { kind: 'multipleExposure', params: { photo: { sha256: 'ab12', name: 'DSC1.ARW' }, blend: 'lighten', ev: -1 } },
+      { kind: 'multipleExposure', params: { photo: { sha256: 'cd34' } } },
+      { kind: 'retouch' },
+    ],
+  },
+  { version: 8, modules: [{ kind: 'multipleExposure', params: { photo: { name: 'no hash' }, ev: 2 } }] },
+  { version: 8, modules: [{ kind: 'multipleExposure', params: { photo: null, blend: 'additive' } }] },
   // Pending auto-tunes (roadmap 8.7): only on kinds that have one, and only `true`.
   {
     version: 7,
@@ -370,6 +383,17 @@ test('normalizeEditParams matches Rust', () => {
       JSON.stringify(sample),
     );
   }
+});
+
+test('exposurePhotos lists the photos enabled multiple exposures blend in', () => {
+  const p = normalizeEditParams({
+    version: 8,
+    modules: [{ kind: 'multipleExposure', params: { photo: { sha256: 'ab', name: 'A' }, blend: 'junk' } }],
+  });
+  assert.deepEqual(exposurePhotos(p), ['ab']);
+  assert.equal(p.modules[0]!.params.blend, 'average');
+  assert.deepEqual(exposurePhotos({ ...p, modules: [{ ...p.modules[0]!, enabled: false }] }), []);
+  assert.deepEqual(exposurePhotos(normalizeEditParams({ version: 8, modules: [{ kind: 'multipleExposure' }] })), []);
 });
 
 test('lutIds lists the LUTs of enabled instances once', () => {

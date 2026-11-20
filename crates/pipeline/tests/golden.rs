@@ -38,12 +38,18 @@ fn golden_images() {
     let out_dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("golden");
     std::fs::create_dir_all(&out_dir).unwrap();
 
-    let raws: Vec<String> = std::fs::read_to_string(root.join("raws.txt"))
+    // (sha256, name)
+    let listed: Vec<(String, String)> = std::fs::read_to_string(root.join("raws.txt"))
         .unwrap()
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
-        .map(|l| l.split_whitespace().nth(1).expect("<sha256> <name> <url>").to_string())
+        .map(|l| {
+            let mut fields = l.split_whitespace();
+            let sha = fields.next().unwrap().to_string();
+            (sha, fields.next().expect("<sha256> <name> <url>").to_string())
+        })
         .collect();
+    let raws: Vec<String> = listed.iter().map(|(_, name)| name.clone()).collect();
     let missing: Vec<&String> = raws.iter().filter(|name| !root.join("raws").join(name).exists()).collect();
     assert!(missing.is_empty(), "missing reference RAWs {missing:?}: run ./scripts/fetch-golden-raws.sh");
 
@@ -64,6 +70,12 @@ fn golden_images() {
     for raw in &raws {
         let mut dev = Developer::from_bytes(&std::fs::read(root.join("raws").join(raw)).unwrap())
             .unwrap_or_else(|e| panic!("{raw}: {e}"));
+        // The photos multiple exposures blend in: golden RAWs, by their hash.
+        for sha in recipes.iter().flat_map(|(_, case)| case.recipe.exposure_photos()) {
+            let (_, name) = listed.iter().find(|(s, _)| s == sha).unwrap_or_else(|| panic!("{sha} isn't a golden RAW"));
+            let photo = rawtisserie_pipeline::decode::decode(&std::fs::read(root.join("raws").join(name)).unwrap()).unwrap();
+            dev.exposures_mut().insert(sha, photo);
+        }
         let stem = Path::new(raw).file_stem().unwrap().to_string_lossy().into_owned();
         for (recipe, case) in &recipes {
             dev.release_cache();

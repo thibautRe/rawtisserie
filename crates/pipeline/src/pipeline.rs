@@ -5,6 +5,7 @@ use crate::demosaic;
 use crate::image::{Image, Mask, Region, Rgb, Rgba8};
 use crate::metadata::PhotoMetadata;
 use crate::output::ColorSpace;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ use crate::ops::lines::{self, GuideLine, Segment};
 use crate::ops::perspective::{self, Fit, FitMode, Guide, Perspective};
 use crate::ops::diffuse::{DiffuseOp, Planes};
 use crate::ops::glow::GlowOp;
+use crate::ops::multiple_exposure::{ExposureStore, Layer};
 use crate::ops::{equalizer, filmic, geometry};
 use crate::params::{self, ColorPrimaries, ContrastEqualizer, EditParams, Filmic, Geometry, Glow, Lens, Module, ModuleInstance, ModuleKind};
 use crate::Result;
@@ -106,6 +108,10 @@ pub struct Developer {
     /// Shared with [`sibling`](Self::sibling)s.
     photo: Rc<RawPhoto>,
     base: Option<(usize, Image)>,
+    /// `Layer::key` of the multiple exposure blended into the base.
+    base_layer: u64,
+    /// The photos multiple exposures may blend in; shared with [`sibling`](Self::sibling)s.
+    exposures: Rc<RefCell<ExposureStore>>,
     /// The spots applied to the base.
     base_retouch: Retouched,
     /// Part of a base image, for region renders.
@@ -210,6 +216,8 @@ const PATCH_MARGIN: usize = 8;
 struct Patch {
     factor: usize,
     at: Region,
+    /// `Layer::key` of the multiple exposure blended in.
+    layer: u64,
     /// Retouched as `retouch` says.
     image: Image,
     retouch: Retouched,
@@ -282,6 +290,8 @@ struct Slot {
 #[derive(Clone, Debug, PartialEq)]
 struct GeometryKey {
     base_factor: usize,
+    /// `Layer::key` of the multiple exposure blended into the base.
+    layer: u64,
     /// `retouch::key` of the spots applied to the base.
     retouch: u64,
     transform: geometry::Transform,
@@ -464,6 +474,8 @@ impl Developer {
             denoising: denoising::Denoising::new(Rc::clone(&photo)),
             photo,
             base: None,
+            base_layer: 0,
+            exposures: Rc::default(),
             base_retouch: Retouched::default(),
             patch: None,
             slots: Vec::new(),
@@ -480,6 +492,7 @@ impl Developer {
     pub fn sibling(&self) -> Developer {
         let mut dev = Self::with_photo(Rc::clone(&self.photo));
         dev.denoising = self.denoising.share();
+        dev.exposures = Rc::clone(&self.exposures);
         dev
     }
 
@@ -509,6 +522,22 @@ impl Developer {
 
     pub fn luts_mut(&mut self) -> &mut ClutStore {
         &mut self.point_ops.luts
+    }
+
+    /// The photos multiple exposures may blend in (a recipe whose photo isn't there
+    /// renders without it). Shared with [`sibling`](Self::sibling)s, and kept by
+    /// [`release_cache`](Self::release_cache).
+    pub fn exposures(&self) -> std::cell::Ref<'_, ExposureStore> {
+        self.exposures.borrow()
+    }
+
+    pub fn exposures_mut(&self) -> std::cell::RefMut<'_, ExposureStore> {
+        self.exposures.borrow_mut()
+    }
+
+    /// What `params` blends into the base, if anything.
+    fn layer(&self, params: &EditParams) -> Option<Layer> {
+        Layer::of(params, &self.exposures.borrow())
     }
 
     fn transform(&self, params: &EditParams) -> geometry::Transform {
@@ -556,7 +585,8 @@ impl Developer {
         let plain = Self::unwarped(params);
         let (width, height, scale) = self.output_size(&plain, size);
         let transform = self.transform(&plain);
-        self.ensure_base(Self::binning(scale));
+        let layer = self.layer(params);
+        self.ensure_base(Self::binning(scale), layer.as_ref());
         let (_, base) = self.base.as_ref().expect("base was just built");
         let img = geometry::apply(base, &transform, width, height);
         let found = lines::detect(&img, self.focal_length() * width.max(height) as f32, 0.04 * width.max(height) as f32);
@@ -689,11 +719,12 @@ impl Developer {
         if plan.patch {
             let factor = Self::binning(plan.scale);
             let base = demosaic::base_size(&self.photo, factor);
-            let gkey = GeometryKey { base_factor: factor, retouch: 0, transform: transform.clone(), width, height, region: plan.region };
+            let gkey = GeometryKey { base_factor: factor, layer: 0, retouch: 0, transform: transform.clone(), width, height, region: plan.region };
             if self.slots[0].sensor_clip.as_ref().map(|(k, _)| k) != Some(&gkey) {
                 // The slot's geometry may come from cache, built from another patch.
                 let bounds = geometry::source_bounds(base, &transform, width, height, plan.region);
-                self.ensure_patch(factor, bounds);
+                let layer = self.layer(params);
+                self.ensure_patch(factor, bounds, layer.as_ref());
                 let patch = self.patch.as_mut().expect("patch was just built");
                 let src = patch.sensor_clip.get_or_insert_with(|| demosaic::clipped_photosites_region(&self.photo, factor, patch.at));
                 let mask = geometry::apply_mask_region(src, patch.at, base, &transform, width, height, plan.region);
@@ -703,7 +734,7 @@ impl Developer {
         }
 
         let base_factor = self.base.as_ref().expect("base was just built").0;
-        let gkey = GeometryKey { base_factor, retouch: 0, transform, width, height, region: plan.region };
+        let gkey = GeometryKey { base_factor, layer: 0, retouch: 0, transform, width, height, region: plan.region };
         if self.sensor_clip.as_ref().map(|(f, _)| *f) != Some(base_factor) {
             self.sensor_clip = Some((base_factor, demosaic::clipped_photosites(&self.photo, base_factor)));
             for slot in &mut self.slots {
@@ -735,7 +766,8 @@ impl Developer {
         let Some(base_factor) = self.plan_factor(&plan) else { return false };
         let (width, height) = plan.frame;
         let retouch = retouch::key(&retouch::stamps(params));
-        let gkey = GeometryKey { base_factor, retouch, transform: self.transform(params), width, height, region: plan.padded };
+        let layer = Layer::key_of(self.layer(params).as_ref());
+        let gkey = GeometryKey { base_factor, layer, retouch, transform: self.transform(params), width, height, region: plan.padded };
         let Some(slot) = self.slots.iter().find(|s| s.frame == plan.frame && s.region == plan.region) else { return false };
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             return false;
@@ -815,11 +847,12 @@ impl Developer {
     /// padded render, and whether anything was rebuilt (the slot's id then changes).
     fn prepare_slot(&mut self, params: &EditParams, size: RenderSize) -> (Plan, GeometryKey, Region, bool) {
         let plan = self.plan(params, size);
-        let base_factor = if plan.patch { Self::binning(plan.scale) } else { self.ensure_base(Self::binning(plan.scale)) };
+        let layer = self.layer(params);
+        let base_factor = if plan.patch { Self::binning(plan.scale) } else { self.ensure_base(Self::binning(plan.scale), layer.as_ref()) };
         let (width, height) = plan.frame;
         let stamps = retouch::stamps(params);
         let retouch = retouch::key(&stamps);
-        let gkey = GeometryKey { base_factor, retouch, transform: self.transform(params), width, height, region: plan.padded };
+        let gkey = GeometryKey { base_factor, layer: Layer::key_of(layer.as_ref()), retouch, transform: self.transform(params), width, height, region: plan.padded };
 
         // Pick (or create) the cache slot for this output size, and make it the most recent.
         let slot = match self.slots.iter().position(|s| s.frame == plan.frame && s.region == plan.region) {
@@ -838,7 +871,7 @@ impl Developer {
             slot.detail = None;
             slot.masks = None;
             slot.geometry = None; // free before allocating
-            let img = self.geometry_stage(&gkey, plan.patch, &stamps);
+            let img = self.geometry_stage(&gkey, plan.patch, &stamps, layer.as_ref());
             self.slots[0].geometry = Some((gkey.clone(), img));
             changed = true;
         }
@@ -1109,7 +1142,7 @@ impl Developer {
 
     /// Run the geometry stage for `key`, from the whole base or from a patch, retouched
     /// with `stamps` (whose key `key` has).
-    fn geometry_stage(&mut self, key: &GeometryKey, patch: bool, stamps: &[Stamp]) -> Image {
+    fn geometry_stage(&mut self, key: &GeometryKey, patch: bool, stamps: &[Stamp], layer: Option<&Layer>) -> Image {
         let scale = 1.0 / key.base_factor as f32;
         if !patch {
             let (factor, base) = self.base.as_mut().expect("base was just built");
@@ -1121,23 +1154,33 @@ impl Developer {
         let bounds = geometry::source_bounds(base, &key.transform, key.width, key.height, key.region);
         // With what the spots changing those pixels read.
         let bounds = retouch::needed(stamps, base, scale, bounds);
-        self.ensure_patch(key.base_factor, bounds);
+        self.ensure_patch(key.base_factor, bounds, layer);
         let patch = self.patch.as_mut().expect("patch was just built");
         patch.retouch.update(&mut patch.image, patch.at, base, stamps, key.retouch, scale);
         geometry::apply_region(&patch.image, patch.at, base, &key.transform, key.width, key.height, key.region)
     }
 
     /// Make sure the patch covers `bounds` of the base image for `factor`.
-    fn ensure_patch(&mut self, factor: usize, bounds: Region) {
-        if self.patch.as_ref().is_some_and(|p| p.factor == factor && p.at.contains(&bounds)) {
+    fn ensure_patch(&mut self, factor: usize, bounds: Region, layer: Option<&Layer>) {
+        let key = Layer::key_of(layer);
+        if self.patch.as_ref().is_some_and(|p| p.factor == factor && p.layer == key && p.at.contains(&bounds)) {
             return;
         }
         self.patch = None; // free before allocating
         // With room around, so that panning a little doesn't develop it again.
         let (width, height) = demosaic::base_size(&self.photo, factor);
         let at = bounds.padded(bounds.width.max(bounds.height) / PATCH_MARGIN, width, height);
-        let image = demosaic::develop_base_region(&self.photo, factor, at);
-        self.patch = Some(Patch { factor, at, image, retouch: Retouched::default(), sensor_clip: None });
+        let image = self.develop_base(factor, at, layer);
+        self.patch = Some(Patch { factor, at, layer: key, image, retouch: Retouched::default(), sensor_clip: None });
+    }
+
+    /// Pixels `at` of the base image for `factor`, with `layer` blended in.
+    fn develop_base(&self, factor: usize, at: Region, layer: Option<&Layer>) -> Image {
+        let mut image = demosaic::develop_base_region(&self.photo, factor, at);
+        if let Some(layer) = layer {
+            layer.apply(&mut image, &self.photo, factor, at);
+        }
+        image
     }
 
     /// Binning factor for a render at `scale`: as much as possible while keeping the
@@ -1226,12 +1269,26 @@ impl Developer {
     }
 
     /// Make sure a base image suitable for `factor` is cached; returns its actual factor.
-    fn ensure_base(&mut self, factor: usize) -> usize {
+    fn ensure_base(&mut self, factor: usize, layer: Option<&Layer>) -> usize {
+        let key = Layer::key_of(layer);
         match &self.base {
-            Some((f, _)) if *f <= factor && factor <= *f * 4 => *f,
+            Some((f, _)) if *f <= factor && factor <= *f * 4 && self.base_layer == key => *f,
+            Some((f, _)) if *f <= factor && factor <= *f * 4 => {
+                // Another blend: the same base again, without dropping the other caches
+                // (their keys tell them apart).
+                let f = *f;
+                self.base = None;
+                self.base_retouch = Retouched::default();
+                let (width, height) = demosaic::base_size(&self.photo, f);
+                self.base = Some((f, self.develop_base(f, Region::full(width, height), layer)));
+                self.base_layer = key;
+                f
+            }
             _ => {
                 self.release_cache(); // free the old one before allocating the new one
-                self.base = Some((factor, demosaic::develop_base(&self.photo, factor)));
+                let (width, height) = demosaic::base_size(&self.photo, factor);
+                self.base = Some((factor, self.develop_base(factor, Region::full(width, height), layer)));
+                self.base_layer = key;
                 factor
             }
         }

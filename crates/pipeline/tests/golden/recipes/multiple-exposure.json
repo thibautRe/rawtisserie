@@ -1,0 +1,12 @@
+{
+  "size": 600,
+  "recipe": {
+    "version": 8,
+    "modules": [
+      { "kind": "multipleExposure", "params": { "photo": { "sha256": "250784580ea527442c09004417bb0eead484f2bf3ee8f9121a776ac65bb50d0f", "name": "sony-ilce-7m3.arw" }, "blend": "additive", "ev": -1 } },
+      { "kind": "exposure", "params": { "ev": 0.7 } },
+      { "kind": "colorCalibration" },
+      { "kind": "filmic" }
+    ]
+  }
+}

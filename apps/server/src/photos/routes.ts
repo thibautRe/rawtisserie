@@ -680,7 +680,16 @@ export async function photoRoutes(
 
   app.get('/api/photos/:id/original', { config: { rateLimit: false } }, async (request, reply) => {
     const { id } = Id.parse(request.params);
-    const photo = await photos(db).findOne({ id, owner_id: currentUser(request).id });
+    return sendOriginal(reply, await photos(db).findOne({ id, owner_id: currentUser(request).id }));
+  });
+
+  // By its hash: what multiple exposures refer to another photo by.
+  app.get('/api/originals/:sha256', { config: { rateLimit: false } }, async (request, reply) => {
+    const sha256 = Sha256.parse((request.params as { sha256: string }).sha256);
+    return sendOriginal(reply, await photos(db).findOne({ sha256, owner_id: currentUser(request).id }));
+  });
+
+  async function sendOriginal(reply: FastifyReply, photo: Photos | null) {
     if (!photo) throw notFound('Photo not found');
     const file = await storage.get(originalKey(photo.storage_key));
     if (!file) throw notFound('Original file not found');
@@ -690,7 +699,7 @@ export async function photoRoutes(
       .header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(photo.original_filename)}`)
       .header('cache-control', 'private, max-age=31536000, immutable')
       .send(file);
-  });
+  }
 }
 
 type SQLColumn = 'camera_model' | 'lens';

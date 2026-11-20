@@ -1,4 +1,5 @@
 import type { EditParams } from '@rawtisserie/pipeline';
+import type { ExposureSource } from './source.ts';
 
 /** Side of a zoom tile, in pixels of its level. */
 export const ZOOM_TILE = 512;
@@ -15,6 +16,8 @@ export interface ZoomSource {
   userLuts: { id: string; name: string }[];
   /** Ids of the LUTs the recipe may use. */
   luts: string[];
+  /** The other photos the recipe blends in (multiple exposure). */
+  exposures: ExposureSource[];
 }
 
 /** Size of each zoom level: level `n` is the image fitted in its full size / 2ⁿ. */

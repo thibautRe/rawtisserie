@@ -112,6 +112,8 @@ export interface Photo {
   versionCount: number;
   filename: string;
   fileSize: number;
+  /** The original's SHA-256: what a multiple exposure refers to it by. */
+  sha256: string;
   cameraMake: string | null;
   cameraModel: string | null;
   lens: string | null;

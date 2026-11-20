@@ -230,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let t = Instant::now();
     let id = dev.luts_mut().load(&lut)?;
     println!("{:<34} {:>7.1} ms", "LUT loaded", t.elapsed().as_secs_f64() * 1e3);
-    let l = p.add(rawtisserie_pipeline::params::Lut { lut: Some(rawtisserie_pipeline::params::LutRef { id, name: String::new() }), ..Default::default() });
+    let l = p.add(rawtisserie_pipeline::params::Lut { lut: Some(rawtisserie_pipeline::params::LutRef { id, name: String::new(), path: None }), ..Default::default() });
     time("LUT added", &mut dev, &p);
     for _ in 0..2 {
         p.get_mut::<Exposure>().ev += 0.1;

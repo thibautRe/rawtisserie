@@ -686,6 +686,25 @@ impl Developer {
     pub fn unload_lut(&mut self, id: &str) -> bool {
         self.inner.luts_mut().remove(id)
     }
+
+    /// Make a photo (a RAW file or an image, as the constructor takes) available to
+    /// multiple exposures, by the SHA-256 of its file (`exposurePhotos`).
+    #[wasm_bindgen(js_name = loadExposure)]
+    pub fn load_exposure(&mut self, sha256: &str, bytes: &[u8]) -> Result<(), JsError> {
+        let photo = pipeline::decode::decode(bytes).map_err(js_err)?;
+        self.inner.exposures_mut().insert(sha256, photo);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = hasExposure)]
+    pub fn has_exposure(&self, sha256: &str) -> bool {
+        self.inner.exposures().contains(sha256)
+    }
+
+    #[wasm_bindgen(js_name = unloadExposure)]
+    pub fn unload_exposure(&mut self, sha256: &str) -> bool {
+        self.inner.exposures_mut().remove(sha256)
+    }
 }
 
 /// The point operations over a fixed strip of a spatial image (`Developer.spatialRows`),

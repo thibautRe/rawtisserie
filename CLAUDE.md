@@ -311,6 +311,15 @@ See README.md for the architecture overview and commands.
   deleted, so recipes keep rendering); `collectLuts` removes tables nobody has, at start.
   Built-in LUTs are files in `packages/pipeline/luts/` listed in `BUILTIN_LUTS`: never
   change or remove one (recipes refer to its id), retire it instead.
+- Multiple exposure (`ops/multiple_exposure.rs`, the `multipleExposure` kind) blends another
+  photo into the base, as it comes off the sensor (scaled to cover, centred). It refers to it
+  by its original's SHA-256 (`PhotoRef`, `photos.sha256`), so it survives transfers and
+  re-imports. Renderers get the photos separately, like LUTs (`ExposureStore`:
+  `Developer::exposures_mut`, wasm `loadExposure`; `exposurePhotos` lists them); one that
+  isn't loaded is skipped. The blend is part of the base's key (`Layer::key`, in
+  `GeometryKey::layer` and the patch). Every renderer must load them: the developer
+  (`RenderBackend.setExposureSource`, `/api/originals/:sha256`), the library export and
+  previews, and the server's render and zoom workers (`RenderSource.exposures`).
 - Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 8).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.

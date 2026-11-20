@@ -52,6 +52,8 @@ export type WorkerRequest =
   | { type: 'fitPerspective'; id: number; params: EditParams; lines: GuideLine[]; mode: PerspectiveFit }
   /** A LUT's packed table, for the recipes that use it (`lutIds`). */
   | { type: 'lut'; id: number; lutId: string; bytes: ArrayBuffer }
+  /** Another photo's file, for the recipes that blend it in (`exposurePhotos`). */
+  | { type: 'exposure'; id: number; sha256: string; bytes: ArrayBuffer }
   /** Decode a LUT file (`.cube`, Hald CLUT PNG): its id and packed form. */
   | { type: 'parseLut'; id: number; bytes: ArrayBuffer }
   /** Open a denoised photo kept by the page (`DenoiseEvent` `denoised`), without its RAW file. */

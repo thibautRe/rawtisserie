@@ -15,6 +15,7 @@ import {
 import { Developer, initPipeline, lensfun } from '@rawtisserie/pipeline/node';
 import { readLut } from '../luts/files.ts';
 import { storage } from '../storage/index.ts';
+import { loadExposures } from './exposures.ts';
 import { ZOOM_TILE, type ZoomLevels, type ZoomRequest, type ZoomResponse, type ZoomSource } from './zoomTypes.ts';
 
 initPipeline();
@@ -48,6 +49,7 @@ async function prepare(source: ZoomSource) {
     const lut = await readLut(id);
     if (lut) dev.loadLut(lut);
   }
+  await loadExposures(dev, source.exposures);
   const recipe = source.autoDefaults ? await startingRecipe(dev, source.importedEdits, source.userLuts) : source.params;
   const params = JSON.stringify(recipe ?? {});
   if (recipe && hasPendingAutoTune(recipe)) {

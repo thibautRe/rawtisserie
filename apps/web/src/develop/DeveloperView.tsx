@@ -25,6 +25,8 @@ import {
   updateInstance,
   updateModule,
   lensfunShot,
+  exposurePhotos,
+  type PhotoRef,
 } from '@rawtisserie/pipeline';
 import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -113,6 +115,32 @@ interface Props {
   versions?: (whenSaved: () => Promise<void>) => React.ReactNode;
   /** Go back to where the photo was opened from (Esc). */
   onBack?: () => void;
+  /**
+   * Ask the user for another photo to blend in (multiple exposure), which the backend's
+   * exposure source can then give; null if they didn't pick one.
+   */
+  chooseExposure?: (current: PhotoRef | null) => Promise<PhotoRef | null>;
+}
+
+const NO_MISSING: ReadonlySet<string> = new Set();
+
+/** The other photos `params` blends in (multiple exposure) that `backend` can't have. */
+function useMissingExposures(backend: RenderBackend, params: EditParams): ReadonlySet<string> {
+  const shas = exposurePhotos(params).join(' ');
+  const [missing, setMissing] = useState(NO_MISSING);
+  useEffect(() => {
+    let cancelled = false;
+    const wanted = shas ? shas.split(' ') : [];
+    void Promise.all(wanted.map(async (sha) => ((await backend.hasExposure(sha)) ? [] : [sha]))).then((found) => {
+      const now = found.flat();
+      if (!cancelled)
+        setMissing((old) => (old.size === now.length && now.every((s) => old.has(s)) ? old : new Set(now)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, shas]);
+  return missing;
 }
 
 /**
@@ -293,6 +321,7 @@ export function DeveloperView({
   actions,
   versions,
   onBack,
+  chooseExposure,
 }: Props) {
   const [store] = useState(() => new HistoryStore(original, initialHistory));
   const history = useSyncExternalStore(store.subscribe, store.getState);
@@ -982,6 +1011,12 @@ export function DeveloperView({
     }
   };
 
+  // ── Multiple exposure ──
+  const missingExposures = useMissingExposures(backend, params);
+  const onChooseExposure = useStableCallback(
+    (current: PhotoRef | null): Promise<PhotoRef | null> => chooseExposure?.(current) ?? Promise.resolve(null),
+  );
+
   // ── LUTs ──
   const luts = useLutLibrary();
   const missingLuts = useMissingLuts();
@@ -1476,6 +1511,8 @@ export function DeveloperView({
               luts={luts}
               missingLuts={missingLuts}
               onAddLut={onAddLut}
+              onChooseExposure={onChooseExposure}
+              missingExposures={missingExposures}
               onRenameLut={luts.rename}
               onRemoveLut={onRemoveLut}
               cropping={!!cropDraft}

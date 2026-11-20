@@ -288,7 +288,7 @@ fn luts_render_the_same_in_strips_and_survive_releasing_the_cache() {
     let mut p = EditParams::default_for(dev.metadata());
     let plain = dev.render(&p, SIZE, Quality::Final);
     let id = dev.luts_mut().load(file.as_bytes()).unwrap();
-    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into() }), interpolation: Interpolation::Tetrahedral });
+    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into(), path: None }), interpolation: Interpolation::Tetrahedral });
     let looked = dev.render(&p, SIZE, Quality::Final);
     assert_ne!(looked.data, plain.data);
 
@@ -313,9 +313,9 @@ fn luts_render_the_same_in_strips_and_survive_releasing_the_cache() {
     let half = dev.render(&p, SIZE, Quality::Final);
     assert!(half.data != looked.data && half.data != plain.data);
     p.shapes.insert("s".into(), Shape::Ellipse { center: [0.4, 0.5], radii: [0.2, 0.3], rotation: 0.0, feather: 0.1, opacity: 1.0 });
-    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into() }), interpolation: Interpolation::Trilinear });
+    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into(), path: None }), interpolation: Interpolation::Trilinear });
     p.modules.last_mut().unwrap().mask = Some(Mask { drawn: vec![DrawnShape { shape: "s".into(), ..Default::default() }], blend: BlendMode::Multiply, ..Mask::default() });
-    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into() }), interpolation: Interpolation::Tetrahedral });
+    p.add(Lut { lut: Some(LutRef { id: id.clone(), name: "test".into(), path: None }), interpolation: Interpolation::Tetrahedral });
     p.modules.last_mut().unwrap().mask = Some(Mask { opacity: 0.3, ..Mask::default() });
     // A fresh developer, like the strips (see `strips_match_the_full_render`).
     let mut dev = developer();

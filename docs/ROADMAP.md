@@ -1368,6 +1368,22 @@ needs redoing for 1.0 so that it makes sense and stays out of the way.
   where mask presets (4.5's "not done yet") would fit.
 - Format and pipeline stay as they are: it's a UI change.
 
+### 4.14 Multiple exposure (M)
+
+> **Done** 2026-11-20 (`ops/multiple_exposure.rs`, the `multipleExposure` kind). Another
+> photo blended into this one's base image as it comes off the sensor (demosaiced or
+> binned, D65-balanced, linear Rec.2020), before retouch and geometry, as Fujifilm's
+> in-camera multiple exposure does: additive, average, lighten or darken (by luminance),
+> with a gain in EV on the other photo. It's scaled to cover this one's sensor, centred.
+> Referred to by its original's SHA-256, loaded beside the recipe like LUTs; skipped when
+> it can't be had. Chosen from the library's photos (as the film roll lists them) or, in
+> the public developer, from a file.
+
+Later, if wanted: more than two photos (more instances, or a list), alignment (offset,
+scale, rotation), the other photo's own white balance or recipe, raw denoise on it too
+(today only this photo is denoised), and re-rendering the photos that blend one in when
+it's deleted for good or comes back.
+
 ---
 
 ## M5 — Compare (M–L, after 1.2)

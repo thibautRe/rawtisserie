@@ -62,6 +62,7 @@ at the end.
 
 ```
 RAW ─▶ decode ─▶ demosaic/bin ─▶ D65 white balance ─▶ camera → Rec.2020   cached: base (per binning factor)
+    ─▶ multiple exposure: another photo's base blended in                  cached: with the base
     ─▶ retouch spots (heal, clone, fill, blur), in place on the base        cached: with the base
     ─▶ geometry (lens, orientation, straighten, perspective, crop, resample) cached: per output size
        └ drawn parts of masks, through the same geometry, feathered          cached: per output size

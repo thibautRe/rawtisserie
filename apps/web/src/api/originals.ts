@@ -90,6 +90,14 @@ export async function fetchOriginal(
   return bytes;
 }
 
+/**
+ * The original of the photo whose file has this SHA-256 (what multiple exposures refer
+ * to another photo by), or null when the user has none: a `RenderBackend` exposure source.
+ */
+export function originalByHash(sha256: string): Promise<ArrayBuffer | null> {
+  return fetchOriginal(`/api/originals/${encodeURIComponent(sha256)}`).catch(() => null);
+}
+
 /** Where a denoised photo of `url` named `key` (`denoiseKeyName`) is kept in the cache. */
 function denoisedUrl(url: string, key: string): string {
   const u = new URL(url, location.href);

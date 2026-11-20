@@ -14,6 +14,7 @@ pub mod glow;
 pub mod lut;
 pub mod lines;
 pub mod mask;
+pub mod multiple_exposure;
 pub mod perspective;
 pub mod point;
 pub mod primaries;

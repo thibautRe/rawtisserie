@@ -242,6 +242,7 @@ export class RenderQueue {
       userLuts: job.userLuts,
       extractMetadata: job.needsMetadata,
       luts: job.luts,
+      exposures: job.exposures,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
         key: renderKey(versionId, size, FORMAT),
         maxSize,

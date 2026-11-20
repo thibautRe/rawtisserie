@@ -11,6 +11,7 @@ import {
   activeDenoise,
   denoiseKeyName,
   denoiseModelId,
+  exposurePhotos,
   lutIds,
   toSensor,
 } from '@rawtisserie/pipeline';
@@ -112,6 +113,37 @@ function prepareLuts(dev: Developer, params: EditParams) {
     dev.unloadLut(id);
     pool?.unloadLut(id);
     loadedLuts = loadedLuts.filter((x) => x !== id);
+  }
+}
+
+/** The other photos' files the page sent (multiple exposure), by SHA-256. */
+const exposureBytes = new Map<string, Uint8Array>();
+/** The other photos decoded in the developer, least recently used first. */
+let loadedExposures: string[] = [];
+
+/**
+ * Decode the other photos `params` blends in (those the page sent), and drop the others
+ * but the last one (a decoded photo is as large as the RAW file's samples).
+ */
+function prepareExposures(dev: Developer, params: EditParams) {
+  const needed = exposurePhotos(params).filter((sha) => exposureBytes.has(sha));
+  for (const sha of needed) {
+    if (!dev.hasExposure(sha)) {
+      try {
+        dev.loadExposure(sha, exposureBytes.get(sha)!);
+      } catch (err) {
+        // Not a photo the pipeline reads: rendered without it.
+        console.warn('Decoding a multiple exposure’s photo failed', err);
+        exposureBytes.delete(sha);
+        continue;
+      }
+    }
+    loadedExposures = [...loadedExposures.filter((x) => x !== sha), sha];
+  }
+  while (loadedExposures.length > needed.length + 1) {
+    const sha = loadedExposures.find((x) => !needed.includes(x))!;
+    dev.unloadExposure(sha);
+    loadedExposures = loadedExposures.filter((x) => x !== sha);
   }
 }
 
@@ -434,6 +466,11 @@ async function handle(msg: WorkerRequest) {
       post({ type: 'lutLoaded', id: msg.id });
       return;
     }
+    if (msg.type === 'exposure') {
+      exposureBytes.set(msg.sha256, new Uint8Array(msg.bytes));
+      post({ type: 'done', id: msg.id });
+      return;
+    }
     if (msg.type === 'parseLut') {
       const parsed = parseLut(new Uint8Array(msg.bytes));
       const packed = parsed.takePacked().buffer as ArrayBuffer;
@@ -450,6 +487,7 @@ async function handle(msg: WorkerRequest) {
       for (const id of loadedLuts) pool?.unloadLut(id);
       loadedLuts = [];
       thumbnailLuts = [];
+      loadedExposures = [];
       const bytes = new Uint8Array(msg.bytes);
       developer = msg.type === 'load' ? new Developer(bytes) : Developer.fromDenoisedFile(bytes);
       // Its models are loaded again as recipes ask for them (from `denoise.models`).
@@ -462,6 +500,7 @@ async function handle(msg: WorkerRequest) {
     if (!developer) throw new Error('No RAW file loaded');
     if (msg.type === 'thumbnail') prepareThumbnailLuts(developer, msg.params);
     else if (msg.type !== 'fitPerspective') prepareLuts(developer, msg.params);
+    if (msg.type !== 'fitPerspective') prepareExposures(developer, msg.params);
     const params = JSON.stringify(msg.params);
     if (msg.type === 'render') {
       const isDraft = msg.fullWidth !== msg.maxWidth || msg.fullHeight !== msg.maxHeight;

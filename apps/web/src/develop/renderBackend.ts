@@ -39,6 +39,9 @@ export interface Frame {
  */
 export type LutSource = (id: string) => Promise<ArrayBuffer | null>;
 
+/** Another photo's file by the SHA-256 recipes refer to it by (multiple exposure), or null. */
+export type ExposureSource = (sha256: string) => Promise<ArrayBuffer | null>;
+
 /** What raw denoise (roadmap 3.5) asks the page for, and hands it. */
 export interface DenoiseSource {
   /** A model's file (`/api/denoise-models/:id`), or null when it can't be had. */
@@ -103,6 +106,13 @@ export interface RenderBackend {
    * unavailable (the LUT is then skipped). Each is asked for once.
    */
   setLutSource(source: LutSource): void;
+  /**
+   * Where the other photos multiple exposures blend in come from, by SHA-256 (one that
+   * can't be had is skipped). Each is asked for once, until it couldn't be had.
+   */
+  setExposureSource(source: ExposureSource): void;
+  /** Whether the photo `sha256` could be had for renders (asking the source for it if need be). */
+  hasExposure(sha256: string): Promise<boolean>;
   /** Where raw denoise gets its models (and the RAW file, and where it keeps its results). */
   setDenoiseSource(source: DenoiseSource): void;
   /** Follow where the recipe's raw denoise stands; returns the unsubscribe. */

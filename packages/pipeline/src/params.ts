@@ -25,6 +25,18 @@ export interface ModuleParams {
     /** Scales it per CFA colour (R, G, B), 0.5 … 8; the defaults carry the profiles' calibration. */
     corrections: [number, number, number];
   };
+  /**
+   * Another photo blended into the base image as it comes off the sensor (white balanced
+   * for D65, in the working space), as in-camera multiple exposures are: scaled to cover
+   * this one's sensor, centred. Mirrors `params::MultipleExposure`.
+   */
+  multipleExposure: {
+    /** The other photo; none does nothing. */
+    photo: PhotoRef | null;
+    blend: ExposureBlend;
+    /** Gain on the other photo, in EV. */
+    ev: number;
+  };
   /** Spot removal, on the sensor frame before lens correction: applied in list order. */
   retouch: {
     spots: Spot[];
@@ -324,6 +336,21 @@ export interface LutRef {
   path?: string;
 }
 
+/**
+ * Another photo by the SHA-256 of its original file (`photos.sha256`). Renderers are
+ * given the photos separately (`Developer.loadExposure`); one they don't have is skipped.
+ */
+export interface PhotoRef {
+  /** Lowercase hex. */
+  sha256: string;
+  /** Its file name when it was chosen, to tell the user which photo is missing. */
+  name: string;
+}
+
+/** How a multiple exposure combines the photos (Fujifilm's modes). Mirrors `params::ExposureBlend`. */
+export const EXPOSURE_BLENDS = ['additive', 'average', 'lighten', 'darken'] as const;
+export type ExposureBlend = (typeof EXPOSURE_BLENDS)[number];
+
 /** How a LUT is interpolated between its nodes. Mirrors `clut::Interpolation`. */
 export const LUT_INTERPOLATIONS = ['tetrahedral', 'trilinear', 'pyramid'] as const;
 export type LutInterpolation = (typeof LUT_INTERPOLATIONS)[number];
@@ -497,6 +524,7 @@ export function denoiseModelId(m: DenoiseModel): string {
 /** Module kinds, in pipeline order. */
 export const MODULE_KINDS = [
   'rawDenoise',
+  'multipleExposure',
   'retouch',
   'lens',
   'geometry',
@@ -525,7 +553,13 @@ export function hasKind(metadata: Pick<PhotoMetadata, 'imageFormat'> | null | un
 }
 
 /** Kinds whose extra instances are dropped on load. */
-export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = ['rawDenoise', 'lens', 'geometry', 'filmic'];
+export const SINGLE_INSTANCE_KINDS: readonly ModuleKind[] = [
+  'rawDenoise',
+  'multipleExposure',
+  'lens',
+  'geometry',
+  'filmic',
+];
 
 /**
  * Kinds whose instances can have a mask: the spatial and point modules before filmic, and
@@ -738,6 +772,7 @@ export const defaultModuleParams: { readonly [K in ModuleKind]: ModuleParams[K] 
     noiseLevel: 1,
     corrections: [2.82, 3.94, 2.96],
   },
+  multipleExposure: { photo: null, blend: 'average', ev: 0 },
   retouch: { spots: [] },
   lens: { distortion: 1, tca: 1, vignetting: 1 },
   geometry: {
@@ -1334,6 +1369,17 @@ export function moduleParams<K extends ModuleKind>(kind: K, input: unknown): Mod
       : null;
     if (!LUT_INTERPOLATIONS.includes(l.interpolation)) l.interpolation = defaultModuleParams.lut.interpolation;
   }
+  if (kind === 'multipleExposure') {
+    const m = params as ModuleParams['multipleExposure'];
+    const ref: unknown = isObject(input) ? input.photo : null;
+    m.photo = isObject(ref)
+      ? {
+          sha256: typeof ref.sha256 === 'string' ? ref.sha256 : '',
+          name: typeof ref.name === 'string' ? ref.name : '',
+        }
+      : null;
+    if (!EXPOSURE_BLENDS.includes(m.blend)) m.blend = defaultModuleParams.multipleExposure.blend;
+  }
   if (kind === 'glow') {
     const g = params as ModuleParams['glow'];
     if (!GLOW_SHAPES.includes(g.shape)) g.shape = defaultModuleParams.glow.shape;
@@ -1390,6 +1436,18 @@ export function lutIds(params: EditParams): string[] {
     m.enabled && m.kind === 'lut' ? [(m as ModuleInstance<'lut'>).params.lut?.id] : [],
   );
   return [...new Set(ids.filter((id): id is string => !!id))];
+}
+
+/**
+ * The other photos the enabled instances blend in (multiple exposure), by SHA-256.
+ * Mirrors `EditParams::exposure_photos`.
+ */
+export function exposurePhotos(params: EditParams): string[] {
+  return params.modules.flatMap((m) => {
+    const sha =
+      m.enabled && m.kind === 'multipleExposure' && (m as ModuleInstance<'multipleExposure'>).params.photo?.sha256;
+    return sha ? [sha] : [];
+  });
 }
 
 /** How a LUT's name is compared with an imported reference's (`resolveLutRefs`). */

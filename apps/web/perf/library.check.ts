@@ -31,6 +31,7 @@ const photo = (i: number): Photo => ({
   versionCount: 1,
   filename: `${i % 2 ? 'beach' : 'city'}-${i}.ARW`,
   fileSize: 1,
+  sha256: String(i).padStart(64, '0'),
   cameraMake: null,
   cameraModel: null,
   lens: null,
@@ -368,6 +369,9 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
         notReady: ids.filter((id) => !(id in recipes)),
       });
     }
+    // By hash (multiple exposure): photo `pN`'s is N padded with zeros.
+    const byHash = /^\/api\/originals\/0*(\d+)$/.exec(path)?.[1];
+    if (byHash && originals[`p${byHash}`]) return route.fulfill({ path: originals[`p${byHash}`] });
     const original = /^\/api\/photos\/(p\d+)\/original$/.exec(path)?.[1];
     if (original && flaky.delete(original)) return route.fulfill({ status: 503, json: { error: 'busy' } });
     if (original && originals[original]) return route.fulfill({ path: originals[original] });
@@ -768,6 +772,39 @@ test(
     assert.equal(downloads, 1);
   },
 );
+
+test('a multiple exposure blends in a photo picked from the library', { skip: !existsSync(RAW) }, async () => {
+  await open('/?q=beach');
+  await cards().first().waitFor();
+  originals = { p1: RAW, p3: RAW };
+  const byHash: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/api/originals/')) byHash.push(new URL(r.url()).pathname);
+  });
+  await page.goto(`${URL_}/versions/v1/develop`);
+  await page.locator('canvas').first().waitFor({ timeout: 120_000 });
+  const choose = page.locator('[data-exposure-photo]');
+  await choose.scrollIntoViewIfNeeded();
+  await choose.click();
+  // The library's photos, as the film roll lists them.
+  const dialog = page.getByRole('dialog', { name: 'Blend in another photo' });
+  await dialog.locator('[data-roll-id="v3"]').click();
+  await dialog.waitFor({ state: 'detached' });
+  await page.waitForFunction(() => document.querySelector('[data-exposure-photo]')?.textContent === 'beach-3.ARW');
+  // Saved in the history, by the original's hash; and its original asked for by that hash.
+  const saved = () => JSON.stringify(sent.filter((s) => s.path === '/api/versions/v1/history').map((s) => s.body));
+  // Saved after a pause.
+  for (let i = 0; i < 100 && !saved().includes('multipleExposure'); i++) await page.waitForTimeout(100);
+  assert.ok(saved().includes('"kind":"multipleExposure"'), saved());
+  assert.ok(saved().includes(`"sha256":"${'3'.padStart(64, '0')}"`), saved());
+  assert.deepEqual([...new Set(byHash)], [`/api/originals/${'3'.padStart(64, '0')}`]);
+  assert.equal(await page.getByText('isn’t available').count(), 0);
+
+  // One that can't be had is said so.
+  await choose.click();
+  await page.getByRole('dialog', { name: 'Blend in another photo' }).locator('[data-roll-id="v5"]').click();
+  await page.getByText('“beach-5.ARW” isn’t available').waitFor();
+});
 
 test('an import shows its files waiting, then what happened to each, and retries what failed', async () => {
   await open('/');

@@ -4,6 +4,7 @@ import {
   Aperture,
   AudioWaveform,
   Bandage,
+  Blend,
   Crop,
   Film,
   FoldVertical,
@@ -26,6 +27,7 @@ import type { HistoryEntry } from './history.ts';
 
 const MODULE_ICONS: Record<ModuleKind, LucideIcon> = {
   rawDenoise: Eraser,
+  multipleExposure: Blend,
   retouch: Bandage,
   lens: Aperture,
   geometry: Crop,

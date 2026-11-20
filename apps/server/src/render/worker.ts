@@ -17,6 +17,7 @@ import {
 import { Developer, initPipeline, lensfun, readMetadata } from '@rawtisserie/pipeline/node';
 import { readLut } from '../luts/files.ts';
 import { storage } from '../storage/index.ts';
+import { loadExposures } from './exposures.ts';
 import type { RenderJob, RenderResult } from './types.ts';
 
 initPipeline();
@@ -36,6 +37,7 @@ parentPort!.on('message', async (job: RenderJob) => {
         const lut = await readLut(id);
         if (lut) dev.loadLut(lut);
       }
+      await loadExposures(dev, job.exposures);
       // Auto-tunes the default recipe or a preset or style asked for (roadmap 8.7):
       // measured first, at the preview's size, so the renders below reuse the cached base.
       if (job.autoDefaults) {

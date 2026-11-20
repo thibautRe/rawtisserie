@@ -17,7 +17,7 @@ import {
 } from '@rawtisserie/pipeline';
 import { useSyncExternalStore } from 'react';
 import { ApiError } from '../api/client.ts';
-import { fetchDenoised, fetchOriginal } from '../api/originals.ts';
+import { fetchDenoised, fetchOriginal, originalByHash } from '../api/originals.ts';
 import type { Photo } from '../api/types.ts';
 import { toaster } from '../components/toaster.tsx';
 import { backendMeasures } from '../develop/autoTune.ts';
@@ -228,6 +228,7 @@ async function exportAll(
   const newBackend = (original: () => string | null) => {
     const b = new LocalRenderBackend({ pool: false });
     b.setLutSource(lutTable);
+    b.setExposureSource(originalByHash);
     b.setDenoiseSource({
       model: fetchDenoiseModel,
       original: () => {

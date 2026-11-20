@@ -4,6 +4,7 @@ import {
   type ExportMetadata,
   type ExportOptions,
   type PhotoMetadata,
+  exposurePhotos,
   lutIds,
 } from '@rawtisserie/pipeline';
 import type {
@@ -21,7 +22,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from './protocol.ts';
-import type { DenoiseSource, Frame, LutSource, RenderBackend } from './renderBackend.ts';
+import type { DenoiseSource, ExposureSource, Frame, LutSource, RenderBackend } from './renderBackend.ts';
 import { startWorker } from './startWorker.ts';
 import type { ScopeRequest } from './scopes.ts';
 
@@ -37,6 +38,9 @@ export class LocalRenderBackend implements RenderBackend {
   private lutSource: LutSource | null = null;
   /** The LUTs sent to the worker, or being fetched for it, by id. */
   private luts = new Map<string, Promise<void>>();
+  private exposureSource: ExposureSource | null = null;
+  /** The other photos sent to the worker, or being fetched for it, by SHA-256. */
+  private exposures = new Map<string, Promise<void>>();
   private disposed = new AbortController();
   private denoiseSource: DenoiseSource | null = null;
   private denoiseListeners = new Set<(status: DenoiseStatus) => void>();
@@ -91,6 +95,43 @@ export class LocalRenderBackend implements RenderBackend {
 
   setLutSource(source: LutSource) {
     this.lutSource = source;
+  }
+
+  setExposureSource(source: ExposureSource) {
+    this.exposureSource = source;
+    this.exposures.clear();
+  }
+
+  hasExposure(sha256: string): Promise<boolean> {
+    return this.sendExposure(sha256).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  /** Send the worker another photo, unless it was already (or is on its way). */
+  private sendExposure(sha256: string): Promise<void> {
+    let sent = this.exposures.get(sha256);
+    if (!sent) {
+      const source = this.exposureSource;
+      sent = (source ? source(sha256) : Promise.resolve(null)).then(async (bytes) => {
+        if (!bytes) throw new Error(`Photo ${sha256} unavailable`);
+        // A copy: the source may keep its own.
+        const copy = bytes.slice(0);
+        await this.call({ type: 'exposure', sha256, bytes: copy }, [copy]);
+      });
+      sent.catch(() => this.exposures.delete(sha256));
+      this.exposures.set(sha256, sent);
+    }
+    return sent;
+  }
+
+  /** What renders of `params` need sent first: its LUTs and other photos. */
+  private prepare(params: EditParams): Promise<unknown> {
+    return Promise.all([
+      this.sendLuts(params),
+      ...exposurePhotos(params).map((sha) => this.sendExposure(sha).catch(() => {})),
+    ]);
   }
 
   pointer(at: [number, number] | null, zoomed: boolean) {
@@ -203,7 +244,7 @@ export class LocalRenderBackend implements RenderBackend {
     scope: ScopeRequest | null = null,
   ): Promise<Frame> {
     full ??= { width: maxWidth, height: maxHeight, region };
-    await this.sendLuts(params);
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'rendered' }>>({
       type: 'render',
       params,
@@ -230,7 +271,7 @@ export class LocalRenderBackend implements RenderBackend {
   }
 
   async thumbnail(params: EditParams, maxWidth: number, maxHeight: number): Promise<ImageBitmap> {
-    await this.sendLuts(params);
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'thumbnail' }>>({
       type: 'thumbnail',
       params,
@@ -241,7 +282,7 @@ export class LocalRenderBackend implements RenderBackend {
   }
 
   async export(params: EditParams, options: ExportOptions, metadata: ExportMetadata): Promise<Blob> {
-    await this.sendLuts(params);
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'exported' }>>({
       type: 'export',
       params,
@@ -257,6 +298,7 @@ export class LocalRenderBackend implements RenderBackend {
     maxWidth: number,
     maxHeight: number,
   ): Promise<{ white: number; black: number } | null> {
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'autoTunedFilmic' }>>({
       type: 'autoTuneFilmic',
       params,
@@ -273,6 +315,7 @@ export class LocalRenderBackend implements RenderBackend {
     maxWidth: number,
     maxHeight: number,
   ): Promise<[number, number] | null> {
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'detectedIlluminant' }>>({
       type: 'detectIlluminant',
       params,
@@ -290,6 +333,7 @@ export class LocalRenderBackend implements RenderBackend {
     maxWidth: number,
     maxHeight: number,
   ): Promise<ToneCurveInput | null> {
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'toneCurveInput' }>>({
       type: 'toneCurveInput',
       params,
@@ -301,6 +345,7 @@ export class LocalRenderBackend implements RenderBackend {
   }
 
   async detectLines(params: EditParams, maxWidth: number, maxHeight: number): Promise<GuideLine[]> {
+    await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'detectedLines' }>>({
       type: 'detectLines',
       params,

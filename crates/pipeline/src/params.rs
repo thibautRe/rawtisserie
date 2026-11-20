@@ -154,6 +154,9 @@ modules! {
     /// Raw denoise (AI), on the sensor's mosaic before demosaicing. Single instance, RAW
     /// files only.
     RawDenoise,
+    /// Another photo blended into the base image, as cameras' multiple exposures do.
+    /// Single instance.
+    MultipleExposure,
     /// Spot removal, on the base image (sensor frame), before lens correction.
     Retouch,
     /// Lens correction (distortion, TCA, vignetting), in the geometry stage. Single instance.
@@ -183,7 +186,7 @@ modules! {
 impl ModuleKind {
     /// Kinds whose extra instances are dropped on load.
     pub fn single_instance(self) -> bool {
-        matches!(self, ModuleKind::RawDenoise | ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
+        matches!(self, ModuleKind::RawDenoise | ModuleKind::MultipleExposure | ModuleKind::Lens | ModuleKind::Geometry | ModuleKind::Filmic)
     }
 
     /// Kinds with an auto-tune a preset or style can ask for: filmic's white and black
@@ -1636,6 +1639,52 @@ pub struct LutRef {
     pub path: Option<String>,
 }
 
+/// Multiple exposure (see [`crate::ops::multiple_exposure`]): another photo blended into
+/// the base image as it comes off the sensor (white balanced for D65, in the working
+/// space), before retouch and geometry, as in-camera multiple exposures are. The other
+/// photo is scaled to cover this one's sensor, centred.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MultipleExposure {
+    /// The other photo; none does nothing.
+    pub photo: Option<PhotoRef>,
+    pub blend: ExposureBlend,
+    /// Gain on the other photo, in EV.
+    pub ev: f32,
+}
+
+impl Default for MultipleExposure {
+    fn default() -> Self {
+        Self { photo: None, blend: ExposureBlend::Average, ev: 0.0 }
+    }
+}
+
+/// How [`MultipleExposure`] combines the photos (Fujifilm's modes).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExposureBlend {
+    /// Their sum, as two exposures on the same frame of film.
+    Additive,
+    /// Their mean: as bright as each.
+    #[default]
+    Average,
+    /// The brighter of the two at each pixel (by luminance).
+    Lighten,
+    /// The darker of the two at each pixel.
+    Darken,
+}
+
+/// Another photo by the SHA-256 of its original file. Renderers are given the photos
+/// separately (`Developer::exposures_mut`); a photo they don't have is skipped.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PhotoRef {
+    /// Lowercase hex.
+    pub sha256: String,
+    /// Its file name when it was chosen, to tell the user which photo is missing.
+    pub name: String,
+}
+
 impl EditParams {
     /// The LUTs the enabled instances use, without repeats, in pipeline order.
     pub fn lut_ids(&self) -> Vec<&str> {
@@ -1646,6 +1695,11 @@ impl EditParams {
             }
         }
         ids
+    }
+
+    /// The other photos the enabled instances use (multiple exposure), by SHA-256.
+    pub fn exposure_photos(&self) -> Vec<&str> {
+        self.all::<MultipleExposure>().filter_map(|m| m.photo.as_ref()).map(|p| p.sha256.as_str()).filter(|s| !s.is_empty()).collect()
     }
 }
 

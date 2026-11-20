@@ -14,6 +14,7 @@ export type VersionRow = Versions &
     | 'owner_id'
     | 'original_filename'
     | 'file_size'
+    | 'sha256'
     | 'camera_make'
     | 'camera_model'
     | 'lens'
@@ -35,7 +36,7 @@ export type VersionRow = Versions &
 /** Siblings `s` that count for a version `v`: those in the library, and itself (in the trash). */
 const COUNTED = sql`(s.trashed_at IS NULL OR s.id = v.id)`;
 
-export const VERSION_COLUMNS = sql`v.*, p.owner_id, p.original_filename, p.file_size, p.camera_make, p.camera_model,
+export const VERSION_COLUMNS = sql`v.*, p.owner_id, p.original_filename, p.file_size, p.sha256, p.camera_make, p.camera_model,
   p.lens, p.iso, p.exposure_time, p.f_number, p.focal_length, p.exposure_bias, p.captured_at, p.width, p.height,
   p.gps_latitude, p.gps_longitude, p.artist, p.copyright, p.collection_id,
   (SELECT count(*)::int FROM versions s WHERE s.photo_id = v.photo_id AND ${COUNTED}) AS version_count,
@@ -58,6 +59,8 @@ export function versionDto(v: VersionRow) {
     versionCount: v.version_count,
     filename: v.original_filename,
     fileSize: v.file_size,
+    /** The original's SHA-256: what a multiple exposure refers to it by. */
+    sha256: v.sha256,
     cameraMake: v.camera_make,
     cameraModel: v.camera_model,
     lens: v.lens,

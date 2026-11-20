@@ -69,6 +69,7 @@ export class ZoomRenderer {
       importedEdits: src.importedEdits,
       userLuts: src.userLuts,
       luts: src.luts,
+      exposures: src.exposures,
     };
     const res = await new Promise<ZoomResponse>((resolve) => {
       this.queue.push({ body, source, signal, resolve });

@@ -11,9 +11,12 @@ use rawtisserie_pipeline::params::{AutoCrop, ContrastEqualizer, Diffuse, Geometr
 use rawtisserie_pipeline::{Developer, EditParams, Quality, Region, RenderSize, Rgba8};
 
 fn developer() -> Developer {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/raws/sony-ilce-7m3.arw");
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e} (run ./scripts/fetch-golden-raws.sh)", path.display()));
-    Developer::from_bytes(&bytes).unwrap()
+    Developer::from_bytes(&golden_raw("sony-ilce-7m3.arw")).unwrap()
+}
+
+fn golden_raw(name: &str) -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/raws").join(name);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e} (run ./scripts/fetch-golden-raws.sh)", path.display()))
 }
 
 const OVERLAYS: Overlays = Overlays {
@@ -36,8 +39,13 @@ fn check(name: &str, params: &EditParams, size: RenderSize) {
 }
 
 fn check_with(name: &str, params: &EditParams, size: RenderSize, overlays: &Overlays) {
+    check_in(developer, name, params, size, overlays);
+}
+
+/// [`check_with`], on developers made by `new`.
+fn check_in(new: impl Fn() -> Developer, name: &str, params: &EditParams, size: RenderSize, overlays: &Overlays) {
     // A fresh developer: the whole render then uses the base at its own binning factor.
-    let mut dev = developer();
+    let mut dev = new();
     let whole = dev.render_with_overlays(params, size, Quality::Final, overlays);
     let (w, h) = (whole.width, whole.height);
     let regions = [
@@ -338,4 +346,52 @@ fn x_trans_base_regions_match() {
             }
         }
     }
+}
+
+#[test]
+fn multiple_exposure_regions_match() {
+    use rawtisserie_pipeline::params::{ExposureBlend, MultipleExposure, PhotoRef};
+    use rawtisserie_pipeline::decode;
+    // The same sensor size, then another one (scaled to cover, centred).
+    for (other, blend) in [("sony-ilce-7m3.arw", ExposureBlend::Lighten), ("nikon-z6.nef", ExposureBlend::Average)] {
+        let bytes = golden_raw(other);
+        let new = || {
+            let dev = developer();
+            dev.exposures_mut().insert("ab", decode::decode(&bytes).unwrap());
+            dev
+        };
+        let dev = new();
+        let mut p = EditParams::default_for(dev.metadata());
+        p.add(MultipleExposure { photo: Some(PhotoRef { sha256: "AB".into(), name: other.into() }), blend, ev: -0.5 });
+        let size = RenderSize::fit(1200, 1200);
+        check_in(new, other, &p, size, &OVERLAYS);
+        p.get_mut::<Geometry>().crop = rawtisserie_pipeline::params::Crop { x: 0.4, y: 0.3, width: 0.1, height: 0.1 };
+        check_in(new, &format!("{other}, 100 %"), &p, RenderSize::FULL, &OVERLAYS);
+    }
+}
+
+#[test]
+fn multiple_exposure_changes_the_render() {
+    use rawtisserie_pipeline::params::{ExposureBlend, MultipleExposure, PhotoRef};
+    let mut dev = developer();
+    let mut p = EditParams::default_for(dev.metadata());
+    let size = RenderSize::fit(600, 600);
+    let plain = dev.render(&p, size, Quality::Final);
+    p.add(MultipleExposure { photo: Some(PhotoRef { sha256: "ab".into(), name: String::new() }), blend: ExposureBlend::Additive, ev: 0.0 });
+    // Not loaded: skipped.
+    assert_eq!(dev.render(&p, size, Quality::Final).data, plain.data);
+    dev.exposures_mut().insert("ab", rawtisserie_pipeline::decode::decode(&golden_raw("canon-eos-r6.cr3")).unwrap());
+    assert!(!dev.is_spatial_cached(&p, size));
+    let added = dev.render(&p, size, Quality::Final);
+    assert_ne!(added.data, plain.data);
+    // Another gain: the base again, the same as from a fresh developer.
+    p.get_mut::<MultipleExposure>().ev = -1.0;
+    assert!(!dev.is_spatial_cached(&p, size));
+    let lower = dev.render(&p, size, Quality::Final);
+    let mut fresh = developer();
+    fresh.exposures_mut().insert("ab", rawtisserie_pipeline::decode::decode(&golden_raw("canon-eos-r6.cr3")).unwrap());
+    assert_eq!(fresh.render(&p, size, Quality::Final).data, lower.data);
+    // Removed: as before.
+    p.modules.retain(|m| m.module.kind() != rawtisserie_pipeline::params::ModuleKind::MultipleExposure);
+    assert_eq!(dev.render(&p, size, Quality::Final).data, plain.data);
 }

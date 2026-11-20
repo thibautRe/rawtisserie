@@ -8,6 +8,7 @@ import {
 
 export const MODULE_TITLES: Record<ModuleKind, string> = {
   rawDenoise: 'Raw denoise',
+  multipleExposure: 'Multiple exposure',
   retouch: 'Retouch',
   lens: 'Lens correction',
   geometry: 'Geometry',

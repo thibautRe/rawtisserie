@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let id = dev.luts_mut().load(&std::fs::read(path)?)?;
         eprintln!("{path}: {id}");
         if args.get(4).is_none_or(|a| a == "-") {
-            params.add(Lut { lut: Some(LutRef { id, name: path.clone() }), ..Default::default() });
+            params.add(Lut { lut: Some(LutRef { id, name: path.clone(), path: None }), ..Default::default() });
         }
     }
 

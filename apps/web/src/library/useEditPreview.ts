@@ -5,7 +5,7 @@
  */
 import { type EditParams, type PhotoMetadata, denoiseKeyName, normalizeEditParams } from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchDenoised, fetchOriginal } from '../api/originals.ts';
+import { fetchDenoised, fetchOriginal, originalByHash } from '../api/originals.ts';
 import type { PhotoDetail } from '../api/types.ts';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import type { BatchEdit } from './batchEdit.ts';
@@ -149,6 +149,7 @@ export function useEditPreview(photo: PhotoDetail | undefined, width: number, he
         s.backend?.dispose();
         clearCache();
         s.backend = new LocalRenderBackend();
+        s.backend.setExposureSource(originalByHash);
         s.metadata = null;
         const backend = s.backend;
         const loading = { photoId: detail.photoId, done: openForPreview(backend, detail) };

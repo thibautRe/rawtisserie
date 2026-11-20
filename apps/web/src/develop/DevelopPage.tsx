@@ -11,7 +11,7 @@ import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api } from '../api/client.ts';
-import { fetchDenoised, fetchOriginal, keepDenoised } from '../api/originals.ts';
+import { fetchDenoised, fetchOriginal, keepDenoised, originalByHash } from '../api/originals.ts';
 import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
@@ -19,6 +19,8 @@ import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts'
 import { PHOTO_ACCEPT } from '../lib/format.ts';
 import { useLeaveWarning } from '../lib/useLeaveWarning.ts';
 import { DeveloperView } from './DeveloperView.tsx';
+import { chooseLocalExposure, localExposure, useExposurePicker } from './ExposurePicker.tsx';
+import type { ExposureSource } from './renderBackend.ts';
 import { FilmRoll } from './FilmRoll.tsx';
 import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
 import type { HistoryOp, HistorySnapshot } from './history.ts';
@@ -29,16 +31,20 @@ import { lutTable } from './luts.ts';
 import { defaultRecipeFor, preloadLensfun } from './lensfun.ts';
 import { useUserLutNames } from './luts.ts';
 
-function useLocalBackend() {
+/** A backend for the page, with the other photos multiple exposures blend in from `exposures` (stable). */
+function useLocalBackend(exposures: ExposureSource) {
   const [backend, setBackend] = useState<LocalRenderBackend | null>(null);
   useEffect(() => {
     const b = new LocalRenderBackend();
     b.setLutSource(lutTable);
+    b.setExposureSource(exposures);
     setBackend(b);
     return () => b.dispose();
-  }, []);
+  }, [exposures]);
   return backend;
 }
+
+const chooseLocalPhoto = () => chooseLocalExposure(PHOTO_ACCEPT);
 
 function Loading({ label, progress }: { label: string; progress?: number }) {
   return (
@@ -61,7 +67,7 @@ function Loading({ label, progress }: { label: string; progress?: number }) {
 // ── Public developer: local files, processed entirely in the browser ──────────
 
 export function LocalDevelopPage() {
-  const backend = useLocalBackend();
+  const backend = useLocalBackend(localExposure);
   const { data: me } = useMe();
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
@@ -144,6 +150,7 @@ export function LocalDevelopPage() {
           exportInfo={fileExportInfo(loaded.file.name, loaded.metadata)}
           original={originalRecipe(loaded.metadata)}
           initialHistory={autoApplied(loaded.metadata)}
+          chooseExposure={chooseLocalPhoto}
           actions={(history) => (
             <>
               {/* Edits live only in this tab: anything past the automatic entry is lost on leaving. */}
@@ -294,7 +301,8 @@ export function LibraryDevelopPage() {
 }
 
 function LibraryDeveloper({ id }: { id: string }) {
-  const backend = useLocalBackend();
+  const backend = useLocalBackend(originalByHash);
+  const exposurePicker = useExposurePicker();
   const { data: photo, error: photoError } = usePhoto(id);
   const save = useSaveHistory(id);
   const navigate = useNavigate();
@@ -379,25 +387,29 @@ function LibraryDeveloper({ id }: { id: string }) {
     );
 
   return (
-    <DeveloperView
-      key={photo.id}
-      backend={backend}
-      filename={photo.filename}
-      metadata={metadata}
-      exportInfo={photoExportInfo(photo, metadata)}
-      original={originalRecipe(metadata)}
-      initialHistory={{
-        entries: photo.history.map((h) => ({ ...h, recipe: normalizeEditParams(h.recipe) })),
-        end: photo.historyEnd,
-      }}
-      save={save}
-      revision={photo.revision}
-      // No history: the server hasn't rendered it yet, and would record its automatic
-      // entry (and its import) after the developer opened (the version keeps it either way).
-      startWith={startWith}
-      importedEdits={photo.importedEdits}
-      versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
-      onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
-    />
+    <>
+      <DeveloperView
+        key={photo.id}
+        backend={backend}
+        filename={photo.filename}
+        metadata={metadata}
+        exportInfo={photoExportInfo(photo, metadata)}
+        original={originalRecipe(metadata)}
+        initialHistory={{
+          entries: photo.history.map((h) => ({ ...h, recipe: normalizeEditParams(h.recipe) })),
+          end: photo.historyEnd,
+        }}
+        save={save}
+        revision={photo.revision}
+        // No history: the server hasn't rendered it yet, and would record its automatic
+        // entry (and its import) after the developer opened (the version keeps it either way).
+        startWith={startWith}
+        importedEdits={photo.importedEdits}
+        versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
+        onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
+        chooseExposure={exposurePicker.choose}
+      />
+      {exposurePicker.dialog}
+    </>
   );
 }
