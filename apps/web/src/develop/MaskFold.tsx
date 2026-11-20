@@ -144,7 +144,17 @@ export function MaskFold({
         {header}
       </Theme>
       {body && (
-        <Stack gap="1.5" bg="bg.nested" px="2" pt="2" pb="2.5">
+        <Stack
+          gap="1.5"
+          bg="bg.nested"
+          px="2"
+          pt="2"
+          pb="2.5"
+          borderWidth="1px"
+          borderTopWidth="0"
+          borderColor="border.emphasized"
+          borderBottomRadius="md"
+        >
           {body}
         </Stack>
       )}
