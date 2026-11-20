@@ -41,6 +41,8 @@ interface FixtureEntry {
   params?: string;
   multiPriority?: number;
   multiName?: string;
+  /** Encoded blending parameters; a uniform blend by default. */
+  blendop?: string;
 }
 
 /** A sidecar as darktable 5 writes it (attributes on each `rdf:li`). */
@@ -62,7 +64,7 @@ function sidecar(entries: FixtureEntry[], { app = 'darktable', historyEnd = entr
       darktable:multi_name_hand_edited="0"
       darktable:multi_priority="${e.multiPriority ?? 0}"
       darktable:blendop_version="14"
-      darktable:blendop_params="gz11eJxjYGBgkGAAgRNODGiAEV0AJ2iwh+CRyscOAAdeGQQ="/>`,
+      darktable:blendop_params="${e.blendop ?? 'gz11eJxjYGBgkGAAgRNODGiAEV0AJ2iwh+CRyscOAAdeGQQ='}"/>`,
     )
     .join('');
   return `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
@@ -823,4 +825,60 @@ test('rgb curve: each curve’s gain in EV at our Tones nodes', async () => {
   );
   assert.equal(manual.channels, 'independent');
   assert.ok(Math.abs(manual.green[6]! - 1) < 0.01 && Math.abs(manual.red[6]!) < 1e-6);
+});
+
+test('raster masks: a raster shape of the instance their source became', async () => {
+  // Exposure 1 masked by exposure 0's mask (a luminance range), inverted, at 50 %.
+  const ranged = await encodeBlob(writeStruct(BLEND_PARAMS, { mask_mode: 1 | 4, blend_cst: 4, opacity: 100 }));
+  const raster = (source: string) =>
+    encodeBlob(
+      writeStruct(BLEND_PARAMS, {
+        mask_mode: 1 | 8,
+        blend_cst: 4,
+        opacity: 50,
+        raster_mask_source: source,
+        raster_mask_instance: 0,
+        raster_mask_invert: true,
+      }),
+    );
+  const entries = async (sourceOn: boolean, source = 'exposure') => [
+    {
+      operation: 'exposure',
+      modversion: 7,
+      enabled: sourceOn,
+      params: await exposure({ exposure: 1 }),
+      blendop: ranged,
+    },
+    {
+      operation: 'exposure',
+      modversion: 7,
+      multiPriority: 1,
+      params: await exposure({ exposure: -1 }),
+      blendop: await raster(source),
+    },
+  ];
+  const run = async (sourceOn: boolean, source?: string) =>
+    (await importEdits(sidecar(await entries(sourceOn, source)), { base: defaultEditParams, metadata }))!;
+
+  const { recipe, report } = await run(true);
+  const [first, second] = recipe.modules.filter((m) => m.kind === 'exposure');
+  assert.equal(second!.enabled, true);
+  const mask = second!.mask!;
+  assert.equal(mask.opacity, 0.5);
+  assert.equal(mask.drawn.length, 1);
+  assert.deepEqual(recipe.shapes![mask.drawn[0]!.shape], {
+    type: 'raster',
+    source: first!.id,
+    invert: true,
+    opacity: 1,
+  });
+  assert.equal(report.items.at(-1)!.note, null);
+
+  // Their source off: no raster mask there, so it blends everywhere (nowhere, inverted).
+  const off = (await run(false)).recipe.modules.filter((m) => m.kind === 'exposure')[1]!;
+  assert.deepEqual([off.enabled, off.mask!.drawn, off.mask!.invert, off.mask!.opacity], [true, [], true, 0.5]);
+  // A source we don't import: switched off.
+  const unknown = await run(true, 'censorize');
+  assert.equal(unknown.recipe.modules.filter((m) => m.kind === 'exposure')[1]!.enabled, false);
+  assert.match(unknown.report.items.at(-1)!.note!, /raster mask from censorize/);
 });

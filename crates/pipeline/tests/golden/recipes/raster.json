@@ -1,0 +1,32 @@
+{
+  "size": 600,
+  "recipe": {
+    "version": 8,
+    "modules": [
+      { "kind": "geometry", "params": { "angle": -2, "crop": { "x": 0.05, "y": 0.05, "width": 0.9, "height": 0.85 } } },
+      { "id": "soften", "kind": "diffuse", "params": { "iterations": 1, "radius": 32, "speed1": 0.5, "speed2": 0.5, "speed3": 0.5, "speed4": 0.5, "anisotropy1": 0, "anisotropy2": 0, "anisotropy3": 0, "anisotropy4": 0, "edgeSensitivity": 0 },
+        "mask": { "drawn": [{ "shape": "spot" }], "luminance": [-4, -2, 8, 10], "feather": 20 } },
+      { "id": "local", "kind": "contrastEqualizer", "params": { "luma": [0.65, 0.7, 0.7, 0.65, 0.55, 0.5] },
+        "mask": { "drawn": [{ "shape": "soft" }, { "shape": "sky", "op": "intersection" }], "feather": 8 } },
+      { "kind": "exposure", "params": { "ev": 0.5 } },
+      { "id": "sky", "kind": "exposure", "params": { "ev": -1 },
+        "mask": { "drawn": [{ "shape": "sky" }], "luminance": [-1, 0.5, 8, 10], "feather": 30 } },
+      { "id": "lift", "kind": "exposure", "params": { "ev": 0.8 },
+        "mask": { "drawn": [{ "shape": "soft" }, { "shape": "hole", "op": "difference" }], "feather": 10 } },
+      { "kind": "colorCalibration" },
+      { "id": "desat", "kind": "colorBalance", "params": { "saturation": [-0.8, -0.8, -0.8, -0.8] },
+        "mask": { "drawn": [{ "shape": "notSky" }, { "shape": "spot", "op": "intersection" }] } },
+      { "kind": "colorPrimaries", "params": { "red": { "hue": 30, "saturation": 40 } },
+        "mask": { "drawn": [{ "shape": "lifted" }], "luminance": [-6, -4, 8, 10], "opacity": 0.8 } },
+      { "kind": "filmic" }
+    ],
+    "shapes": {
+      "soft": { "type": "raster", "source": "soften" },
+      "notSky": { "type": "raster", "source": "sky", "invert": true },
+      "lifted": { "type": "raster", "source": "lift", "opacity": 0.7 },
+      "sky": { "type": "gradient", "anchor": [0.5, 0.35], "angle": -1.5708, "feather": 0.25 },
+      "spot": { "type": "ellipse", "center": [0.5, 0.55], "radii": [0.3, 0.2], "rotation": 0.3, "feather": 0.05 },
+      "hole": { "type": "ellipse", "center": [0.55, 0.55], "radii": [0.06, 0.06] }
+    }
+  }
+}

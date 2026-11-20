@@ -334,3 +334,94 @@ fn luts_render_the_same_in_strips_and_survive_releasing_the_cache() {
     }
 }
 
+
+/// A raster shape is another instance's mask as it applies it (roadmap 4.15).
+#[test]
+fn raster_shapes_are_their_sources_masks() {
+    use rawtisserie_pipeline::params::ShapeOp;
+    let mut dev = developer();
+    let mut p = EditParams::default_for(dev.metadata());
+    let left = Shape::Gradient { anchor: [0.5, 0.5], angle: std::f32::consts::PI, feather: 0.2, opacity: 1.0 };
+    p.shapes.insert("left".into(), left);
+    let drawn = |shape: &str, op| DrawnShape { shape: shape.into(), op };
+    let source = p.add(Exposure { ev: 1.0, black: 0.0 });
+    p.modules[source].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union)], ..Mask::default() });
+    let consumer = p.add(Exposure { ev: -0.5, black: 0.0 });
+    let source_id = p.modules[source].id.clone();
+    let raster = |invert| Shape::Raster { source: source_id.clone(), invert, opacity: 1.0 };
+
+    // The same as the shapes it reads.
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union)], ..Mask::default() });
+    let want = dev.render(&p, SIZE, Quality::Final);
+    p.shapes.insert("r".into(), raster(false));
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("r", ShapeOp::Union)], ..Mask::default() });
+    assert!(dev.render(&p, SIZE, Quality::Final).data == want.data, "a raster shape is its source's mask");
+    assert!(strips(&mut dev, &p, 3).iter_mut().flat_map(|s| s.render(&p, Quality::Final).data).eq(want.data.iter().copied()), "strips get its plane");
+    // …as the source applies it: its invert too.
+    p.modules[source].mask.as_mut().unwrap().invert = true;
+    assert!(!dev.is_spatial_cached(&p, SIZE), "the source's mask is what the raster shape reads");
+    dev.render(&p, SIZE, Quality::Final);
+    p.modules[source].mask.as_mut().unwrap().invert = false;
+    p.shapes.insert("r".into(), raster(true));
+    let inverted_shape = dev.render(&p, SIZE, Quality::Final);
+    p.shapes.insert("r".into(), raster(false));
+    assert_ne!(inverted_shape.data, want.data);
+    p.modules[source].enabled = false;
+    let off = dev.render(&p, SIZE, Quality::Final);
+    let plain = {
+        let mut q = p.clone();
+        q.modules[consumer].enabled = false;
+        dev.render(&q, SIZE, Quality::Final)
+    };
+    assert!(off.data == plain.data, "a disabled source applies nowhere");
+    p.modules[source].enabled = true;
+
+    // A source without a mask applies everywhere.
+    p.modules[source].mask = None;
+    let everywhere = {
+        let mut q = p.clone();
+        q.modules[consumer].mask = None;
+        dev.render(&q, SIZE, Quality::Final)
+    };
+    // (Blending in by 1 rounds a little differently from not blending.)
+    let got = dev.render(&p, SIZE, Quality::Final);
+    assert!(got.data.iter().zip(&everywhere.data).all(|(a, b)| a.abs_diff(*b) <= 1), "applies everywhere");
+    p.modules[source].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union)], ..Mask::default() });
+
+    // Combined with other shapes in their order, as drawn ones are.
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union), drawn("left", ShapeOp::Intersection)], ..Mask::default() });
+    let squared = dev.render(&p, SIZE, Quality::Final);
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union), drawn("r", ShapeOp::Intersection)], ..Mask::default() });
+    // (Drawn shapes combine on the sensor, before resampling: about the same.)
+    let got = dev.render(&p, SIZE, Quality::Final);
+    assert!(got.data.iter().zip(&squared.data).all(|(a, b)| a.abs_diff(*b) <= 1), "combined in order");
+
+    // A spatial source, read by a point module.
+    let diffuse = p.add(Diffuse::default());
+    p.modules[diffuse].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union)], ..Mask::default() });
+    let diffuse_id = p.modules[diffuse].id.clone();
+    let consumer = p.modules.iter().position(|m| m.id == "exposure-3").unwrap();
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union)], ..Mask::default() });
+    let want = dev.render(&p, SIZE, Quality::Final);
+    p.shapes.insert("d".into(), Shape::Raster { source: diffuse_id.clone(), invert: false, opacity: 1.0 });
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("d", ShapeOp::Union)], ..Mask::default() });
+    assert!(dev.render(&p, SIZE, Quality::Final).data == want.data, "a spatial source's mask");
+    // Even when the step does nothing.
+    if let rawtisserie_pipeline::params::Module::Diffuse(d) = &mut p.modules[diffuse].module {
+        *d = Diffuse { speed1: 0.0, speed2: 0.0, speed3: 0.0, speed4: 0.0, ..*d };
+    }
+    let idle = dev.render(&p, SIZE, Quality::Final);
+    p.modules[consumer].mask = Some(Mask { drawn: vec![drawn("left", ShapeOp::Union)], ..Mask::default() });
+    assert!(dev.render(&p, SIZE, Quality::Final).data == idle.data, "an idle step is still a source");
+
+    // A source after the mask's instance isn't one: the mask applies nowhere.
+    let first = p.modules.iter().position(|m| m.id == source_id).unwrap();
+    p.shapes.insert("later".into(), Shape::Raster { source: "exposure-3".into(), invert: false, opacity: 1.0 });
+    p.modules[first].mask = Some(Mask { drawn: vec![drawn("later", ShapeOp::Union)], ..Mask::default() });
+    let without = {
+        let mut q = p.clone();
+        q.modules[first].enabled = false;
+        dev.render(&q, SIZE, Quality::Final)
+    };
+    assert!(dev.render(&p, SIZE, Quality::Final).data == without.data);
+}

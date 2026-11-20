@@ -1,6 +1,7 @@
 import {
   type BrushPoint,
   type EditParams,
+  type GeometricShape,
   type PathNode,
   type Point,
   type SensorMapping,
@@ -9,6 +10,7 @@ import {
   addSpot,
   flattenPath,
   fromSensor,
+  isRasterShape,
   maskOf,
   removeMaskShape,
   removeSpot,
@@ -85,12 +87,12 @@ type Handle = 'rx' | 'ry' | 'rotate' | 'feather' | { node: number; part: 'at' | 
 
 /** What a pointer drag is doing; `base` is the recipe it started from. */
 type Drag =
-  | { kind: 'move'; index: number; id: string; shape: Shape; base: EditParams; start: Point; moved: boolean }
+  | { kind: 'move'; index: number; id: string; shape: GeometricShape; base: EditParams; start: Point; moved: boolean }
   | { kind: 'source'; index: number; source: [number, number]; base: EditParams; start: Point; moved: boolean }
   | {
       kind: 'handle';
       id: string;
-      shape: Shape;
+      shape: GeometricShape;
       handle: Handle;
       /** Alt: an ellipse's axes change independently, even if it is a circle. */
       free: boolean;
@@ -196,7 +198,7 @@ export function ShapeOverlay(props: Props) {
   // ── Changing shapes ──
 
   /** `shape` with `handle` dragged to sensor point `p`. */
-  const withHandle = (shape: Shape, handle: Handle, p: Point, free: boolean): Shape => {
+  const withHandle = (shape: GeometricShape, handle: Handle, p: Point, free: boolean): GeometricShape => {
     if (typeof handle === 'object') {
       if (shape.type !== 'path') return shape;
       const points = shape.points.map((n, i) => {
@@ -265,7 +267,7 @@ export function ShapeOverlay(props: Props) {
     (e.target as Element).setPointerCapture(e.pointerId);
   };
 
-  const startMove = (index: number, id: string, shape: Shape) => (e: React.PointerEvent) => {
+  const startMove = (index: number, id: string, shape: GeometricShape) => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     capture(e);
     latest.current.onUi({ selected: index });
@@ -279,7 +281,7 @@ export function ShapeOverlay(props: Props) {
     drag.current = { kind: 'source', index, source, base: latest.current.params, start: at(e), moved: false };
   };
 
-  const startHandle = (id: string, shape: Shape, handle: Handle) => (e: React.PointerEvent) => {
+  const startHandle = (id: string, shape: GeometricShape, handle: Handle) => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     capture(e);
     drag.current = { kind: 'handle', id, shape, handle, free: e.altKey, base: latest.current.params, moved: false };
@@ -547,7 +549,7 @@ export function ShapeOverlay(props: Props) {
       />
     );
 
-  const handles = (id: string, shape: Shape) => {
+  const handles = (id: string, shape: GeometricShape) => {
     if (shape.type === 'ellipse') {
       const [rx, ry] = shape.radii;
       const rxAt = onAxes(shape, rx, 0);
@@ -614,7 +616,8 @@ export function ShapeOverlay(props: Props) {
 
   const drawItem = (item: Item, index: number) => {
     const shape = params.shapes?.[item.shape];
-    if (!shape) return null;
+    // Raster shapes (other instances' masks) have no outline.
+    if (!shape || isRasterShape(shape)) return null;
     const isSelected = index === selected;
     const color = isSelected ? ORANGE : 'white';
     const o = shapeOutline(shape, sensor);
@@ -742,7 +745,7 @@ export function ShapeOverlay(props: Props) {
   );
 }
 
-function roundShape(shape: Shape): Shape {
+function roundShape(shape: GeometricShape): GeometricShape {
   switch (shape.type) {
     case 'ellipse':
       return { ...shape, center: r6(shape.center) };

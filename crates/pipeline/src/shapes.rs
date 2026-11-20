@@ -13,6 +13,11 @@
 //! smoothly to 0 across the feather, outside the edge, times the shape's opacity. The
 //! TypeScript mirror (types, outlines and hit tests for the editor) is
 //! `packages/pipeline/src/shapes.ts`.
+//!
+//! A raster shape ([`Shape::Raster`], roadmap 4.15) is the exception: it isn't drawn but
+//! is another instance's mask, as that instance applies it, in the output frame. It has
+//! no place on the sensor (no bounds, nothing to rasterise here): masks combine it with
+//! their other shapes (`crate::ops::mask`), and retouch spots can't use it.
 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +65,17 @@ pub enum Shape {
     /// (1 = a hard edge); it stands in for the other shapes' feather.
     Brush {
         points: Vec<[f32; 4]>,
+        #[serde(default = "one")]
+        opacity: f32,
+    },
+    /// The mask of instance `source` as it applies it (after its own invert and
+    /// opacity), darktable's raster mask: 0 where the source applies nowhere (disabled,
+    /// missing, or not before the mask's instance in the pipeline), 1 everywhere if it
+    /// has no mask. Inverted if asked, then times the opacity.
+    Raster {
+        source: String,
+        #[serde(default)]
+        invert: bool,
         #[serde(default = "one")]
         opacity: f32,
     },
@@ -132,10 +148,23 @@ impl Frame {
 impl Shape {
     pub fn opacity(&self) -> f32 {
         match self {
-            Shape::Ellipse { opacity, .. } | Shape::Gradient { opacity, .. } | Shape::Path { opacity, .. } | Shape::Brush { opacity, .. } => {
-                opacity.clamp(0.0, 1.0)
-            }
+            Shape::Ellipse { opacity, .. }
+            | Shape::Gradient { opacity, .. }
+            | Shape::Path { opacity, .. }
+            | Shape::Brush { opacity, .. }
+            | Shape::Raster { opacity, .. } => opacity.clamp(0.0, 1.0),
         }
+    }
+
+    /// Whether it's another instance's mask rather than drawn (see [`Shape::Raster`]).
+    pub fn is_raster(&self) -> bool {
+        matches!(self, Shape::Raster { .. })
+    }
+
+    /// A raster shape's alpha where its source's mask is `m`.
+    #[inline]
+    pub fn raster_alpha(invert: bool, opacity: f32, m: f32) -> f32 {
+        (if invert { 1.0 - m } else { m }) * opacity.clamp(0.0, 1.0)
     }
 
     /// The pixels of a `frame`-sized image where the shape's alpha may be non-zero (with a
@@ -173,6 +202,7 @@ impl Shape {
                 let (x0, y0, x1, y1) = extent(points.iter().map(|p| f.point([p[0], p[1]])));
                 f.region(x0 - pad, y0 - pad, x1 + pad, y1 + pad)
             }
+            Shape::Raster { .. } => None,
         }
     }
 
@@ -258,6 +288,7 @@ impl Shape {
                     alpha.iter_mut().for_each(|a| *a *= opacity);
                 }
             }
+            Shape::Raster { .. } => unreachable!("raster shapes have no bounds"),
         }
         Some(ShapeMask { region, alpha })
     }
@@ -282,6 +313,7 @@ impl Shape {
                     p[1] += dy;
                 }
             }
+            Shape::Raster { .. } => {}
         }
         s
     }
@@ -535,5 +567,8 @@ mod tests {
         let back = serde_json::to_value(&s).unwrap();
         assert_eq!(back["type"], "ellipse");
         assert_eq!(back["opacity"], 1.0);
+        let raster: Shape = serde_json::from_str(r#"{"type":"raster","source":"exposure"}"#).unwrap();
+        assert_eq!(raster, Shape::Raster { source: "exposure".into(), invert: false, opacity: 1.0 });
+        assert_eq!(raster.bounds(FRAME), None);
     }
 }

@@ -111,8 +111,11 @@ import {
   type ExposureBlend,
   type PhotoRef,
   SPOT_MODES,
+  type RasterShape,
   type ShapeType,
   type SpotMode,
+  isRasterShape,
+  rasterSources,
   defaultSpot,
   removeSpot,
   updateShape,
@@ -154,7 +157,7 @@ import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
 import { NO_PRESETS, type PresetLibrary, PresetMenu, SavePresetDialog } from './presets.tsx';
 import { ParamSlider, fmt } from './ParamSlider.tsx';
 import { type ShapeUi, hexToRec2020, isEditing, rec2020ToHex } from './retouch.ts';
-import { MaskEditor } from './MaskEditor.tsx';
+import { MaskEditor, type RasterSource } from './MaskEditor.tsx';
 import { MaskFold } from './MaskFold.tsx';
 import { LutMenu } from './LutMenu.tsx';
 import { LensSource } from './LensPicker.tsx';
@@ -1232,6 +1235,7 @@ const SHAPE_LABELS: Record<ShapeType, string> = {
   gradient: 'gradient',
   path: 'path',
   brush: 'brush',
+  raster: 'mask',
 };
 
 const INTERPOLATION_LABELS: Record<LutInterpolation, string> = {
@@ -1358,6 +1362,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     id: string,
     mask: NonNullable<ModuleInstance['mask']>,
     shapeTypes: (ShapeType | undefined)[],
+    rasters: (RasterShape | null)[],
+    sources: RasterSource[],
     view: InstanceView,
   ) {
     return (
@@ -1366,6 +1372,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         id={id}
         mask={mask}
         shapeTypes={shapeTypes}
+        rasters={rasters}
+        sources={sources}
         ui={shapeUi}
         params={() => latest.current.params}
         title={() => {
@@ -1410,9 +1418,18 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
       // shapes, which change on every move of a drag), and the shape tools' state while
       // they edit this mask.
       const maskTypes = m?.mask?.drawn.map((d) => params.shapes?.[d.shape]?.type);
+      // Its raster shapes (other instances' masks), and the instances they can read.
+      const maskRasters = (m?.mask?.drawn ?? []).map((d) => {
+        const shape = params.shapes?.[d.shape];
+        return shape && isRasterShape(shape) ? shape : null;
+      });
+      const rasterFrom: RasterSource[] =
+        maskable && m ? rasterSources(params, id).map((s) => ({ id: s.id, title: instanceTitle(params, s) })) : [];
       const maskDeps = maskable
         ? [
             maskTypes?.join(),
+            JSON.stringify(maskRasters),
+            rasterFrom.map((s) => `${s.id}:${s.title}`).join('|'),
             isEditing(shapeUi, 'mask', id) ? shapeUi : null,
             shapeUi.maskOverlay?.id === id ? shapeUi.maskOverlay : null,
           ]
@@ -1535,7 +1552,9 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                       latest.current.onShapeUi({ maskOverlay: show ? { id, part: 'mask', values: false } : null })
                     }
                   >
-                    {mask && e.view.maskOpen && maskEditor(kind, id, mask, maskTypes ?? [], e.view)}
+                    {mask &&
+                      e.view.maskOpen &&
+                      maskEditor(kind, id, mask, maskTypes ?? [], maskRasters, rasterFrom, e.view)}
                   </MaskFold>
                 )}
               </Module>
@@ -1558,7 +1577,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         ? edited.params.spots[shapeUi.selected]?.shape
         : undefined;
     const selected = id === undefined ? undefined : params.shapes?.[id];
-    return `${types}/${selected && selected.type !== 'brush' ? selected.feather : ''}`;
+    return `${types}/${selected && 'feather' in selected ? selected.feather : ''}`;
   })();
 
   // Lens correction strengths: 0 … 200 % of the camera's correction.
@@ -3447,12 +3466,12 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         const bindFeather = (id: string) => {
           const with_ = (v: number) => {
             const current = latest.current.params.shapes?.[id];
-            return current && current.type !== 'brush'
+            return current && 'feather' in current
               ? updateShape(latest.current.params, id, { ...current, feather: v })
               : latest.current.params;
           };
           return {
-            value: shape && shape.type !== 'brush' ? shape.feather : 0,
+            value: shape && 'feather' in shape ? shape.feather : 0,
             defaultValue: 0,
             onChange: (v: number) => latest.current.onChange(with_(v)),
             onCommit: (v: number) => latest.current.onCommit(with_(v), `${name()}: spot feather`),

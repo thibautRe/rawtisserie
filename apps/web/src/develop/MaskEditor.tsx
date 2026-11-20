@@ -6,15 +6,18 @@ import {
   type Mask,
   type MaskRange,
   type ModuleKind,
+  type RasterShape,
   SHAPE_OPS,
   type ShapeOp,
   type ShapeType,
+  addMaskShape,
   defaultMask,
   isDisplayReferred,
   removeMaskShape,
   updateMask,
+  updateShape,
 } from '@rawtisserie/pipeline';
-import { Eye, ScanEye, Trash2 } from 'lucide-react';
+import { Contrast, Eye, ScanEye, Trash2 } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import {
   type Handle,
@@ -109,7 +112,14 @@ const SHAPE_LABELS: Record<ShapeType, string> = {
   gradient: 'Gradient',
   path: 'Path',
   brush: 'Brush',
+  raster: 'Mask',
 };
+
+/** An instance whose mask a raster shape can read (`rasterSources`), with its title. */
+export interface RasterSource {
+  id: string;
+  title: string;
+}
 
 const TRACK_H = 14;
 
@@ -344,6 +354,10 @@ interface Props {
   mask: Mask;
   /** The type of each drawn part's shape. */
   shapeTypes: (ShapeType | undefined)[];
+  /** Each drawn part's shape if it's a raster shape (another instance's mask). */
+  rasters: (RasterShape | null)[];
+  /** The instances whose masks it can use (before it in the pipeline). */
+  sources: RasterSource[];
   ui: ShapeUi;
   /** The recipe now, for handlers (the editor is memoised with its section). */
   params: () => EditParams;
@@ -385,6 +399,8 @@ export function MaskEditor({
   id,
   mask,
   shapeTypes,
+  rasters,
+  sources,
   ui,
   params,
   title,
@@ -412,6 +428,23 @@ export function MaskEditor({
   };
   const opSelectId = useId();
   const blendSelectId = useId();
+  const rasterSelectId = useId();
+  const sourceTitle = (source: string) => sources.find((s) => s.id === source)?.title;
+  /** Use instance `source`'s mask as a shape, added like drawn ones. */
+  const addRaster = (source: string) => {
+    const shape: RasterShape = { type: 'raster', source, invert: false, opacity: 1 };
+    const [next] = addMaskShape(params(), kind, id, shape, mask.drawn.length ? ui.maskOp : 'union');
+    onCommit(next, `${title()}: mask of ${sourceTitle(source) ?? source} added`);
+  };
+  /** Invert raster shape `i` (its drawn part's shape). */
+  const invertRaster = (i: number) => {
+    const p = params();
+    const shapeId = p.modules.find((m) => m.id === id)?.mask?.drawn[i]?.shape;
+    const shape = shapeId === undefined ? undefined : p.shapes?.[shapeId];
+    if (!shapeId || shape?.type !== 'raster') return;
+    const label = `${title()}: mask of ${sourceTitle(shape.source) ?? shape.source} ${shape.invert ? 'not inverted' : 'inverted'}`;
+    onCommit(updateShape(p, shapeId, { ...shape, invert: !shape.invert }), label);
+  };
   const display = isDisplayReferred(kind);
   const edit = (patch: Partial<Mask>) => updateMask(params(), kind, id, patch);
   /** Props for a slider bound to a numeric field of the mask. */
@@ -479,7 +512,9 @@ export function MaskEditor({
             {...bind('blendFulcrum')}
           />
         )}
-        <GroupTitle hint="Circles, ellipses, gradients, paths and brush strokes drawn on the image">Shapes</GroupTitle>
+        <GroupTitle hint="Circles, ellipses, gradients, paths and brush strokes drawn on the image, and other modules' masks">
+          Shapes
+        </GroupTitle>
         <ShapeToolBar ui={ui} target="mask" id={id} kind={kind} noun="mask shapes" onUi={onUi} />
         {editing && ui.tool !== 'select' && mask.drawn.length > 0 && (
           <HStack gap="2">
@@ -515,9 +550,36 @@ export function MaskEditor({
                   variant={i === sel ? 'subtle' : 'ghost'}
                   colorPalette={i === sel ? 'orange' : 'gray'}
                   onClick={() => onUi({ editing: true, target: 'mask', instance: id, kind, selected: i })}
+                  title={
+                    rasters[i]
+                      ? `Where ${sourceTitle(rasters[i]!.source) ?? 'a module no longer before this one'} applies${
+                          rasters[i]!.invert ? ', inverted' : ''
+                        }`
+                      : undefined
+                  }
                 >
-                  {i + 1}. {shapeTypes[i] ? SHAPE_LABELS[shapeTypes[i]!] : ''}
+                  <Text as="span" truncate>
+                    {i + 1}.{' '}
+                    {rasters[i]
+                      ? `Mask of ${sourceTitle(rasters[i]!.source) ?? 'a missing module'}`
+                      : shapeTypes[i]
+                        ? SHAPE_LABELS[shapeTypes[i]!]
+                        : ''}
+                  </Text>
                 </Button>
+                {rasters[i] && (
+                  <IconButton
+                    size="2xs"
+                    variant={rasters[i]!.invert ? 'subtle' : 'ghost'}
+                    colorPalette={rasters[i]!.invert ? 'orange' : 'gray'}
+                    aria-label={`Invert mask shape ${i + 1}`}
+                    aria-pressed={rasters[i]!.invert}
+                    title="Inverted: where the other module doesn't apply"
+                    onClick={() => invertRaster(i)}
+                  >
+                    <Contrast />
+                  </IconButton>
+                )}
                 {i > 0 && (
                   <NativeSelect.Root size="xs" w="24">
                     <NativeSelect.Field
@@ -556,6 +618,30 @@ export function MaskEditor({
               </HStack>
             ))}
           </Stack>
+        )}
+        {sources.length > 0 && (
+          <HStack gap="2">
+            <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
+              <label htmlFor={rasterSelectId} title="Where another module (before this one) applies, as a shape">
+                Use mask
+              </label>
+            </Text>
+            <NativeSelect.Root size="xs" flex="1">
+              <NativeSelect.Field
+                id={rasterSelectId}
+                value=""
+                onChange={(ev) => ev.target.value && addRaster(ev.target.value)}
+              >
+                <option value="">Of another module…</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </NativeSelect.Field>
+              <NativeSelect.Indicator />
+            </NativeSelect.Root>
+          </HStack>
         )}
         <GroupTitle hint="Where the module applies by the image's own values: luminance, saturation, hue and channels">
           Parametric

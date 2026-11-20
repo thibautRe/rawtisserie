@@ -285,6 +285,21 @@ fn masked_regions_match() {
     let tones: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let tones: EditParams = serde_json::from_value(tones["recipe"].clone()).unwrap();
     check("tones", &tones, RenderSize::fit(1200, 1200));
+    // Raster shapes: masks of spatial and point modules, read by both.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/recipes/raster.json");
+    let raster: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let raster: EditParams = serde_json::from_value(raster["recipe"].clone()).unwrap();
+    check("raster", &raster, RenderSize::fit(1200, 1200));
+    let mut dev = developer();
+    for id in ["local", "lift", "desat"] {
+        let overlays = Overlays { mask: Some(id.into()), ..OVERLAYS };
+        let size = RenderSize::fit(1000, 1000);
+        let region = Region { x: 300, y: 200, width: 250, height: 200 };
+        let whole = dev.render_with_overlays(&raster, size, Quality::Final, &overlays);
+        let part = dev.render_with_overlays(&raster, size.with_region(region), Quality::Final, &overlays);
+        let worst = part.data.iter().zip(crop(&whole, region)).map(|(a, b)| a.abs_diff(b)).max().unwrap();
+        assert!(worst <= 1, "{id}: raster mask overlay differs by up to {worst} levels");
+    }
     // Mask overlays as well: the mask, a range alone, and the values of each part.
     let mut dev = developer();
     let size = RenderSize::fit(1000, 1000);

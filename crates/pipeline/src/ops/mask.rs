@@ -25,6 +25,14 @@
 //!
 //! Then the mask is inverted if asked, and scaled by its opacity, per pixel.
 //!
+//! A raster shape (`Shape::Raster`, roadmap 4.15) is another instance's mask as that
+//! instance applies it, already in the output frame. A drawn part with one can't be
+//! combined on the sensor: its leading drawn shapes are (as usual), the shapes after
+//! the first raster one are resampled each on its own, and all are combined in the
+//! output frame ([`RasterParts`]) once the sources' masks are known: in the detail pass
+//! for a spatial instance, with the point modules' masks for a point one. Then it's
+//! feathered like any drawn part. Sources are only found earlier in the pipeline.
+//!
 //! A creative LUT's mask (after filmic) is measured on filmic's input, scene-referred,
 //! so that its ranges mean what they do for the other modules.
 //!
@@ -97,6 +105,97 @@ impl Drawn {
     pub fn margin(&self, scale: f32) -> usize {
         feather_margin(self.feather, self.edge_aware, scale)
     }
+
+    /// Whether it has raster shapes (other instances' masks).
+    pub fn has_raster(&self) -> bool {
+        self.shapes.iter().any(|(s, _)| s.is_raster())
+    }
+
+    /// The instances whose masks its raster shapes are.
+    pub fn sources(&self) -> impl Iterator<Item = &str> {
+        self.shapes.iter().filter_map(|(s, _)| match s {
+            Shape::Raster { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
+    }
+}
+
+/// `a` (what the shapes before give) combined with a shape's alpha `b`.
+#[inline]
+fn combine_op(op: ShapeOp, a: f32, b: f32) -> f32 {
+    match op {
+        ShapeOp::Union => a.max(b),
+        ShapeOp::Intersection => a * b,
+        ShapeOp::Difference => a * (1.0 - b),
+        ShapeOp::Exclusion => a + b - 2.0 * a * b,
+    }
+}
+
+/// A drawn part with raster shapes, over a render's pixels, before the sources' masks are
+/// known: its shapes in order, with how each combines (the first one as it is).
+#[derive(Clone, Debug)]
+pub struct RasterParts {
+    pub pieces: Vec<(Piece, ShapeOp)>,
+}
+
+#[derive(Clone, Debug)]
+pub enum Piece {
+    /// Drawn shapes in the output frame (the leading ones combined, later ones one each),
+    /// unfeathered.
+    Plane(Vec<f32>),
+    /// A raster shape.
+    Raster { source: String, invert: bool, opacity: f32 },
+}
+
+/// A raster source's mask over a render, as its instance applies it: `None` when it has
+/// none (1 everywhere).
+pub type SourceMask = Option<Vec<f32>>;
+
+impl RasterParts {
+    /// The parts of `drawn` over `len` pixels: `plane(shapes)` gives drawn shapes
+    /// combined, in the output frame.
+    pub fn new(drawn: &Drawn, mut plane: impl FnMut(&Drawn) -> Vec<f32>) -> Self {
+        let lead = drawn.shapes.iter().take_while(|(s, _)| !s.is_raster()).count();
+        let mut pieces = Vec::new();
+        if lead > 0 {
+            pieces.push((Piece::Plane(plane(&Drawn { shapes: drawn.shapes[..lead].to_vec(), ..drawn.clone() })), ShapeOp::Union));
+        }
+        for (shape, op) in &drawn.shapes[lead..] {
+            let op = if pieces.is_empty() { ShapeOp::Union } else { *op };
+            let piece = match shape {
+                Shape::Raster { source, invert, opacity } => Piece::Raster { source: source.clone(), invert: *invert, opacity: *opacity },
+                _ => Piece::Plane(plane(&Drawn { shapes: vec![(shape.clone(), ShapeOp::Union)], ..drawn.clone() })),
+            };
+            pieces.push((piece, op));
+        }
+        Self { pieces }
+    }
+
+    /// The combined part over `len` pixels, unfeathered. `source(id)` is the mask of
+    /// instance `id` if it's a source this part may read (`None`: 0 everywhere).
+    pub fn combine<'a>(&self, len: usize, source: impl Fn(&str) -> Option<&'a SourceMask>) -> Vec<f32> {
+        let mut acc = vec![0.0f32; len];
+        for (piece, op) in &self.pieces {
+            match piece {
+                Piece::Plane(b) => acc.iter_mut().zip(b).for_each(|(a, b)| *a = combine_op(*op, *a, *b)),
+                Piece::Raster { source: id, invert, opacity } => {
+                    let alpha = |m: f32| Shape::raster_alpha(*invert, *opacity, m);
+                    match source(id) {
+                        Some(Some(m)) => acc.iter_mut().zip(m).for_each(|(a, m)| *a = combine_op(*op, *a, alpha(*m))),
+                        Some(None) => {
+                            let b = alpha(1.0);
+                            acc.iter_mut().for_each(|a| *a = combine_op(*op, *a, b));
+                        }
+                        None => {
+                            let b = alpha(0.0);
+                            acc.iter_mut().for_each(|a| *a = combine_op(*op, *a, b));
+                        }
+                    }
+                }
+            }
+        }
+        acc
+    }
 }
 
 /// Box radius of the guided filter, or Gaussian sigma, in output pixels at `scale`; 0
@@ -133,11 +232,12 @@ pub fn raster_frame(sensor: (usize, usize), scale: f32) -> (usize, usize) {
 
 /// The combined alpha of `drawn`'s shapes in a `frame`-sized raster, over the part of
 /// `clip` where any may be non-zero: `(region, alpha)`, or `None` if that is empty.
+/// Raster shapes are left out: see [`RasterParts`].
 pub fn rasterize(drawn: &Drawn, frame: (usize, usize), clip: Region) -> Option<(Region, Vec<f32>)> {
     // Every op keeps the result within the shapes' union (the first one starts it).
     let region = drawn.shapes.iter().filter_map(|(s, _)| s.bounds(frame)).reduce(|a, b| a.union(&b))?.intersect(&clip)?;
     let mut acc = vec![0.0f32; region.width * region.height];
-    for (i, (shape, op)) in drawn.shapes.iter().enumerate() {
+    for (i, (shape, op)) in drawn.shapes.iter().filter(|(s, _)| !s.is_raster()).enumerate() {
         let op = if i == 0 { ShapeOp::Union } else { *op };
         let raster = shape.rasterize_in(frame, region);
         // The shape's alpha at each pixel of `region` (0 outside its raster).
@@ -151,13 +251,7 @@ pub fn rasterize(drawn: &Drawn, frame: (usize, usize), clip: Region) -> Option<(
         for y in visit.y..visit.bottom() {
             for x in visit.x..visit.right() {
                 let k = (y - region.y) * region.width + (x - region.x);
-                let (a, b) = (acc[k], b_at(x, y));
-                acc[k] = match op {
-                    ShapeOp::Union => a.max(b),
-                    ShapeOp::Intersection => a * b,
-                    ShapeOp::Difference => a * (1.0 - b),
-                    ShapeOp::Exclusion => a + b - 2.0 * a * b,
-                };
+                acc[k] = combine_op(op, acc[k], b_at(x, y));
             }
         }
     }

@@ -335,7 +335,8 @@ impl EditParams {
         let shapes = &self.shapes;
         for m in &mut self.modules {
             if let Module::Retouch(r) = &mut m.module {
-                r.spots.retain(|s| shapes.contains_key(&s.shape));
+                // Raster shapes have no place on the sensor to retouch.
+                r.spots.retain(|s| shapes.get(&s.shape).is_some_and(|s| !s.is_raster()));
             }
             if !m.module.kind().maskable() {
                 m.mask = None;

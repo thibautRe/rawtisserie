@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  type GeometricShape,
   type SensorMapping,
   flattenPath,
   freshShapeId,
@@ -31,6 +32,14 @@ test('normalizeShape fills optional fields and refuses junk', () => {
   assert.equal(normalizeShape({ type: 'blob' }), null);
   assert.equal(normalizeShape({ type: 'brush', points: [[0, 0, 0.1]] }), null);
   assert.deepEqual(normalizeShape({ type: 'brush', points: [] }), { type: 'brush', points: [], opacity: 1 });
+  assert.deepEqual(normalizeShape({ type: 'raster', source: 'exposure' }), {
+    type: 'raster',
+    source: 'exposure',
+    invert: false,
+    opacity: 1,
+  });
+  assert.equal(normalizeShape({ type: 'raster' }), null);
+  assert.equal(normalizeShape({ type: 'raster', source: 'exposure', invert: 1 }), null);
 });
 
 test('translateShape moves every point', () => {
@@ -42,13 +51,13 @@ test('translateShape moves every point', () => {
       [0.1, 0.3, 0.1, 0.3, 0.1, 0.3],
     ],
   })!;
-  const moved = translateShape(path, 0.1, -0.05);
+  const moved = translateShape(path as GeometricShape, 0.1, -0.05);
   close(moved.type === 'path' ? moved.points[0]! : [], [0.2, 0.05, 0.2, 0.05, 0.3, 0.05]);
 });
 
 test('ellipse outlines are round in pixels', () => {
   const circle = normalizeShape({ type: 'ellipse', center: [0.5, 0.5], radii: [0.1, 0.1], feather: 0.05 })!;
-  const { edge, feather } = shapeOutline(circle, { width: 200, height: 100 });
+  const { edge, feather } = shapeOutline(circle as GeometricShape, { width: 200, height: 100 });
   // 10 px radius: 0.05 across the width, 0.1 across the height.
   const xs = edge[0]!.map((p) => p[0]);
   const ys = edge[0]!.map((p) => p[1]);

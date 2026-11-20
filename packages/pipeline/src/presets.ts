@@ -10,7 +10,9 @@
  *
  * Presets and styles with retouch spots or masks carry the shapes they use (`shapes`);
  * applying them gives those fresh ids where the recipe already has shapes with theirs
- * (`importShapes`). Where references are is only known to `paramShapeRefs` and
+ * (`importShapes`). A style's instances have no ids: a raster shape it carries names its
+ * source `style-<index>` when that's one of the style's instances (`withRasterSources`),
+ * and the instance's id in the recipe once applied. Where references are is only known to `paramShapeRefs` and
  * `mapShapeRefs` (and `maskShapeRefs`/`mapMaskShapeRefs`). A module preset holds the
  * instance's mask only if asked when saving: ranges travel well, drawn shapes rarely.
  *
@@ -32,6 +34,7 @@ import {
   PRIMARIES,
   SINGLE_INSTANCE_KINDS,
   defaultModuleParams,
+  freshId,
   mapMaskShapeRefs,
   maskParams,
   maskShapeRefs,
@@ -44,7 +47,7 @@ import {
   updateInstance,
   withUsedShapes,
 } from './params.ts';
-import { type Shape, freshShapeId, normalizeShape } from './shapes.ts';
+import { type Shape, freshShapeId, isRasterShape, normalizeShape } from './shapes.ts';
 
 /**
  * Kinds a module preset can be saved for. Geometry belongs to one image. Retouch spots
@@ -354,7 +357,9 @@ export function normalizeStyle(input: unknown): StylePayload {
     return isObject(source) ? styleInstance(m, source.mode, source.groups) : styleInstance(m, 'replace', undefined);
   });
   const payload: StylePayload = { version: EDIT_PARAMS_VERSION, modules: styled };
-  const kept = styleShapes(styled, shapes);
+  // Raster shapes name instances by their place, which normalising may have changed.
+  const places = new Map(modules.map((m, i) => [m.id, styleSource(i)]));
+  const kept = withRasterSources(styleShapes(styled, shapes), places);
   if (kept) payload.shapes = kept;
   return payload;
 }
@@ -390,9 +395,27 @@ export function styleFromRecipe(recipe: EditParams, ids: Iterable<string>, pick:
       return instance;
     });
   const payload: StylePayload = { version: EDIT_PARAMS_VERSION, modules };
-  const shapes = styleShapes(modules, recipe.shapes);
+  const picked = recipe.modules.filter((m) => wanted.has(m.id)).map((m, i) => [m.id, styleSource(i)] as const);
+  const shapes = withRasterSources(styleShapes(modules, recipe.shapes), new Map(picked));
   if (shapes) payload.shapes = shapes;
   return payload;
+}
+
+/** How a style's raster shape names instance `index` of the style as its source. */
+const styleSource = (index: number) => `style-${index}`;
+
+/**
+ * `shapes` with the sources of raster shapes renamed by `to` (those it doesn't have
+ * stay). The same object if nothing changes.
+ */
+function withRasterSources<S extends Record<string, Shape> | undefined>(shapes: S, to: ReadonlyMap<string, string>): S {
+  if (!shapes || !Object.values(shapes).some((s) => isRasterShape(s) && to.has(s.source))) return shapes;
+  return Object.fromEntries(
+    Object.entries(shapes).map(([id, s]) => [
+      id,
+      isRasterShape(s) && to.has(s.source) ? { ...s, source: to.get(s.source)! } : s,
+    ]),
+  ) as S;
 }
 
 /**
@@ -474,14 +497,30 @@ export function applyStyle(recipe: EditParams, style: StylePayload, appendAll = 
     if (own) (made.params as ModuleParams['lens']).lensfun = structuredClone(own);
     return made;
   };
-  const modules = [
-    ...recipe.modules.map((t) => {
-      const m = replacing.get(t.id);
-      return m ? instance(m, t) : t;
-    }),
-    ...added.map((m) => instance(m, undefined)),
-  ];
-  return normalizeEditParams({ version: EDIT_PARAMS_VERSION, modules, shapes });
+  const kept = recipe.modules.map((t) => {
+    const m = replacing.get(t.id);
+    return m ? instance(m, t) : t;
+  });
+  // Added instances get their ids here, for the style's raster shapes to name them.
+  const usedIds = new Set(kept.map((t) => t.id));
+  const fresh = added.map((m) => {
+    const made = instance(m, undefined);
+    made.id = freshId(made.kind, (id) => usedIds.has(id));
+    usedIds.add(made.id);
+    return made;
+  });
+  const ids = new Map<StyleInstance, string>([
+    ...recipe.modules.flatMap((t) => (replacing.has(t.id) ? [[replacing.get(t.id)!, t.id] as const] : [])),
+    ...added.map((m, i) => [m, fresh[i]!.id] as const),
+  ]);
+  const sources = new Map(style.modules.map((m, i) => [styleSource(i), ids.get(m) ?? ''] as const));
+  const styleShapeIds = new Set(Object.keys(style.shapes ?? {}).map(rename));
+  const renamed = withRasterSources(
+    Object.fromEntries(Object.entries(shapes).filter(([id]) => styleShapeIds.has(id))),
+    sources,
+  );
+  const modules = [...kept, ...fresh];
+  return normalizeEditParams({ version: EDIT_PARAMS_VERSION, modules, shapes: { ...shapes, ...renamed } });
 }
 
 const builtIn = <K extends ModuleKind>(

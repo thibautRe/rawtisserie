@@ -278,6 +278,48 @@ test('masks travel with styles, and with presets when asked', () => {
   );
 });
 
+test("a style's raster shapes follow their source instances", () => {
+  // exposure-2 masked by where exposure applies (inverted), and by colour balance's mask.
+  const two = addInstance(defaultEditParams, 'exposure');
+  const [masked] = addMaskShape(two, 'exposure', 'exposure', {
+    type: 'ellipse',
+    center: [0.5, 0.5],
+    radii: [0.1, 0.1],
+    rotation: 0,
+    feather: 0,
+    opacity: 1,
+  });
+  const [withRaster] = addMaskShape(masked, 'exposure', 'exposure-2', {
+    type: 'raster',
+    source: 'exposure',
+    invert: true,
+    opacity: 1,
+  });
+  const recipe = addMaskShape(withRaster, 'exposure', 'exposure-2', {
+    type: 'raster',
+    source: 'colorCalibration',
+    invert: false,
+    opacity: 0.5,
+  })[0];
+  const style = styleFromRecipe(recipe, ['exposure', 'exposure-2'], { modes: { exposure: 'append' } });
+  const sources = (shapes: Record<string, Shape> | undefined) =>
+    Object.values(shapes ?? {}).flatMap((s) => (s.type === 'raster' ? [s.source] : []));
+  // Its own instance by place; others by id.
+  assert.deepEqual(sources(style.shapes), ['style-0', 'colorCalibration']);
+  assert.deepEqual(normalizeStyle(JSON.parse(JSON.stringify(style))), style);
+
+  // Appended to a recipe with an exposure already: the raster shape names the new one.
+  const applied = applyStyle(defaultEditParams, style, true);
+  const exposures = applied.modules.filter((m) => m.kind === 'exposure').map((m) => m.id);
+  assert.deepEqual(exposures, ['exposure', 'exposure-2', 'exposure-3']);
+  const last = applied.modules.find((m) => m.id === 'exposure-3')!;
+  const shapes = last.mask!.drawn.map((d) => applied.shapes![d.shape]!);
+  assert.deepEqual(sources(Object.fromEntries(shapes.map((s, i) => [i, s]))), ['exposure-2', 'colorCalibration']);
+  // Replacing: the instances keep the recipe's ids.
+  const replaced = applyStyle(recipe, { ...style, modules: style.modules.map((m) => ({ ...m, mode: 'replace' })) });
+  assert.deepEqual(sources(replaced.shapes), ['exposure', 'colorCalibration']);
+});
+
 test('style instances replace by rank or append, each by its own mode', () => {
   // Source: exposure, exposure-2 (a vignette, say), filmic.
   let source = updateModule(defaultEditParams, 'exposure', { params: { ev: 1 } });

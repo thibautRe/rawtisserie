@@ -19,6 +19,12 @@ See README.md for the architecture overview and commands.
   and TS's `paramShapeRefs`/`mapShapeRefs` (module parameters) or
   `maskShapeRefs`/`mapMaskShapeRefs` (an instance's mask), or its shapes get dropped.
   Presets and styles carry the shapes they use and rename them on apply through those.
+  A `raster` shape (roadmap 4.15) is another instance's mask as it applies it, in the
+  output frame: no bounds, nothing to draw (`GeometricShape` in TS for the rest), never
+  a retouch spot. A drawn part with one is combined after its sources' masks
+  (`mask::RasterParts`: in the detail pass, or `PointMask::Raster`), and sources are kept
+  for it (`DetailStep::source`, `PointMask::Source`); only instances before it count.
+  Styles name sources among their instances `style-<index>` (`withRasterSources`).
 - Masks (`ops/mask.rs`, `params::Mask` ↔ `Mask` in TS, mirrored like the params): an
   instance's optional `mask`, absent from the JSON when there's none, kept only on
   `ModuleKind::maskable` kinds (`MASKABLE_KINDS`). The drawn part is spatial: it's cached

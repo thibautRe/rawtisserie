@@ -88,6 +88,20 @@ test('an image that is not a RAW file starts empty and has no filmic or lens cor
 
 /** Recipes on which TypeScript and Rust must agree. */
 const samples: unknown[] = [
+  // Raster shapes: in masks, not in retouch spots (roadmap 4.15).
+  {
+    version: 8,
+    modules: [
+      { kind: 'retouch', params: { spots: [{ shape: 'r' }, { shape: 'c' }] } },
+      { kind: 'exposure', mask: { drawn: [{ shape: 'c' }, { shape: 'r', op: 'intersection' }] } },
+      { kind: 'exposure', mask: { drawn: [{ shape: 'plain' }] } },
+    ],
+    shapes: {
+      r: { type: 'raster', source: 'exposure', invert: true, opacity: 0.5 },
+      plain: { type: 'raster', source: 'retouch' },
+      c: { type: 'ellipse', center: [0.5, 0.5], radii: [0.1, 0.1] },
+    },
+  },
   {},
   { version: 1, exposure: { ev: 1 }, toneMap: { contrast: 2 } },
   {
@@ -391,7 +405,7 @@ test('exposurePhotos lists the photos enabled multiple exposures blend in', () =
     modules: [{ kind: 'multipleExposure', params: { photo: { sha256: 'ab', name: 'A' }, blend: 'junk' } }],
   });
   assert.deepEqual(exposurePhotos(p), ['ab']);
-  assert.equal(p.modules[0]!.params.blend, 'average');
+  assert.equal((p.modules[0]!.params as { blend?: string }).blend, 'average');
   assert.deepEqual(exposurePhotos({ ...p, modules: [{ ...p.modules[0]!, enabled: false }] }), []);
   assert.deepEqual(exposurePhotos(normalizeEditParams({ version: 8, modules: [{ kind: 'multipleExposure' }] })), []);
 });
@@ -680,6 +694,14 @@ test('invalid shapes and spots are dropped or defaulted', () => {
   });
   assert.deepEqual(spotsOf(p, 'retouch'), [{ ...defaultSpot, shape: 'ok' }]);
   assert.deepEqual(Object.keys(p.shapes!), ['ok']);
+  // Raster shapes have no place on the sensor for a spot.
+  const raster = normalizeEditParams({
+    version: 8,
+    modules: [{ kind: 'retouch', params: { spots: [{ shape: 'r' }] } }],
+    shapes: { r: { type: 'raster', source: 'exposure' } },
+  });
+  assert.deepEqual(spotsOf(raster, 'retouch'), []);
+  assert.equal(raster.shapes, undefined);
 });
 
 test('masks carry their shapes', () => {

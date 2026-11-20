@@ -8,7 +8,7 @@
 
 import type { Lensfun } from './lensfun.ts';
 import type { PhotoMetadata } from './metadata.ts';
-import { type Shape, freshShapeId, normalizeShape } from './shapes.ts';
+import { type Shape, freshShapeId, isRasterShape, normalizeShape } from './shapes.ts';
 
 export interface ModuleParams {
   /**
@@ -1490,8 +1490,8 @@ export function spotParams(input: unknown): Spot {
 
 /**
  * Unique non-empty ids, one instance of single-instance kinds, pipeline order, masks only
- * on maskable kinds, no spots or drawn mask parts without their shape, and no shapes that
- * nothing uses. Mirrors `EditParams::normalize`.
+ * on maskable kinds, no spots or drawn mask parts without their shape (nor spots of raster
+ * shapes), and no shapes that nothing uses. Mirrors `EditParams::normalize`.
  */
 function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}): EditParams {
   const seen = new Set<ModuleKind>();
@@ -1509,8 +1509,10 @@ function normalize(input: ModuleInstance[], shapes: Record<string, Shape> = {}):
   }
 
   const exists = (id: string) => (id in shapes ? id : null);
+  // Parameters refer to shapes for retouch spots, which raster shapes have no place for.
+  const drawnShape = (id: string) => (shapes[id] && !isRasterShape(shapes[id]) ? id : null);
   for (const [i, m] of modules.entries()) {
-    const params = mapShapeRefs(m.kind, m.params, exists);
+    const params = mapShapeRefs(m.kind, m.params, drawnShape);
     if (params !== m.params) modules[i] = { ...m, params } as ModuleInstance;
     if (m.autoTune && !AUTO_TUNE_KINDS.includes(m.kind)) {
       const { autoTune: _, ...rest } = modules[i]!;
@@ -1587,7 +1589,7 @@ export function mapShapeRefs<K extends ModuleKind, P extends Partial<ModuleParam
 }
 
 /** `kind`, or `kind-2`, `kind-3`… : the first id that isn't taken. */
-function freshId(kind: ModuleKind, taken: (id: string) => boolean): string {
+export function freshId(kind: ModuleKind, taken: (id: string) => boolean): string {
   if (!taken(kind)) return kind;
   for (let n = 2; ; n++) if (!taken(`${kind}-${n}`)) return `${kind}-${n}`;
 }
@@ -1946,6 +1948,16 @@ export function addMaskShape(
   const drawn = [...(maskOf(params, id)?.drawn ?? []), { shape: shapeId, op }];
   const withShape = { ...params, shapes: sortedShapes({ ...params.shapes, [shapeId]: shape }) };
   return [updateMask(withShape, kind, id, { drawn }), shapeId];
+}
+
+/**
+ * The instances whose mask a raster shape in instance `id`'s mask can read (roadmap
+ * 4.15): those of maskable kinds before it in the pipeline, enabled or not. Mirrors where
+ * the pipeline looks for a raster shape's source.
+ */
+export function rasterSources(params: EditParams, id: string): ModuleInstance[] {
+  const at = params.modules.findIndex((m) => m.id === id);
+  return at < 0 ? [] : params.modules.slice(0, at).filter((m) => MASKABLE_KINDS.includes(m.kind));
 }
 
 /** Remove drawn part `index` of instance `id`'s mask (and its shape, unless something else uses it). */

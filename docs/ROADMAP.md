@@ -1384,6 +1384,25 @@ scale, rotation), the other photo's own white balance or recipe, raw denoise on 
 (today only this photo is denoised), and re-rendering the photos that blend one in when
 it's deleted for good or comes back.
 
+### 4.15 Raster masks: another module's mask as a shape (M)
+
+> **Done** 2026-11-20, as darktable's and Ansel's raster masks. A shape type, `raster`
+> (`Shape::Raster` ↔ `RasterShape`): `{ source, invert, opacity }`, the mask of instance
+> `source` as it applies it (after its own ranges, feather, invert and opacity), so a
+> mask combines it with drawn shapes like any other, and several can be. Only instances
+> before the mask's in the pipeline are sources; a missing, later or switched-off one
+> applies nowhere (0), one without a mask everywhere (1). Retouch spots can't use one.
+> A drawn part with raster shapes is combined in the output frame (its leading drawn
+> shapes still on the sensor, the later ones resampled each), then feathered: in the
+> detail pass for a spatial instance (a step that does nothing is kept as a source), with
+> the point modules' masks for a point one (`PointMask::Raster`/`Source` in
+> `PointMasksKey`), so editing a source re-renders like a spatial edit. Styles name a
+> source among their own instances by its place (`style-<index>`) and the instance's id
+> once applied. The editor: "Use mask" lists the instances before this one; a raster
+> shape's row says whose mask it is and can invert it. Imported from darktable/Ansel
+> (alone, inverted if asked, times the opacity, as they blend it). Golden recipe
+> `raster.json`. Later, if wanted: bitmap masks (painted, or AI segmentation).
+
 ---
 
 ## M5 — Compare (M–L, after 1.2)
@@ -2181,8 +2200,9 @@ folders; collections are a filter in the sidebar, combined with the others.
 
 Best effort, never the same pixels: our pipeline differs (demosaic, highlight
 reconstruction, profiles). darktable's colour equalizer comes through as our colour
-primaries (its curves read at our six control colours). Still to do, by use in the
-user's files: brushes in masks, raster masks; denoise as raw denoise; Ansel's colour
+primaries (its curves read at our six control colours). Raster masks come through as
+4.15's raster shapes (2026-11-20). Still to do, by use in the
+user's files: brushes in masks; denoise as raw denoise; Ansel's colour
 equalizer (rings of curves, another module). rgb curve comes through as Tones (each
 curve's gain in EV at our nodes, linked through its norm or per channel). Later: Lightroom (`crs:` XMP) and Capture One
 (`.cos`) through the same report and warning.

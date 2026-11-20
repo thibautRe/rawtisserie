@@ -13,8 +13,13 @@
  * Drawn shapes: their circles, ellipses, gradients and paths are ours, in the same
  * coordinates (normalised on the sensor frame, lengths on its shorter side), combined
  * as their group says. Feathering and blur become our feather (edge-aware for their
- * guided feathering). Mask refinement (contrast, brightness, details) and raster
- * masks aren't imported.
+ * guided feathering). Mask refinement (contrast, brightness, details) isn't imported.
+ *
+ * Raster masks (another module's mask, as it blended) are our raster shape on the
+ * instance its source became. darktable uses one alone, inverted if asked, times the
+ * opacity, without feathering; so do we. Without its source (switched off there) it
+ * blends everywhere (nowhere inverted), which is an opacity alone here; a source we don't
+ * import leaves the instance switched off.
  */
 import { type BlendMode, type DrawnShape, type Mask, type MaskRange, type ShapeOp, defaultMask } from '../params.ts';
 import type { Shape } from '../shapes.ts';
@@ -462,6 +467,7 @@ export async function sourceOffset(form: DarktableMaskEntry, shape: Shape): Prom
   if (!src || src.length < 8) return [0, 0];
   const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
   const [sx, sy] = [view.getFloat32(0, true), view.getFloat32(4, true)];
+  if (shape.type === 'raster') return [0, 0];
   const anchor =
     shape.type === 'ellipse'
       ? shape.center
@@ -527,15 +533,23 @@ export interface Blending {
 }
 
 /**
+ * Our instance that their instance `multiPriority` of `operation` became, for a raster
+ * mask: its id, `null` if theirs is off (no raster mask there), `undefined` if we don't
+ * import it.
+ */
+export type RasterSourceOf = (operation: string, multiPriority: number) => string | null | undefined;
+
+/**
  * How an instance blends, from its blending parameters and the drawn forms as they
  * stood (`forms`); `maskable` whether our kind takes a mask; `aspect` the sensor's
- * width over its height.
+ * width over its height; `rasterSource` where a raster mask comes from.
  */
 export async function blending(
   bytes: Uint8Array | null,
   forms: readonly DarktableMaskEntry[],
   maskable: boolean,
   aspect: number,
+  rasterSource: RasterSourceOf = () => undefined,
 ): Promise<Blending | null> {
   const p = bytes && BLEND_PARAMS.read(bytes);
   if (!p) return null;
@@ -559,13 +573,29 @@ export async function blending(
         ...notes,
       ],
     };
-  if (mode & MASK_RASTER && p.raster_mask_source)
-    return { off: true, notes: ['A raster mask from another module: imported switched off', ...notes] };
-
   // Their scene-referred modes scale by p = 2^parameter (multiply: a·b·p); ours divide by
   // the fulcrum, middle grey times 2^blendFulcrum (a·b / fulcrum).
   const blendFulcrum = -(p.blend_parameter as number) - Math.log2(GREY);
   const mask: Mask = { ...defaultMask, opacity, blend: blend ?? 'normal', blendFulcrum };
+  if (mode & MASK_RASTER && p.raster_mask_source) {
+    const operation = p.raster_mask_source as string;
+    const source = rasterSource(operation, p.raster_mask_instance as number);
+    const invert = p.raster_mask_invert === true;
+    if (source === undefined)
+      return { off: true, notes: [`A raster mask from ${operation}, not imported: imported switched off`, ...notes] };
+    if (source === null)
+      return {
+        mask: { ...mask, invert },
+        notes: [`Its raster mask's module is off: it blends ${invert ? 'nowhere' : 'everywhere'}, as there`, ...notes],
+      };
+    if ((p.raster_mask_id as number) !== 0) notes.push("Their raster mask other than the module's own as its own");
+    const id = `raster:${source}`;
+    return {
+      mask: { ...mask, drawn: [{ shape: id, op: 'union' }] },
+      shapes: { [id]: { type: 'raster', source, invert, opacity: 1 } },
+      notes,
+    };
+  }
   let shapes: Record<string, Shape> | undefined;
   const combine = p.mask_combine as number;
   if (mode & MASK_DRAWN && (p.mask_id as number) > 0) {

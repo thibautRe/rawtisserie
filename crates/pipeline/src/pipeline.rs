@@ -16,7 +16,7 @@ use crate::ops::point::{self, FILMIC_LUT_SIZE, FilmicStage, PointOps};
 use crate::ops::calibration::{self, Detection};
 use crate::ops::clipping::{self, MaskPart, MaskView, Overlays};
 use crate::ops::blend::Blend;
-use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage};
+use crate::ops::mask::{self, Drawn, MaskPlane, MaskStage, RasterParts, SourceMask};
 use crate::ops::primaries::{ColorPrimariesStage, FieldWeights, WeightsKey};
 use crate::ops::retouch::{self, Saved, Stamp};
 use crate::ops::color_balance;
@@ -276,9 +276,8 @@ struct Slot {
     /// Changes whenever the image the spatial stages give for this size does.
     id: u64,
     geometry: Option<(GeometryKey, Image)>,
-    /// The drawn masks over `geometry`'s pixels, and the same cropped to `region`
-    /// (what the point operations read, unless `point_masks` has more).
-    masks: Option<(MasksKey, Vec<MaskPlane>, Vec<MaskPlane>)>,
+    /// The drawn masks over `geometry`'s pixels.
+    masks: Option<DrawnMasks>,
     detail: Option<Detail>,
     /// With masks of point modules feathered whole: those and the drawn ones, over
     /// `region` (what the point operations read).
@@ -308,6 +307,25 @@ struct MasksKey {
     drawn: Vec<(String, Drawn)>,
 }
 
+/// The drawn parts of the masks over the geometry stage's pixels (`MasksKey`).
+struct DrawnMasks {
+    key: MasksKey,
+    /// Those without raster shapes, by instance id.
+    planes: Vec<MaskPlane>,
+    /// The same cropped to the slot's region: what the point operations read, unless
+    /// `Slot::point_masks` has more.
+    cropped: Vec<MaskPlane>,
+    /// Those with raster shapes, by instance id, completed once their sources' masks are
+    /// known (`mask::RasterParts`).
+    rasters: Vec<(String, RasterParts)>,
+}
+
+impl DrawnMasks {
+    fn raster(&self, id: &str) -> Option<&RasterParts> {
+        self.rasters.iter().find(|(i, _)| i == id).map(|(_, p)| p)
+    }
+}
+
 /// The detail stage's output.
 struct Detail {
     key: DetailKey,
@@ -317,6 +335,8 @@ struct Detail {
     image: Image,
     /// The masks of the masked steps over the region (for the mask overlay).
     step_masks: Vec<MaskPlane>,
+    /// The masks of the steps that are raster sources, over the padded region.
+    sources: Vec<(String, SourceMask)>,
 }
 
 /// What the masks of point modules feathered whole, and those of tone curves preserving
@@ -334,24 +354,34 @@ struct PointMasksKey {
 /// A plane computed on a point module's input.
 #[derive(Clone, Debug, PartialEq)]
 enum PointMask {
+    /// Its drawn part, which has raster shapes (completed with their sources' masks).
+    Raster,
     /// Its mask, feathered whole.
     Whole(params::Mask),
     /// A tone curve's mask, preserving detail: its statistics (`tone_curve::plane_ids`).
     Tones(Local),
+    /// The mask it applies (`None`: it has none), which a later raster shape reads.
+    Source(Option<params::Mask>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct DetailKey {
     geometry: GeometryKey,
-    /// The active detail instances, in pipeline order.
+    /// The active detail instances (and the raster sources), in pipeline order.
     steps: Vec<DetailStep>,
 }
 
 /// A spatial instance, with its parameters at the output size, and its mask.
 #[derive(Clone, Debug, PartialEq)]
 struct DetailStep {
+    /// The instance's id.
+    id: String,
     op: DetailOp,
     mask: Option<Box<StepMask>>,
+    /// Whether it changes anything (a step that doesn't is kept only as a raster source).
+    active: bool,
+    /// Whether a later mask's raster shape reads its mask.
+    source: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -651,6 +681,8 @@ impl Developer {
             let tones = params.modules.iter().filter(|m| m.enabled).filter_map(|m| Local::of(<params::ToneCurve as params::ModuleParams>::get(&m.module)?));
             let tones = tones.map(|l| l.reach((width, height)));
             let feather = drawn.iter().map(|(_, d)| d.margin(scale)).chain(whole).chain(tones).max().unwrap_or(0);
+            // A raster shape reads its source's mask, feathered too, before its own feather.
+            let feather = feather * (1 + drawn.iter().filter(|(_, d)| d.has_raster()).count());
             let padding = (detail + feather).next_multiple_of(32);
             // Light from past the margin would be missing from a glow, unevenly from one
             // region to the next: a wide one gets all it reaches, up to the whole frame.
@@ -772,7 +804,7 @@ impl Developer {
         if slot.geometry.as_ref().map(|(k, _)| k) != Some(&gkey) {
             return false;
         }
-        let masks = slot.masks.as_ref().map(|(k, ..)| k);
+        let masks = slot.masks.as_ref().map(|m| &m.key);
         if masks.map_or(!plan.drawn.is_empty(), |k| k.geometry != gkey || k.drawn != plan.drawn) {
             return false;
         }
@@ -804,8 +836,9 @@ impl Developer {
         } else {
             let dkey = DetailKey { geometry: gkey.clone(), steps: plan.steps.clone() };
             if slot.detail.as_ref().map(|d| &d.key) != Some(&dkey) {
-                let img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
-                let planes = &slot.masks.as_ref().expect("masks were just built").1;
+                let guide = &slot.geometry.as_ref().expect("geometry was just built").1;
+                let img = guide.clone();
+                let drawn = slot.masks.as_ref().expect("masks were just built");
                 let origin = (plan.padded.x, plan.padded.y);
                 // Diffuse steps computed elsewhere are used (and dropped), the rest computed here.
                 let diffuse = |i: usize, p: &params::Diffuse, scale: f32, input: &Image| {
@@ -819,9 +852,10 @@ impl Developer {
                         }
                     })
                 };
-                let (img, step_masks) = detail_pass(img, &dkey.steps, &plan, planes, inner, diffuse).expect("every step is computed");
+                let pass = detail_pass(img, &dkey.steps, &plan, drawn, guide, inner, diffuse).expect("every step is computed");
+                let img = pass.image;
                 let (padded, image) = if plan.padded != plan.region { (Some(img.clone()), img.crop(inner)) } else { (None, img) };
-                slot.detail = Some(Detail { key: dkey, padded, image, step_masks });
+                slot.detail = Some(Detail { key: dkey, padded, image, step_masks: pass.step_masks, sources: pass.sources });
                 changed = true;
             }
         }
@@ -881,24 +915,31 @@ impl Developer {
         let inner = Region { x: r.x - p.x, y: r.y - p.y, ..r };
 
         let mkey = MasksKey { geometry: gkey.clone(), drawn: plan.drawn.clone() };
-        if self.slots[0].masks.as_ref().map(|(k, ..)| k) != Some(&mkey) {
+        if self.slots[0].masks.as_ref().map(|m| &m.key) != Some(&mkey) {
             // Planes whose shapes didn't change are kept (one mask is edited at a time).
-            let old = self.slots[0].masks.take().filter(|(k, ..)| k.geometry == gkey);
+            let old = self.slots[0].masks.take().filter(|m| m.key.geometry == gkey);
+            let unchanged = |id: &str, drawn: &Drawn| old.as_ref().is_some_and(|m| m.key.drawn.iter().any(|(i, d)| i == id && d == drawn));
             let reuse = |id: &str, drawn: &Drawn| {
-                let (k, planes, _) = old.as_ref()?;
-                let at = k.drawn.iter().position(|(i, d)| i == id && d == drawn)?;
-                Some(planes[at].alpha.clone())
+                let m = old.as_ref().filter(|_| unchanged(id, drawn))?;
+                Some(m.planes.iter().find(|q| q.id == id)?.alpha.clone())
             };
+            let reuse_parts = |id: &str, drawn: &Drawn| old.as_ref().filter(|_| unchanged(id, drawn))?.raster(id).cloned();
             let guide = &self.slots[0].geometry.as_ref().expect("geometry was just built").1;
-            let planes: Vec<MaskPlane> = mkey
-                .drawn
-                .iter()
-                .map(|(id, drawn)| MaskPlane { id: id.clone(), alpha: reuse(id, drawn).unwrap_or_else(|| self.drawn_plane(drawn, &plan, &gkey.transform, guide)) })
-                .collect();
+            let mut planes = Vec::new();
+            let mut rasters = Vec::new();
+            for (id, drawn) in &mkey.drawn {
+                if drawn.has_raster() {
+                    let parts = reuse_parts(id, drawn).unwrap_or_else(|| RasterParts::new(drawn, |d| self.unfeathered_plane(d, &plan, &gkey.transform)));
+                    rasters.push((id.clone(), parts));
+                } else {
+                    let alpha = reuse(id, drawn).unwrap_or_else(|| self.drawn_plane(drawn, &plan, &gkey.transform, guide));
+                    planes.push(MaskPlane { id: id.clone(), alpha });
+                }
+            }
             let cropped = if inner == Region::full(p.width, p.height) { planes.clone() } else { planes.iter().map(|m| m.crop(p.width, inner)).collect() };
             // Masked detail steps read them, but their key holds their drawn parts:
             // the detail stage only runs again if those changed.
-            self.slots[0].masks = Some((mkey, planes, cropped));
+            self.slots[0].masks = Some(DrawnMasks { key: mkey, planes, cropped, rasters });
             changed = true;
         }
         if changed {
@@ -916,23 +957,23 @@ impl Developer {
     pub fn next_diffuse_job(&mut self, params: &EditParams, size: RenderSize) -> Option<DiffuseJob> {
         self.sync_source(params);
         let plan = self.plan(params, size);
-        let last = plan.steps.iter().rposition(|s| matches!(s.op, DetailOp::Diffuse { .. }))?;
+        let last = plan.steps.iter().rposition(|s| s.active && matches!(s.op, DetailOp::Diffuse { .. }))?;
         if self.is_spatial_cached(params, size) {
             return None;
         }
         let (plan, gkey, inner, _) = self.prepare_slot(params, size);
         let missing = (0..=last).find(|&i| {
-            matches!(plan.steps[i].op, DetailOp::Diffuse { .. }) && !self.diffused.iter().any(|(k, _)| *k == diffuse_key(&gkey, &plan, i))
+            plan.steps[i].active && matches!(plan.steps[i].op, DetailOp::Diffuse { .. }) && !self.diffused.iter().any(|(k, _)| *k == diffuse_key(&gkey, &plan, i))
         })?;
         let slot = &self.slots[0];
-        let img = slot.geometry.as_ref().expect("geometry was just built").1.clone();
-        let planes = &slot.masks.as_ref().expect("masks were just built").1;
+        let guide = &slot.geometry.as_ref().expect("geometry was just built").1;
+        let drawn = slot.masks.as_ref().expect("masks were just built");
         let origin = (plan.padded.x, plan.padded.y);
         let mut job = None;
         // Run the steps before it (diffuse steps, all provided: diffuse comes first) to get
         // its input.
         let diffused = &self.diffused;
-        detail_pass(img, &plan.steps[..=missing], &plan, planes, inner, |i, p, scale, input| {
+        detail_pass(guide.clone(), &plan.steps[..=missing], &plan, drawn, guide, inner, |i, p, scale, input| {
             let key = diffuse_key(&gkey, &plan, i);
             if let Some((_, out)) = diffused.iter().find(|(k, _)| *k == key) {
                 return Some(out.clone());
@@ -965,7 +1006,7 @@ impl Developer {
         };
         let masks = match &slot.point_masks {
             Some((_, planes)) => planes,
-            None => &slot.masks.as_ref().expect("masks were built").2,
+            None => &slot.masks.as_ref().expect("masks were built").cropped,
         };
         (img, masks)
     }
@@ -980,11 +1021,41 @@ impl Developer {
             Some(d) => d.padded.as_ref().unwrap_or(&d.image),
             None => &slot.geometry.as_ref().expect("geometry was built").1,
         };
-        let mut planes = slot.masks.as_ref().expect("masks were built").1.clone();
+        let drawn = slot.masks.as_ref().expect("masks were built");
+        let guide = &slot.geometry.as_ref().expect("geometry was built").1;
+        let mut planes = drawn.planes.clone();
+        // The masks raster shapes read: the spatial steps', then the point modules' (in order).
+        let mut sources: Vec<(String, SourceMask)> = slot.detail.as_ref().map(|d| d.sources.clone()).unwrap_or_default();
         for (id, before, m) in &key.masks {
-            let before = EditParams { version: params.version, modules: before.clone(), shapes: params.shapes.clone() };
-            let ops = self.point_ops.input_ops(&before, self.photo.as_shot_illuminant);
+            let mut input_ops = || {
+                let before = EditParams { version: params.version, modules: before.clone(), shapes: params.shapes.clone() };
+                self.point_ops.input_ops(&before, self.photo.as_shot_illuminant)
+            };
             let m = match m {
+                PointMask::Raster => {
+                    let Some((parts, d)) = drawn.raster(id).zip(drawn.key.drawn.iter().find(|(i, _)| i == id).map(|(_, d)| d)) else { continue };
+                    let alpha = complete_raster(parts, d, &sources, guide, plan.scale);
+                    planes.push(MaskPlane { id: id.clone(), alpha });
+                    continue;
+                }
+                PointMask::Source(None) => {
+                    sources.push((id.clone(), None));
+                    continue;
+                }
+                PointMask::Source(Some(m)) => {
+                    // As the point pass applies it.
+                    let plane = planes.iter().find(|q| &q.id == id).map(|q| q.alpha.as_slice());
+                    let stage = MaskStage::new(m, plane.is_some());
+                    let drawn_at = |k: usize| plane.map_or(if stage.drawn { 0.0 } else { 1.0 }, |q| q[k]);
+                    let values = if m.feathers_whole() {
+                        (0..img.width * img.height).map(|k| stage.finish(drawn_at(k))).collect()
+                    } else {
+                        let input = input_ops().adjust_image(img, &planes);
+                        input.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn_at(k))).collect()
+                    };
+                    sources.push((id.clone(), Some(values)));
+                    continue;
+                }
                 PointMask::Whole(m) => m,
                 PointMask::Tones(local) => {
                     // Its statistics read the input at samples only.
@@ -997,7 +1068,7 @@ impl Developer {
                         pixels: samples.rows.iter().flat_map(|&y| samples.cols.iter().map(move |&x| img.pixels[y * img.width + x])).collect(),
                     };
                     let sampled_planes: Vec<MaskPlane> = planes.iter().map(|q| MaskPlane { id: q.id.clone(), alpha: pick(&q.alpha) }).collect();
-                    let input = ops.adjust_image(&sampled, &sampled_planes);
+                    let input = input_ops().adjust_image(&sampled, &sampled_planes);
                     let stats = local.stats(&samples, &input, origin, size);
                     for (id, alpha) in tone_curve::plane_ids(id).into_iter().zip(stats) {
                         planes.push(MaskPlane { id, alpha });
@@ -1005,7 +1076,7 @@ impl Developer {
                     continue;
                 }
             };
-            let input = ops.adjust_image(img, &planes);
+            let input = input_ops().adjust_image(img, &planes);
             let at = planes.iter().position(|q| &q.id == id);
             let stage = MaskStage::parametric(m);
             let mut values: Vec<f32> = input.iter().enumerate().map(|(k, px)| stage.eval(*px, at.map_or(1.0, |i| planes[i].alpha[k]))).collect();
@@ -1025,15 +1096,20 @@ impl Developer {
     /// render's scale, through the geometry, feathered (steered by `guide`, the
     /// geometry stage's output over the same pixels).
     fn drawn_plane(&self, drawn: &Drawn, plan: &Plan, transform: &geometry::Transform, guide: &Image) -> Vec<f32> {
+        let mut plane = self.unfeathered_plane(drawn, plan, transform);
+        mask::feather(&mut plane, guide, drawn.feather, drawn.edge_aware, plan.scale);
+        plane
+    }
+
+    /// [`drawn_plane`](Self::drawn_plane) before feathering (and without raster shapes).
+    fn unfeathered_plane(&self, drawn: &Drawn, plan: &Plan, transform: &geometry::Transform) -> Vec<f32> {
         let (width, height) = plan.frame;
         let frame = mask::raster_frame((self.photo.width, self.photo.height), plan.scale);
         let bounds = geometry::source_bounds(frame, transform, width, height, plan.padded);
-        let mut plane = match mask::rasterize(drawn, frame, bounds) {
+        match mask::rasterize(drawn, frame, bounds) {
             Some((at, alpha)) => geometry::apply_plane_region(&alpha, at, frame, transform, width, height, plan.padded),
             None => vec![0.0; plan.padded.width * plan.padded.height],
-        };
-        mask::feather(&mut plane, guide, drawn.feather, drawn.edge_aware, plan.scale);
-        plane
+        }
     }
 
     /// Paint what `view` shows of instance `id`'s mask on `img`, a render of `params`
@@ -1320,11 +1396,18 @@ fn point_masks_key(params: &EditParams, plan: &Plan, geometry: GeometryKey) -> O
         .filter(|(_, m)| is_point(m))
         .flat_map(|(i, m)| {
             let before = move || params.modules[..i].iter().filter(|b| is_before_filmic(b)).cloned().collect::<Vec<_>>();
+            // Its drawn part reads the sources' masks, computed before it (and keyed there).
+            let raster = plan.drawn.iter().any(|(id, d)| id == &m.id && d.has_raster()).then_some(PointMask::Raster);
             // Invert, opacity and the blend apply afterwards, per pixel.
             let whole = mask::active(m).filter(|mask| mask.feathers_whole()).map(|mask| PointMask::Whole(params::Mask { invert: false, opacity: 1.0, ..mask.selection() }));
             // Even with flat curves, for the histogram and the overlay.
             let tones = <params::ToneCurve as params::ModuleParams>::get(&m.module).and_then(Local::of).map(PointMask::Tones);
-            [whole, tones].into_iter().flatten().map(move |p| (m.id.clone(), before(), p))
+            let read = m.module.kind().maskable() && plan.drawn.iter().any(|(id, d)| params.modules[i + 1..].iter().any(|c| &c.id == id) && d.sources().any(|s| s == m.id));
+            let source = read.then(|| PointMask::Source(mask::active(m).map(params::Mask::selection)));
+            [raster, whole, tones, source].into_iter().flatten().map(move |p| {
+                let before = if matches!(p, PointMask::Raster | PointMask::Source(None)) { Vec::new() } else { before() };
+                (m.id.clone(), before, p)
+            })
         })
         .collect();
     (!masks.is_empty()).then(|| PointMasksKey { geometry, steps: plan.steps.clone(), drawn: plan.drawn.clone(), masks })
@@ -1341,46 +1424,82 @@ impl DetailStep {
     }
 }
 
+/// What [`detail_pass`] gives.
+struct DetailPass {
+    image: Image,
+    /// The masks of the masked steps over the region.
+    step_masks: Vec<MaskPlane>,
+    /// The masks of the steps that are raster sources, over the padded region.
+    sources: Vec<(String, SourceMask)>,
+}
+
+/// A drawn part with raster shapes (`parts`, of `drawn`), completed with the masks of
+/// `sources` and feathered, steered by `guide` (the geometry stage's output).
+fn complete_raster(parts: &RasterParts, drawn: &Drawn, sources: &[(String, SourceMask)], guide: &Image, scale: f32) -> Vec<f32> {
+    let mut plane = parts.combine(guide.width * guide.height, |id| sources.iter().find(|(s, _)| s == id).map(|(_, m)| m));
+    mask::feather(&mut plane, guide, drawn.feather, drawn.edge_aware, scale);
+    plane
+}
+
 /// The detail `steps` of `plan` on `img` (the geometry stage's output, over the padded
-/// region), each blended through its mask, and the masks' values over the region
-/// (`inner` within the padded render). A diffuse step's output comes from `diffuse`
-/// (its index in `steps`, parameters, scale and input), which may stop the pass (`None`).
+/// region, which is `guide`), each blended through its mask (with its drawn part from
+/// `drawn`), and the masks' values over the region (`inner` within the padded render).
+/// A diffuse step's output comes from `diffuse` (its index in `steps`, parameters, scale
+/// and input), which may stop the pass (`None`).
 fn detail_pass(
     mut img: Image,
     steps: &[DetailStep],
     plan: &Plan,
-    planes: &[MaskPlane],
+    drawn: &DrawnMasks,
+    guide: &Image,
     inner: Region,
     mut diffuse: impl FnMut(usize, &params::Diffuse, f32, &Image) -> Option<Image>,
-) -> Option<(Image, Vec<MaskPlane>)> {
+) -> Option<DetailPass> {
     let mut step_masks = Vec::new();
+    let mut sources: Vec<(String, SourceMask)> = Vec::new();
     for (i, step) in steps.iter().enumerate() {
         let before = step.mask.as_ref().map(|_| img.clone());
-        match step.op {
-            DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
-            DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
-            DetailOp::Diffuse { params, scale } => img = diffuse(i, &params, scale, &img)?,
+        if step.active {
+            match step.op {
+                DetailOp::Equalizer { params, scale } => equalizer::apply_in_frame(&mut img, &params, scale, plan.frame),
+                DetailOp::Glow { params, scale } => GlowOp::new(&params, scale).apply(&mut img, (plan.padded.x, plan.padded.y)),
+                DetailOp::Diffuse { params, scale } => img = diffuse(i, &params, scale, &img)?,
+            }
         }
-        if let (Some(m), Some(before)) = (&step.mask, before) {
-            // The mask is measured on the step's input.
-            let plane = planes.iter().find(|q| q.id == m.id).map(|q| q.alpha.as_slice());
-            let values = if m.mask.feathers_whole() {
-                let stage = MaskStage::parametric(&m.mask);
-                let mut v: Vec<f32> = before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q[k]))).collect();
-                mask::feather(&mut v, &before, m.mask.feather, m.mask.edge_aware, plan.scale);
-                v.into_iter().map(|a| stage.finish(a)).collect()
-            } else {
-                let stage = MaskStage::new(&m.mask, m.drawn.is_some());
-                let drawn = |k: usize| if stage.drawn { plane.map_or(0.0, |q| q[k]) } else { 1.0 };
-                before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn(k))).collect::<Vec<f32>>()
-            };
+        let Some((m, before)) = step.mask.as_ref().zip(before) else {
+            if step.source {
+                sources.push((step.id.clone(), None));
+            }
+            continue;
+        };
+        // The mask is measured on the step's input.
+        let completed = match (m.drawn.as_ref(), drawn.raster(&m.id)) {
+            (Some(d), Some(parts)) => Some(complete_raster(parts, d, &sources, guide, plan.scale)),
+            _ => None,
+        };
+        let plane = completed.as_deref().or_else(|| drawn.planes.iter().find(|q| q.id == m.id).map(|q| q.alpha.as_slice()));
+        let values = if m.mask.feathers_whole() {
+            let stage = MaskStage::parametric(&m.mask);
+            let mut v: Vec<f32> = before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, plane.map_or(1.0, |q| q[k]))).collect();
+            mask::feather(&mut v, &before, m.mask.feather, m.mask.edge_aware, plan.scale);
+            v.into_iter().map(|a| stage.finish(a)).collect()
+        } else {
+            let stage = MaskStage::new(&m.mask, m.drawn.is_some());
+            let drawn = |k: usize| if stage.drawn { plane.map_or(0.0, |q| q[k]) } else { 1.0 };
+            before.pixels.iter().enumerate().map(|(k, px)| stage.eval(*px, drawn(k))).collect::<Vec<f32>>()
+        };
+        if step.active {
             let mut out = before.pixels;
             Blend::scene(&m.mask).mix_all(&mut out, &img.pixels, &values);
             img.pixels = out;
-            step_masks.push(MaskPlane { id: m.id.clone(), alpha: values }.crop(plan.padded.width, inner));
+        }
+        let plane = MaskPlane { id: m.id.clone(), alpha: values };
+        step_masks.push(plane.crop(plan.padded.width, inner));
+        if step.source {
+            sources.push((plane.id, Some(plane.alpha)));
         }
     }
-    Some((img, step_masks))
+    Some(DetailPass { image: img, step_masks, sources })
 }
 
 /// Identifies the output of `plan`'s detail step `i` (a diffuse step): the geometry
@@ -1396,11 +1515,17 @@ fn diffuse_key(gkey: &GeometryKey, plan: &Plan, i: usize) -> u64 {
 /// The active diffuse, equalizer and glow instances, with their parameters at `scale`
 /// (spatial parameters are expressed in full-resolution pixels) and their masks.
 fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
+    // The instances raster shapes of later masks read.
+    let read = |i: usize| {
+        let id = &params.modules[i].id;
+        params.modules[i + 1..].iter().filter(|c| c.enabled).filter_map(mask::active).any(|c| Drawn::of(params, c).is_some_and(|d| d.sources().any(|s| s == id)))
+    };
     params
         .modules
         .iter()
-        .filter(|m| m.enabled)
-        .filter_map(|m| {
+        .enumerate()
+        .filter(|(_, m)| m.enabled)
+        .filter_map(|(i, m)| {
             let op = match &m.module {
                 Module::ContrastEqualizer(e) => DetailOp::Equalizer { params: *e, scale },
                 Module::Glow(g) => DetailOp::Glow { params: *g, scale },
@@ -1413,7 +1538,8 @@ fn detail_steps(params: &EditParams, scale: f32) -> Vec<DetailStep> {
                 DetailOp::Diffuse { params, scale } => DiffuseOp::new(&params, scale).active(),
             };
             let mask = mask::active(m).map(|mask| Box::new(StepMask { id: m.id.clone(), mask: mask.clone(), drawn: Drawn::of(params, mask) }));
-            active.then_some(DetailStep { op, mask })
+            let source = read(i);
+            (active || source).then_some(DetailStep { op, mask, active, source, id: m.id.clone() })
         })
         .collect()
 }

@@ -8,6 +8,10 @@
  * base image (before lens correction, orientation, straighten and crop), (1, 1) its
  * bottom-right corner. Lengths (radii, feather) are fractions of the sensor's shorter
  * side; angles are radians, clockwise (y points down).
+ *
+ * A raster shape (roadmap 4.15) is the exception: another instance's mask, as that
+ * instance applies it, in the output frame. It has no place on the sensor (nothing to
+ * draw or move), only masks use it, and retouch spots drop it (`normalize`).
  */
 
 export type Point = [number, number];
@@ -51,8 +55,25 @@ export interface BrushShape {
   opacity: number;
 }
 
-export type Shape = EllipseShape | GradientShape | PathShape | BrushShape;
+/**
+ * The mask of instance `source` as it applies it (after its own invert and opacity):
+ * 0 where the source applies nowhere (disabled, missing, or not before the mask's
+ * instance in the pipeline), 1 everywhere if it has no mask. Inverted if asked, then
+ * times the opacity. Mirrors `Shape::Raster`.
+ */
+export interface RasterShape {
+  type: 'raster';
+  source: string;
+  invert: boolean;
+  opacity: number;
+}
+
+/** A shape drawn in the sensor frame. */
+export type GeometricShape = EllipseShape | GradientShape | PathShape | BrushShape;
+export type Shape = GeometricShape | RasterShape;
 export type ShapeType = Shape['type'];
+
+export const isRasterShape = (shape: Shape): shape is RasterShape => shape.type === 'raster';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -104,13 +125,17 @@ export function normalizeShape(input: unknown): Shape | null {
       if (points.some((p) => !p)) return null;
       return { type: 'brush', points: points as BrushPoint[], opacity };
     }
+    case 'raster':
+      if (typeof input.source !== 'string') return null;
+      if (input.invert !== undefined && typeof input.invert !== 'boolean') return null;
+      return { type: 'raster', source: input.source, invert: input.invert ?? false, opacity };
     default:
       return null;
   }
 }
 
 /** The shape moved by `(dx, dy)` (normalised sensor coordinates). */
-export function translateShape<S extends Shape>(shape: S, dx: number, dy: number): S {
+export function translateShape<S extends GeometricShape>(shape: S, dx: number, dy: number): S {
   switch (shape.type) {
     case 'ellipse':
       return { ...shape, center: [shape.center[0] + dx, shape.center[1] + dy] };
@@ -127,7 +152,7 @@ export function translateShape<S extends Shape>(shape: S, dx: number, dy: number
 }
 
 /** A point that represents the shape (to place things relative to it). */
-export function shapeCenter(shape: Shape): Point {
+export function shapeCenter(shape: GeometricShape): Point {
   switch (shape.type) {
     case 'ellipse':
       return shape.center;
@@ -151,7 +176,7 @@ export function shapeCenter(shape: Shape): Point {
  * - `feather`: where the feather ends (ellipses and gradients only).
  */
 export function shapeOutline(
-  shape: Shape,
+  shape: GeometricShape,
   sensor: { width: number; height: number },
 ): { edge: Point[][]; feather: Point[][]; closed: boolean } {
   const unit = Math.min(sensor.width, sensor.height);
