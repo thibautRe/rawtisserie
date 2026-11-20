@@ -1496,7 +1496,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                     onOpen={onMaskOpen}
                     onSwitch={onMaskSwitch}
                     showing={overlay?.part === 'mask' && !overlay.values}
-                    selective={!!mask && (mask.drawn.length > 0 || RANGE_KEYS.some((k) => mask[k]))}
+                    selective={!!mask && (mask.drawn.length > 0 || RANGE_KEYS.some((k) => mask[k]) || mask.opacity < 1)}
                     onShow={(show) =>
                       latest.current.onShapeUi({ maskOverlay: show ? { id, part: 'mask', values: false } : null })
                     }

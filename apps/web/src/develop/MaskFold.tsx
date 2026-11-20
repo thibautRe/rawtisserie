@@ -38,7 +38,7 @@ export function MaskFold({
   onSwitch: (on: boolean) => void;
   /** Whether the image shows where the module applies. */
   showing: boolean;
-  /** The mask selects parts of the image (shapes or ranges): worth showing, folded too. */
+  /** The mask limits the module (shapes, ranges, opacity below 100 %): something to show. */
   selective?: boolean;
   onShow: (show: boolean) => void;
   /** The editor, when open. */
@@ -99,8 +99,8 @@ export function MaskFold({
           {summary}
         </Text>
       </chakra.button>
-      {/* Open, or folded while the mask is on and selects something. */}
-      {(expanded || (on && selective)) && (
+      {/* Open or folded, while the mask is on and limits the module. */}
+      {on && selective && (
         <IconButton
           size="2xs"
           variant={showing ? 'subtle' : 'ghost'}
