@@ -12,14 +12,18 @@ if [ ! -x "$prettier" ]; then
   exit 0
 fi
 
-mapfile -d '' staged < <(git diff --cached --name-only --diff-filter=ACMR -z)
+# Bash 3.2 (macOS's /bin/bash): no mapfile, and "${a[@]}" of an empty array fails under
+# set -u, hence ${a[@]+"${a[@]}"}.
+staged=()
+while IFS= read -r -d '' f; do staged+=("$f"); done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 [ ${#staged[@]} -eq 0 ] && exit 0
-mapfile -d '' unstaged < <(git diff --name-only -z)
+unstaged=()
+while IFS= read -r -d '' f; do unstaged+=("$f"); done < <(git diff --name-only -z)
 
 whole=()
 partly=()
 for f in "${staged[@]}"; do
-  if printf '%s\0' "${unstaged[@]}" | grep -qzxF -- "$f"; then partly+=("$f"); else whole+=("$f"); fi
+  if printf '%s\0' ${unstaged[@]+"${unstaged[@]}"} | grep -qzxF -- "$f"; then partly+=("$f"); else whole+=("$f"); fi
 done
 
 cd "$root"
@@ -29,7 +33,7 @@ if [ ${#whole[@]} -gt 0 ]; then
 fi
 # What's staged of them, not the working copy: unstaged lines aren't being committed.
 bad=()
-for f in "${partly[@]}"; do
+for f in ${partly[@]+"${partly[@]}"}; do
   [ -n "$("$prettier" --file-info "$f" | grep -E '"ignored": true|"inferredParser": null')" ] && continue
   staged_text=$(git show ":$f")
   formatted=$(printf '%s\n' "$staged_text" | "$prettier" --stdin-filepath "$f")
