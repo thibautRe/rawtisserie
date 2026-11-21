@@ -6,6 +6,8 @@ target/
 .env
 *.log
 .DS_Store
+# Vim swap files (.swp, then .swo… while one is in use)
+*.sw[a-p]
 /crates/pipeline/tests/golden/raws/
 /crates/pipeline/tests/nn/
 
