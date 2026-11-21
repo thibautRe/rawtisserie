@@ -1632,6 +1632,8 @@ export function DeveloperView({
                       lineHeight="0"
                       transformOrigin="0 0"
                       cursor={pinning ? 'crosshair' : undefined}
+                      // The pipette's clicks pin samples: a double click isn't a zoom then.
+                      data-no-zoom={pinning || undefined}
                       style={{ width: fitWidth, height: fitHeight }}
                     >
                       <canvas

@@ -89,8 +89,8 @@ test("the readout's values keep their width whatever their digits", async () => 
 });
 
 test('zoomed in to 100 % and back to fit, the picker reads the whole image again', async () => {
-  // Middle click: 100 % on a point, again for fit.
-  await page.mouse.click(...at(0.5, 0.5), { button: 'middle' });
+  // A double click (or a middle one): 100 % on a point, again for fit.
+  await page.mouse.dblclick(...at(0.5, 0.5));
   const zoom = page.locator('button[title^="Zoom"]');
   await page.waitForFunction(() => document.querySelector('button[title^="Zoom"]')?.textContent?.includes('%'));
   await page.waitForTimeout(2500);

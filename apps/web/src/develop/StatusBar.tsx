@@ -201,7 +201,7 @@ const ZoomMenu = memo(function ZoomMenu({ zoom, fitScale, onZoom }: Pick<Props, 
           size="2xs"
           variant={zoom === null ? 'ghost' : 'subtle'}
           disabled={!onZoom}
-          title="Zoom: mouse wheel or pinch, middle click for 100 % on a point (again for fit), drag to pan"
+          title="Zoom: mouse wheel or pinch, double or middle click for 100 % on a point (again for fit), drag to pan"
           fontVariantNumeric="tabular-nums"
         >
           <ZoomIn /> {zoom === null ? 'Fit' : `${Math.round(zoom * 100)} %`} <ChevronDown />

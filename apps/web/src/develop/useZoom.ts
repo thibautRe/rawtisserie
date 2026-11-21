@@ -23,8 +23,9 @@ interface GestureEvent extends UIEvent {
 
 /**
  * Zoom and pan the image shown in `windowRef` (`zoom.ts`), which must stay mounted: mouse wheel and touchpad
- * pinch zoom around the pointer, a middle click (or a left one with `clickToggles`)
- * toggles between fit and 100 % centred on the point clicked, and dragging (left or middle button) pans once zoomed in. A left
+ * pinch zoom around the pointer, a middle click or a double click (or a single left one
+ * with `clickToggles`) toggles between fit and 100 % centred on the point clicked (not
+ * on elements marked `data-no-pan` or `data-no-zoom`, whose clicks are theirs), and dragging (left or middle button) pans once zoomed in. A left
  * button press on an element marked `data-no-pan` (shapes being edited) is left to it.
  * On touch screens, two fingers pinch and pan, and with `onSwipe` a horizontal swipe at
  * fit goes to the next (1) or previous (-1) photo.
@@ -238,10 +239,22 @@ export function useZoom(
         apply();
         return swipe.current?.(dx < 0 ? 1 : -1);
       }
-      if (!click || !s.layout) return apply();
+      if (!click) return apply();
+      toggleAt(e);
+    };
+    /** Between fit and 100 % centred on the point. */
+    const toggleAt = (e: { clientX: number; clientY: number }) => {
+      if (!s.layout) return apply();
       if (s.view) return show(null, 'now');
       const [x, y] = local(e);
       show(zoomCentredOn(s.layout, null, 1, x, y), 'now');
+    };
+    // A double click does what a middle click does (a left click already does, with `clickToggles`).
+    const doubleClick = (e: MouseEvent) => {
+      if (clickToggles || e.button !== 0) return;
+      if (e.target instanceof Element && e.target.closest('[data-no-pan], [data-no-zoom]')) return;
+      e.preventDefault();
+      toggleAt(e);
     };
     // Middle-button autoscroll starts on mousedown, on the platforms that have it.
     const mouseDown = (e: MouseEvent) => e.button === 1 && e.preventDefault();
@@ -254,7 +267,9 @@ export function useZoom(
     win.addEventListener('pointerup', end);
     win.addEventListener('pointercancel', end);
     win.addEventListener('mousedown', mouseDown);
+    win.addEventListener('dblclick', doubleClick);
     return () => {
+      win.removeEventListener('dblclick', doubleClick);
       win.removeEventListener('wheel', wheel);
       win.removeEventListener('gesturestart', gestureStart);
       win.removeEventListener('gesturechange', gestureChange);

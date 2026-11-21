@@ -195,10 +195,15 @@ export const ScopePanel = memo(function ScopePanel({ settings, onChange, width, 
             bg="#121212"
             borderRadius="sm"
             overflow="hidden"
-            title={mode === 'vectorscope' ? 'Middle click to zoom' : undefined}
+            title={mode === 'vectorscope' ? 'Double or middle click to zoom' : undefined}
             onMouseDown={(e) => {
               if (e.button !== 1 || mode !== 'vectorscope') return;
               // No autoscroll.
+              e.preventDefault();
+              onChange({ zoom: zoom === 1 ? 2 : 1 });
+            }}
+            onDoubleClick={(e) => {
+              if (mode !== 'vectorscope') return;
               e.preventDefault();
               onChange({ zoom: zoom === 1 ? 2 : 1 });
             }}
