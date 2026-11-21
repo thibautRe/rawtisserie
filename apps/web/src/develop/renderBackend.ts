@@ -55,7 +55,9 @@ export interface DenoiseSource {
 export interface RenderBackend {
   /**
    * Render within `maxWidth × maxHeight` (only `region` of that if given), as a draft
-   * of the render within `full` if given, with `scope` drawn from it.
+   * of the render within `full` if given, with `scope` drawn from it. A `compare` render
+   * (roadmap M5) shows another recipe beside the edited one: the colour picker and raw
+   * denoise keep following the edited one's renders.
    */
   render(
     params: EditParams,
@@ -65,6 +67,7 @@ export interface RenderBackend {
     full?: { width: number; height: number; region?: Region | null },
     region?: Region | null,
     scope?: ScopeRequest | null,
+    compare?: boolean,
   ): Promise<Frame>;
   /**
    * A small final-quality render within `maxWidth × maxHeight` (menu previews), with

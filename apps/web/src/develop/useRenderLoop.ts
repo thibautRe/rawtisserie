@@ -16,6 +16,8 @@ export interface Job {
   overlays: Overlays;
   /** A scope to draw from the render. */
   scope?: ScopeRequest | null;
+  /** A compared recipe (`RenderBackend.render`'s `compare`). */
+  compare?: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export function useRenderLoop(backend: RenderBackend | null, job: Job | null) {
           full,
           j.region && scaleRegion(j.region, j.scale),
           j.scope,
+          j.compare,
         );
         setShown({ frame, job: j });
         setError(null);

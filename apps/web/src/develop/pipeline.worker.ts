@@ -520,14 +520,16 @@ async function handle(msg: WorkerRequest) {
       const sensor = sensorMapping(developer, msg.params, params);
       const focus = toSensor(sensor, (x! + fullWidth! / 2) / frameWidth!, (y! + fullHeight! / 2) / frameHeight!);
       if (isDraft) denoise.pausedUntil = performance.now() + DRAG_PAUSE_MS;
-      picker[msg.fullRegion ? 'region' : 'fit'] = {
-        json: params,
-        sizes: [
-          [full.width, full.height, msg.fullRegion],
-          [msg.maxWidth, msg.maxHeight, msg.region],
-        ],
-      };
-      watchDenoise(msg.params, params, [focus[0], focus[1]]);
+      if (!msg.compare) {
+        picker[msg.fullRegion ? 'region' : 'fit'] = {
+          json: params,
+          sizes: [
+            [full.width, full.height, msg.fullRegion],
+            [msg.maxWidth, msg.maxHeight, msg.region],
+          ],
+        };
+        watchDenoise(msg.params, params, [focus[0], focus[1]]);
+      }
       // The scope shows the image, without the clipping indicators: drawn before them.
       const drawScope = (data: Uint8Array, width: number, height: number) => {
         const req = msg.scope;

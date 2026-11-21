@@ -8,7 +8,8 @@ import {
   startingHistory,
 } from '@rawtisserie/pipeline';
 import { FolderOpen, LibraryBig, ShieldCheck } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api } from '../api/client.ts';
 import { fetchDenoised, fetchOriginal, keepDenoised, originalByHash } from '../api/originals.ts';
@@ -16,7 +17,9 @@ import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
-import { PHOTO_ACCEPT } from '../lib/format.ts';
+import { PHOTO_ACCEPT, versionLabel } from '../lib/format.ts';
+import type { PhotoDetail } from '../api/types.ts';
+import type { CompareVersion } from './compare.ts';
 import { useLeaveWarning } from '../lib/useLeaveWarning.ts';
 import { DeveloperView } from './DeveloperView.tsx';
 import { chooseLocalExposure, localExposure, useExposurePicker } from './ExposurePicker.tsx';
@@ -364,6 +367,29 @@ function LibraryDeveloper({ id }: { id: string }) {
     userLuts,
   );
 
+  // The photo's other versions, to compare with: their current recipe, fetched fresh.
+  const queryClient = useQueryClient();
+  const compareVersions = useMemo<CompareVersion[] | undefined>(
+    () =>
+      photo && metadata
+        ? photo.versions
+            .filter((v) => v.id !== photo.id)
+            .map((v) => ({
+              id: v.id,
+              label: versionLabel(v),
+              thumbUrl: v.thumbUrl,
+              recipe: async () => {
+                const other = await queryClient.fetchQuery({
+                  queryKey: ['photo', v.id],
+                  queryFn: () => api.get<PhotoDetail>(`/api/versions/${v.id}`),
+                });
+                return other.editParams ? normalizeEditParams(other.editParams) : originalRecipe(metadata);
+              },
+            }))
+        : undefined,
+    [photo, metadata, queryClient],
+  );
+
   const err = error ?? (photoError instanceof Error ? photoError.message : null);
   if (err) {
     return (
@@ -406,6 +432,7 @@ function LibraryDeveloper({ id }: { id: string }) {
         startWith={startWith}
         importedEdits={photo.importedEdits}
         versions={(whenSaved) => <VersionMenu photo={photo} whenSaved={whenSaved} />}
+        compareVersions={compareVersions}
         onBack={() => navigate(libraryPath(), { state: { focus: photo.id } satisfies LibraryReturnState })}
         chooseExposure={exposurePicker.choose}
       />

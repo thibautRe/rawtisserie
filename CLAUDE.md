@@ -231,6 +231,12 @@ See README.md for the architecture overview and commands.
   image marks it through `ModuleRead` (Rust) and `useModuleReads`. The worker samples
   between messages, and warms the shown view's cache only when idle (`sampleAt`). In a
   browser: `npm run test:picker -w @rawtisserie/web`.
+- Compare (roadmap M5, `develop/compare.ts`): the developer renders a second recipe, a
+  history entry or another version with the edited one's lens and geometry instances
+  (`FRAMING_KINDS`, `compareRecipe`), in its own pane whose stage the zoom moves too
+  (`useZoom`'s `mirror`). Its renders are flagged `compare`, so the picker and raw denoise
+  keep following the edited image: a new kind of secondary render must be flagged too.
+  A new framing module kind goes into `FRAMING_KINDS`. In a browser: `npm run test:compare -w @rawtisserie/web`.
 - Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
   trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press
   selects (`longPress.ts`; closing the loupe doesn't select there). The loupe's

@@ -40,8 +40,20 @@ export function useZoom(
   /** Read after each render, so it may be set later in the render that calls this. */
   layoutRef: RefObject<ZoomLayout | null>,
   enabled: boolean,
-  /** A left click (without dragging) toggles too, as a middle click does. */
-  { clickToggles = false, onSwipe }: { clickToggles?: boolean; onSwipe?: (direction: 1 | -1) => void } = {},
+  {
+    clickToggles = false,
+    onSwipe,
+    mirror,
+  }: {
+    /** A left click (without dragging) toggles too, as a middle click does. */
+    clickToggles?: boolean;
+    onSwipe?: (direction: 1 | -1) => void;
+    /**
+     * Another window of the same size whose stage moves with this one (the developer's
+     * compared image, roadmap M5). Its own gestures move both, unless its pointer events are off.
+     */
+    mirror?: { window: RefObject<HTMLElement | null>; stage: RefObject<HTMLElement | null> };
+  } = {},
 ) {
   const swipe = useRef(onSwipe);
   swipe.current = onSwipe;
@@ -59,9 +71,12 @@ export function useZoom(
     if (!stage || !s.layout) return;
     const p = placeView(s.layout, s.view);
     s.view = p.view;
-    stage.style.transform = `translate(${p.tx}px, ${p.ty}px) scale(${p.k})`;
-    const win = windowRef.current;
-    if (win) win.style.cursor = s.panning ? 'grabbing' : p.view ? 'grab' : '';
+    const transform = `translate(${p.tx}px, ${p.ty}px) scale(${p.k})`;
+    const cursor = s.panning ? 'grabbing' : p.view ? 'grab' : '';
+    stage.style.transform = transform;
+    const mirrored = mirror?.stage.current;
+    if (mirrored) mirrored.style.transform = transform;
+    for (const win of [windowRef.current, mirror?.window.current]) if (win) win.style.cursor = cursor;
   };
 
   const show = (view: ZoomView | null, settle: Settle) => {
@@ -87,8 +102,19 @@ export function useZoom(
   useEffect(() => () => clearTimeout(state.current.timer), []);
 
   useEffect(() => {
-    const win = windowRef.current;
-    if (!win || !enabled) return;
+    if (!enabled) return;
+    const s = state.current;
+    const windows = [windowRef.current, mirror?.window.current].filter((w): w is HTMLElement => !!w);
+    const detach = windows.map(attach);
+    return () => {
+      for (const d of detach) d();
+      s.panning = false;
+      apply();
+    };
+  }, [enabled, clickToggles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Listen to gestures on `win` (the window or its mirror); returns the cleanup. */
+  function attach(win: HTMLElement) {
     const s = state.current;
     /** Pointer position in the window's content box. */
     const local = (e: { clientX: number; clientY: number }) => {
@@ -237,10 +263,8 @@ export function useZoom(
       win.removeEventListener('pointerup', end);
       win.removeEventListener('pointercancel', end);
       win.removeEventListener('mousedown', mouseDown);
-      s.panning = false;
-      apply();
     };
-  }, [enabled, clickToggles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   /** Zoom to `scale` (null: fit), keeping the point at the centre of the window. Stable. */
   const zoomTo = useRef((scale: number | null) => {

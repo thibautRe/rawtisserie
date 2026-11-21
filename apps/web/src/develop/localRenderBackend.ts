@@ -242,6 +242,7 @@ export class LocalRenderBackend implements RenderBackend {
     full?: { width: number; height: number; region?: Region | null },
     region: Region | null = null,
     scope: ScopeRequest | null = null,
+    compare = false,
   ): Promise<Frame> {
     full ??= { width: maxWidth, height: maxHeight, region };
     await this.prepare(params);
@@ -256,6 +257,7 @@ export class LocalRenderBackend implements RenderBackend {
       fullRegion: full.region ?? null,
       overlays,
       scope,
+      compare,
     });
     return {
       image: r.bitmap,

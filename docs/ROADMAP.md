@@ -13,7 +13,7 @@ then built on it in milestones that each ship something usable.
 M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-driven editing (1.0)
                  ├─▶ M3 Image quality ...... done, but 3.10 more embedded lens data
                  ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules
-                 ├─▶ M5 Compare ............ 1.0, next
+                 ├─▶ M5 Compare ............ developer done; the library later
                  └─▶ M8 Library workflow ... done, but 8.9 focus areas, 8.15 phase 2
 M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
 M7 Hosted service ──── 7.1, 7.3, 7.5, 7.11 done; the rest before opening sign-ups
@@ -27,7 +27,7 @@ Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or mo
 
 Left for 1.0, in this order:
 
-1. **[M5 compare](#m5--compare-ml-before-10--next)**: next.
+1. ~~M5 compare~~: the developer's done (2026-11-21); the library's isn't needed for 1.0.
 2. **[2.6 keyboard-driven, stepped editing](#26-keyboard-driven-stepped-editing-ml-before-10-needs-a-prototype)**:
    needs a prototype before it's planned.
 3. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
@@ -1329,25 +1329,34 @@ it's deleted for good or comes back.
 
 ---
 
-## M5 — Compare (M–L, before 1.0) — next
+## M5 — Compare (M–L) — developer done
 
-Moved into the 1.0 scope 2026-11-21, as the next step. What exists already: the
-developer's **Before** button (or `\`), held to show the original recipe in place; the
-culling loupe (8.3) with server-rendered 100 % tiles (`render/zoom.ts`); the film roll
-under the developer. `Developer` keeps `MAX_SLOTS` (3) render slots sharing one base.
+> **Developer done** 2026-11-21 (`develop/compare.ts`, `CompareMenu.tsx`, the compare
+> panes in `DeveloperView.tsx`; `npm run test:compare -w @rawtisserie/web`). Decisions:
+> the developer first, the library later; the edited image is compared with an entry of
+> its history (entry 0, the original, included: no separate "before") or with another
+> version of the photo. As built: **Compare** in the toolbar (or Y) turns it on, its menu
+> picks the layout and the target, and each history entry has a compare button. Two
+> layouts, remembered: **split** (the default; the compared image left of a draggable
+> divider, double-click to centre) and **side by side** (half the viewport each). The
+> compared recipe takes the edited one's lens correction and geometry (`compareRecipe`,
+> `FRAMING_KINDS`), so both frame the photo alike, and follows its committed framing, not
+> its look. The zoom moves both (`useZoom`'s `mirror`), zoomed-in regions included; the
+> clipping indicators show on both. Hidden while cropping or placing guides. The same
+> `Developer` renders both: compare renders are flagged (`compare` in the render request)
+> so that the colour picker and raw denoise keep following the edited image. Holding `\`
+> still shows the original in place.
+>
+> Not done: own cache slots for the compared recipe (it shares the edited image's by
+> size, so its spatial stages are rebuilt once after the compared image renders);
+> recipes with different raw denoise settings swap the denoised photo in and out on each
+> alternation; the shape and pin overlays aren't drawn over the compared side.
 
-- **Library:** select 2–4 versions → a compare view in a grid, with synchronised zoom and
-  pan. The two-up culling of a burst that 8.3 and 8.9 point to.
-- **Developer:** compare the current state with an earlier history entry (snapshot) as a
-  split view or side by side. The same `Developer` renders both recipes and shares the
-  base cache; more slots if a side-by-side needs them.
-- **Geometry normalisation (my reading of the Ansel behaviour):** all compared images
-  get the **reference image's** geometric modules (lens, rotation, straighten, crop,
-  perspective). Only the tone and colour modules differ, so differences come from
-  contrast and colour. This is exact for versions of the same photo. For different
-  photos (a burst), the reference crop rectangle is applied in normalised coordinates.
-- **Rendering:** library comparisons use live renders at screen size. They are server
-  previews today; with M6 they come from the render service.
+- **Library (later):** select 2–4 versions → a compare view in a grid, with synchronised zoom and
+  pan. The two-up culling of a burst that 8.3 and 8.9 point to. For different photos (a
+  burst), the reference crop rectangle applied in normalised coordinates. Library
+  comparisons use live renders at screen size: server previews today, the render service
+  with M6.
 
 ---
 

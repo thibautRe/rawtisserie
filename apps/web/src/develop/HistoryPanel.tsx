@@ -15,6 +15,7 @@ import {
   Rainbow,
   Sparkles,
   Spline,
+  SplitSquareHorizontal,
   Sun,
   SwatchBook,
   Thermometer,
@@ -56,6 +57,10 @@ interface Props {
   end: number;
   onSelect: (seq: number) => void;
   onCompress: () => void;
+  /** The entry the image is compared with (roadmap M5), or null. */
+  compared: number | null;
+  /** Compare the image with an entry. */
+  onCompare: (seq: number) => void;
 }
 
 function Row({
@@ -65,7 +70,9 @@ function Row({
   title,
   selected,
   undone,
+  compared,
   onClick,
+  onCompare,
 }: {
   seq: number;
   label: string;
@@ -73,7 +80,9 @@ function Row({
   title?: string;
   selected: boolean;
   undone: boolean;
+  compared: boolean;
   onClick: () => void;
+  onCompare: () => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -81,42 +90,63 @@ function Row({
   }, [selected]);
   return (
     <HStack
-      asChild
-      gap="2"
-      px="3"
-      py="1"
-      textAlign="start"
-      textStyle="xs"
-      title={title}
+      className="group"
+      gap="0"
+      pe="1"
       color={undone ? 'fg.subtle' : selected ? 'orange.fg' : 'fg'}
       bg={selected ? 'orange.subtle' : undefined}
       _hover={{ bg: selected ? 'orange.subtle' : 'bg.muted' }}
     >
-      <button ref={ref} type="button" onClick={onClick}>
-        <Text
-          as="span"
-          w="6"
-          flexShrink={0}
-          textAlign="end"
-          color="fg.subtle"
-          fontFamily="numeric"
-          fontVariantNumeric="tabular-nums"
-        >
-          {seq}
-        </Text>
-        <Box as="span" flexShrink={0} opacity={undone ? 0.5 : 1}>
-          <Icon size={14} />
-        </Box>
-        <Text as="span" truncate>
-          {label}
-        </Text>
-      </button>
+      <HStack asChild flex="1" minW="0" gap="2" ps="3" py="1" textAlign="start" textStyle="xs" title={title}>
+        <button ref={ref} type="button" onClick={onClick}>
+          <Text
+            as="span"
+            w="6"
+            flexShrink={0}
+            textAlign="end"
+            color="fg.subtle"
+            fontFamily="numeric"
+            fontVariantNumeric="tabular-nums"
+          >
+            {seq}
+          </Text>
+          <Box as="span" flexShrink={0} opacity={undone ? 0.5 : 1}>
+            <Icon size={14} />
+          </Box>
+          <Text as="span" truncate>
+            {label}
+          </Text>
+        </button>
+      </HStack>
+      <IconButton
+        aria-label={compared ? 'Compared with this entry' : 'Compare with this entry'}
+        title={compared ? 'The image is compared with this entry' : 'Compare with this entry'}
+        size="2xs"
+        variant="ghost"
+        minW="5"
+        h="5"
+        color={compared ? 'orange.fg' : 'fg.muted'}
+        opacity={compared ? 1 : 0}
+        _groupHover={{ opacity: 1 }}
+        _focusVisible={{ opacity: 1 }}
+        onClick={onCompare}
+      >
+        <SplitSquareHorizontal />
+      </IconButton>
     </HStack>
   );
 }
 
 /** The history stack, newest first: click an entry to go back to it. */
-export const HistoryPanel = memo(function HistoryPanel({ original, entries, end, onSelect, onCompress }: Props) {
+export const HistoryPanel = memo(function HistoryPanel({
+  original,
+  entries,
+  end,
+  onSelect,
+  onCompress,
+  compared,
+  onCompare,
+}: Props) {
   const icons = useMemo(
     () => entries.map((e, i) => entryIcon(entries[i - 1]?.recipe ?? original, e.recipe)),
     [original, entries],
@@ -156,7 +186,9 @@ export const HistoryPanel = memo(function HistoryPanel({ original, entries, end,
               title={`${e.label}\n${new Date(e.createdAt).toLocaleString()}`}
               selected={end === i + 1}
               undone={i + 1 > end}
+              compared={compared === i + 1}
               onClick={() => onSelect(i + 1)}
+              onCompare={() => onCompare(i + 1)}
             />
           ))
           .reverse()}
@@ -166,7 +198,9 @@ export const HistoryPanel = memo(function HistoryPanel({ original, entries, end,
           icon={ImageIcon}
           selected={end === 0}
           undone={false}
+          compared={compared === 0}
           onClick={() => onSelect(0)}
+          onCompare={() => onCompare(0)}
         />
       </Stack>
     </Stack>

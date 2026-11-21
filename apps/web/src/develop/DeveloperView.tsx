@@ -1,4 +1,4 @@
-import { Box, Button, Center, Flex, HStack, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
+import { Box, Button, Center, Flex, Grid, HStack, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
 import {
   AUTO_TUNE_SIZE,
   type CropRect,
@@ -28,7 +28,7 @@ import {
   exposurePhotos,
   type PhotoRef,
 } from '@rawtisserie/pipeline';
-import { Check, Download, Redo2, SplitSquareHorizontal, Undo2, X } from 'lucide-react';
+import { Check, ChevronsLeftRight, Download, Redo2, Undo2, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { backendMeasures } from './autoTune.ts';
@@ -44,6 +44,15 @@ import {
   isPortrait,
 } from './aspect.ts';
 import { CropOverlay } from './CropOverlay.tsx';
+import { CompareMenu } from './CompareMenu.tsx';
+import {
+  type CompareLayout,
+  type CompareTarget,
+  type CompareVersion,
+  compareRecipe,
+  framingKey,
+  targetLabel,
+} from './compare.ts';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
@@ -75,6 +84,7 @@ import type {
 import { DEFAULT_SHAPE_UI, type ShapeUi } from './retouch.ts';
 import { ShapeOverlay } from './ShapeOverlay.tsx';
 import type { Frame, RenderBackend } from './renderBackend.ts';
+import type { Placement } from './protocol.ts';
 import { saveBlob } from '../lib/download.ts';
 import { ExportDialog } from './ExportDialog.tsx';
 import type { ExportInfo } from './exportInfo.ts';
@@ -113,6 +123,8 @@ interface Props {
   actions?: (history: HistorySnapshot) => React.ReactNode;
   /** Shown next to the file name (the version switcher), given a way to wait for pending saves. */
   versions?: (whenSaved: () => Promise<void>) => React.ReactNode;
+  /** The photo's other versions, to compare with (roadmap M5). */
+  compareVersions?: readonly CompareVersion[];
   /** Go back to where the photo was opened from (Esc). */
   onBack?: () => void;
   /**
@@ -123,6 +135,9 @@ interface Props {
 }
 
 const NO_MISSING: ReadonlySet<string> = new Set();
+const NO_VERSIONS: readonly CompareVersion[] = [];
+/** Between the two images side by side, in CSS pixels. */
+const COMPARE_GAP = 8;
 
 /** The other photos `params` blends in (multiple exposure) that `backend` can't have. */
 function useMissingExposures(backend: RenderBackend, params: EditParams): ReadonlySet<string> {
@@ -227,12 +242,11 @@ const Toolbar = memo(function Toolbar({
   styles,
   canUndo,
   canRedo,
-  comparing,
+  compare,
   exporting,
   actions,
   onUndo,
   onRedo,
-  onCompare,
   onExport,
 }: {
   filename: string;
@@ -242,12 +256,12 @@ const Toolbar = memo(function Toolbar({
   styles: React.ReactNode;
   canUndo: boolean;
   canRedo: boolean;
-  comparing: boolean;
+  /** The Compare button and its menu. */
+  compare: React.ReactNode;
   exporting: boolean;
   actions: React.ReactNode;
   onUndo: () => void;
   onRedo: () => void;
-  onCompare: (on: boolean) => void;
   /** Opens the export dialog. */
   onExport: () => void;
 }) {
@@ -282,16 +296,7 @@ const Toolbar = memo(function Toolbar({
         <Redo2 />
       </IconButton>
       {styles}
-      <Button
-        size="sm"
-        variant={comparing ? 'solid' : 'ghost'}
-        title="Hold to see the unedited image (or hold \)"
-        onPointerDown={() => onCompare(true)}
-        onPointerUp={() => onCompare(false)}
-        onPointerLeave={() => onCompare(false)}
-      >
-        <SplitSquareHorizontal /> Before
-      </Button>
+      {compare}
       <Button
         size="sm"
         variant="outline"
@@ -304,6 +309,142 @@ const Toolbar = memo(function Toolbar({
       </Button>
       {actions}
     </HStack>
+  );
+});
+
+/** Where a region render goes over the fitted image (hidden without one). */
+function regionStyle(region: Placement | null, frame: Frame | null): React.CSSProperties {
+  if (!region || !frame) return { display: 'none' };
+  return {
+    position: 'absolute',
+    left: `${(100 * region.x) / region.frameWidth}%`,
+    top: `${(100 * region.y) / region.frameHeight}%`,
+    width: `${(100 * region.width) / region.frameWidth}%`,
+    height: `${(100 * region.height) / region.frameHeight}%`,
+    // Rendered at 100 %: larger zoom levels enlarge its pixels.
+    imageRendering: region.frameWidth >= frame.sourceWidth ? 'pixelated' : 'auto',
+  };
+}
+
+/** What an image of the comparison shows, over its top corner. */
+function PaneLabel({ children, side = 'left' }: { children: React.ReactNode; side?: 'left' | 'right' }) {
+  return (
+    <Text
+      position="absolute"
+      top="3"
+      {...(side === 'left' ? { left: '3' } : { right: '3' })}
+      maxW="calc(100% - 1.5rem)"
+      truncate
+      px="2"
+      py="0.5"
+      borderRadius="sm"
+      bg="blackAlpha.700"
+      color="white"
+      textStyle="xs"
+      pointerEvents="none"
+    >
+      {children}
+    </Text>
+  );
+}
+
+/**
+ * The split view's divider (roadmap M5): the compared image shows on its left, the edited
+ * one on its right. Drawn over a box the size of the image's window (the white frame
+ * included), where `split` places it.
+ */
+const SplitDivider = memo(function SplitDivider({
+  split,
+  onChange,
+  assessment,
+  width,
+  height,
+  frameWidth,
+  before,
+}: {
+  split: number;
+  onChange: (split: number) => void;
+  assessment: boolean;
+  /** The fitted image's size: the window's, with the assessment frame. */
+  width: number;
+  height: number;
+  frameWidth: number;
+  /** What the compared image is. */
+  before: string;
+}) {
+  const area = useRef<HTMLDivElement>(null);
+  const handlers = {
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      const r = area.current?.getBoundingClientRect();
+      if (!r || !e.currentTarget.hasPointerCapture(e.pointerId) || r.width <= 0) return;
+      onChange(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)));
+    },
+    onDoubleClick: () => onChange(0.5),
+  };
+  return (
+    <Box
+      position={assessment ? 'relative' : 'absolute'}
+      inset={assessment ? undefined : '0'}
+      boxSizing="content-box"
+      borderWidth={`${frameWidth}px`}
+      borderStyle="solid"
+      borderColor="transparent"
+      style={assessment ? { width, height } : undefined}
+    >
+      <Box ref={area} position="absolute" inset="0" data-split-divider>
+        <Box position="absolute" top="0" bottom="0" w="0" style={{ left: `${split * 100}%` }}>
+          <Box
+            position="absolute"
+            top="0"
+            bottom="0"
+            left="-1px"
+            w="2px"
+            bg="white"
+            boxShadow="0 0 3px rgba(0, 0, 0, 0.6)"
+          />
+          <Box
+            position="absolute"
+            top="0"
+            bottom="0"
+            left="-6px"
+            w="12px"
+            cursor="ew-resize"
+            pointerEvents="auto"
+            touchAction="none"
+            title="Drag to move the divider · Double-click to centre it"
+            {...handlers}
+          />
+          <Center
+            position="absolute"
+            top="50%"
+            left="0"
+            transform="translate(-50%, -50%)"
+            boxSize="7"
+            borderRadius="full"
+            bg="white"
+            color="black"
+            boxShadow="md"
+            cursor="ew-resize"
+            pointerEvents="auto"
+            touchAction="none"
+            {...handlers}
+          >
+            <ChevronsLeftRight size={16} />
+          </Center>
+          <Box position="absolute" top="0" right="0" w="40vw">
+            <PaneLabel side="right">{before}</PaneLabel>
+          </Box>
+          <Box position="absolute" top="0" left="0" w="40vw">
+            <PaneLabel>Current</PaneLabel>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
   );
 });
 
@@ -320,6 +461,7 @@ export function DeveloperView({
   importedEdits = null,
   actions,
   versions,
+  compareVersions,
   onBack,
   chooseExposure,
 }: Props) {
@@ -336,7 +478,51 @@ export function DeveloperView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
   }, []);
 
+  /** The original shows while \ is held. */
   const [comparing, setComparing] = useState(false);
+  // Compare (roadmap M5): another history entry or version beside the edited image, with
+  // the edited image's lens correction and geometry (`compareRecipe`).
+  const [compareOn, setCompareOn] = useState(false);
+  const [compareLayout, setCompareLayout] = useState<CompareLayout>(() =>
+    localStorage.getItem('developer.compareLayout') === 'sideBySide' ? 'sideBySide' : 'split',
+  );
+  useEffect(() => localStorage.setItem('developer.compareLayout', compareLayout), [compareLayout]);
+  const [compareTarget, setCompareTarget] = useState<CompareTarget>({ kind: 'history', seq: 0 });
+  // Where the split view's divider is, as a fraction of the image's window.
+  const [split, setSplit] = useState(0.5);
+  const otherVersions = compareVersions ?? NO_VERSIONS;
+  // The compared version's recipe, once loaded.
+  const [versionRecipe, setVersionRecipe] = useState<{ id: string; recipe: EditParams } | null>(null);
+  const targetVersion =
+    compareTarget.kind === 'version' ? otherVersions.find((v) => v.id === compareTarget.id) : undefined;
+  useEffect(() => {
+    if (!compareOn || !targetVersion || versionRecipe?.id === targetVersion.id) return;
+    let cancelled = false;
+    targetVersion.recipe().then(
+      (recipe) => !cancelled && setVersionRecipe({ id: targetVersion.id, recipe }),
+      (err: unknown) => {
+        if (cancelled) return;
+        toaster.create({
+          type: 'error',
+          title: 'Could not load the version to compare with',
+          description: err instanceof Error ? err.message : undefined,
+        });
+        setCompareTarget({ kind: 'history', seq: 0 });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [compareOn, targetVersion, versionRecipe?.id]);
+  // An entry dropped since it was picked: the original.
+  const targetRecipe =
+    compareTarget.kind === 'history'
+      ? compareTarget.seq <= history.entries.length
+        ? store.recipeAt(compareTarget.seq)
+        : original
+      : versionRecipe?.id === compareTarget.id
+        ? versionRecipe.recipe
+        : null;
   // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
   const [assessment, setAssessment] = useState(() => localStorage.getItem('developer.assessment') === '1');
   useEffect(() => localStorage.setItem('developer.assessment', assessment ? '1' : '0'), [assessment]);
@@ -408,7 +594,12 @@ export function DeveloperView({
   const zoomWindow = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const zoomLayout = useRef<ZoomLayout | null>(null);
-  const { view: zoom, zoomTo } = useZoom(zoomWindow, stage, zoomLayout, !cropDraft);
+  // The compared image's window and stage, which the zoom moves with the edited image's.
+  const compareWindow = useRef<HTMLDivElement>(null);
+  const compareStage = useRef<HTMLDivElement>(null);
+  const { view: zoom, zoomTo } = useZoom(zoomWindow, stage, zoomLayout, !cropDraft, {
+    mirror: { window: compareWindow, stage: compareStage },
+  });
   // The colour picker (roadmap 2.7): the pointer's place over the image goes to the
   // worker (once a frame at most), the pixel there comes back into a store that only
   // what shows it reads (`picker.ts`).
@@ -501,11 +692,25 @@ export function DeveloperView({
         : null,
     [scopes.open, scopes.mode, scopes.zoom, scopeWidth, scopeCssHeight, scopeDpr],
   );
-  const { margin, frameWidth } = assessmentLayout(size, assessment);
+  // Not while cropping or placing guides, which show the whole uncropped image.
+  const comparison = compareOn && !framing;
+  const sideBySide = comparison && compareLayout === 'sideBySide';
+  // Side by side, each image has half of the viewport.
+  const pane = {
+    width: sideBySide ? Math.max(0, Math.floor((size.width - COMPARE_GAP) / 2)) : size.width,
+    height: size.height,
+  };
+  // It follows the edited image's committed framing, not its look.
+  const committedFraming = framingKey(committed);
+  const compareParams = useMemo(
+    () => (comparison && targetRecipe ? compareRecipe(targetRecipe, committed) : null),
+    [comparison, targetRecipe, committedFraming], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const { margin, frameWidth } = assessmentLayout(pane, assessment);
   const job = useMemo(() => {
     const inset = 2 * (margin + frameWidth);
-    const width = Math.min(MAX_PREVIEW, Math.floor((size.width - inset) * dpr));
-    const height = Math.min(MAX_PREVIEW, Math.floor((size.height - inset) * dpr));
+    const width = Math.min(MAX_PREVIEW, Math.floor((pane.width - inset) * dpr));
+    const height = Math.min(MAX_PREVIEW, Math.floor((pane.height - inset) * dpr));
     const scale = draft ? Math.min(1, Math.sqrt(DRAFT_PIXELS / Math.max(1, width * height))) : 1;
     const overlays = {
       display: clipping.display ? { mode: clipping.mode } : null,
@@ -520,8 +725,8 @@ export function DeveloperView({
   }, [
     denoisedRenders,
     fitEffective,
-    size.width,
-    size.height,
+    pane.width,
+    pane.height,
     dpr,
     draft,
     margin,
@@ -533,6 +738,24 @@ export function DeveloperView({
     rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
+  // The compared image, at the same size, with the clipping indicators only.
+  const compareJob = useMemo(
+    () =>
+      compareParams && {
+        params: compareParams,
+        width: job.width,
+        height: job.height,
+        scale: 1,
+        overlays: {
+          display: clipping.display ? { mode: clipping.mode } : null,
+          sensor: clipping.sensor,
+          stripes: clipping.zebra ? STRIPE_PX * dpr : 0,
+        },
+        compare: true,
+      },
+    [compareParams, job.width, job.height, clipping, dpr, denoisedRenders],
+  );
+  const { frame: compareFrame, pending: comparePending } = useRenderLoop(backend, compareJob);
   // The pins' places in the frame, where the worker reads them.
   // Every frame brings a new mapping object: the same one while it says the same, so
   // that a drag doesn't recompute and send them each frame.
@@ -562,8 +785,8 @@ export function DeveloperView({
   const fitWidth = frame ? frame.fullWidth / dpr : 0;
   const fitHeight = frame ? frame.fullHeight / dpr : 0;
   zoomLayout.current = frame && {
-    windowWidth: assessment ? fitWidth : size.width,
-    windowHeight: assessment ? fitHeight : size.height,
+    windowWidth: assessment ? fitWidth : pane.width,
+    windowHeight: assessment ? fitHeight : pane.height,
     fitWidth,
     fitHeight,
     fitScale: frame.fullWidth / frame.sourceWidth,
@@ -591,20 +814,37 @@ export function DeveloperView({
     return { params: effective, width, height, region, scale, overlays };
   }, [zoom, JSON.stringify(layout), effective, live, dpr, clipping, maskOverlay, toneOverlay, rangeOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame: regionFrame, pending: regionPending } = useRenderLoop(backend, regionJob);
+  const compareRegionJob = useMemo(() => {
+    const visible = layout && visibleRegion(layout, zoom);
+    if (!compareParams || !zoom || !visible) return null;
+    const enlarged = zoom.scale / visible.scale;
+    const { width, height, region } = visible;
+    const overlays = {
+      display: clipping.display ? { mode: clipping.mode } : null,
+      sensor: clipping.sensor,
+      stripes: clipping.zebra ? Math.max(1, (STRIPE_PX * dpr) / enlarged) : 0,
+    };
+    return { params: compareParams, width, height, region, scale: 1, overlays, compare: true };
+  }, [zoom, JSON.stringify(layout), compareParams, dpr, clipping]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { frame: compareRegionFrame, pending: compareRegionPending } = useRenderLoop(backend, compareRegionJob);
+  // A frame of the same image (not of another crop, or of the unedited image).
+  const sameImage = (f: Frame | null) =>
+    !!f && !!frame && f.sourceWidth === frame.sourceWidth && f.sourceHeight === frame.sourceHeight;
   // A region left from an earlier zoom may show an older recipe: zooming in again waits
   // for a new one.
   const staleRegion = useRef<Frame | null>(null);
-  if (!zoom) staleRegion.current = regionFrame;
-  // A region of the same image (not of another crop, or of the unedited image).
-  const region =
-    zoom &&
-    regionFrame &&
-    regionFrame !== staleRegion.current &&
-    frame &&
-    regionFrame.sourceWidth === frame.sourceWidth &&
-    regionFrame.sourceHeight === frame.sourceHeight
-      ? regionFrame.placement
+  const staleCompareRegion = useRef<Frame | null>(null);
+  if (!zoom) {
+    staleRegion.current = regionFrame;
+    staleCompareRegion.current = compareRegionFrame;
+  }
+  const region = zoom && regionFrame !== staleRegion.current && sameImage(regionFrame) ? regionFrame!.placement : null;
+  const compareRegion =
+    zoom && compareRegionFrame !== staleCompareRegion.current && sameImage(compareRegionFrame)
+      ? compareRegionFrame!.placement
       : null;
+  // Until it's rendered again, a compared image framed differently (the crop changed) is hidden.
+  const compareShown = comparison && sameImage(compareFrame);
 
   // The bitmaps go to their canvas before the browser paints, together with the
   // placement they come with: otherwise the old one shows a frame at the new place.
@@ -632,6 +872,18 @@ export function DeveloperView({
     if (!c || !regionFrame || regionFrame.image.width === 0) return;
     c.getContext('bitmaprenderer')!.transferFromImageBitmap(regionFrame.image);
   }, [regionFrame]);
+  const compareCanvas = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const c = compareCanvas.current;
+    if (!c || !compareFrame || compareFrame.image.width === 0) return;
+    c.getContext('bitmaprenderer')!.transferFromImageBitmap(compareFrame.image);
+  }, [compareFrame]);
+  const compareRegionCanvas = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const c = compareRegionCanvas.current;
+    if (!c || !compareRegionFrame || compareRegionFrame.image.width === 0) return;
+    c.getContext('bitmaprenderer')!.transferFromImageBitmap(compareRegionFrame.image);
+  }, [compareRegionFrame]);
 
   // ── History ──
   // Dropping undone entries (by editing from an earlier point) or compressing can be
@@ -1213,6 +1465,7 @@ export function DeveloperView({
       else if (mod && key === 'c' && !window.getSelection()?.toString()) copyLast();
       else if (mod && key === 'v') onPaste(e.shiftKey);
       else if (!mod && key === '\\') setComparing(true);
+      else if (!mod && key === 'y') setCompareOn((on) => !on);
       else if (!mod && key === 'c') startCrop();
       else if (!mod && key === 'a' && !e.shiftKey && !e.altKey) autoTuneAll();
       else if (mod && key === 'b') setAssessment((a) => !a);
@@ -1242,6 +1495,30 @@ export function DeveloperView({
       window.removeEventListener('keyup', up);
     };
   });
+
+  const onToggleCompare = useStableCallback(() => setCompareOn((on) => !on));
+  const onCompareTarget = useStableCallback((target: CompareTarget) => {
+    setCompareTarget(target);
+    setCompareOn(true);
+  });
+  const compareNode = useMemo(
+    () => (
+      <CompareMenu
+        on={compareOn}
+        layout={compareLayout}
+        target={compareTarget}
+        entries={history.entries}
+        versions={otherVersions}
+        onToggle={onToggleCompare}
+        onLayout={setCompareLayout}
+        onTarget={onCompareTarget}
+      />
+    ),
+    [compareOn, compareLayout, compareTarget, history.entries, otherVersions], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const onCompareEntry = useStableCallback((seq: number) => onCompareTarget({ kind: 'history', seq }));
+  const compareLabel = targetLabel(compareTarget, history.entries, otherVersions);
+  const comparedSeq = compareOn && compareTarget.kind === 'history' ? compareTarget.seq : null;
 
   const { entries, end } = history;
   const versionsNode = useMemo(() => versions?.(autosave.whenSaved), [versions, autosave.whenSaved]);
@@ -1280,6 +1557,8 @@ export function DeveloperView({
                 end={history.end}
                 onSelect={onSelectEntry}
                 onCompress={onCompress}
+                compared={comparedSeq}
+                onCompare={onCompareEntry}
               />
             </Box>
           </Flex>
@@ -1291,12 +1570,11 @@ export function DeveloperView({
               styles={stylesNode}
               canUndo={canUndo}
               canRedo={canRedo}
-              comparing={comparing}
+              compare={compareNode}
               exporting={exporting}
               actions={actionsNode}
               onUndo={onUndo}
               onRedo={onRedo}
-              onCompare={setComparing}
               onExport={openExport}
             />
             <ImportNotice edits={importedEdits} metadata={metadata} label={history.entries[history.end - 1]?.label} />
@@ -1314,84 +1592,156 @@ export function DeveloperView({
             />
 
             <Center ref={viewport} flex="1" minH="0" bg="canvas" position="relative" overflow="hidden">
-              {/* Always mounted: it holds the zoom's event listeners. */}
-              <Box
-                ref={zoomWindow}
-                position={assessment ? 'relative' : 'absolute'}
-                inset={assessment ? undefined : '0'}
-                boxSizing="content-box"
-                overflow="hidden"
-                touchAction="none"
-                borderWidth={`${frameWidth}px`}
-                borderStyle="solid"
-                borderColor={frameWidth ? 'white' : 'transparent'}
-                visibility={frame ? 'visible' : 'hidden'}
-                style={assessment ? { width: fitWidth, height: fitHeight } : undefined}
+              {/* The edited image's pane, and the compared image's (roadmap M5): over it in a split
+                  view, beside it otherwise. */}
+              <Grid
+                position="absolute"
+                inset="0"
+                gap={`${COMPARE_GAP}px`}
+                templateColumns={sideBySide ? '1fr 1fr' : '1fr'}
+                templateRows="100%"
               >
-                {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
-                <Box
-                  ref={stage}
-                  position="absolute"
-                  top="0"
-                  left="0"
-                  lineHeight="0"
-                  transformOrigin="0 0"
-                  cursor={pinning ? 'crosshair' : undefined}
-                  style={{ width: fitWidth, height: fitHeight }}
+                <Center
+                  position="relative"
+                  minW="0"
+                  minH="0"
+                  overflow="hidden"
+                  gridRow="1"
+                  gridColumn={sideBySide ? 2 : 1}
                 >
-                  <canvas ref={canvas} style={{ width: '100%', height: '100%', display: 'block' }} />
-                  <canvas
-                    ref={regionCanvas}
-                    style={
-                      region
-                        ? {
-                            position: 'absolute',
-                            left: `${(100 * region.x) / region.frameWidth}%`,
-                            top: `${(100 * region.y) / region.frameHeight}%`,
-                            width: `${(100 * region.width) / region.frameWidth}%`,
-                            height: `${(100 * region.height) / region.frameHeight}%`,
-                            // Rendered at 100 %: larger zoom levels enlarge its pixels.
-                            imageRendering: region.frameWidth >= regionFrame!.sourceWidth ? 'pixelated' : 'auto',
-                          }
-                        : { display: 'none' }
-                    }
-                  />
-                  {showShapes && frame && layout && (
-                    <ShapeOverlay
-                      params={params}
-                      mapping={frame.mapping}
+                  {/* Always mounted: it holds the zoom's event listeners. */}
+                  <Box
+                    ref={zoomWindow}
+                    position={assessment ? 'relative' : 'absolute'}
+                    inset={assessment ? undefined : '0'}
+                    boxSizing="content-box"
+                    overflow="hidden"
+                    touchAction="none"
+                    borderWidth={`${frameWidth}px`}
+                    borderStyle="solid"
+                    borderColor={frameWidth ? 'white' : 'transparent'}
+                    visibility={frame ? 'visible' : 'hidden'}
+                    style={assessment ? { width: fitWidth, height: fitHeight } : undefined}
+                  >
+                    {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
+                    <Box
+                      ref={stage}
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      lineHeight="0"
+                      transformOrigin="0 0"
+                      cursor={pinning ? 'crosshair' : undefined}
+                      style={{ width: fitWidth, height: fitHeight }}
+                    >
+                      <canvas
+                        ref={canvas}
+                        data-image="edited"
+                        style={{ width: '100%', height: '100%', display: 'block' }}
+                      />
+                      <canvas ref={regionCanvas} style={regionStyle(region, regionFrame)} />
+                      {showShapes && frame && layout && (
+                        <ShapeOverlay
+                          params={params}
+                          mapping={frame.mapping}
+                          width={fitWidth}
+                          height={fitHeight}
+                          zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                          ui={shapeUi}
+                          onUi={onShapeUi}
+                          onChange={onLiveChange}
+                          onCommit={onShapeCommit}
+                        />
+                      )}
+                      {guides && !comparing && frame && layout && (
+                        <GuideOverlay
+                          lines={guides}
+                          mapping={frame.mapping}
+                          width={fitWidth}
+                          height={fitHeight}
+                          zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                          onChange={onGuidesChange}
+                        />
+                      )}
+                      {!framing && !comparing && layout && (
+                        <PinMarkers places={pinPlaces} zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1} />
+                      )}
+                      {cropDraft && !comparing && (
+                        <CropOverlay
+                          rect={cropDraft}
+                          aspect={aspectRatio(aspect, originalAspect)}
+                          frameAspect={frameAspect}
+                          onChange={setCropDraft}
+                        />
+                      )}
+                    </Box>
+                  </Box>
+                  {sideBySide && <PaneLabel>Current</PaneLabel>}
+                </Center>
+                {/* Always mounted, like the edited image's: side by side, it holds the zoom's
+                    listeners too. Split, the pointer goes through to the edited image. */}
+                <Center
+                  position="relative"
+                  minW="0"
+                  minH="0"
+                  overflow="hidden"
+                  gridRow="1"
+                  gridColumn="1"
+                  display={comparison ? 'flex' : 'none'}
+                  pointerEvents={sideBySide ? undefined : 'none'}
+                >
+                  <Box
+                    ref={compareWindow}
+                    position={assessment ? 'relative' : 'absolute'}
+                    inset={assessment ? undefined : '0'}
+                    boxSizing="content-box"
+                    overflow="hidden"
+                    touchAction="none"
+                    borderWidth={`${frameWidth}px`}
+                    borderStyle="solid"
+                    borderColor={frameWidth ? 'white' : 'transparent'}
+                    visibility={compareShown ? 'visible' : 'hidden'}
+                    style={{
+                      ...(assessment ? { width: fitWidth, height: fitHeight } : undefined),
+                      // Split: only left of the divider (in the window's border box).
+                      clipPath: sideBySide
+                        ? undefined
+                        : `inset(0 ${frameWidth + (1 - split) * (assessment ? fitWidth : pane.width)}px 0 0)`,
+                    }}
+                  >
+                    <Box
+                      ref={compareStage}
+                      position="absolute"
+                      top="0"
+                      left="0"
+                      lineHeight="0"
+                      transformOrigin="0 0"
+                      style={{ width: fitWidth, height: fitHeight }}
+                    >
+                      <canvas
+                        ref={compareCanvas}
+                        data-image="compared"
+                        style={{ width: '100%', height: '100%', display: 'block' }}
+                      />
+                      <canvas ref={compareRegionCanvas} style={regionStyle(compareRegion, compareRegionFrame)} />
+                    </Box>
+                  </Box>
+                  {sideBySide && <PaneLabel>{compareLabel}</PaneLabel>}
+                </Center>
+                {comparison && !sideBySide && frame && (
+                  <Center position="relative" minW="0" minH="0" gridRow="1" gridColumn="1" pointerEvents="none">
+                    <SplitDivider
+                      split={split}
+                      onChange={setSplit}
+                      assessment={assessment}
                       width={fitWidth}
                       height={fitHeight}
-                      zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
-                      ui={shapeUi}
-                      onUi={onShapeUi}
-                      onChange={onLiveChange}
-                      onCommit={onShapeCommit}
+                      frameWidth={frameWidth}
+                      before={compareLabel}
                     />
-                  )}
-                  {guides && !comparing && frame && layout && (
-                    <GuideOverlay
-                      lines={guides}
-                      mapping={frame.mapping}
-                      width={fitWidth}
-                      height={fitHeight}
-                      zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
-                      onChange={onGuidesChange}
-                    />
-                  )}
-                  {!framing && !comparing && layout && (
-                    <PinMarkers places={pinPlaces} zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1} />
-                  )}
-                  {cropDraft && !comparing && (
-                    <CropOverlay
-                      rect={cropDraft}
-                      aspect={aspectRatio(aspect, originalAspect)}
-                      frameAspect={frameAspect}
-                      onChange={setCropDraft}
-                    />
-                  )}
-                </Box>
-              </Box>
+                  </Center>
+                )}
+              </Grid>
               {/* Over the image, not under it: pinning the first sample doesn't move the image. */}
               {pins.length > 0 && !framing && (
                 <PinnedSamples
@@ -1405,7 +1755,12 @@ export function DeveloperView({
                 />
               )}
               {!frame && <Spinner color="orange.solid" size="lg" position="absolute" />}
-              {frame && <RenderSpinner busy={zoom ? regionPending : pending} frame={zoom ? regionFrame : frame} />}
+              {frame && (
+                <RenderSpinner
+                  busy={zoom ? regionPending || compareRegionPending : pending || comparePending}
+                  frame={zoom ? regionFrame : frame}
+                />
+              )}
               {error && (
                 <Text position="absolute" bottom="3" color="fg.error" textStyle="sm">
                   {error}

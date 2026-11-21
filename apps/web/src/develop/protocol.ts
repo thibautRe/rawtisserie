@@ -33,6 +33,8 @@ export type WorkerRequest =
       overlays: Overlays;
       /** Also draw this scope of the render (`scopes.ts`), without the overlays. */
       scope: ScopeRequest | null;
+      /** A compared recipe (roadmap M5): the colour picker and raw denoise keep following the others. */
+      compare: boolean;
     }
   /** A small final-quality render (`Developer.renderThumbnail`), apart from the interactive ones' caches. */
   | { type: 'thumbnail'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
