@@ -187,10 +187,25 @@ export function CurveEditor({
             strokeDasharray="3 3"
             strokeWidth="1"
           />
+          {/* 1 CSS px whatever the panel's width, as the sliders' tracks. */}
           {others.map((o, i) => (
-            <path key={i} d={path(o.values)} fill="none" stroke={o.color} strokeOpacity={0.45} strokeWidth="1" />
+            <path
+              key={i}
+              d={path(o.values)}
+              fill="none"
+              stroke={o.color}
+              strokeOpacity={0.45}
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
           ))}
-          <path d={path(values)} fill="none" stroke={color ?? 'var(--chakra-colors-orange-solid)'} strokeWidth="1.5" />
+          <path
+            d={path(values)}
+            fill="none"
+            stroke={color ?? 'var(--chakra-colors-orange-solid)'}
+            strokeWidth="1"
+            vectorEffect="non-scaling-stroke"
+          />
           {values.map((v, i) => (
             <circle
               key={i}
