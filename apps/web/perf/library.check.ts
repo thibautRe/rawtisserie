@@ -461,6 +461,9 @@ test("T focuses the tag input, which completes from the library's tags", async (
   await cards().first().click();
   await page.locator('[data-photo-collection]').getByText('Japan').click();
   await page.waitForURL((u) => u.search === '?collection=cjapan');
+  // A history entry of its own: Back returns to the filters before.
+  await page.goBack();
+  await page.waitForURL((u) => u.search === '?ratingMin=2');
 });
 
 test('tags are a tree: a parent picks what is under it, and `|` types a level', async () => {

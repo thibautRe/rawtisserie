@@ -62,16 +62,19 @@ export function useLibrarySearch() {
     [setParams],
   );
 
-  /** Changes several keys at once (one history entry, none lost). */
+  /**
+   * Changes several keys at once (none lost). Replaces the history entry, unless `push`:
+   * for a jump elsewhere (a link to a tag or a collection) that Back should undo.
+   */
   const edit = useCallback(
-    (change: (next: URLSearchParams) => void) =>
+    (change: (next: URLSearchParams) => void, { push = false }: { push?: boolean } = {}) =>
       setParams(
         (prev) => {
           const next = latest(prev);
           change(next);
           return next;
         },
-        { replace: true },
+        { replace: !push },
       ),
     [setParams],
   );

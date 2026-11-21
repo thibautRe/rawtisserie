@@ -462,11 +462,15 @@ export function LibraryPage() {
     onExport: exportSelection,
     onSend: sendSelection,
     onMoveToCollection: moveSelectionToCollection,
+    // A history entry of its own: Back returns to the filters before.
     onShowFilter: (key: 'tag' | 'collection', value: string) =>
-      search.edit((next) => {
-        for (const k of [...new Set(next.keys())]) if (k !== 'sort') next.delete(k);
-        next.set(key, value);
-      }),
+      search.edit(
+        (next) => {
+          for (const k of [...new Set(next.keys())]) if (k !== 'sort') next.delete(k);
+          next.set(key, value);
+        },
+        { push: true },
+      ),
   };
 
   const sortSelect = (
