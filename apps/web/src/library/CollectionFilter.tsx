@@ -1,7 +1,7 @@
 /**
  * The library's collections filter (roadmap 8.14): the tree of collections, each with its
  * photos and those under it (under the other filters), picked like tags (any of the
- * picked ones; one picks those under it too). It doesn't scroll on its own in the
+ * picked ones; one picks those under it too; Shift-click picks a range on a level). It doesn't scroll on its own in the
  * sidebar: each level shows its most recent collections and those holding a picked one,
  * the rest behind "Show more", and a search finds any. Each row's menu makes, renames,
  * moves, merges and deletes collections.
@@ -17,7 +17,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useCollectionChange, useCollections } from '../api/hooks.ts';
 import type { FacetValue } from '@rawtisserie/api';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
@@ -108,6 +108,9 @@ export function CollectionFilter({
   const [picker, setPicker] = useState<PickerRequest | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; body: string; action: string; run: () => void } | null>(null);
   const searching = query.trim() !== '';
+  // The last collection clicked (Shift-click picks from it), and whether Shift is held on this click.
+  const anchor = useRef<string | null>(null);
+  const shift = useRef(false);
   const holdsPicked = (n: CollectionNode) => picked.some((id) => id !== n.id && isWithin(byId, id, n.id));
 
   if (!list) return null;
@@ -187,6 +190,20 @@ export function CollectionFilter({
       return next;
     });
 
+  /** Shift-click picks the collections between the last one clicked and this one, on the same level. */
+  const pick = (id: string, siblings: CollectionNode[]) => {
+    const from = siblings.findIndex((n) => n.id === anchor.current);
+    const to = siblings.findIndex((n) => n.id === id);
+    if (shift.current && from >= 0 && to >= 0 && from !== to) {
+      const [a, b] = from < to ? [from, to] : [to, from];
+      const range = siblings.slice(a, b + 1).map((n) => n.id);
+      search.setAll('collection', [...new Set([...picked, ...range])]);
+    } else {
+      anchor.current = id;
+      search.toggle('collection', id);
+    }
+  };
+
   const level = (nodes: CollectionNode[], depth: number, parent: string): React.ReactNode[] => {
     const all = searching || more.has(parent);
     const shown = all
@@ -231,7 +248,13 @@ export function CollectionFilter({
               minW="0"
               checked={on}
               title={displayCollection(collectionPath(byId, n.id))}
-              onCheckedChange={() => search.toggle('collection', n.id)}
+              onCheckedChange={() => pick(n.id, shown)}
+              // Shift-click: a range (read when it changes), not the text selected.
+              onPointerDown={(e) => {
+                shift.current = e.shiftKey;
+                if (e.shiftKey) e.preventDefault();
+              }}
+              onKeyDown={() => (shift.current = false)}
             >
               <Checkbox.HiddenInput />
               <Checkbox.Control />

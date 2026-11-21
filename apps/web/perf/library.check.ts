@@ -1675,3 +1675,23 @@ test('the info panel keeps its layout from one photo to several: a stack where t
   const several = (await rating.boundingBox())!;
   assert.equal(several.y, one.y);
 });
+
+test('collections: Shift-click picks those between the last one clicked and this one, on a level', async () => {
+  await open('/');
+  const row = (id: string) => page.locator(`[data-collection="${id}"]`);
+  await page.getByRole('button', { name: 'Unfold 2026' }).click();
+  // Clicked on and off again: still where a range starts (a plain click would pick c1109 alone).
+  await row('c1110').getByText('2026-11-10').click();
+  await page.waitForURL((u) => u.searchParams.getAll('collection').join() === 'c1110');
+  await row('c1110').getByText('2026-11-10').click();
+  await page.waitForURL((u) => !u.searchParams.has('collection'));
+  await row('c1109')
+    .getByText('2026-11-09')
+    .click({ modifiers: ['Shift'] });
+  await page.waitForURL((u) => u.searchParams.getAll('collection').join() === 'c1110,c1109');
+  // Not on the same level: one more, as a plain click.
+  await row('cjapan')
+    .getByText('Japan')
+    .click({ modifiers: ['Shift'] });
+  await page.waitForURL((u) => u.searchParams.getAll('collection').join() === 'c1110,c1109,cjapan');
+});
