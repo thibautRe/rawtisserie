@@ -1,120 +1,63 @@
 # 🍗 RAWtisserie roadmap
 
-Status: plan, written 2026-10-27. Done: 1.1 (recipe v3); 1.2 (versions and history);
-2.1 (autosave); 2.2 (history stack); 2.3 (duplicates); 2.4 (clipping indicators); 2.5
-(slider feel); the `RenderBackend` interface (M6 prerequisite); golden-image tests
-(before M3); 3.1 with
-Sony's embedded data (lensfun and other makers postponed); 3.2 (colour primaries);
-3.3 (contrast equalizer); 3.4 (colour calibration); 4.1 (multiple instances); 4.2 module
-presets and styles (auto-apply rules to do); 4.3 (shapes) and 4.4 (retouch), built
-together; 4.5 (masks); full-size colour drags on a worker pool (see Performance);
-8.1 (presets and styles on a selection); 4.6 (tone curve); 4.9 (frame, as an export
-option); 8.5 (export options); 8.3 (culling loupe).
-Added 2026-11-05: what 1.0 needs (3.5–3.8, 4.6–4.9, M8 library workflow, M9 branding);
-4.10 (tone equalizer) added to it on 2026-11-06; see [1.0 release scope](#10-release-scope).
-4.11 (blend modes, with LUT masks) done 2026-11-07; 4.12 (glow) and 8.3 (culling
-loupe) done the same day. 4.7 (colour balance RGB) and 4.10 (tone equalizer, merged into
-the tone curve, now shown as "Tones") done 2026-11-08.
-Photoshoot feedback (2026-11-09): done the same day: burst order, "edited" ignoring the
-automatic lens correction entry, primaries sliders stopping before a singular mix, wider
-colour balance ranges and "Colorfulness: standard" in the default recipe, the library
-view restored when leaving the developer, and a film roll under the developer. 8.8
-(append or apply per module) done the same day. 8.6 (copy and paste) and 8.7
-(auto-tune on apply) too.
-Feedback (2026-11-10): done the same day: select all/none when copying settings or
-creating a style, the crop aspect starting at "Original", Tones' auto-tune in its header
-with A for every auto-tune, and a Tones strength. Added: 4.13 (mask UI redesign), and
-8.4's decisions (in the browser, one ZIP, export from the library with it). Later that
-day: tags moved up and a folded "Technical" group (camera, lens, ISO, focal length, aperture)
-in the library's filters, tag completion (fuzzy, from the library's tags) and T to focus
-it. Added: M9's design system, then started its `/ui` page (with the new fonts to try).
-Then in the app: Barlow Semi Condensed with Lilex for values, modules as blocks of their
-own with bolder titles and the switch on the right, no text selection in the developer's
-side panels.
-2026-11-11: a manager dialog to rename and delete the user's own LUTs, module presets and
-styles ("Manage…" in their menus, replacing the delete submenus).
-Later that day: 3.7 (diffuse or sharpen), a port of Ansel's with all its presets.
-Feedback: Barlow Semi Condensed was too narrow for rows of similar sliders (colour
-balance): Geologica instead (Asta Sans tried first: its ellipsis is centred, Korean
-style), and Inter out of `/ui`. Uppercase tabs, dimmer colour balance group headers.
-Then: a modified module's title is orange only when it's enabled; colour calibration's
-adaptation moved into its fold. 8.4 (export from the library) done.
-2026-11-12: library feedback (grid, info panel and filters in the developer's density,
-flags filtered in any combination, a status bar with photos per row, a virtualised
-grid). Added: 8.9 (focus areas). Deployment: CI, a container image, `deploy/` for a
-single VPS with nightly database backups to a bucket (part of 7.3), then 7.1 (object
-storage).
-2026-11-13: Canon CR3 decoding in wasm fixed (rawler patched from our fork, upstream PR
-dnglab/dnglab#960). Added: 3.9 (better demosaicing at full resolution). 7.5 (quotas)
-done, with invitations and an admin page. The render queue records its figures per hour
-(`render_stats`: peak pending, longest wait, renders and their durations), shown on the
-admin overview for 24 hours and 7 days; a graph can read the same table later. 4.8 (3D
-LUT) closed: what was left (uploading browser-only LUTs on "Add to library") can't
-happen in the app as it is. 7.3's soft delete done, as a trash: deleted photos can be
-restored for 30 days.
-2026-11-15: filmic auto-tuned in the default recipe (a new image's first entry is it
-resolved), a fix for duplicated cards in the library grid during imports, and 8.2 done:
-folders and cards, a review before sending, chunked resumable uploads, and imports that
-survive a reload. Then tags: a tree (levels separated by `|`, `/` tags migrated), a tag
-manager (Settings › Tags: one editor for a tag's parent, name and shortcut; merge, delete; each saying first what it'll do) and
-shortcuts for tags, sequences included (Ctrl+Alt+O, Ctrl+Alt+A), in the grid and the loupe.
-2026-11-16: added 8.11 (JPEG and other non-RAW images), 8.12 (boolean tag filters and
-rating ranges), 8.13 (select everything the filters match), 7.11 (AVIF renders) and
-M10 (responsive design); 8.11 and M10's first step are in the 1.0 scope. 8.11 done the
-same day: JPEG, PNG, TIFF and WebP, through the same pipeline without filmic. Then 7.11:
-renders stored as AVIF, encoded by sharp (native) in the render worker. Then 10.1: the
-library, trash and settings on phones.
-2026-11-17: 8.13, Ctrl+A selects everything the filters match. Then 3.5's spike: the
-denoising executor ported and benchmarked, and the decisions on previews and models;
-then 3.5 built (raw denoise in the developer and exports, kept in place of the original).
-NOTES.md feedback the same day: tag shortcuts in the tag input, Shift+arrow ranges
-that shrink back (and the focused photo marked), a "No tags" filter, saved filters
-(filter presets, as module presets), hue shift sliders 10× finer around 0° (0.1° with
-Ctrl), and glow streaks and motion (4.12). Added: 2.7 (an always-on colour picker); 3.9
-(demosaicing) is the next image-quality item after 3.5. 3.9 done the same day (RCD for
-Bayer sensors), then Markesteijn for X-Trans on 2026-11-18.
-3.6 done the same day: lensfun's database for photos without embedded data, kept in
-the recipe, with a lens picker; DNG opcodes and other makers' data moved to 3.10. Then 8.12: tags excluded or
-grouped (all/any per parent) in the library's filters, and star ratings as sets.
-NOTES.md feedback (2026-11-18): the local developer warns before closing the tab once
-edited, no "Develop a local file" in the app menu, and limits against unintended use
-(rate limits and counts per user; see Cross-cutting).
-Later that day: the rating filter back to five stars ("at least"), with every rating
-in a list behind a toggle (sets, ranges, unrated), in a Label block with the colour
-labels and picks; colour primaries' saturation and brightness in 0.1 % steps, fine
-around 0. Added: 8.14 (collections), and moving rawler to its next release
-(Cross-cutting: upstream has the CR3 fix, unreleased, on a master that needs porting).
-Then 8.14, collections: a tree per photo, in the filters, sorted into at import (by day,
-by shoot, as the folders, all in one). Then tags managed the same way: from each tag's
-menu in the Tags filter (edit, shortcut, new tag inside, delete), every tag listed, and
-the Settings › Tags page gone (its addresses lead to the library).
+Written 2026-10-27, reorganised 2026-11-21. Items keep their numbers. Done ones keep their
+"as built" notes, which record the decisions behind them; the day-by-day log that used
+to open this file is in git history.
 
-Most of the requested features (history, duplicates, autosave, presets, masks, multiple
-instances of a module) depend on the same thing: edits must stop being one fixed struct
-and become **a list of module instances with a history**. So the plan starts with that
-foundation, then builds features on top in milestones that each ship something usable.
+Most features (history, duplicates, autosave, presets, masks, multiple instances of a
+module) depended on one thing: edits had to stop being one fixed struct and become **a
+list of module instances with a history**. So the plan started with that foundation (M1),
+then built on it in milestones that each ship something usable.
 
 ```
-M1 Foundations ──┬─▶ M2 Workflow (autosave, history, duplicates, clipping indicators, sliders, guided editing)
-                 ├─▶ M3 Image quality (lens correction, colour primaries, contrast equalizer,
-                 │                     denoise, lensfun, diffuse & sharpen, perspective)
-                 ├─▶ M4 Creative control (module instances, presets, shapes, retouch, masks,
-                 │                        tone curve, colour balance RGB, 3D LUT, frame)
-                 ├─▶ M5 Compare
-                 └─▶ M8 Library workflow (batch presets, folder/SD import, culling, batch export)
-M6 Cloud processing ── independent; can start any time (native renderer first)
-M7 Hosted service ──── storage, quotas, history size, local originals; 7.1 before a public launch
-M9 Branding ────────── independent; logo, typography, spinner, /develop page
-M10 Responsive ─────── library and settings on phones before 1.0; the developer after M6
+M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-driven editing (1.0)
+                 ├─▶ M3 Image quality ...... done, but 3.10 more embedded lens data
+                 ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules
+                 ├─▶ M5 Compare ............ 1.0, next
+                 └─▶ M8 Library workflow ... done, but 8.9 focus areas, 8.15 phase 2
+M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
+M7 Hosted service ──── 7.1, 7.3, 7.5, 7.11 done; the rest before opening sign-ups
+M9 Branding ────────── 1.0; fonts and /ui done, logo, spinner, /develop page to do
+M10 Responsive ─────── library on phones done; the developer after M6
 ```
 
 Sizes: S ≈ a day or two, M ≈ a week, L ≈ 2–3 weeks, XL ≈ a month or more.
+
+## 1.0 release scope
+
+Left for 1.0, in this order:
+
+1. **[M5 compare](#m5--compare-ml-before-10--next)**: next.
+2. **[2.6 keyboard-driven, stepped editing](#26-keyboard-driven-stepped-editing-ml-before-10-needs-a-prototype)**:
+   needs a prototype before it's planned.
+3. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
+   landing page, a theme check. Can go in any time before launch.
+
+Done for 1.0: raw denoise (3.5), lensfun (3.6), diffuse and sharpen (3.7), perspective
+(3.8), tone curve and tone equalizer (4.6, 4.10), colour balance RGB (4.7), 3D LUTs
+(4.8), frame (4.9), the mask UI (4.13, called done 2026-11-21), the library workflow
+(8.1–8.5, 8.11), the library on phones (10.1).
+
+Not decided for 1.0: M6 cloud processing, the rest of M7 (7.1, needed for a hosted
+launch, is done), 4.2's auto-apply rules.
+
+## After 1.0
+
+1. M6 cloud processing. Step 1 (the native renderer) is useful on its own: server-side
+   exports, faster denoise. Move it earlier if slow-hardware users become a priority.
+2. M7 before opening sign-ups: 7.4 lazy re-renders and 7.6 purge rejected, then 7.9
+   plans and billing. 7.2 and 7.7 once storage and database costs are worth the
+   complexity; 7.8 can start any time; 7.10 only at a few hundred TB.
+3. Smaller open items, any time: 3.10, 4.2's auto-apply rules, 8.9, 8.15 phase 2, the
+   "Not done" notes under done items, [Performance](#performance) and
+   [Cross-cutting](#cross-cutting) (rawler from a release, Rust tooling, the slider perf
+   budget, render queue fairness).
 
 ---
 
 ## M1 — Foundations
 
-### 1.1 Recipe v3: a list of module instances (L)
+### 1.1 Recipe v3: a list of module instances (L) — done
 
 > **Done.** As built: `mask` and `opacity` are left out until M4 (adding them later is
 > backward compatible). Spatial order stays blur → sharpen, as before. A missing kind
@@ -179,7 +122,7 @@ Today `EditParams` is a struct with one section per module. v3 becomes:
   defaults generated from one schema. Consider `tsify`/`schemars` to stop maintaining
   two copies by hand.
 
-### 1.2 Library data model: photos, versions, history (M)
+### 1.2 Library data model: photos, versions, history (M) — done
 
 > **Done** (migration `00003`). As built: migrated versions reuse their photo's id, so
 > existing render files and links keep working; new uploads get distinct ids. The API is
@@ -209,7 +152,7 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 
 ## M2 — Workflow
 
-### 2.1 Autosave, no Save button (S, after 1.2)
+### 2.1 Autosave, no Save button (S) — done
 
 > **Done** (`develop/useAutosave.ts`). As built: coalescing is decided by the client,
 > which sends `replace: true` (with `baseRevision`) to overwrite the entry it wrote
@@ -230,7 +173,7 @@ Split "the file" from "an edit of the file", like darktable duplicates:
   a save is pending or in flight.
 - The public `/develop` page has no server, so it keeps undo/redo in memory.
 
-### 2.2 History stack (M, after 1.2)
+### 2.2 History stack (M) — done
 
 > **Done** (`develop/history.ts`, `develop/HistoryPanel.tsx`). As built: the client owns
 > the history (`HistoryStore`: entries, `end`, coalescing) and mirrors each change on
@@ -250,7 +193,7 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 - **Compress history:** collapse to one entry per module instance.
 - Undo/redo shortcuts move `history_end` instead of the local stack.
 
-### 2.3 Duplicates (S–M, after 1.2)
+### 2.3 Duplicates (S–M) — done
 
 > **Done.** As built: `POST /api/versions/:id/duplicate` (`fromOriginal` for an empty
 > history) inserts the copy right after its source. The copy keeps the curation and the
@@ -267,7 +210,7 @@ Split "the file" from "an edit of the file", like darktable duplicates:
 - Rename, reorder and delete versions. Deleting the last version asks to delete the photo.
 - Developer: a version switcher next to the file name.
 
-### 2.4 Over/under-exposure indicators (S–M, independent)
+### 2.4 Over/under-exposure indicators (S–M) — done
 
 > **Done.** As built: both are painted by `ops/clipping.rs` as a pass after the render
 > (nothing runs when they're off), measured on the 8-bit output, so the defaults mean
@@ -290,7 +233,7 @@ Two toggles, like Ansel's `overexposed.c` and `rawoverexposed.c`:
 
 Toolbar toggle plus a shortcut. Both apply to drafts too.
 
-### 2.5 Slider feel (M, independent)
+### 2.5 Slider feel (M) — done
 
 > **Done** (`develop/ParamSlider.tsx`, `develop/slider.ts`). As built: `min`/`max` are the
 > useful range and `hardMin`/`hardMax` what the module takes. Those are its clamp where it
@@ -324,9 +267,10 @@ Rework `ParamSlider` into the one control used by every module:
 - Fine/coarse adjustment with modifiers (Shift ×10, Ctrl ×0.1) on drag, wheel and
   arrow keys. Double-click on the track keeps resetting to the default.
 
-### 2.6 Keyboard-driven, stepped editing (exploration)
+### 2.6 Keyboard-driven, stepped editing (M–L, before 1.0, needs a prototype)
 
-Needs brainstorming and prototyping before it's planned. The idea is a primarily
+**Required for 1.0** (decided 2026-11-21). Needs brainstorming and prototyping before
+it's planned. The idea is a primarily
 keyboard-driven flow that walks through an opinionated order of steps, one control at a
 time, e.g.:
 
@@ -339,12 +283,10 @@ Open questions: how a step is shown (focus one slider, dim the rest, show a hint
 what to look at, e.g. turn on clipping indicators for the exposure steps), which keys
 change the value, step forward/back and skip, and whether the sequence is fixed or a
 preset. It builds on 2.5 (every slider usable from the keyboard) and fits the history
-(2.2): one entry per step. Prototype it with 4.13's mask sidebar: both change how the
-panels are laid out and navigated.
+(2.2): one entry per step. It must fit the panels as they are now (modules as blocks,
+the mask as a fold at the end of each: 4.13).
 
----
-
-### 2.7 Colour picker, always on (M–L, from NOTES.md)
+### 2.7 Colour picker, always on (M–L) — done
 
 > **Done** 2026-11-17. The pixel under the pointer, always: in the status bar (8-bit RGB,
 > CIE LCh of the displayed colour, scene luminance in EV before tone mapping), marked in
@@ -386,12 +328,14 @@ No tool to pick first.
   Lightroom's colour sampler), and whether pinned samples survive a reload (in the
   recipe? no: in the view state).
 
+---
+
 ## M3 — Image quality modules
 
 These ports read the Ansel sources directly (GPL-3.0, see Licensing). They need **golden-image
 tests** first: small reference renders of a handful of RAWs, compared within a tolerance.
 
-### 3.1 Lens correction, auto-applied to new images (L)
+### 3.1 Lens correction, auto-applied to new images (L) — done
 
 > **Partly done: Sony embedded data** (`lens.rs`). As built, following darktable's
 > `lens.cc` (embedded metadata v2): the 16-knot distortion, R/B CA and vignetting
@@ -431,7 +375,7 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
 - **UI:** source (embedded / lensfun / off), detected lens with manual override, and
   strengths for distortion, TCA and vignetting.
 
-### 3.2 Colour primaries (M–L, after 1.1)
+### 3.2 Colour primaries (M–L) — done
 
 > **Done** (`ops/primaries.rs`). As built: a faithful port, including the anchors from
 > `colorequal_shared.c` and the HLG Rec.2020 table space. It runs in the point pass,
@@ -454,7 +398,7 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
 - **UI:** a hue wheel with six draggable nodes, or six rows of three sliders as a first
   version.
 
-### 3.3 Contrast equalizer (L)
+### 3.3 Contrast equalizer (L) — done
 
 > **Done** (`ops/equalizer.rs`, `CurveEditor.tsx`). As built: Ansel's five curves (luma,
 > chroma, edges, luma/chroma denoise; six fixed nodes each, Catmull-Rom) and mix, with
@@ -480,7 +424,7 @@ tests** first: small reference renders of a handful of RAWs, compared within a t
 - **UI:** a reusable SVG curve-editor component (frequency axis, draggable nodes,
   double-click to reset). The tone equalizer (4.10) could reuse it later.
 
-### 3.4 Colour calibration (M, optional but useful before M4)
+### 3.4 Colour calibration (M) — done
 
 > **Done** (`ops/calibration.rs`, recipe v6). As built: the Ansel model. The base stage
 > applies the camera's reference (D65) multipliers, and a colour calibration instance
@@ -503,7 +447,7 @@ Ansel's `channelmixerrgb` (CAT16 white balance with illuminant, gamut compressio
 colourfulness/brightness/grey mixing). It replaces today's warmth/tint as the standard
 white balance and is the most common target for masked instances.
 
-### 3.5 Raw denoise (AI) (XL, before 1.0)
+### 3.5 Raw denoise (AI) (XL) — done
 
 > **Built** 2026-11-17 (`denoise.rs`, `pipeline/denoising.rs`, the `rawDenoise` kind,
 > `denoisePool.ts`). As built: a fixed grid of 1536-photosite tiles with upstream's
@@ -635,7 +579,7 @@ upstream at `57c1f08d81`, 2026-10-02). The models are trained in
   developer doesn't. The browser could send its denoised previews back, or the server
   denoise once it renders natively (M6).
 
-### 3.6 Lens correction via lensfun (L, before 1.0) — done
+### 3.6 Lens correction via lensfun (L) — done
 
 > **Done** 2026-11-18. Decisions: the profile lives in the recipe (the lens instance's
 > `lensfun`: the lens, crop factors, and coefficients interpolated for the shot), so
@@ -657,14 +601,7 @@ upstream at `57c1f08d81`, 2026-10-02). The models are trained in
 > the strengths, never one shot's profile. Not read: focus distance (vignetting is
 > interpolated at 1000 m, as darktable does without one), lens centre offsets.
 
-### 3.10 More embedded lens data (M)
-
-What 3.1 and 3.6 left: DNG opcodes (`WarpRectilinear`, `FixVignetteRadial`), then
-Fujifilm, Olympus/OM and Panasonic embedded data (darktable's `lens.cc` reads them).
-Each is another `LensSource` filling the same knot tables. Also worth having: the
-focus distance from makers' notes, for lensfun's vignetting.
-
-### 3.7 Diffuse and sharpen (L, before 1.0)
+### 3.7 Diffuse and sharpen (L) — done
 
 > **Done** 2026-11-11 (`ops/diffuse.rs`, the `diffuse` kind, "Diffuse or sharpen" in the
 > UI). A port of Ansel's `diffuse.c` (not darktable's: Ansel measures edges on the
@@ -705,7 +642,7 @@ highlights is 4.12's (glow), so rename that preset (e.g. "soft diffusion").
 - Size-dependent choices use the whole frame, as in `equalizer::apply_in_frame`.
 - Built-in presets matter more than the raw controls here (darktable ships ~20).
 
-### 3.8 Perspective correction and vertical alignment (L, before 1.0)
+### 3.8 Perspective correction and vertical alignment (L) — done
 
 > **Done** (`ops/perspective.rs`, `ops/lines.rs`, `develop/GuideOverlay.tsx`). As built:
 > the correction is a camera rotation, not a free homography: the straighten angle is
@@ -786,11 +723,18 @@ weakest on X-Trans. Only the full-resolution path changes; binning stays.
 - **Feedback (2026-11-17, NOTES.md):** the pattern bilinear leaves is too visible at
   100 %: this is the next image-quality item after 3.5.
 
+### 3.10 More embedded lens data (M)
+
+What 3.1 and 3.6 left: DNG opcodes (`WarpRectilinear`, `FixVignetteRadial`), then
+Fujifilm, Olympus/OM and Panasonic embedded data (darktable's `lens.cc` reads them).
+Each is another `LensSource` filling the same knot tables. Also worth having: the
+focus distance from makers' notes, for lensfun's vignetting.
+
 ---
 
 ## M4 — Creative control
 
-### 4.1 Multiple instances of a module (S–M, after 1.1)
+### 4.1 Multiple instances of a module (S–M) — done
 
 > **Done** (`ModulePanel.tsx`, `updateInstance` and friends in `params.ts`). As built: a
 > menu in the module header, with a section per instance in list order. White balance can
@@ -809,7 +753,7 @@ weakest on X-Trans. Only the full-resolution path changes; binning stays.
   own spots; the overlay edits one instance at a time).
 - **Not allowed for:** lens, geometry, filmic.
 
-### 4.2 Presets (M, after 1.1; better once M3 exists)
+### 4.2 Presets (M) — partly done
 
 > **Partly done: module presets and styles** (`packages/pipeline/src/presets.ts`,
 > `develop/presets.tsx`, `/api/presets`, migration `00005`). As built: presets and styles
@@ -845,7 +789,7 @@ auto_apply jsonb, position)`.
   should optionally include the instance's `mask` ("Include mask" when saving, off by
   default): parametric ranges and gradients travel well, drawn paths and strokes rarely.
 
-### 4.3 Shapes: one format for masks and retouch (M, after 1.1)
+### 4.3 Shapes: one format for masks and retouch (M) — done
 
 > **Done**, with 4.4 as its first user (`shapes.rs` ↔ `packages/pipeline/src/shapes.ts`,
 > `develop/ShapeOverlay.tsx`). As built: `shapes` is left out of the JSON when empty, so
@@ -927,7 +871,7 @@ version. In order of effort:
    stored as files (8-bit PNG at reduced resolution) referenced by hash from the recipe,
    fetched separately, and passed to wasm as a buffer next to the recipe.
 
-### 4.4 Retouch: spot removal (L, after 4.3; heal benefits from 3.3)
+### 4.4 Retouch: spot removal (L) — done
 
 > **Done** (`ops/retouch.rs`, the retouch section of `ModulePanel.tsx`). As built: heal,
 > clone, fill and blur, with opacity per spot. Fill takes a linear Rec.2020 colour (picked
@@ -985,7 +929,7 @@ For dust spots, sensor and lens marks, hot spots and skin blemishes. It follows 
   copy spots to the selected photos in the library (meaningful because of the sensor
   frame).
 
-### 4.5 Masks (XL, after 4.1 and 4.3)
+### 4.5 Masks (XL) — done
 
 > **Done** (`ops/mask.rs`, `params::Mask` ↔ `Mask` in `params.ts`, `develop/MaskEditor.tsx`).
 > As built: an instance's `mask` is left out of the JSON when absent (no version bump),
@@ -1051,19 +995,199 @@ A module's mask combines drawn shapes (4.3) with parametric ranges:
 - **Budget:** each masked instance costs roughly one extra point-module evaluation per
   pixel. Track it with `examples/bench.rs`.
 
-### New modules for 1.0
+### 4.6 Tone curve (M) — done
 
-Each needs the usual steps for a new kind:
+> **Done** (`ops/tone_curve.rs`, the tone curve section of `ModulePanel.tsx`). As built:
+> Ansel's `rgbcurve.c` model (RGB linked or independent; linked either per channel or
+> scaling the pixel by `curve(norm) / norm`, with Ansel's norms), drawn like its tone
+> equalizer: each curve is an exposure offset (±2 EV, flat at 0 by default) at 9 input
+> exposures evenly spread over the instance's `range` (−9 to +3 EV around middle grey
+> by default), so raising a node brightens those tones. The wand fits the range to the
+> module's input (`Developer::tone_curve_input`: all but the darkest and brightest
+> 0.5 % of what the curve reads, on the whole-frame preview), as the tone equalizer's
+> mask compensations do; it's stored, not measured per render, so regions and exports
+> match. The editor shows that input's histogram behind the curve, measured again
+> 500 ms after commits that change what comes before the instance (not during drags:
+> the worker is serial); refitting is left to the user so nodes don't move under an
+> edit. Independent channels get a histogram each (on a common scale; the fit is
+> shared). A "show on the image" toggle (`Overlays::tone_curve`) paints what the curve
+> reads in grey, black at the first node and white at the last, and tints the tones
+> the selected node controls like a mask. It's the contrast equalizer's Catmull-Rom (`equalizer::curve`
+> ↔ `curveAt`), so `CurveEditor.tsx` draws exactly what renders; past the end nodes the
+> offset stays the end node's. Unlike the tone equalizer it's global (no guided
+> filter), and a steep falling curve can invert tones. Norms are scaled so that a
+> grey's is its value: "sum" became "average" and is left out, "norm" is ÷ √3. Each
+> curve is baked into a gain table over the float bits (`BitsLut`, 256 per stop); it
+> runs last before filmic, in the fixed chain, and is maskable. Cost: ~+3 % on a full
+> point render at 2400 px (native). Built-in presets: "Contrast: low / medium / high",
+> "Lift shadows" (they don't set the range). Golden recipe `tone_curve.json`. A
+> strength (0 … 200 %, 2026-11-10) scales the offsets in EV, baked into the tables. Not
+> done: a histogram before the instance has been created (the wand creates it), picking
+> a node from the image, and a local (edge-preserving) variant like the tone
+> equalizer's (see 4.10).
 
-- an entry in the `modules!` macro and in the TS `ModuleParams`, `MODULE_KINDS` and
-  `defaultModuleParams`;
-- a pipeline stage;
-- a golden recipe;
-- `PRESET_GROUPS` if it has distinct parts.
+Based on Ansel's or darktable's `rgbcurve.c` (or the older `tonecurve.c`). A point module
+before filmic, in scene-referred linear (curve on log-encoded values, like the
+equalizer's curves), with RGB / luminance-preserving modes. It's baked into a lookup
+table in `PointOps::new`, and the editor reuses `CurveEditor.tsx`. Maskable.
 
-A kind that's absent is off, so adding one needs no recipe version bump.
+### 4.7 Colour balance RGB (L) — done
 
-### 4.11 Blend modes (M, after 4.5)
+> **Done** (2026-11-08), merged with Ansel's split-toning rgb into one `colorBalance`
+> module replacing colour (saturation/vibrance) and shadows/highlights (v7 recipes):
+> master tab (hue shift, vibrance, chroma/saturation/brilliance globally and per range),
+> a CAT16 temperature and channel mix per range (calibration's mixer views), and ranges
+> as two logistic steps whose weights add up to 1, with a graph and an overlay. Left out
+> on purpose: the 4 ways (the mixers tint) and contrast (the tone curve). Left: the
+> perceptual path's speed (`docs/PERFORMANCE.md`), a white fulcrum picker.
+
+A port of `colorbalancergb.c`:
+
+- lift/gamma/gain and offset/power/slope wheels;
+- chroma, saturation and vibrance per luminance range;
+- contrast around a fulcrum;
+- perceptual saturation in its UCS space.
+
+A point module before filmic, and maskable. The per-pixel maths has powers and colour
+space conversions, so it needs LUTs or a fitted approximation to respect the point-op
+budget. Tabs (master / 4 ways / masks) become `PRESET_GROUPS`, and colour wheels are a
+new UI control.
+
+### 4.8 3D LUT (M) — done
+
+> **Done** 2026-11-13. The pipeline side (`ops/clut.rs`, the `lut` kind in
+> `params.rs` ↔ `params.ts`, the stage after filmic in `ops/point.rs`, baked into
+> filmic's interactive table, wasm `parseLut`/`loadLut`). Measured at 2400 px: the
+> table bakes in at no extra cost per render; the exact path (filmic drags, final
+> renders, exports) adds ~85 ms per 3.8 MP single-threaded (tetrahedral; branch-bound,
+> not memory-bound: a 2³ LUT costs the same). Server: `luts`/`user_luts` (migration
+> 00007), `/api/luts` (list, upload of the packed form, rename, hide) and
+> `/api/luts/:lutId/data` (public for built-ins), renders load the recipe's LUTs the
+> owner may use. Five built-ins in `packages/pipeline/luts/`. Web: the LUT section's
+> picker previews the highlighted LUT (`useRecipePreview`, shared with module presets
+> and now styles), adds files (decoded in the pipeline worker, uploaded packed, or kept
+> in IndexedDB without an account) and removes them; the backend sends each table once
+> and the pipeline worker keeps the LUTs of recent recipes loaded (in its pool too).
+> Each LUT's thumbnail in the picker: done. Renaming: done 2026-11-11, in a manager
+> dialog ("Manage LUTs…" in the picker; `develop/ManagerDialog.tsx`, also used by the
+> preset and style menus). Masks, opacity and blend modes: done with 4.11. LUTs added
+> without an account stay in that browser: the developer only offers "Add to library"
+> when signed in, and then picks from the account's LUTs, so a recipe never refers to a
+> browser-only LUT there (they aren't moved to the account on sign-in either). Storage
+> quotas (7.5) count original files only, not LUTs.
+
+Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
+choice of interpolation (tetrahedral, trilinear, pyramid).
+
+- **Pipeline:** display-referred sRGB LUTs only for now, after filmic, several instances
+  allowed. Filmic's display-linear output → LUT input space (sRGB) → LUT → output space,
+  so P3/Rec.2020 exports stay right (colours beyond sRGB clip before the LUT). Interactive
+  renders can fold the chain of LUTs into filmic's 65³ table; exports use the exact path.
+  Log-input `.cube` (S-Log3, LogC…) later: the LUT record stores its `input_space` from
+  the start.
+- **No strength parameter:** opacity and blend modes come from the planned mask/blend
+  feature, which then has to cover kinds after filmic too.
+- **Recipe:** `{ lut: { id: <sha256>, name }, interpolation }`. A missing LUT renders as
+  disabled, with a warning naming it.
+- **Storage:** parse in Rust (browser and server), decode to a canonical form (grid size,
+  bit depth, domain, input space, table at its own depth) and hash _that_, so re-encoded
+  files deduplicate. Global `luts (sha256, …, storage_key)` blobs, gzipped, and per-user
+  `user_luts (owner_id, lut_sha256, name, hidden_at)`. Access: built-in, or a
+  `user_luts` row. Always upload and deduplicate server-side (no "already known" shortcut,
+  which would reveal other users' files); quota counts the full size per user. Deleting
+  hides the row (history still refers to the hash); a job removes unreferenced blobs.
+- **Built-ins:** a manifest of hashes served as static assets (so `/develop` has them).
+  Same hash space as user LUTs: adding a built-in that users already uploaded changes
+  nothing for them. Built-ins are never removed from the manifest, only retired from the
+  picker, and never re-encoded in a way that changes the table.
+- **Public developer:** custom LUTs stay in IndexedDB, keyed by the same hash.
+- **Initial built-ins:** a few from the RawTherapee Film Simulation collection (CC BY-SA
+  4.0, credits needed; Hald level 12, sRGB), named by feel rather than brand. They add
+  15–37 % midtone contrast on top of filmic, so they're looks to pick, not defaults.
+
+### 4.9 Frame (S–M) — done
+
+> **Done** as an export option rather than a module (`crates/pipeline/src/frame.rs` ↔
+> `packages/pipeline/src/frame.ts`, `ExportDialog.tsx`). A frame isn't part of the look
+> and nobody needs it while developing, so it stays out of the recipe: it's applied
+> to the encoded sRGB render, and previews, regions, overlays and shapes don't know
+> about it. As built: a border (fraction of the photo's shorter side), an optional
+> aspect ratio of the framed image (the crop tool's list: XPan, A-series paper and custom,
+> which accepts paper sizes such as A4 and starts from the current ratio;
+> the image's orientation or forced portrait/landscape) with the photo's position in
+> the extra space, a colour (white,
+> grey, black or any), and an optional line around the photo (width, gap, colour).
+> The framed image fits the export size: `frame::fit` searches for the widest photo
+> that fits (`tests/frame.rs`). The export menu became a dialog with a preview drawn
+> from the developer's canvas; the settings are remembered (`localStorage`), so a
+> series gets the same frame, and 8.4 batch export can reuse them. Not done: picking
+> the colour from the image, and per-photo frames (styles can't carry it). A "show
+> frame" view while developing could come with editor layout options, next to the
+> Ctrl/⌘+B assessment mode, if it turns out to be wanted.
+
+Borders for export, like darktable's `borders.c` ("framing"):
+
+- border size as a fraction of the shorter side, or a target aspect ratio;
+- position of the image within the frame;
+- colour (with an image picker);
+- an optional thin inner line.
+
+The last stage, display-referred, and not maskable. It changes the output size, so
+check region renders, clipping indicators, overlays and shapes (they map to the image
+inside the frame). It could be shown only on export and in a "show frame" preview.
+
+### 4.10 Tone equalizer (L) — done
+
+> **Done** (2026-11-08) as a mode of the tone curve rather than a new kind: the two
+> overlapped almost entirely (same nodes, editor, histogram, wand and overlay), so the
+> module is shown as "Tones" (the kind stays `toneCurve`) and gets a "Preserve detail"
+> switch (`preserveDetail`, with `smoothing` and `edgeRefinement`). Off, it's the global
+> curve as before (all RGB modes; golden images unchanged). On, the curve is linked and
+> reads Ansel's EIGF-smoothed mask of a norm (`ops/tone_curve.rs`, `Local`), whose
+> histogram and overlay the editor then shows. The global curve stays for contrast
+> (a local curve moves areas and keeps their texture) and per-channel looks.
+> Pipeline: the mask's statistics (smoothed local mean and variance of the norm) are
+> computed with the point masks (`PointMask::Tones` in `PointMasksKey`, so
+> `is_spatial_cached` covers them), from samples of the module's input every 4 px,
+> jittered by a hash so regular textures don't alias, in cells aligned on the frame
+> (regions match, `Local::reach` pads them). They travel as two planes
+> (`tone_curve::plane_ids`) to the point pass, which blends them with the pixel's norm
+> (EIGF's last step), so the pool works unchanged. Measured at 2400 px (native, single
+> thread): node drags +3 % over a global curve; edits before it (exposure…) +10 % for
+> the statistics, where computing the whole input would have doubled the frame. The
+> input of masks and tone curves is now built with the cached colour primaries tables
+> (`PointOpsCache::input_ops`). Golden recipe `tones_local.json`; built-in presets "Lift
+> shadows" (now preserving detail), "Compress highlights", "Compress dynamic range"; the
+> contrast presets turn it off. Not done: Ansel's quantization, iterations, averaged
+> (geometric mean) filters and mask contrast compensation (the node range and the wand
+> do its job); picking a node from the image.
+
+A port of Ansel's `toneequal.c`: exposure corrections by tone, like the tone curve, but
+read from a smoothed luminance mask instead of each pixel's own value. Lifting the
+shadows then moves a whole shadow area by about the same number of stops and keeps
+the texture inside it (the tone curve flattens or stretches it). That makes it the tool
+for compressing dynamic range, and it replaces the README's "shadows/highlights is
+global" gap.
+
+- **Mask:** luminance (one of Ansel's norms) blurred by a guided filter on log
+  luminance, edge-aware, with Ansel's controls: smoothing radius, edge refinement,
+  mask exposure and contrast compensation (the wand already fits these for the tone
+  curve, see 4.6). Masks' feather has a guided filter on log luminance to start from.
+- **Pipeline:** the mask is spatial, so it's computed with the spatial stages on the
+  module's input (the point modules before it, as `Mask::feathers_whole` does) and
+  cached by its own key, which must go into `is_spatial_cached` so the pool doesn't
+  render a stale one. The correction itself (mask → gain) is a point op with a lookup
+  table, and must stay in the fused pass and the pool. Regions need the filter's
+  `reach`, and the radius is a fraction of the frame, not the region.
+- **UI:** the tone curve's editor (`CurveEditor.tsx`, nodes as EV offsets over a range,
+  histogram behind, "show on the image" toggle), with the histogram of the mask rather
+  than of the pixels, and a mask preview. Picking a node from the image is more useful
+  here than on the curve.
+- Maskable, a golden recipe, `bench.rs` cases (the filter at 2400 px and full size).
+- Alternative: a "local" mode of the tone curve rather than a new kind. A separate kind
+  is simpler to explain and keeps the tone curve's RGB modes out of it.
+
+### 4.11 Blend modes (M) — done
 
 > **Done** (`ops/blend.rs`, `params::BlendMode` ↔ `BLEND_MODES`, the Blend menu in
 > `MaskEditor.tsx`). A mask says how the instance's output `b` combines with its input
@@ -1086,7 +1210,7 @@ A kind that's absent is off, so adding one needs no recipe version bump.
 > `blend.json`. Not done: a swap of input and output (Ansel's "reverse"), hue/colour
 > modes keeping lightness, and linear/vivid/pin light.
 
-### 4.12 Glow: bloom and halation (M, after 4.11)
+### 4.12 Glow: bloom and halation (M) — done
 
 > **Done** (`ops/glow.rs`, `params::Glow` ↔ `glow`, the Glow section of
 > `ModulePanel.tsx`, built-in presets bloom, halation, mist and black mist). As
@@ -1144,199 +1268,7 @@ result lands, not which pixels give off light: the blur still reads everything.
 - Later: other kernel shapes (~~anamorphic streaks~~, starbursts), energy conservation (take
   the light that glows away from its source).
 
-### 4.6 Tone curve (M, before 1.0)
-
-> **Done** (`ops/tone_curve.rs`, the tone curve section of `ModulePanel.tsx`). As built:
-> Ansel's `rgbcurve.c` model (RGB linked or independent; linked either per channel or
-> scaling the pixel by `curve(norm) / norm`, with Ansel's norms), drawn like its tone
-> equalizer: each curve is an exposure offset (±2 EV, flat at 0 by default) at 9 input
-> exposures evenly spread over the instance's `range` (−9 to +3 EV around middle grey
-> by default), so raising a node brightens those tones. The wand fits the range to the
-> module's input (`Developer::tone_curve_input`: all but the darkest and brightest
-> 0.5 % of what the curve reads, on the whole-frame preview), as the tone equalizer's
-> mask compensations do; it's stored, not measured per render, so regions and exports
-> match. The editor shows that input's histogram behind the curve, measured again
-> 500 ms after commits that change what comes before the instance (not during drags:
-> the worker is serial); refitting is left to the user so nodes don't move under an
-> edit. Independent channels get a histogram each (on a common scale; the fit is
-> shared). A "show on the image" toggle (`Overlays::tone_curve`) paints what the curve
-> reads in grey, black at the first node and white at the last, and tints the tones
-> the selected node controls like a mask. It's the contrast equalizer's Catmull-Rom (`equalizer::curve`
-> ↔ `curveAt`), so `CurveEditor.tsx` draws exactly what renders; past the end nodes the
-> offset stays the end node's. Unlike the tone equalizer it's global (no guided
-> filter), and a steep falling curve can invert tones. Norms are scaled so that a
-> grey's is its value: "sum" became "average" and is left out, "norm" is ÷ √3. Each
-> curve is baked into a gain table over the float bits (`BitsLut`, 256 per stop); it
-> runs last before filmic, in the fixed chain, and is maskable. Cost: ~+3 % on a full
-> point render at 2400 px (native). Built-in presets: "Contrast: low / medium / high",
-> "Lift shadows" (they don't set the range). Golden recipe `tone_curve.json`. A
-> strength (0 … 200 %, 2026-11-10) scales the offsets in EV, baked into the tables. Not
-> done: a histogram before the instance has been created (the wand creates it), picking
-> a node from the image, and a local (edge-preserving) variant like the tone
-> equalizer's (see 4.10).
-
-Based on Ansel's or darktable's `rgbcurve.c` (or the older `tonecurve.c`). A point module
-before filmic, in scene-referred linear (curve on log-encoded values, like the
-equalizer's curves), with RGB / luminance-preserving modes. It's baked into a lookup
-table in `PointOps::new`, and the editor reuses `CurveEditor.tsx`. Maskable.
-
-### 4.7 Colour balance RGB (L, before 1.0)
-
-> **Done** (2026-11-08), merged with Ansel's split-toning rgb into one `colorBalance`
-> module replacing colour (saturation/vibrance) and shadows/highlights (v7 recipes):
-> master tab (hue shift, vibrance, chroma/saturation/brilliance globally and per range),
-> a CAT16 temperature and channel mix per range (calibration's mixer views), and ranges
-> as two logistic steps whose weights add up to 1, with a graph and an overlay. Left out
-> on purpose: the 4 ways (the mixers tint) and contrast (the tone curve). Left: the
-> perceptual path's speed (`docs/PERFORMANCE.md`), a white fulcrum picker.
-
-A port of `colorbalancergb.c`:
-
-- lift/gamma/gain and offset/power/slope wheels;
-- chroma, saturation and vibrance per luminance range;
-- contrast around a fulcrum;
-- perceptual saturation in its UCS space.
-
-A point module before filmic, and maskable. The per-pixel maths has powers and colour
-space conversions, so it needs LUTs or a fitted approximation to respect the point-op
-budget. Tabs (master / 4 ways / masks) become `PRESET_GROUPS`, and colour wheels are a
-new UI control.
-
-### 4.8 3D LUT (M, before 1.0)
-
-> **Done** 2026-11-13. The pipeline side (`ops/clut.rs`, the `lut` kind in
-> `params.rs` ↔ `params.ts`, the stage after filmic in `ops/point.rs`, baked into
-> filmic's interactive table, wasm `parseLut`/`loadLut`). Measured at 2400 px: the
-> table bakes in at no extra cost per render; the exact path (filmic drags, final
-> renders, exports) adds ~85 ms per 3.8 MP single-threaded (tetrahedral; branch-bound,
-> not memory-bound: a 2³ LUT costs the same). Server: `luts`/`user_luts` (migration
-> 00007), `/api/luts` (list, upload of the packed form, rename, hide) and
-> `/api/luts/:lutId/data` (public for built-ins), renders load the recipe's LUTs the
-> owner may use. Five built-ins in `packages/pipeline/luts/`. Web: the LUT section's
-> picker previews the highlighted LUT (`useRecipePreview`, shared with module presets
-> and now styles), adds files (decoded in the pipeline worker, uploaded packed, or kept
-> in IndexedDB without an account) and removes them; the backend sends each table once
-> and the pipeline worker keeps the LUTs of recent recipes loaded (in its pool too).
-> Each LUT's thumbnail in the picker: done. Renaming: done 2026-11-11, in a manager
-> dialog ("Manage LUTs…" in the picker; `develop/ManagerDialog.tsx`, also used by the
-> preset and style menus). Masks, opacity and blend modes: done with 4.11. LUTs added
-> without an account stay in that browser: the developer only offers "Add to library"
-> when signed in, and then picks from the account's LUTs, so a recipe never refers to a
-> browser-only LUT there (they aren't moved to the account on sign-in either). Storage
-> quotas (7.5) count original files only, not LUTs.
-
-Following darktable's `lut3d.c`: `.cube` (3D) and Hald CLUT PNG/TIFF (8/16-bit), with a
-choice of interpolation (tetrahedral, trilinear, pyramid).
-
-- **Pipeline:** display-referred sRGB LUTs only for now, after filmic, several instances
-  allowed. Filmic's display-linear output → LUT input space (sRGB) → LUT → output space,
-  so P3/Rec.2020 exports stay right (colours beyond sRGB clip before the LUT). Interactive
-  renders can fold the chain of LUTs into filmic's 65³ table; exports use the exact path.
-  Log-input `.cube` (S-Log3, LogC…) later: the LUT record stores its `input_space` from
-  the start.
-- **No strength parameter:** opacity and blend modes come from the planned mask/blend
-  feature, which then has to cover kinds after filmic too.
-- **Recipe:** `{ lut: { id: <sha256>, name }, interpolation }`. A missing LUT renders as
-  disabled, with a warning naming it.
-- **Storage:** parse in Rust (browser and server), decode to a canonical form (grid size,
-  bit depth, domain, input space, table at its own depth) and hash _that_, so re-encoded
-  files deduplicate. Global `luts (sha256, …, storage_key)` blobs, gzipped, and per-user
-  `user_luts (owner_id, lut_sha256, name, hidden_at)`. Access: built-in, or a
-  `user_luts` row. Always upload and deduplicate server-side (no "already known" shortcut,
-  which would reveal other users' files); quota counts the full size per user. Deleting
-  hides the row (history still refers to the hash); a job removes unreferenced blobs.
-- **Built-ins:** a manifest of hashes served as static assets (so `/develop` has them).
-  Same hash space as user LUTs: adding a built-in that users already uploaded changes
-  nothing for them. Built-ins are never removed from the manifest, only retired from the
-  picker, and never re-encoded in a way that changes the table.
-- **Public developer:** custom LUTs stay in IndexedDB, keyed by the same hash.
-- **Initial built-ins:** a few from the RawTherapee Film Simulation collection (CC BY-SA
-  4.0, credits needed; Hald level 12, sRGB), named by feel rather than brand. They add
-  15–37 % midtone contrast on top of filmic, so they're looks to pick, not defaults.
-
-### 4.9 Frame (S–M, before 1.0)
-
-> **Done** as an export option rather than a module (`crates/pipeline/src/frame.rs` ↔
-> `packages/pipeline/src/frame.ts`, `ExportDialog.tsx`). A frame isn't part of the look
-> and nobody needs it while developing, so it stays out of the recipe: it's applied
-> to the encoded sRGB render, and previews, regions, overlays and shapes don't know
-> about it. As built: a border (fraction of the photo's shorter side), an optional
-> aspect ratio of the framed image (the crop tool's list: XPan, A-series paper and custom,
-> which accepts paper sizes such as A4 and starts from the current ratio;
-> the image's orientation or forced portrait/landscape) with the photo's position in
-> the extra space, a colour (white,
-> grey, black or any), and an optional line around the photo (width, gap, colour).
-> The framed image fits the export size: `frame::fit` searches for the widest photo
-> that fits (`tests/frame.rs`). The export menu became a dialog with a preview drawn
-> from the developer's canvas; the settings are remembered (`localStorage`), so a
-> series gets the same frame, and 8.4 batch export can reuse them. Not done: picking
-> the colour from the image, and per-photo frames (styles can't carry it). A "show
-> frame" view while developing could come with editor layout options, next to the
-> Ctrl/⌘+B assessment mode, if it turns out to be wanted.
-
-Borders for export, like darktable's `borders.c` ("framing"):
-
-- border size as a fraction of the shorter side, or a target aspect ratio;
-- position of the image within the frame;
-- colour (with an image picker);
-- an optional thin inner line.
-
-The last stage, display-referred, and not maskable. It changes the output size, so
-check region renders, clipping indicators, overlays and shapes (they map to the image
-inside the frame). It could be shown only on export and in a "show frame" preview.
-
-### 4.10 Tone equalizer (L, after 4.6, before 1.0)
-
-> **Done** (2026-11-08) as a mode of the tone curve rather than a new kind: the two
-> overlapped almost entirely (same nodes, editor, histogram, wand and overlay), so the
-> module is shown as "Tones" (the kind stays `toneCurve`) and gets a "Preserve detail"
-> switch (`preserveDetail`, with `smoothing` and `edgeRefinement`). Off, it's the global
-> curve as before (all RGB modes; golden images unchanged). On, the curve is linked and
-> reads Ansel's EIGF-smoothed mask of a norm (`ops/tone_curve.rs`, `Local`), whose
-> histogram and overlay the editor then shows. The global curve stays for contrast
-> (a local curve moves areas and keeps their texture) and per-channel looks.
-> Pipeline: the mask's statistics (smoothed local mean and variance of the norm) are
-> computed with the point masks (`PointMask::Tones` in `PointMasksKey`, so
-> `is_spatial_cached` covers them), from samples of the module's input every 4 px,
-> jittered by a hash so regular textures don't alias, in cells aligned on the frame
-> (regions match, `Local::reach` pads them). They travel as two planes
-> (`tone_curve::plane_ids`) to the point pass, which blends them with the pixel's norm
-> (EIGF's last step), so the pool works unchanged. Measured at 2400 px (native, single
-> thread): node drags +3 % over a global curve; edits before it (exposure…) +10 % for
-> the statistics, where computing the whole input would have doubled the frame. The
-> input of masks and tone curves is now built with the cached colour primaries tables
-> (`PointOpsCache::input_ops`). Golden recipe `tones_local.json`; built-in presets "Lift
-> shadows" (now preserving detail), "Compress highlights", "Compress dynamic range"; the
-> contrast presets turn it off. Not done: Ansel's quantization, iterations, averaged
-> (geometric mean) filters and mask contrast compensation (the node range and the wand
-> do its job); picking a node from the image.
-
-A port of Ansel's `toneequal.c`: exposure corrections by tone, like the tone curve, but
-read from a smoothed luminance mask instead of each pixel's own value. Lifting the
-shadows then moves a whole shadow area by about the same number of stops and keeps
-the texture inside it (the tone curve flattens or stretches it). That makes it the tool
-for compressing dynamic range, and it replaces the README's "shadows/highlights is
-global" gap.
-
-- **Mask:** luminance (one of Ansel's norms) blurred by a guided filter on log
-  luminance, edge-aware, with Ansel's controls: smoothing radius, edge refinement,
-  mask exposure and contrast compensation (the wand already fits these for the tone
-  curve, see 4.6). Masks' feather has a guided filter on log luminance to start from.
-- **Pipeline:** the mask is spatial, so it's computed with the spatial stages on the
-  module's input (the point modules before it, as `Mask::feathers_whole` does) and
-  cached by its own key, which must go into `is_spatial_cached` so the pool doesn't
-  render a stale one. The correction itself (mask → gain) is a point op with a lookup
-  table, and must stay in the fused pass and the pool. Regions need the filter's
-  `reach`, and the radius is a fraction of the frame, not the region.
-- **UI:** the tone curve's editor (`CurveEditor.tsx`, nodes as EV offsets over a range,
-  histogram behind, "show on the image" toggle), with the histogram of the mask rather
-  than of the pixels, and a mask preview. Picking a node from the image is more useful
-  here than on the curve.
-- Maskable, a golden recipe, `bench.rs` cases (the filter at 2400 px and full size).
-- Alternative: a "local" mode of the tone curve rather than a new kind. A separate kind
-  is simpler to explain and keeps the tone curve's RGB modes out of it.
-
-### 4.13 Mask UI redesign (M–L, before 1.0, needs a prototype)
+### 4.13 Mask UI redesign (M–L) — done
 
 > **Layout picked** 2026-11-20, from a prototype of four (2026-11-19: as 4.5 built it,
 > a sidebar pushing the modules left, a sidebar over them, and a fold): the **fold**. The
@@ -1349,26 +1281,18 @@ global" gap.
 > There's no adding or removing a mask: the fold's switch turns it on (adding it) and
 > off (keeping its settings; a mask with none is dropped). The fold's header keeps the
 > switch and the "show the mask" button; closing it takes the mask off the image (its
-> shapes, and what its overlays show). Still to do below: what the editor shows by
-> default.
+> shapes, and what its overlays show).
+>
+> **Called done** 2026-11-21: what's left isn't needed for 1.0. Not done: which controls
+> are shown by default and which behind an "advanced" disclosure (drawn shapes and a
+> luminance range cover most uses), how the overlay modes (one range alone, what a range
+> measures) are reached, and mask presets.
 
-The mask editor (4.5) is confusing and clutters the panel: a mask button in each
-maskable module's header opens, inside the module, a switch, the shape tools, an op per
-shape, up to seven range sliders with four handles, feather, opacity and invert. It
-needs redoing for 1.0 so that it makes sense and stays out of the way.
+Why: 4.5's editor opened inside the module's header (a switch, the shape tools, an op
+per shape, up to seven range sliders, feather, opacity, invert), cluttering the panel.
+A UI change only: the format and pipeline stayed as they were.
 
-- **Idea to prototype:** masks in a secondary sidebar next to the modules, showing the
-  mask of the module being edited (or a list of the recipe's masks), so the module
-  panel keeps only a mask indicator.
-- Prototype it with 2.6 (keyboard-driven editing): both change how the panels are laid
-  out and navigated.
-- To work out with the prototype: which controls are shown by default (drawn shapes and
-  a luminance range cover most uses) and which are behind an "advanced" disclosure; how
-  the overlay modes (the mask, one range alone, what a range measures) are reached; and
-  where mask presets (4.5's "not done yet") would fit.
-- Format and pipeline stay as they are: it's a UI change.
-
-### 4.14 Multiple exposure (M)
+### 4.14 Multiple exposure (M) — done
 
 > **Done** 2026-11-20 (`ops/multiple_exposure.rs`, the `multipleExposure` kind). Another
 > photo blended into this one's base image as it comes off the sensor (demosaiced or
@@ -1384,7 +1308,7 @@ scale, rotation), the other photo's own white balance or recipe, raw denoise on 
 (today only this photo is denoised), and re-rendering the photos that blend one in when
 it's deleted for good or comes back.
 
-### 4.15 Raster masks: another module's mask as a shape (M)
+### 4.15 Raster masks: another module's mask as a shape (M) — done
 
 > **Done** 2026-11-20, as darktable's and Ansel's raster masks. A shape type, `raster`
 > (`Shape::Raster` ↔ `RasterShape`): `{ source, invert, opacity }`, the mask of instance
@@ -1405,12 +1329,18 @@ it's deleted for good or comes back.
 
 ---
 
-## M5 — Compare (M–L, after 1.2)
+## M5 — Compare (M–L, before 1.0) — next
 
-- **Library:** select 2–4 versions → a compare view in a grid, with synchronised zoom and pan.
+Moved into the 1.0 scope 2026-11-21, as the next step. What exists already: the
+developer's **Before** button (or `\`), held to show the original recipe in place; the
+culling loupe (8.3) with server-rendered 100 % tiles (`render/zoom.ts`); the film roll
+under the developer. `Developer` keeps `MAX_SLOTS` (3) render slots sharing one base.
+
+- **Library:** select 2–4 versions → a compare view in a grid, with synchronised zoom and
+  pan. The two-up culling of a burst that 8.3 and 8.9 point to.
 - **Developer:** compare the current state with an earlier history entry (snapshot) as a
   split view or side by side. The same `Developer` renders both recipes and shares the
-  base cache; raise the cache slots from 2 to 4.
+  base cache; more slots if a side-by-side needs them.
 - **Geometry normalisation (my reading of the Ansel behaviour):** all compared images
   get the **reference image's** geometric modules (lens, rotation, straighten, crop,
   perspective). Only the tone and colour modules differ, so differences come from
@@ -1471,7 +1401,7 @@ database storage costs far more per GB than object storage, so the history matte
 Target hosting is OVH (object storage and managed Postgres), but everything goes through
 the S3 API so the provider stays a configuration choice.
 
-### 7.1 Object storage backend (M)
+### 7.1 Object storage backend (M) — done
 
 > **Done** 2026-11-12 (`apps/server/src/storage/`, see `docs/DEPLOYMENT.md`). As built:
 > an `ObjectStore` with a local-disk and an S3 implementation (`@aws-sdk/client-s3`,
@@ -1508,7 +1438,7 @@ cheaper class (OVH Infrequent Access, or Active Archive if its reads are immedia
 - App-driven moves (copy, verify, delete) work everywhere; use the provider's lifecycle
   rules instead if they support transitions.
 
-### 7.3 Backups and soft delete (S–M, after 7.1)
+### 7.3 Backups and soft delete (S–M) — done
 
 > **Soft delete done** 2026-11-13, as a trash (`photos/trash.ts`, `/settings/trash`): deleting from
 > the library moves versions to the user's trash (`versions.trashed_at`), with an Undo in
@@ -1543,7 +1473,7 @@ bill for each migration and a slow queue.
   them when they're shown in the grid or opened (a priority queue: visible first).
 - Update the note in `CLAUDE.md` about migrations when this lands.
 
-### 7.5 Quotas and usage (M, after 7.1)
+### 7.5 Quotas and usage (M) — done
 
 > **Done** 2026-11-13, with invitations and admins (`apps/server/src/accounts/`,
 > `pages/AdminPage.tsx`, migration 00012). As built: `users.storage_quota` in bytes,
@@ -1671,9 +1601,9 @@ at the same quality: less storage per version and less bandwidth on every grid s
 
 ---
 
-## M8 — Library workflow (L overall, before 1.0)
+## M8 — Library workflow
 
-### 8.1 Apply a preset or style to a selection (S–M)
+### 8.1 Apply a preset or style to a selection (S–M) — done
 
 > **Done.** As built: the library panel's palette button (one photo) or "Apply a preset or
 > style to N" (several) lists styles (Apply or Append, once for the whole selection) and
@@ -1703,7 +1633,7 @@ that bumps `revision`. The render queue re-renders the previews.
 - A shared default when applying a style to a mixed selection: append or replace.
 - Progress for large selections.
 
-### 8.2 Folder, recursive and SD card import, skipping known files (M)
+### 8.2 Folder, recursive and SD card import, skipping known files (M) — done
 
 > **Done** (2026-11-15; `library/imports.ts`, `pickedFiles.ts`, `importQueue.ts`,
 > `ImportReview.tsx`, server `photos/uploads.ts`). Imports run app-wide (they go on
@@ -1739,7 +1669,7 @@ that bumps `revision`. The render queue re-renders the previews.
 - Resumable uploads, a queue that survives a reload, and a summary at the end
   (imported / skipped / failed).
 
-### 8.3 Fullscreen preview for culling (M)
+### 8.3 Fullscreen preview for culling (M) — done
 
 > **Done** (`library/Loupe.tsx`, `library/loupe.ts`, `render/zoom.ts` on the server). As
 > built: a full-window overlay rather than the Fullscreen API, opened with Space/E or the
@@ -1766,7 +1696,7 @@ Preload the neighbours' previews. Previews may need a larger size than the grid 
 (check the stored preview size, or decode the embedded JPEG from the RAW). This fits
 with M5's compare (two-up culling of a burst).
 
-### 8.4 Export from the library: one photo or a selection (M–L)
+### 8.4 Export from the library: one photo or a selection (M–L) — done
 
 > **Done** 2026-11-11 (`export/bulkExport.ts`, `export/LibraryExportDialog.tsx`,
 > `export/ExportProgress.tsx`, `lib/zip.ts`). As built: "Export N photos" in the info
@@ -1836,7 +1766,29 @@ have the RAW).
   (7.1) behind a short-lived link, an in-app notification centre, email once the server
   sends any) for cloud-compute users, after M6 step 1; AVIF/JPEG XL.
 
-### 8.6 Copy and paste edits (S–M, after 8.1)
+### 8.5 Export options (M) — done
+
+The export dialog has, on top of 4.9's frame and the size:
+
+- **Formats:** JPEG, and PNG and TIFF (deflate, predictor) in 8 or 16 bits.
+- **Output colour space:** sRGB, Display P3, Adobe RGB, Rec.2020 (`output::ColorSpace`).
+  Filmic's gamut mapping targets the chosen primaries (as Ansel does with the export
+  profile), and the file embeds a generated v2 ICC profile (`export::icc`), sRGB's too.
+  Previews and golden tests stay sRGB.
+- **Metadata:** EXIF (camera, lens, exposure, date and offset, GPS) from the file's
+  metadata with the library's corrections, and XMP (title, description, rating, label,
+  keywords, creator, rights). All, all but location, copyright only, or none.
+- **Size:** full, long edge, short edge, width × height, megapixels; the frame is
+  included. **Output sharpening** (low, standard, high) at the export size.
+- **File names:** a pattern (`{name}`, `{version}`, `{date}`, `{time}`, `{title}`,
+  `{camera}`, `{lens}`, `{iso}`, `{rating}`), in `exportFilename`.
+- **Export presets** and the last export's settings are per user, on the server
+  (`export_presets`, `users.export_settings`); without an account, the last settings
+  stay in `localStorage`.
+
+Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
+
+### 8.6 Copy and paste edits (S–M) — done
 
 > **Done** (2026-11-09, `develop/editClipboard.ts`). As built: a copy is a `StylePayload`
 > with its source's name in `sessionStorage`. Ctrl+Shift+C (or "Copy settings…" in the
@@ -1869,7 +1821,7 @@ the library. It's a style that isn't saved: build it on 4.2's code rather than n
   do).
 - Append vs replace: today's style submenu, until 8.8 settles it per module.
 
-### 8.7 Auto-tune when applying a preset or style (M)
+### 8.7 Auto-tune when applying a preset or style (M) — done
 
 > **Done** (2026-11-09, `packages/pipeline/src/autoTune.ts`). As built, simpler than
 > planned below: applying a module preset or style that asks for it marks the instance
@@ -1916,7 +1868,7 @@ in the save dialogs.
   shows for an entry whose values were filled in later.
 - Later, the same flag on 4.2's auto-apply rules, so new uploads can start auto-tuned.
 
-### 8.8 Append or apply per module in styles (S–M)
+### 8.8 Append or apply per module in styles (S–M) — done
 
 > **Done** (2026-11-09). As built: each `StyleInstance` has a `mode` (missing in older
 > styles: `replace`); the k-th `replace` instance of a kind takes the place of the
@@ -1975,7 +1927,29 @@ of the image.
   to motion blur vs. defocus), whether the maker-notes AF point is worth it beyond Sony
   first, and the overlay's look.
 
-### 8.11 JPEG and other non-RAW images (L, before 1.0)
+### 8.10 Sending to another instance (M) — done
+
+> **Done** (`apps/server/src/transfer/`, Settings, the library's "Send to …"). As built:
+> a user makes an access token on the receiving instance (Settings, Access tokens:
+> shown once, stored hashed, revocable) and connects it on the sending one (Settings,
+> Other instances: the address and the token, checked by asking). The sending server
+> then sends, one transfer at a time and resuming when it starts: selected versions,
+> or everything with the user's presets, styles and LUTs. Per version, the original
+> only if the other side doesn't have it (asked first), the LUTs its recipes use, its
+> culling, metadata, the photo's corrections and extracted metadata, and its whole
+> history. A copy remembers its origin: sending it again updates it (history replaced
+> if untouched there since, else the sender's current recipe goes on top as "Sent from
+> …"); unchanged versions are skipped (a fingerprint per instance). The token can only
+> add (`/api/transfer/…`); the receiver refuses recipes newer than it reads. What arrives
+> shows there as one import ("Open there"). The server refuses private addresses unless
+> `ALLOW_PRIVATE_INSTANCES`.
+
+- **Post-1.0: pulling.** The reverse direction, an instance fetching from another with a
+  read token, for when only the receiver can reach the sender (sending from a server to
+  a laptop).
+- Export presets and settings, and the trash, aren't sent.
+
+### 8.11 JPEG and other non-RAW images (L) — done
 
 So a whole existing library can come in, not just its RAWs. Such photos are already
 developed (display-referred), and their owners mostly want to keep, find and share
@@ -2069,7 +2043,7 @@ Left:
   equivalents too, and the shortcut stays listed in `reservedPress`.
 - The server's filter (`whereClause`) and the counts must follow both.
 
-### 8.13 Select everything the filters match (M, from NOTES.md) — done
+### 8.13 Select everything the filters match (M) — done
 
 > **Done** 2026-11-17. Select all (Ctrl+A, or the phone's selection bar) selects by filter
 > (`useGridSelection` with `scope`): the library's query string, minus the photos unticked
@@ -2093,7 +2067,7 @@ presets and styles, export, sending.
 - Above 200 photos, actions ask first, with the number ("Move 320 photos to the trash?").
 - The status bar shows the count ("All 1,240 selected").
 
-### 8.14 Collections (L, from NOTES.md) — done
+### 8.14 Collections (L) — done
 
 > **Done** 2026-11-18 (server `photos/collections.ts`, migration 00026; web
 > `lib/collections.ts`, `CollectionFilter.tsx`, `CollectionPicker.tsx`,
@@ -2156,9 +2130,7 @@ Decided (2026-11-18): a collection is per photo, so a version can't be in anothe
 collection than its photo; imports let the user choose how to sort, whatever the
 folders; collections are a filter in the sidebar, combined with the others.
 
----
-
-### 8.15 Import darktable and Ansel edits (L)
+### 8.15 Import darktable and Ansel edits (L) — partly done
 
 > **Phase 1 done** 2026-11-19 (`packages/pipeline/src/importedEdits.ts`, `darktable/`;
 > migrations 00028–00029; web `fileTags.ts`, `ImportReview.tsx`, `develop/ImportNotice.tsx`).
@@ -2209,29 +2181,7 @@ curve's gain in EV at our nodes, linked through its norm or per channel). Later:
 
 ---
 
-### 8.5 Export options (M, before 1.0) — done
-
-The export dialog has, on top of 4.9's frame and the size:
-
-- **Formats:** JPEG, and PNG and TIFF (deflate, predictor) in 8 or 16 bits.
-- **Output colour space:** sRGB, Display P3, Adobe RGB, Rec.2020 (`output::ColorSpace`).
-  Filmic's gamut mapping targets the chosen primaries (as Ansel does with the export
-  profile), and the file embeds a generated v2 ICC profile (`export::icc`), sRGB's too.
-  Previews and golden tests stay sRGB.
-- **Metadata:** EXIF (camera, lens, exposure, date and offset, GPS) from the file's
-  metadata with the library's corrections, and XMP (title, description, rating, label,
-  keywords, creator, rights). All, all but location, copyright only, or none.
-- **Size:** full, long edge, short edge, width × height, megapixels; the frame is
-  included. **Output sharpening** (low, standard, high) at the export size.
-- **File names:** a pattern (`{name}`, `{version}`, `{date}`, `{time}`, `{title}`,
-  `{camera}`, `{lens}`, `{iso}`, `{rating}`), in `exportFilename`.
-- **Export presets** and the last export's settings are per user, on the server
-  (`export_presets`, `users.export_settings`); without an account, the last settings
-  stay in `localStorage`.
-
-Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
-
-## M9 — Branding (M, before 1.0)
+## M9 — Branding (M, before 1.0) — started
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
   image.
@@ -2281,7 +2231,9 @@ Left for 8.4: AVIF/JPEG XL, and running these settings over a selection.
     dropped: too busy). Titles 12 px bold; the switch is always rightmost. The other
     panels (library sidebars, scopes and history) could follow the same surfaces.
 
-## M10 — Responsive design (before 1.0 for the library and settings)
+---
+
+## M10 — Responsive design
 
 The app is unusable on a phone today: the library's sidebars, grid and loupe, and the
 developer's panels, assume a wide window.
@@ -2425,66 +2377,3 @@ Ideas, roughly by value for effort:
   GPL-3.0-or-later (or AGPL-3.0 if network use should also share changes — relevant
   once cloud processing exists). The lensfun database is CC-BY-SA 3.0 and needs
   attribution.
-
-### 8.10 Sending to another instance (M)
-
-> **Done** (`apps/server/src/transfer/`, Settings, the library's "Send to …"). As built:
-> a user makes an access token on the receiving instance (Settings, Access tokens:
-> shown once, stored hashed, revocable) and connects it on the sending one (Settings,
-> Other instances: the address and the token, checked by asking). The sending server
-> then sends, one transfer at a time and resuming when it starts: selected versions,
-> or everything with the user's presets, styles and LUTs. Per version, the original
-> only if the other side doesn't have it (asked first), the LUTs its recipes use, its
-> culling, metadata, the photo's corrections and extracted metadata, and its whole
-> history. A copy remembers its origin: sending it again updates it (history replaced
-> if untouched there since, else the sender's current recipe goes on top as "Sent from
-> …"); unchanged versions are skipped (a fingerprint per instance). The token can only
-> add (`/api/transfer/…`); the receiver refuses recipes newer than it reads. What arrives
-> shows there as one import ("Open there"). The server refuses private addresses unless
-> `ALLOW_PRIVATE_INSTANCES`.
-
-- **Post-1.0: pulling.** The reverse direction, an instance fetching from another with a
-  read token, for when only the receiver can reach the sender (sending from a server to
-  a laptop).
-- Export presets and settings, and the trash, aren't sent.
-
-## 1.0 release scope
-
-Required before 1.0, on top of what's done:
-
-- **Modules:** 3.5 raw denoise (AI), ~~3.6 lensfun~~, 3.7 diffuse and sharpen, 3.8 perspective /
-  vertical alignment, 4.6 tone curve, 4.7 colour balance RGB, 4.8 3D LUT, 4.9 frame, 4.10 tone equalizer (guided mask).
-- **Library:** 8.1 presets on a selection, ~~8.2 folder/SD import skipping known files~~,
-  8.3 fullscreen culling, 8.4 export from the library (in the browser, a ZIP), 8.5
-  export options (colour space/ICC at least).
-- **Library:** ~~8.11 JPEG and other non-RAW images~~.
-- **UI:** 4.13 mask UI redesign; ~~10.1 the library and settings on phones~~.
-- **Branding:** M9.
-- Not yet decided for 1.0: M5 compare, M6 cloud processing, the M7 hosted-service items
-  (7.1 is needed for a public hosted launch anyway), 4.2 auto-apply rules (8.12 boolean tag filters: done).
-
-## Suggested order
-
-1. M1.1 + M1.2: foundations, one PR each.
-2. M2.4 clipping indicators (small, independent quick win) and the `RenderBackend`
-   interface.
-3. M2.1 → M2.2 → M2.3: autosave, history, duplicates.
-   M2.5 sliders can go in at any time; M2.6 stays an exploration until it has a
-   prototype.
-4. M3.1 lens correction (embedded Sony first, then lensfun), then 3.2, then 3.3.
-5. M4.1 → M4.5: instances, presets, shapes, retouch, masks. Retouch can move earlier
-   (right after 4.3) if dust removal is a priority; it doesn't need masks.
-6. 1.0 work, quick wins first: ~~8.1 presets on a selection, 4.6 tone curve, 4.9 frame, 8.5 export options,
-   8.3 culling~~. Then ~~4.7 colour balance RGB~~, ~~4.8 3D LUT~~, ~~4.10 tone equalizer~~, ~~3.8 perspective~~, ~~3.6 lensfun~~,
-   ~~3.7 diffuse and sharpen~~, ~~8.2 folder/SD import~~, ~~8.4 export from the library (in the
-   browser)~~ (server-side jobs after M6 step 1). ~~8.11 JPEG and other images~~ (added
-   and done 2026-11-16), then ~~7.11 AVIF renders~~, ~~10.1 responsive library~~, ~~8.13~~ and
-   ~~8.12~~. 4.13 mask UI redesign once prototyped,
-   with 2.6. 3.5 denoise starts with a spike (port the executor,
-   bench it in wasm, decide previews) and can run in parallel. M9 branding can be done any time before launch.
-7. M5 compare.
-8. M6 cloud processing. Move it earlier if slow-hardware users are a near-term priority;
-   step 1 (the native renderer) is useful on its own (and helps 8.4 and 3.5).
-9. M7 hosted service, before opening sign-ups: 7.1 → 7.3 → 7.4 → 7.5 (and 7.6 with it),
-   then 7.9. 7.2 and 7.7 once storage and database costs are worth the complexity; 7.8
-   can start any time (it doesn't need 7.1); 7.10 only at a few hundred TB.
