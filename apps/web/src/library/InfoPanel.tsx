@@ -811,6 +811,67 @@ function DescriptionInput({ value, onCommit }: { value: string; onCommit: (v: st
 
 // ── Several photos ──────────────────────────────────────────────────────────
 
+/** How the photos of a stack lie: rotation (degrees) and offset (px), bottom first. */
+const STACK_LAYOUT = [
+  { rotate: -7, x: -14, y: 6 },
+  { rotate: 5, x: 12, y: -4 },
+  { rotate: -2, x: -4, y: -8 },
+  { rotate: 1, x: 2, y: 2 },
+];
+
+/** A few of the selected photos as a loose stack, in the single photo's preview square. */
+function PhotoStack({ photos }: { photos: Photo[] }) {
+  // The first selected on top.
+  const shown = photos.slice(0, STACK_LAYOUT.length).reverse();
+  const layout = STACK_LAYOUT.slice(STACK_LAYOUT.length - shown.length);
+  return (
+    <Box
+      position="relative"
+      w="full"
+      aspectRatio="1"
+      flexShrink={0}
+      bg="bg.muted"
+      borderRadius="sm"
+      overflow="hidden"
+      data-photo-stack
+    >
+      {shown.map((p, i) => {
+        const { rotate, x, y } = layout[i]!;
+        return (
+          <Center
+            key={p.id}
+            position="absolute"
+            inset="14%"
+            style={{ transform: `translate(${x}px, ${y}px) rotate(${rotate}deg)` }}
+          >
+            {p.thumbUrl ? (
+              <Image
+                src={p.thumbUrl}
+                alt=""
+                maxW="full"
+                maxH="full"
+                objectFit="contain"
+                borderWidth="3px"
+                borderColor="bg.panel"
+                boxShadow="lg"
+              />
+            ) : (
+              <Box
+                w="full"
+                aspectRatio="3 / 2"
+                bg="bg.emphasized"
+                borderWidth="3px"
+                borderColor="bg.panel"
+                boxShadow="lg"
+              />
+            )}
+          </Center>
+        );
+      })}
+    </Box>
+  );
+}
+
 /**
  * Several photos: what they have in common (among those shown: a selection by filter may
  * hold photos not loaded yet), and what to do with all of them.
@@ -838,7 +899,19 @@ function BulkPanel({
 
   return (
     <Stack {...PANEL_PROPS} {...BLOCKS_PROPS}>
-      <PanelBlock title={`${photoCount(count)} selected`}>
+      {/* Laid out as a single photo's first block (a square, two lines, the culling), so
+          the panel doesn't jump between one photo and several. */}
+      <PanelBlock>
+        <PhotoStack photos={photos} />
+        <Box minW="0" minH="6">
+          <Text textStyle="sm" fontWeight="semibold" truncate>
+            {photoCount(count)} selected
+          </Text>
+          <Text textStyle="xs" color="fg.muted" fontFamily="numeric" fontVariantNumeric="tabular-nums">
+            {formatBytes(photos.reduce((sum, p) => sum + p.fileSize, 0))}
+            {count > photos.length && ' (of those shown)'}
+          </Text>
+        </Box>
         <Culling
           rating={same((p) => p.rating) ?? null}
           flag={same((p) => p.flag)}

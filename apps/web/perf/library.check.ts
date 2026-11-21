@@ -1661,3 +1661,17 @@ test('Ctrl+A selects every photo the filters match, loaded or not; actions on it
   await page.getByText('Moved 600 photos to the trash').waitFor();
   assert.deepEqual(sent.find((r) => r.path === '/api/versions/delete')?.body, { filter: 'q=many', except: [] });
 });
+
+test('the info panel keeps its layout from one photo to several: a stack where the preview was', async () => {
+  await open('/');
+  await cards().first().click();
+  const rating = page.locator('aside [role="radiogroup"][aria-label="Rating"]');
+  await rating.waitFor();
+  const one = (await rating.boundingBox())!;
+  await cards()
+    .nth(1)
+    .click({ modifiers: ['Shift'] });
+  await page.locator('[data-photo-stack]').waitFor();
+  const several = (await rating.boundingBox())!;
+  assert.equal(several.y, one.y);
+});
