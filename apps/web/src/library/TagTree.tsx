@@ -9,7 +9,7 @@ import { Box, Button, Checkbox, HStack, IconButton, Menu, Portal, Stack, Text } 
 import { ChevronDown, ChevronRight, CornerDownRight, Ellipsis, Keyboard, Pencil, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTagChange, useTagManager } from '../api/hooks.ts';
-import type { FacetValue } from '../api/types.ts';
+import type { FacetValue } from '@rawtisserie/api';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { TagSearch } from '../components/TagSearch.tsx';
 import { toaster } from '../components/toaster.tsx';

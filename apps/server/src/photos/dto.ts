@@ -1,3 +1,4 @@
+import type { Photo, PhotoDetail } from '@rawtisserie/api';
 import { normalizeEditParams } from '@rawtisserie/pipeline';
 import { sql } from '../db.ts';
 import type HistoryEntries from '../__generated__/history_entries.ts';
@@ -47,7 +48,7 @@ const renderUrl = (v: Pick<Versions, 'id' | 'render_version'>, size: 'thumb' | '
   v.render_version > 0 ? `/api/versions/${v.id}/render/${size}?v=${v.render_version}` : null;
 
 /** The JSON shape of a library item (one version of a photo) in the API. */
-export function versionDto(v: VersionRow) {
+export function versionDto(v: VersionRow): Photo {
   return {
     id: v.id,
     photoId: v.photo_id,
@@ -99,7 +100,7 @@ export function versionDetailDto(
   history: Pick<HistoryEntries, 'seq' | 'label' | 'created_at' | 'recipe'>[],
   /** All versions of the photo, in order (this one included). */
   siblings: Versions[],
-) {
+): PhotoDetail {
   // Stored recipes may predate the current version; they are migrated on read.
   const entries = history.map((h) => ({
     seq: h.seq,

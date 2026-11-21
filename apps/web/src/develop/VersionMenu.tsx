@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, Copy, CopyPlus, Pencil, Trash2 
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useDuplicateVersion, useMoveVersion, useUpdatePhoto } from '../api/hooks.ts';
-import type { PhotoDetail } from '../api/types.ts';
+import type { PhotoDetail } from '@rawtisserie/api';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { useTrashWithUndo } from '../components/trash.tsx';

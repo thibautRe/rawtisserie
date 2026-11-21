@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Photo, Target } from '../api/types.ts';
+import type { Photo, Target } from '@rawtisserie/api';
 import { useStableCallback } from '../develop/useStableCallback.ts';
 
 /** Every photo a filter matches (roadmap 8.13), but those unticked since. */

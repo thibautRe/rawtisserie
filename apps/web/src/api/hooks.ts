@@ -43,7 +43,7 @@ import type {
   Target,
   TrashPage,
   User,
-} from './types.ts';
+} from '@rawtisserie/api';
 
 // ── Auth ────────────────────────────────────────────────────────────────────
 

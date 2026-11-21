@@ -121,6 +121,13 @@ See README.md for the architecture overview and commands.
   new bulk action must too, or it only reaches the photos loaded. Work done in the browser
   per photo gets the ids from `/api/versions/ids`. Above `LARGE_SELECTION` (200) actions
   ask first (`useConfirmLarge`).
+- The API's shapes live in `packages/api` (`@rawtisserie/api`), imported by both apps: the
+  web app's hooks type their requests with them, and the server's DTOs (`versionDto`,
+  `adminUserDto`, `transferDto`…) and handlers declare them as return types, so a field
+  renamed on one side fails `typecheck` on the other. Dates are sent as ISO strings
+  (`.toISOString()`, never a `Date` left for JSON). What the web sends is checked against
+  the routes' zod schemas at compile time (`Fits` in `photos/query.ts`): add one for a new
+  request type. A new response shape goes there, not in either app.
 - Sending to another instance (`apps/server/src/transfer/`): the sender's server posts
   `SentVersion`s (`protocol.ts`) to the receiver's `/api/transfer/…`, authorised by an
   access token that can only add. Anything new a version carries (a column, a photo

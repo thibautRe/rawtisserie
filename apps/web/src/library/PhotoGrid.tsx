@@ -1,6 +1,6 @@
 import { Box } from '@chakra-ui/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { GRID_GAP, GROUP_BOX_CLASS, PhotoCard } from './PhotoCard.tsx';
 
 /** The scroller's padding, in px. */

@@ -7,6 +7,7 @@
  * bytes stay on local disk (`STORAGE_DIR/tmp/uploads`) until then; uploads left
  * untouched for `ABANDONED_AFTER` are deleted.
  */
+import { COLOR_LABELS } from '@rawtisserie/api';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -54,7 +55,7 @@ const VersionFields = z.object({
   /** What the file says about itself (its XMP, sidecars, its JPEG). */
   tags: z.array(Tag).max(500).optional(),
   rating: z.number().int().min(0).max(5).optional(),
-  label: z.enum(['red', 'yellow', 'green', 'blue', 'purple']).optional(),
+  label: z.enum(COLOR_LABELS).optional(),
   flag: z.enum(['picked', 'rejected']).optional(),
   /** Its name in the application it comes from (darktable's version name). */
   versionName: z.string().trim().max(200).optional(),

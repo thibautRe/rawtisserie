@@ -13,6 +13,7 @@ import { currentUser, requireUser } from '../auth/routes.ts';
 import { db, sql } from '../db.ts';
 import type Photos from '../__generated__/photos.ts';
 import type Versions from '../__generated__/versions.ts';
+import type { TrashPage } from '@rawtisserie/api';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDto } from './dto.ts';
 import { deleteOriginal, deleteRenders } from './storage.ts';
 
@@ -88,7 +89,7 @@ export async function trashRoutes(app: FastifyInstance) {
    * versions is left in the library, so deleting all of its trashed ones deletes the
    * original. `bytes`: the originals emptying the trash would free.
    */
-  app.get('/api/trash', async (request) => {
+  app.get('/api/trash', async (request): Promise<TrashPage> => {
     const owner = sql`p.owner_id = ${currentUser(request).id}`;
     const { limit, offset } = Page.parse(request.query);
     const [rows, [summary]] = await Promise.all([

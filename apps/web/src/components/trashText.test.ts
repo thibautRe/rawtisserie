@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { TrashItem } from '../api/types.ts';
+import type { TrashItem } from '@rawtisserie/api';
 import { deletedIn, describeDeletion, describeVersions } from './trashText.ts';
 
 const v = (id: string, photoId: string, versionCount: number) => ({ id, photoId, versionCount });

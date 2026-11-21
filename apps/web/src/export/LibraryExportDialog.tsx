@@ -1,6 +1,6 @@
 import type { ExportSettings } from '@rawtisserie/pipeline';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { toaster } from '../components/toaster.tsx';
 import { ExportDialog } from '../develop/ExportDialog.tsx';
 import { photoFilenameFields } from '../develop/exportInfo.ts';

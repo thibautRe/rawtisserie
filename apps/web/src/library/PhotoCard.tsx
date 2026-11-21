@@ -1,7 +1,7 @@
 import { Spinner, Stack, Text } from '@chakra-ui/react';
 import { Check, CircleAlert, Star, X } from 'lucide-react';
 import { memo } from 'react';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
 import { GROUP_BOX_CLASS } from './photoCardCss.ts';

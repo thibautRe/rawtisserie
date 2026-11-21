@@ -1,4 +1,4 @@
-import type { BulkPatch } from '../api/types.ts';
+import type { BulkPatch } from '@rawtisserie/api';
 import { displayTag } from '../lib/tags.ts';
 
 /** Selections larger than this ask before an action (roadmap 8.13). */

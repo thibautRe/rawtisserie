@@ -15,7 +15,7 @@ import {
 import { Check, ChevronDown, ChevronRight, FolderPlus, Plus, Star, StarOff, X } from 'lucide-react';
 import { type MouseEvent, memo, useEffect, useRef, useState } from 'react';
 import { useFacets } from '../api/hooks.ts';
-import { COLOR_LABELS, type FacetValue, type ImportFacet } from '../api/types.ts';
+import { COLOR_LABELS, type FacetValue, type ImportFacet } from '@rawtisserie/api';
 import { formatAgo, formatDateTime } from '../lib/format.ts';
 import { TagTree, useTagManagement } from './TagTree.tsx';
 import { CollectionFilter, useNewCollection } from './CollectionFilter.tsx';

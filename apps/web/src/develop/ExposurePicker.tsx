@@ -2,7 +2,7 @@ import { Button, CloseButton, Dialog, Portal, Text } from '@chakra-ui/react';
 import type { PhotoRef } from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLibraryPhotos } from '../api/hooks.ts';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { FilmRoll as Roll } from '../library/FilmRoll.tsx';
 import { savedLibraryView } from '../library/libraryView.ts';
 

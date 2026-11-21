@@ -1,7 +1,7 @@
 import { Box, HStack, Text } from '@chakra-ui/react';
 import { useMemo, useState } from 'react';
 import { useAllTags } from '../api/hooks.ts';
-import type { FacetValue } from '../api/types.ts';
+import type { FacetValue } from '@rawtisserie/api';
 import { fold, fuzzyFilter } from '../lib/fuzzy.ts';
 import { displayTag, normalizeTag } from '../lib/tags.ts';
 

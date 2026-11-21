@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type NavigateFunction, useNavigate } from 'react-router';
 import { api } from '../api/client.ts';
-import type { StorageUsage } from '../api/types.ts';
+import type { StorageUsage } from '@rawtisserie/api';
 import { toaster } from '../components/toaster.tsx';
 import { ImportSummary, InterruptedImport } from './ImportToast.tsx';
 import { forgetImport, interruptedImports, isPending, matchFiles, startSaving } from './importQueue.ts';

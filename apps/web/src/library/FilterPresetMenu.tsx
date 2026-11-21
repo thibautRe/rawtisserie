@@ -2,7 +2,7 @@ import { IconButton, Menu, Portal, Text } from '@chakra-ui/react';
 import { Bookmark, BookmarkPlus, Check, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { useDeleteFilterPreset, useFilterPresets, useRenameFilterPreset, useSaveFilterPreset } from '../api/hooks.ts';
-import type { FilterPreset } from '../api/types.ts';
+import type { FilterPreset } from '@rawtisserie/api';
 import { toaster } from '../components/toaster.tsx';
 import { ManagerDialog } from '../develop/ManagerDialog.tsx';
 import { NameField, SaveDialog } from '../develop/presets.tsx';

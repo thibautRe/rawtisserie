@@ -18,7 +18,7 @@ import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
 import { PHOTO_ACCEPT, versionLabel } from '../lib/format.ts';
-import type { PhotoDetail } from '../api/types.ts';
+import type { PhotoDetail } from '@rawtisserie/api';
 import type { CompareVersion } from './compare.ts';
 import { useLeaveWarning } from '../lib/useLeaveWarning.ts';
 import { DeveloperView } from './DeveloperView.tsx';

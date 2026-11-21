@@ -34,7 +34,7 @@ import {
 } from '../api/hooks.ts';
 import { collectionPath, displayCollection } from '../lib/collections.ts';
 import { CollectionPicker, type PickerRequest } from './CollectionPicker.tsx';
-import { COLOR_LABELS, type BulkPatch, type Photo, type RemoteInstance } from '../api/types.ts';
+import { COLOR_LABELS, type BulkPatch, type Photo, type RemoteInstance } from '@rawtisserie/api';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { hostOf, startTransfer } from '../components/transfer.tsx';

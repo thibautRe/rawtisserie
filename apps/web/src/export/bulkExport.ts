@@ -18,7 +18,7 @@ import {
 import { useSyncExternalStore } from 'react';
 import { ApiError } from '../api/client.ts';
 import { fetchDenoised, fetchOriginal, originalByHash } from '../api/originals.ts';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { toaster } from '../components/toaster.tsx';
 import { backendMeasures } from '../develop/autoTune.ts';
 import { photoExportInfo, photoFilenameFields } from '../develop/exportInfo.ts';

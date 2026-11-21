@@ -30,7 +30,7 @@ import {
   useStorage,
   useTrashSummary,
 } from '../api/hooks.ts';
-import type { AccessToken, RemoteInstance } from '../api/types.ts';
+import type { AccessToken, RemoteInstance } from '@rawtisserie/api';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { hostOf, startTransfer } from '../components/transfer.tsx';
 import { TabbedPage } from '../components/PageLayout.tsx';

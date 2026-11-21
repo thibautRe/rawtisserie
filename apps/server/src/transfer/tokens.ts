@@ -3,6 +3,7 @@
  * instance, which can then add to their library through `/api/transfer/…` (and nothing
  * else). Shown once, stored hashed, revocable.
  */
+import type { AccessToken } from '@rawtisserie/api';
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -34,7 +35,7 @@ const Id = z.object({ id: z.uuid() });
 export async function tokenRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireUser);
 
-  app.get('/api/access-tokens', async (request) => {
+  app.get('/api/access-tokens', async (request): Promise<{ tokens: AccessToken[] }> => {
     const rows = (await db.query(sql`
       SELECT id, name, created_at, last_used_at FROM access_tokens
       WHERE owner_id = ${currentUser(request).id} ORDER BY created_at DESC`)) as {
@@ -64,9 +65,14 @@ export async function tokenRoutes(app: FastifyInstance) {
       INSERT INTO access_tokens (owner_id, name, token_hash)
       VALUES (${currentUser(request).id}, ${name}, ${hash(token)})
       RETURNING id, created_at`)) as { id: string; created_at: Date }[];
-    return reply
-      .code(201)
-      .send({ id: row!.id, name, token, createdAt: row!.created_at.toISOString(), lastUsedAt: null });
+    const created: AccessToken = {
+      id: row!.id,
+      name,
+      token,
+      createdAt: row!.created_at.toISOString(),
+      lastUsedAt: null,
+    };
+    return reply.code(201).send(created);
   });
 
   app.delete('/api/access-tokens/:id', async (request) => {

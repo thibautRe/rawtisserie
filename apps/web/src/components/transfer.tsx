@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { sendToInstance, useCancelTransfer, useRetryTransfer, useTransfer } from '../api/hooks.ts';
-import type { RemoteInstance, Target, Transfer } from '../api/types.ts';
+import type { RemoteInstance, Target, Transfer } from '@rawtisserie/api';
 import { toaster } from './toaster.tsx';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

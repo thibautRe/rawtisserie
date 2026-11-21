@@ -3,6 +3,7 @@
  * query string without its sort. Applied in the browser like a module preset; tag
  * renames and deletions follow into them (`followTagRename`).
  */
+import type { FilterPreset } from '@rawtisserie/api';
 import type { Queryable } from '@databases/pg';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -18,12 +19,7 @@ const Id = z.object({ id: z.uuid() });
 const Name = z.string().trim().min(1).max(200);
 const UNIQUE_VIOLATION = '23505';
 
-export interface FilterPreset {
-  id: string;
-  name: string;
-  /** The filters, as the library's query string (no sort). */
-  query: string;
-}
+export type { FilterPreset };
 
 const dto = (row: FilterPresets): FilterPreset => ({ id: row.id, name: row.name, query: row.query });
 

@@ -1,4 +1,5 @@
 /** Library filtering: query-string → SQL conditions over `versions v JOIN photos p` (trash left out). */
+import type { Target as ApiTarget } from '@rawtisserie/api';
 import { sql, type SQLQuery } from '@databases/pg';
 import { z } from 'zod';
 import { badRequest } from '../errors.ts';
@@ -189,6 +190,9 @@ export const Target = z.union([
   z.object({ filter: z.string().max(20_000), except: z.array(z.uuid()).max(5000).default([]) }),
 ]);
 export type Target = z.infer<typeof Target>;
+/** The web app's `Target` (`@rawtisserie/api`) must be what this accepts: a compile-time check. */
+export type Fits<Sent extends Accepted, Accepted> = Sent;
+type _SentTarget = Fits<ApiTarget, z.input<typeof Target>>;
 
 /**
  * The target's versions among the owner's outside the trash: a condition over

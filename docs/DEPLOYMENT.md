@@ -123,13 +123,14 @@ uploads resume across a restart.
 3. **web** (`node:26-slim`): `npm ci`, then the Vite build.
 4. **runtime** (`node:26-slim`): the server's production dependencies only
    (`npm ci --omit=dev -w @rawtisserie/server`), the whole of `packages/pipeline`
-   (sources, built-in LUTs, lensfun's database; its wasm from stage 1), the server's
+   (sources, built-in LUTs, lensfun's database; its wasm from stage 1) and of
+   `packages/api` (the API's types, and values like `COLOR_LABELS`), the server's
    sources and migrations, `apps/web/dist` and `models/denoise` (served at
    `/api/denoise-models/:id`, `DENOISE_MODELS_DIR`; browsers download a model the first
    time a recipe uses it). Its last step runs `apps/server/src/scripts/check-image.ts`:
    what the server reads at run time, used as it uses it (an image decoded, its default
    recipe with lensfun's database, rendered and encoded by sharp; the LUTs, the models,
-   the web app, the migrations). An image missing a file fails to build, in CI before
+   the web app, the migrations, the API package). An image missing a file fails to build, in CI before
    it's published, rather than in production (lensfun's database did, 2026-11-19).
    Runs as `node`.
 

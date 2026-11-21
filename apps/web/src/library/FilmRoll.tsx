@@ -1,7 +1,7 @@
 import { Box, Circle, HStack, Image } from '@chakra-ui/react';
 import { Check, Star, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 
 const HEIGHT = 64;

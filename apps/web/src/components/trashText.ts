@@ -1,5 +1,5 @@
 /** What the trash's buttons, toasts and confirmations say. */
-import type { Photo, TrashItem } from '../api/types.ts';
+import type { Photo, TrashItem } from '@rawtisserie/api';
 
 export type Version = Pick<Photo, 'id' | 'photoId' | 'versionCount'>;
 

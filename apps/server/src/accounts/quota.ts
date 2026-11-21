@@ -4,18 +4,12 @@
  * duplicated version shares its photo's file, so it adds nothing.
  */
 import { type Queryable, sql } from '@databases/pg';
+import type { StorageUsage } from '@rawtisserie/api';
 
 /** Sizes are shown and entered in GB of 1024³ bytes, like every size in the app. */
 export const GB = 1024 ** 3;
 
-export interface StorageUsage {
-  /** Everything stored, the trash included. */
-  used: number;
-  /** Of `used`, the originals whose versions are all in the trash. */
-  trash: number;
-  /** Bytes, or null for unlimited. */
-  quota: number | null;
-}
+export type { StorageUsage };
 
 /**
  * What `userId` stores and may store. With `lock`, inside a transaction: the user's row

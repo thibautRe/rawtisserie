@@ -1,7 +1,7 @@
 import { Link } from '@chakra-ui/react';
 import { useNavigate } from 'react-router';
 import { useMoveToTrash, useRestoreFromTrash } from '../api/hooks.ts';
-import type { Target } from '../api/types.ts';
+import type { Target } from '@rawtisserie/api';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { toaster } from './toaster.tsx';
 import { type Version, describeVersions } from './trashText.ts';

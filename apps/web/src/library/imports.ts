@@ -10,7 +10,7 @@
  * (`?import=<id>`).
  */
 import { useSyncExternalStore } from 'react';
-import type { Photo, StorageUsage } from '../api/types.ts';
+import type { Photo, StorageUsage } from '@rawtisserie/api';
 import { formatBytes } from '../lib/format.ts';
 import type { FileTags } from './fileTags.ts';
 import type { Picked, PickedFile, PickedFrom } from './pickedFiles.ts';

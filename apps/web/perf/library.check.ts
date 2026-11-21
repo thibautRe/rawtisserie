@@ -15,7 +15,7 @@ import { type Browser, type Page, chromium, firefox } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
 import { existsSync } from 'node:fs';
 import { defaultEditParams } from '@rawtisserie/pipeline';
-import type { Photo, PhotoDetail } from '../src/api/types.ts';
+import type { Photo, PhotoDetail } from '@rawtisserie/api';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const PORT = 4182;

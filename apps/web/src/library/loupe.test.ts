@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import type { ZoomLayout } from '../develop/zoom.ts';
 import { type ZoomInfo, advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
 

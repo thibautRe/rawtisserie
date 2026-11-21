@@ -6,6 +6,7 @@
  * original only if the other side doesn't have it. What was sent is remembered by a
  * fingerprint, so sending again skips what hasn't changed.
  */
+import type { RemoteInstance, Transfer } from '@rawtisserie/api';
 import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
@@ -40,7 +41,12 @@ interface RemoteRow {
   created_at: Date;
 }
 
-const remoteDto = (r: RemoteRow) => ({ id: r.id, url: r.url, account: r.remote_account, createdAt: r.created_at });
+const remoteDto = (r: RemoteRow): RemoteInstance => ({
+  id: r.id,
+  url: r.url,
+  account: r.remote_account,
+  createdAt: r.created_at.toISOString(),
+});
 
 export async function sendRoutes(app: FastifyInstance, { runner }: { runner: TransferRunner }) {
   app.addHook('preHandler', requireUser);
@@ -136,14 +142,14 @@ export async function sendRoutes(app: FastifyInstance, { runner }: { runner: Tra
   });
 }
 
-async function transferDto(ownerId: string, id: string) {
+async function transferDto(ownerId: string, id: string): Promise<Transfer> {
   const [t] = (await db.query(sql`
     SELECT t.*, r.url FROM transfers t JOIN remote_instances r ON r.id = t.remote_id
     WHERE t.id = ${id} AND t.owner_id = ${ownerId}`)) as {
     id: string;
     url: string;
     everything: boolean;
-    status: string;
+    status: Transfer['status'];
     error: string | null;
     extras_sent: number;
     created_at: Date;
@@ -178,8 +184,8 @@ async function transferDto(ownerId: string, id: string) {
     waiting: count('waiting'),
     extrasSent: t.extras_sent,
     failures: failed.map((f) => ({ versionId: f.version_id, filename: f.original_filename, error: f.error })),
-    createdAt: t.created_at,
-    finishedAt: t.finished_at,
+    createdAt: t.created_at.toISOString(),
+    finishedAt: t.finished_at?.toISOString() ?? null,
   };
 }
 

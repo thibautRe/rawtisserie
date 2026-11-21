@@ -40,9 +40,11 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
+COPY packages/api/package.json packages/api/
 COPY packages/pipeline/package.json packages/pipeline/
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY tsconfig.base.json ./
+COPY packages/api packages/api
 COPY packages/pipeline packages/pipeline
 COPY --from=wasm /src/packages/pipeline/wasm packages/pipeline/wasm
 COPY apps/web apps/web
@@ -55,6 +57,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
+COPY packages/api/package.json packages/api/
 COPY packages/pipeline/package.json packages/pipeline/
 RUN --mount=type=cache,target=/root/.npm \
   npm ci --omit=dev -w @rawtisserie/server
@@ -62,6 +65,8 @@ RUN --mount=type=cache,target=/root/.npm \
 # added later comes with it. Its wasm is built above (left out by .dockerignore).
 COPY packages/pipeline packages/pipeline
 COPY --from=wasm /src/packages/pipeline/wasm packages/pipeline/wasm
+# The API's shapes, and the few values the server imports with them (`COLOR_LABELS`).
+COPY packages/api packages/api
 COPY apps/server/migrations apps/server/migrations
 COPY apps/server/src apps/server/src
 COPY --from=web /src/apps/web/dist apps/web/dist

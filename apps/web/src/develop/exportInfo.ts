@@ -1,5 +1,5 @@
 import type { ExportMetadata, FilenameFields, PhotoMetadata } from '@rawtisserie/pipeline';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 
 /** What an export knows about the photo: its file's metadata, and what file names can use. */
 export interface ExportInfo {

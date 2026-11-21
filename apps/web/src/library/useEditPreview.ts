@@ -6,7 +6,7 @@
 import { type EditParams, type PhotoMetadata, denoiseKeyName, normalizeEditParams } from '@rawtisserie/pipeline';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchDenoised, fetchOriginal, originalByHash } from '../api/originals.ts';
-import type { PhotoDetail } from '../api/types.ts';
+import type { PhotoDetail } from '@rawtisserie/api';
 import { LocalRenderBackend } from '../develop/localRenderBackend.ts';
 import type { BatchEdit } from './batchEdit.ts';
 import { defaultRecipeFor, preloadLensfun } from '../develop/lensfun.ts';

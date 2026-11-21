@@ -2,7 +2,7 @@
  * The culling loupe's pure parts: which photos it walks through, and which tiles of a
  * zoomed-in view to load. `Loupe.tsx` puts them on the page.
  */
-import type { BulkPatch, Photo } from '../api/types.ts';
+import type { BulkPatch, Photo } from '@rawtisserie/api';
 import type { ZoomLayout, ZoomView } from '../develop/zoom.ts';
 import { visibleRegion } from '../develop/zoom.ts';
 

@@ -32,7 +32,7 @@ import {
   useRevokeInvitation,
   useUpdateAdminUser,
 } from '../api/hooks.ts';
-import type { AdminUser, Invitation, InvitationStatus } from '../api/types.ts';
+import type { AdminUser, Invitation, InvitationStatus } from '@rawtisserie/api';
 import { TabbedPage } from '../components/PageLayout.tsx';
 import { StorageMeter } from '../components/StorageMeter.tsx';
 import { toaster } from '../components/toaster.tsx';

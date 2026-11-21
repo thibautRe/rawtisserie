@@ -6,7 +6,7 @@
  * whether that JPEG is imported or not. Only for photos new to the library.
  */
 import { type ImportApp, detectImportedEdits } from '@rawtisserie/pipeline';
-import type { ColorLabel } from '../api/types.ts';
+import type { ColorLabel } from '@rawtisserie/api';
 import { type Picked, type PickedFile, duplicatesOf, isImage, isRaw, sidecarsOf, stem } from './pickedFiles.ts';
 
 /** What a file carries: absent fields say nothing. */

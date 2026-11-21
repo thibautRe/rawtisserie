@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useCollectionChange, useCollections } from '../api/hooks.ts';
-import type { FacetValue } from '../api/types.ts';
+import type { FacetValue } from '@rawtisserie/api';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { TagSearch } from '../components/TagSearch.tsx';

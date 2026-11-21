@@ -48,6 +48,7 @@ crates/
   pipeline/        Rust: RAW decoding (rawler), demosaic, scene-referred pipeline, export encoding
   pipeline-wasm/   wasm-bindgen bindings (one .wasm for the browser and Node)
 packages/
+  api/             @rawtisserie/api: the JSON the server sends and the web app reads (Photo, Target…)
   pipeline/        @rawtisserie/pipeline: TS types (EditParams, PhotoMetadata) + wasm loaders
 apps/
   server/          @rawtisserie/server: Fastify + Postgres (@databases), auth, uploads, render queue

@@ -48,7 +48,7 @@ import {
   type Photo,
   type PhotoPatch,
   type RemoteInstance,
-} from '../api/types.ts';
+} from '@rawtisserie/api';
 import { hostOf } from '../components/transfer.tsx';
 import {
   formatAperture,

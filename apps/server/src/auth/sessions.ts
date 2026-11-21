@@ -2,15 +2,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import { config } from '../config.ts';
 import { db, sessions, sql } from '../db.ts';
 import type Users from '../__generated__/users.ts';
+import type { User } from '@rawtisserie/api';
 
 export const SESSION_COOKIE = 'rawtisserie_session';
 
-export interface SessionUser {
-  id: string;
-  email: string;
-  displayName: string;
-  isAdmin: boolean;
-}
+/** The signed-in user, as `/api/auth/me` sends it. */
+export type SessionUser = User;
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('base64url');
 

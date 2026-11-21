@@ -1,0 +1,17 @@
+{
+  "name": "@rawtisserie/api",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "description": "RAWtisserie's HTTP API: the JSON the server sends and the web app reads",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@rawtisserie/pipeline": "*"
+  }
+}

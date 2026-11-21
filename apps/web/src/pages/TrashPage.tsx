@@ -4,7 +4,7 @@ import { ChevronRight, Maximize, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useDeleteForever, useRestoreFromTrash, useTrashPhotos } from '../api/hooks.ts';
-import type { TrashItem } from '../api/types.ts';
+import type { TrashItem } from '@rawtisserie/api';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { DeleteForeverDialog } from '../components/trash.tsx';
@@ -14,7 +14,7 @@ import { LibraryStatusBar, SelectionBar, useColumns } from '../library/LibrarySt
 import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { useStableCallback } from '../develop/useStableCallback.ts';
 import { useNarrow } from '../lib/useNarrow.ts';
-import type { Photo } from '../api/types.ts';
+import type { Photo } from '@rawtisserie/api';
 import { Loupe } from '../library/Loupe.tsx';
 import { PhotoGrid } from '../library/PhotoGrid.tsx';
 import { TrashPanel } from '../library/TrashPanel.tsx';

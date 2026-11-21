@@ -6,7 +6,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { setOriginalsUser } from './api/originals.ts';
-import type { User } from './api/types.ts';
+import type { User } from '@rawtisserie/api';
 import { Toaster } from './components/toaster.tsx';
 import { router } from './router.tsx';
 import { system } from './theme.ts';

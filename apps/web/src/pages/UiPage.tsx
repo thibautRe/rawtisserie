@@ -49,7 +49,7 @@ import { TransferSummary } from '../components/transfer.tsx';
 import { ImportSummary, InterruptedImport } from '../library/ImportToast.tsx';
 import { type Review, ReviewBody, sampleReview } from '../library/ImportReview.tsx';
 import { type ImportRun, sampleRun } from '../library/imports.ts';
-import type { ColorLabel, Flag, Transfer } from '../api/types.ts';
+import type { ColorLabel, Flag, Transfer } from '@rawtisserie/api';
 
 /**
  * Sets the colour mode on the whole document (menus and popovers are portalled out of
@@ -933,6 +933,8 @@ const TRANSFER: Transfer = {
   waiting: 53,
   extrasSent: 0,
   failures: [],
+  createdAt: '2026-11-21T09:00:00.000Z',
+  finishedAt: null,
 };
 const TRANSFER_TOASTS = [
   ['Sending', TRANSFER],

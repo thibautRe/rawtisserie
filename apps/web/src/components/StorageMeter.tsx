@@ -1,5 +1,5 @@
 import { Box, Flex, Grid, Progress, Stack, Text } from '@chakra-ui/react';
-import type { StorageUsage } from '../api/types.ts';
+import type { StorageUsage } from '@rawtisserie/api';
 import { formatBytes } from '../lib/format.ts';
 
 /** Share of the quota from which the meter warns. */

@@ -1,7 +1,7 @@
 import { Box, Button, Grid, Image, Stack, Text } from '@chakra-ui/react';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { Fragment } from 'react';
-import type { TrashItem } from '../api/types.ts';
+import type { TrashItem } from '@rawtisserie/api';
 import { deletedIn } from '../components/trashText.ts';
 import { formatBytes, formatDateTime, versionLabel } from '../lib/format.ts';
 import { CaptureDetails, PANEL_PROPS } from './InfoPanel.tsx';

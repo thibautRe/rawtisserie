@@ -2,6 +2,7 @@
  * A user's storage, and the admins' pages: users with their usage and quota, and
  * invitations. Quotas are in bytes here; the UI shows and takes GB.
  */
+import type { AdminStats, AdminUser, Invitation } from '@rawtisserie/api';
 import type { FastifyInstance } from 'fastify';
 import type { RenderQueue } from '../render/queue.ts';
 import { z } from 'zod';
@@ -49,11 +50,11 @@ const ADMIN_USERS = sql`
     ON s.owner_id = u.id
   LEFT JOIN invitations i ON i.id = u.invitation_id`;
 
-const adminUserDto = (r: AdminUserRow) => ({
+const adminUserDto = (r: AdminUserRow): AdminUser => ({
   id: r.id,
   email: r.email,
   displayName: r.display_name,
-  createdAt: r.created_at,
+  createdAt: r.created_at.toISOString(),
   isAdmin: r.is_admin,
   storageQuota: r.storage_quota,
   storageUsed: r.used,
@@ -61,16 +62,16 @@ const adminUserDto = (r: AdminUserRow) => ({
   invitation: r.invitation_label,
 });
 
-const invitationDto = (r: Invitations & { created_by_email: string | null }) => ({
+const invitationDto = (r: Invitations & { created_by_email: string | null }): Invitation => ({
   id: r.id,
   code: r.code,
   label: r.label,
   maxUses: r.max_uses,
   uses: r.uses,
   storageQuota: r.storage_quota,
-  expiresAt: r.expires_at,
-  revokedAt: r.revoked_at,
-  createdAt: r.created_at,
+  expiresAt: r.expires_at?.toISOString() ?? null,
+  revokedAt: r.revoked_at?.toISOString() ?? null,
+  createdAt: r.created_at.toISOString(),
   createdBy: r.created_by_email,
   status: invitationStatus(r),
 });
@@ -90,7 +91,7 @@ export async function accountRoutes(app: FastifyInstance, { renderQueue }: { ren
    * The instance at a glance, for the admin overview. "Recent" is the last 30 days; the
    * render queue's history (`render_stats`, per hour) is summed over 24 hours and 7 days.
    */
-  app.get('/api/admin/stats', { preHandler: requireAdmin }, async () => {
+  app.get('/api/admin/stats', { preHandler: requireAdmin }, async (): Promise<AdminStats> => {
     await renderQueue.flushStats();
     const [queue] = (await db.query(sql`
       SELECT
@@ -148,7 +149,7 @@ export async function accountRoutes(app: FastifyInstance, { renderQueue }: { ren
         oldestWaitMs: renderQueue.oldestWaitMs(),
         day: {
           peakPending: queue!.peak_day,
-          peakAt: queue!.peak_day_at,
+          peakAt: queue!.peak_day_at?.toISOString() ?? null,
           maxWaitMs: queue!.wait_day,
           renders: queue!.renders_day,
           failures: queue!.failures_day,

@@ -11,7 +11,7 @@ import { Box, Circle, Flex, HStack, IconButton, Image, Spinner, Switch, Text, Th
 import { Check, ChevronDown, Info, SlidersHorizontal, Star, X } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useZoomInfo } from '../api/hooks.ts';
-import { type BulkPatch, COLOR_LABELS, type Photo } from '../api/types.ts';
+import { type BulkPatch, COLOR_LABELS, type Photo } from '@rawtisserie/api';
 import { useZoom } from '../develop/useZoom.ts';
 import type { ZoomLayout } from '../develop/zoom.ts';
 import { captureLine, formatDateTime } from '../lib/format.ts';

@@ -1,3 +1,11 @@
+import {
+  type BulkPatch,
+  COLOR_LABELS,
+  type Facets,
+  type Photo,
+  type PhotoPatch,
+  type Target as ApiTarget,
+} from '@rawtisserie/api';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -24,7 +32,16 @@ import { ZOOM_TILE } from '../render/zoomTypes.ts';
 import { storage } from '../storage/index.ts';
 import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, versionDto } from './dto.ts';
 import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
-import { PhotoFilters, PhotoListQuery, SORTS, Target, parseLibraryQuery, targetClause, whereClause } from './query.ts';
+import {
+  type Fits,
+  PhotoFilters,
+  PhotoListQuery,
+  SORTS,
+  Target,
+  parseLibraryQuery,
+  targetClause,
+  whereClause,
+} from './query.ts';
 import { RENDER_FORMATS, RENDER_SIZES, originalKey, renderKey, type RenderFormat, type RenderSize } from './storage.ts';
 import { TAG_LEVELS, Tag } from './tags.ts';
 import { MAX_COUNT, RATE_LIMITS, checkCount } from '../limits.ts';
@@ -38,7 +55,6 @@ const nullableText = (max: number) =>
     .max(max)
     .nullable()
     .transform((s) => s || null);
-const COLOR_LABELS = ['red', 'yellow', 'green', 'blue', 'purple'] as const;
 
 /**
  * Fields a user may edit on a library item. Curation belongs to the version; metadata
@@ -70,6 +86,9 @@ export const VersionPatch = z
   .partial()
   .strict();
 export type VersionPatch = z.infer<typeof VersionPatch>;
+// The web app's `PhotoPatch` sends what this accepts, and has every field it does.
+type _SentPatch = Fits<PhotoPatch, z.input<typeof VersionPatch>>;
+type _PatchFields = Fits<keyof VersionPatch, keyof PhotoPatch>;
 
 export const VERSION_FIELDS: Partial<Record<keyof VersionPatch, keyof Versions>> = {
   versionName: 'name',
@@ -115,6 +134,8 @@ const Bulk = z
     }),
   })
   .and(Target);
+type _SentBulk = Fits<{ patch: BulkPatch } & ApiTarget, z.input<typeof Bulk>>;
+type _BulkFields = Fits<keyof z.input<typeof Bulk>['patch'], keyof BulkPatch>;
 
 const Duplicate = z.object({
   /** Start from the original (an empty history) instead of copying the history. */
@@ -204,7 +225,7 @@ export async function photoRoutes(
   });
 
   /** Distinct values (with counts) to populate the filter sidebar. */
-  app.get('/api/versions/facets', async (request) => {
+  app.get('/api/versions/facets', async (request): Promise<Facets> => {
     const user = currentUser(request);
     const filters = PhotoFilters.parse(request.query);
     const where = whereClause(user.id, filters);
@@ -657,7 +678,7 @@ export async function photoRoutes(
     // When it began, for the library's list of imports (its versions are counted there).
     if (importId)
       await db.query(sql`INSERT INTO imports (owner_id, id) VALUES (${user.id}, ${importId}) ON CONFLICT DO NOTHING`);
-    const created: ReturnType<typeof versionDto>[] = [];
+    const created: Photo[] = [];
     const skipped: { filename: string; kind: SkipKind; reason: string }[] = [];
 
     for await (const part of request.files()) {

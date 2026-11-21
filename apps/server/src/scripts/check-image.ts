@@ -1,7 +1,7 @@
 /**
  * Checks that what the server reads at runtime is there and works, the way it uses it:
  * the pipeline's WebAssembly, lensfun's database, the built-in LUTs, the denoise models,
- * the web app, the migrations, and sharp. Run as the production image's last build step
+ * the web app, the migrations, the API package and sharp. Run as the production image's last build step
  * (`Dockerfile`), so an image missing a file the code needs can't be built: files the
  * image copies are listed there by hand, and one added to the code but not to that list
  * otherwise only fails in production (lensfun's database did, 2026-11-19).
@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
+import { COLOR_LABELS } from '@rawtisserie/api';
 import { BUILTIN_LUTS, DENOISE_MODEL_BYTES, defaultRecipe } from '@rawtisserie/pipeline';
 import { Developer, builtinLutUrl, initPipeline, lensfun, parseLut, readMetadata } from '@rawtisserie/pipeline/node';
 import { config } from '../config.ts';
@@ -63,3 +64,7 @@ ok('web app');
 const migrations = new URL('../../migrations/', import.meta.url);
 if (!readdirSync(migrations).some((f) => f.endsWith('.sql'))) throw new Error('no migrations');
 ok('migrations');
+
+// Its values are imported by the routes (`COLOR_LABELS` validates labels).
+if (!COLOR_LABELS.length) throw new Error('no colour labels in @rawtisserie/api');
+ok('api package');

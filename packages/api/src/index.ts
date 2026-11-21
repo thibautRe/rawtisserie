@@ -292,6 +292,9 @@ export interface Transfer {
   /** Presets, styles and LUTs sent (with everything). */
   extrasSent: number;
   failures: { versionId: string; filename: string; error: string | null }[];
+  createdAt: string;
+  /** When it stopped (done, failed or cancelled). */
+  finishedAt: string | null;
 }
 
 /**
