@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "dev": "node --env-file-if-exists=../../.env --watch-path=src --watch-path=../../packages/pipeline/src --watch-path=../../packages/pipeline/wasm src/index.ts",
+    "dev": "node --import=./src/scripts/dev-env.ts --watch-path=src --watch-path=../../packages/pipeline/src --watch-path=../../packages/pipeline/wasm src/index.ts",
     "start": "node --env-file-if-exists=../../.env src/index.ts",
     "db:migrate": "node --env-file-if-exists=../../.env src/scripts/migrate.ts",
     "user:admin": "node --env-file-if-exists=../../.env src/scripts/user-admin.ts",
