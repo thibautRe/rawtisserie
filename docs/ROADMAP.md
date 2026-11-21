@@ -12,7 +12,7 @@ then built on it in milestones that each ship something usable.
 ```
 M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-driven editing (1.0)
                  ├─▶ M3 Image quality ...... done, but 3.10 more embedded lens data
-                 ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules
+                 ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules, 4.16 picker (1.0)
                  ├─▶ M5 Compare ............ developer done; the library later
                  └─▶ M8 Library workflow ... done, but 8.9 focus areas, 8.15 phase 2
 M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
@@ -30,7 +30,9 @@ Left for 1.0, in this order:
 1. ~~M5 compare~~: the developer's done (2026-11-21); the library's isn't needed for 1.0.
 2. **[2.6 keyboard-driven, stepped editing](#26-keyboard-driven-stepped-editing-ml-before-10-needs-a-prototype)**:
    needs a prototype before it's planned.
-3. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
+3. **[4.16 a photo picker for multiple exposure](#416-a-photo-picker-for-multiple-exposure-sm-before-10)**:
+   the film roll is too long to find a photo in.
+4. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
    landing page, a theme check. Can go in any time before launch.
 
 Done for 1.0: raw denoise (3.5), lensfun (3.6), diffuse and sharpen (3.7), perspective
@@ -1326,6 +1328,19 @@ it's deleted for good or comes back.
 > shape's row says whose mask it is and can invert it. Imported from darktable/Ansel
 > (alone, inverted if asked, times the opacity, as they blend it). Golden recipe
 > `raster.json`. Later, if wanted: bitmap masks (painted, or AI segmentation).
+
+### 4.16 A photo picker for multiple exposure (S–M, before 1.0)
+
+**Required for 1.0** (asked 2026-11-21). Multiple exposure's picker
+(`develop/ExposurePicker.tsx`) lists the library's photos as a film roll: in a large
+library, finding the one to blend in means scrolling through all of them. It should be a
+version of the library's grid (`PhotoGrid`) with its filters and search, in the same
+spirit as the library's own: at least the search box, collections, tags, dates and
+rating, probably in a large dialog with the filters beside the grid. Questions: how much
+of `FilterSidebar` can be reused as it is (it reads and writes the address through
+`useLibrarySearch`: the picker's filters must live in its own state instead), whether
+the picker opens on the library's current filters, and whether the same picker should
+serve elsewhere later (choosing a photo for anything else that refers to one).
 
 ---
 
