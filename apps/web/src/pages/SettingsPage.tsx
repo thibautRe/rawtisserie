@@ -112,6 +112,14 @@ function StorageSection() {
   );
 }
 
+/** A section's own action (Change password…, Connect an instance…): raised off the card. */
+const SECTION_BUTTON = {
+  variant: 'outline',
+  bg: 'bg.emphasized',
+  borderColor: 'border.emphasized',
+  _hover: { bg: 'bg.muted' },
+} as const;
+
 function AccountSection() {
   const { data: me } = useMe();
   const change = useChangePassword();
@@ -161,14 +169,7 @@ function AccountSection() {
             {me?.email}
           </Text>
         </Box>
-        <Button
-          size="sm"
-          variant="outline"
-          bg="bg.emphasized"
-          borderColor="border.emphasized"
-          _hover={{ bg: 'bg.muted' }}
-          onClick={() => setEditing(true)}
-        >
+        <Button size="sm" {...SECTION_BUTTON} onClick={() => setEditing(true)}>
           Change password…
         </Button>
       </HStack>
@@ -259,8 +260,9 @@ function ItemRow({
   children: React.ReactNode;
 }) {
   return (
-    <HStack gap="3" p="3" borderWidth="1px" borderRadius="md" justify="space-between">
-      <HStack gap="3" minW="0">
+    // The actions go under what it is when there's no room beside it (a narrow column).
+    <HStack gap="3" p="3" borderWidth="1px" borderRadius="md" justify="space-between" flexWrap="wrap">
+      <HStack gap="3" flex="1" minW="40">
         <Box color="fg.muted">{icon}</Box>
         <Box minW="0">
           <Text fontWeight="medium" truncate>
@@ -282,11 +284,16 @@ function ItemRow({
 function InstancesSection() {
   return (
     <Section title="Other instances">
-      <Stack gap="6">
-        <SendingPart />
-        <Separator />
-        <ReceivingPart />
-      </Stack>
+      {/* Side by side from md, stacked on phones. */}
+      <Flex direction={{ base: 'column', md: 'row' }} gap="6">
+        <Box flex="1" minW="0">
+          <SendingPart />
+        </Box>
+        <Separator orientation={{ base: 'horizontal', md: 'vertical' }} />
+        <Box flex="1" minW="0">
+          <ReceivingPart />
+        </Box>
+      </Flex>
     </Section>
   );
 }
@@ -322,7 +329,7 @@ function SendingPart() {
             </Button>
           </ItemRow>
         ))}
-        <Button size="sm" variant="outline" alignSelf="start" onClick={() => setConnecting(true)}>
+        <Button size="sm" {...SECTION_BUTTON} alignSelf="start" onClick={() => setConnecting(true)}>
           Connect an instance…
         </Button>
       </Stack>
@@ -458,7 +465,7 @@ function ReceivingPart() {
             </Button>
           </ItemRow>
         ))}
-        <Button size="sm" variant="outline" alignSelf="start" onClick={() => setCreating(true)}>
+        <Button size="sm" {...SECTION_BUTTON} alignSelf="start" onClick={() => setCreating(true)}>
           New token…
         </Button>
       </Stack>
