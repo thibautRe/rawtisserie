@@ -686,6 +686,8 @@ function PhotoTags({
   );
 }
 
+const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+
 /** The tag input (T focuses it), completed from the library's tags; commas add several, levels by `|`. */
 function TagInput({
   exclude,
@@ -720,6 +722,17 @@ function TagInput({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         {...completion.inputProps}
+        onKeyDown={(e) => {
+          // Empty, arrows go back to the grid (or the loupe), as if the input hadn't had the focus.
+          if (!input && ARROWS.has(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            e.currentTarget.blur();
+            const { key, code, shiftKey } = e;
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key, code, shiftKey, bubbles: true }));
+            return;
+          }
+          completion.inputProps.onKeyDown(e);
+        }}
       />
       {completion.list}
     </Box>

@@ -450,6 +450,13 @@ test("T focuses the tag input, which completes from the library's tags", async (
   // Listed below the input: a click shows the photos with it (that filter alone), × removes it.
   await page.locator('[data-photo-tag="seagull"]').getByRole('button', { name: 'Remove seagull' }).click();
   assert.deepEqual(sent.at(-1)?.body, { tags: ['beach', 'sea'] });
+  // Empty, arrows leave the input and move in the grid.
+  await input.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(
+    () => document.querySelector('[data-photo-id][data-focused]')?.getAttribute('data-photo-id') === 'v2',
+  );
+  assert.notEqual(await page.evaluate(() => document.activeElement?.id), 'library-tag-input');
   await page.goto(`${URL_}/?ratingMin=2`);
   await cards().first().click();
   await page.locator('[data-photo-collection]').getByText('Japan').click();
