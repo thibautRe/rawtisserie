@@ -57,18 +57,22 @@ export const PHOTO_CARD_CSS: Record<string, SystemStyleObject> = {
     '[data-rejected] &': { opacity: 0.35 },
     '& > img': { maxW: 'full', maxH: 'full', objectFit: 'contain', boxShadow: 'md' },
   },
-  '.photo-card-bar': {
+  // A photo's rating, flag, label (`PhotoBadges`), centred along the bottom of its
+  // thumbnail: in the grid's cards and the film roll (`data-size="sm"`).
+  '.photo-badges': {
     position: 'absolute',
     insetX: '0',
     bottom: '0',
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'center',
     px: '2',
     py: '1',
-    gap: '1',
+    gap: '1.5',
     bg: 'blackAlpha.600',
     color: 'white',
-    '& > .stars': { display: 'flex', color: 'orange.300', flex: '1' },
+    pointerEvents: 'none',
+    '& > .stars': { display: 'flex', color: 'orange.300' },
     '& > .edited': {
       display: 'inline-flex',
       alignItems: 'center',
@@ -81,5 +85,7 @@ export const PHOTO_CARD_CSS: Record<string, SystemStyleObject> = {
       bg: 'blackAlpha.700',
     },
     '& > .label': { w: '2.5', h: '2.5', borderRadius: 'full', flexShrink: 0 },
+    '&[data-size=sm]': { h: '3.5', px: '1', py: '0', gap: '1' },
+    '&[data-size=sm] > .label': { w: '1.5', h: '1.5' },
   },
 };

@@ -49,7 +49,9 @@ import { TransferSummary } from '../components/transfer.tsx';
 import { ImportSummary, InterruptedImport } from '../library/ImportToast.tsx';
 import { type Review, ReviewBody, sampleReview } from '../library/ImportReview.tsx';
 import { type ImportRun, sampleRun } from '../library/imports.ts';
-import type { ColorLabel, Flag, Transfer } from '@rawtisserie/api';
+import type { ColorLabel, Flag, Photo, Transfer } from '@rawtisserie/api';
+import { PhotoCard } from '../library/PhotoCard.tsx';
+import { FilmRoll } from '../library/FilmRoll.tsx';
 
 /**
  * Sets the colour mode on the whole document (menus and popovers are portalled out of
@@ -176,6 +178,70 @@ const MANAGED = [
   { id: 'c', name: 'Night street, cold shadows', detail: '5 modules' },
 ];
 
+/** A stand-in thumbnail: a gradient, landscape or portrait. */
+const thumb = (w: number, h: number, from: string, to: string) =>
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x2="1" y2="1">` +
+      `<stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs>` +
+      `<rect width="100%" height="100%" fill="url(#g)"/></svg>`,
+  );
+
+/** Sample photos for the thumbnails: one of each state the grid and the film roll show. */
+const SAMPLE_PHOTOS: [string, Photo][] = (
+  [
+    ['3 stars, picked, blue', { rating: 3, flag: 'picked', colorLabel: 'blue' }, thumb(300, 200, '#e9a15a', '#5a7fa8')],
+    ['portrait, 5 stars, edited', { rating: 5, edited: true }, thumb(200, 300, '#3b5d4a', '#c9d6a3')],
+    ['rejected, red', { flag: 'rejected', colorLabel: 'red' }, thumb(300, 200, '#6d6d6d', '#202020')],
+    ['nothing set', {}, thumb(300, 200, '#86a8c9', '#f1e3c5')],
+    ['rendering', { renderStatus: 'pending' }, null],
+    ['failed', { renderStatus: 'failed', renderError: 'Unsupported camera' }, null],
+  ] as const
+).map(([label, patch, url], i) => [
+  label,
+  {
+    id: `ui-${i}`,
+    photoId: `ui-${i}`,
+    collectionId: null,
+    versionName: null,
+    versionIndex: 1,
+    versionCount: 1,
+    filename: `DSC0${1000 + i}.ARW`,
+    fileSize: 1,
+    sha256: '',
+    cameraMake: null,
+    cameraModel: null,
+    lens: null,
+    iso: null,
+    exposureTime: null,
+    fNumber: null,
+    focalLength: null,
+    exposureBias: null,
+    capturedAt: null,
+    width: 6000,
+    height: 4000,
+    gpsLatitude: null,
+    gpsLongitude: null,
+    artist: null,
+    copyright: null,
+    title: null,
+    description: null,
+    rating: 0,
+    flag: null,
+    colorLabel: null,
+    tags: [],
+    edited: false,
+    renderStatus: 'ready',
+    renderError: null,
+    thumbUrl: url,
+    previewUrl: url,
+    originalUrl: '',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    ...patch,
+  } satisfies Photo,
+]);
+
 const SAMPLE = 'From raw to well done: 0123456789 — ƒ/2.8 · 1/250 s · ISO 400 · +0.33 EV';
 const COLOURS = [
   ['bg', 'page'],
@@ -228,6 +294,7 @@ export function UiPage() {
   const [managing, setManaging] = useState(false);
   const [tags, setTags] = useState(['beach', 'golden hour']);
   const [tagQuery, setTagQuery] = useState('ali');
+  const [roll, setRoll] = useState(0);
 
   return (
     <Box h="full" overflowY="auto" bg="bg">
@@ -793,6 +860,38 @@ export function UiPage() {
           <Panel w="80">
             <Culling {...culling} onChange={(patch) => setCulling((c) => ({ ...c, ...patch }))} />
           </Panel>
+        </Block>
+
+        <Block
+          title="Photo thumbnails"
+          guide="A photo in the library's grid (`PhotoCard`) and in the film roll (`FilmRoll`, under the developer and in the loupe). Both keep a square for each photo, so neither orientation stands out, and show its rating, flag and colour label centred along the bottom (`PhotoBadges`); the grid also says it's edited. Rejected photos are dimmed in the grid."
+        >
+          <HStack gap="4" wrap="wrap" align="start">
+            {SAMPLE_PHOTOS.map(([label, photo]) => (
+              <Example key={label} label={label} w="40">
+                <PhotoCard
+                  photo={photo}
+                  selected={label === 'nothing set'}
+                  focused={label === 'nothing set'}
+                  joinLeft={false}
+                  joinRight={false}
+                  onClick={() => {}}
+                  onHover={() => {}}
+                />
+              </Example>
+            ))}
+          </HStack>
+          <Example label="film roll (loupe: dark, with badges)">
+            <Box borderRadius="l2" overflow="hidden" borderWidth="1px">
+              <FilmRoll
+                items={SAMPLE_PHOTOS.map(([, p]) => p)}
+                current={roll}
+                onSelect={(_, i) => setRoll(i)}
+                badges
+                dark
+              />
+            </Box>
+          </Example>
         </Block>
 
         <Block

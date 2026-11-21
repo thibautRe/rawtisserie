@@ -1,11 +1,11 @@
-import { Box, Circle, HStack, Image } from '@chakra-ui/react';
-import { Check, Star, X } from 'lucide-react';
+import { Box, Image } from '@chakra-ui/react';
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Photo } from '@rawtisserie/api';
-import { LABEL_COLORS } from './FilterSidebar.tsx';
+import { PhotoBadges } from './PhotoBadges.tsx';
 
 const HEIGHT = 64;
-const WIDTH = (HEIGHT * 3) / 2;
+/** Square, so photos of either orientation take the same room. */
+const WIDTH = HEIGHT;
 const GAP = 4;
 const STRIDE = WIDTH + GAP;
 /** Thumbnails rendered past each edge. */
@@ -147,7 +147,6 @@ const RollItem = memo(function RollItem({
   dark: boolean;
   onSelect: (photo: Photo, index: number) => void;
 }) {
-  const bar = badges && (photo.rating > 0 || photo.flag || photo.colorLabel);
   return (
     <Box
       as="button"
@@ -171,29 +170,7 @@ const RollItem = memo(function RollItem({
       onClick={() => !current && onSelect(photo, index)}
     >
       {photo.thumbUrl && <Image src={photo.thumbUrl} alt={photo.filename} w="full" h="full" objectFit="contain" />}
-      {bar && (
-        <HStack
-          position="absolute"
-          insetX="0"
-          bottom="0"
-          h="3.5"
-          px="1"
-          gap="0.5"
-          bg="blackAlpha.600"
-          color="white"
-          pointerEvents="none"
-        >
-          <HStack gap="0" color="orange.300">
-            {Array.from({ length: photo.rating }, (_, i) => (
-              <Star key={i} size={8} fill="currentColor" />
-            ))}
-          </HStack>
-          <Box flex="1" />
-          {photo.colorLabel && <Circle size="1.5" bg={LABEL_COLORS[photo.colorLabel]} />}
-          {photo.flag === 'picked' && <Check size={9} />}
-          {photo.flag === 'rejected' && <X size={9} color="var(--chakra-colors-red-400)" />}
-        </HStack>
-      )}
+      {badges && <PhotoBadges photo={photo} size="sm" />}
     </Box>
   );
 });

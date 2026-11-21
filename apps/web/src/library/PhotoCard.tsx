@@ -1,8 +1,8 @@
 import { Spinner, Stack, Text } from '@chakra-ui/react';
-import { Check, CircleAlert, Star, X } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import { memo } from 'react';
 import type { Photo } from '@rawtisserie/api';
-import { LABEL_COLORS } from './FilterSidebar.tsx';
+import { PhotoBadges } from './PhotoBadges.tsx';
 
 import { GROUP_BOX_CLASS } from './photoCardCss.ts';
 import { consumeLongPress, pressCancel, pressMove, pressStart, pressing } from './longPress.ts';
@@ -24,9 +24,6 @@ interface Props {
   onHover: (photoId: string | null) => void;
 }
 
-/** A colour token as its CSS variable (`red.500` → `var(--chakra-colors-red-500)`). */
-const colorVar = (token: string) => `var(--chakra-colors-${token.replace('.', '-')})`;
-
 /**
  * A photo in the library's grid. Plain elements styled by `PHOTO_CARD_CSS` (see there:
  * style props cost too much here), with Chakra components only for what's rare.
@@ -42,7 +39,6 @@ export const PhotoCard = memo(function PhotoCard({
   onLongPress,
   onHover,
 }: Props) {
-  const showBar = photo.rating > 0 || photo.flag || photo.colorLabel || photo.edited;
   return (
     <div
       className="photo-card"
@@ -84,21 +80,7 @@ export const PhotoCard = memo(function PhotoCard({
           <Spinner size="xs" position="absolute" top="2" right="2" color="orange.solid" />
         )}
 
-        {showBar && (
-          <div className="photo-card-bar">
-            <span className="stars">
-              {Array.from({ length: photo.rating }, (_, i) => (
-                <Star key={i} size={12} fill="currentColor" />
-              ))}
-            </span>
-            {photo.edited && <span className="edited">edited</span>}
-            {photo.colorLabel && (
-              <span className="label" style={{ background: colorVar(LABEL_COLORS[photo.colorLabel] ?? 'gray.500') }} />
-            )}
-            {photo.flag === 'picked' && <Check size={14} />}
-            {photo.flag === 'rejected' && <X size={14} color="var(--chakra-colors-red-400)" />}
-          </div>
-        )}
+        <PhotoBadges photo={photo} edited />
       </div>
     </div>
   );
