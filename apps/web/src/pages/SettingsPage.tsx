@@ -265,10 +265,10 @@ function ItemRow({
       <HStack gap="3" flex="1" minW="40">
         <Box color="fg.muted">{icon}</Box>
         <Box minW="0">
-          <Text fontWeight="medium" truncate>
+          <Text textStyle="sm" fontWeight="medium" truncate>
             {title}
           </Text>
-          <Text textStyle="sm" color="fg.muted" truncate>
+          <Text textStyle="xs" color="fg.muted" truncate>
             {detail}
           </Text>
         </Box>
@@ -312,6 +312,7 @@ function SendingPart() {
   const disconnect = useDisconnectInstance();
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<RemoteInstance | null>(null);
+  const [sending, setSending] = useState<RemoteInstance | null>(null);
   return (
     <>
       <Stack gap="3">
@@ -321,10 +322,10 @@ function SendingPart() {
         </Text>
         {instances?.map((i) => (
           <ItemRow key={i.id} icon={<Server size={18} />} title={hostOf(i.url)} detail={i.account}>
-            <Button size="xs" variant="outline" onClick={() => void startTransfer(i, { everything: true })}>
-              <Send /> Send everything
+            <Button size="xs" variant="outline" onClick={() => setSending(i)}>
+              <Send /> Send everything…
             </Button>
-            <Button size="xs" variant="ghost" onClick={() => setDisconnecting(i)}>
+            <Button size="xs" variant="ghost" colorPalette="red" onClick={() => setDisconnecting(i)}>
               Disconnect
             </Button>
           </ItemRow>
@@ -334,6 +335,23 @@ function SendingPart() {
         </Button>
       </Stack>
       <ConnectDialog open={connecting} onClose={() => setConnecting(false)} />
+      <ConfirmDialog
+        text={
+          sending && {
+            title: `Send everything to ${hostOf(sending.url)}?`,
+            body:
+              `Every photo of your library (not the trash) goes to ${sending.account} there, with its edits, ` +
+              'culling and metadata, and so do your LUTs, presets and styles. Photos sent before are updated.',
+          }
+        }
+        confirm="Send everything"
+        danger={false}
+        onConfirm={() => {
+          void startTransfer(sending!, { everything: true });
+          setSending(null);
+        }}
+        onClose={() => setSending(null)}
+      />
       <ConfirmDialog
         text={
           disconnecting && {
