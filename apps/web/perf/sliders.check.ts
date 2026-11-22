@@ -140,6 +140,25 @@ test('a plain drag commits', async () => {
   await assertCommitted(exposure);
 });
 
+test('a double click resets, but not when its second press drags', async () => {
+  const exposure = /^Exposure/;
+  const { y, at } = await control(exposure);
+  // Tap, then press again and drag before releasing: a drag, not a reset.
+  await page.mouse.move(at(0.5), y);
+  await page.mouse.down({ clickCount: 1 });
+  await page.mouse.up({ clickCount: 1 });
+  await page.mouse.down({ clickCount: 2 });
+  await page.mouse.move(at(0.75), y, { steps: 6 });
+  await page.mouse.up({ clickCount: 2 });
+  const end = await value(exposure);
+  assert.ok(end > 1.8 && end < 2.2, `${end}: where the drag left it, not reset`);
+  await assertCommitted(exposure);
+  // A double click in place still resets.
+  await page.mouse.dblclick(at(0.75), y);
+  await settle();
+  assert.equal(await value(exposure), 0.7);
+});
+
 test('a click on a detent commits', async () => {
   const bleach = /^AgX bleach/;
   await (

@@ -53,6 +53,9 @@ interface Props {
 const signed = (digits: number) => (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(digits)}`;
 export const fmt = { ev: (v: number) => `${signed(2)(v)} EV`, signed2: signed(2), fixed2: (v: number) => v.toFixed(2) };
 
+/** How far (px) a press may move and still count as a click (a double click resets). */
+const DRAG_SLOP = 3;
+
 const KEY_STEPS: Record<string, number> = {
   ArrowRight: 1,
   ArrowUp: 1,
@@ -69,7 +72,8 @@ const FILL = 'color-mix(in srgb, var(--chakra-colors-orange-solid) 70%, transpar
 const PAST_RANGE = 'var(--chakra-colors-yellow-solid)';
 
 /**
- * A compact labelled slider; double-click resets it to its default. Click (or right-click)
+ * A compact labelled slider; double-click resets it to its default (not when the second
+ * press drags: that's a drag). Click (or right-click)
  * the number to type a value. Shift ×10 and Ctrl ×0.1 apply to drags and arrow keys.
  *
  * Drags and arrows stay on the track. Typing and values set from elsewhere (auto-tune) can
@@ -112,6 +116,8 @@ export const ParamSlider = memo(
     const [lo, hi] = grown;
     const drag = useRef<{ anchor: DragAnchor; value: number } | null>(null);
     const stopTracking = useRef<(() => void) | null>(null);
+    // The last press moved the pointer: a double click ending it was a drag, not a reset.
+    const pressMoved = useRef(false);
     useEffect(() => () => stopTracking.current?.(), []);
 
     const fine = (): SliderRange => ({ ...range, fine: fineStep(step, format, scale) });
@@ -125,8 +131,11 @@ export const ParamSlider = memo(
       const control = e.target instanceof Element ? e.target.closest('[data-part="control"]') : null;
       if (disabled || !control || e.button !== 0) return;
       drag.current = { anchor: null, value };
+      pressMoved.current = false;
+      const [x0, y0] = [e.clientX, e.clientY];
       const unitsPerPixel = (curve.toPosition(hi) - curve.toPosition(lo)) / control.getBoundingClientRect().width;
       const follow = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > DRAG_SLOP) pressMoved.current = true;
         const current = drag.current;
         const factor = modifierFactor(ev);
         if (detents || !current || (!current.anchor && factor === 1)) return;
@@ -207,7 +216,7 @@ export const ParamSlider = memo(
           if (next !== current.value) onChange(next);
         }}
         onKeyDownCapture={onKeyDownCapture}
-        onDoubleClick={() => typing || onCommit(defaultValue)}
+        onDoubleClick={() => typing || pressMoved.current || onCommit(defaultValue)}
         title="Double-click to reset"
         gap="0"
       >
