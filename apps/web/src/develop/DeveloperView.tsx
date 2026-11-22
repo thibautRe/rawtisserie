@@ -45,6 +45,7 @@ import {
 } from './aspect.ts';
 import { CropOverlay } from './CropOverlay.tsx';
 import { CompareMenu } from './CompareMenu.tsx';
+import { Spotlight } from './Spotlight.tsx';
 import {
   type CompareLayout,
   type CompareTarget,
@@ -56,7 +57,7 @@ import {
 } from './compare.ts';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
-import { ModulePanel } from './ModulePanel.tsx';
+import { ModulePanel, type PanelFocus } from './ModulePanel.tsx';
 import {
   copyEdits,
   lastSelection,
@@ -461,6 +462,13 @@ export function DeveloperView({
 
   /** The original shows while \ is held. */
   const [comparing, setComparing] = useState(false);
+  // The spotlight (roadmap 2.6, a prototype), and what it shows of the panel.
+  const [spotlight, setSpotlight] = useState(false);
+  const [panelFocus, setPanelFocus] = useState<PanelFocus | null>(null);
+  const panelBox = useRef<HTMLDivElement>(null);
+  const onSpotlightRevert = useStableCallback(() => store.setLive(store.committed));
+  const onSpotlightClose = useStableCallback(() => setSpotlight(false));
+
   // Compare (roadmap M5): another history entry or version beside the edited image, with
   // the edited image's lens correction and geometry (`compareRecipe`).
   const [compareOn, setCompareOn] = useState(false);
@@ -1447,6 +1455,7 @@ export function DeveloperView({
       else if (mod && key === 'c' && e.shiftKey) setCopying(true);
       else if (mod && key === 'c' && !window.getSelection()?.toString()) copyLast();
       else if (mod && key === 'v') onPaste(e.shiftKey);
+      else if (e.ctrlKey && e.code === 'Space') setSpotlight(true);
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'y') setCompareOn((on) => !on);
       else if (!mod && key === 'c') startCrop();
@@ -1830,51 +1839,66 @@ export function DeveloperView({
           </Flex>
 
           <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
-            <ModulePanel
-              params={params}
-              denoise={denoise}
-              lensCorrection={metadata.lensCorrection ?? null}
-              lensShot={lensShot}
-              asShotIlluminant={metadata.asShotIlluminant ?? null}
-              imageFormat={metadata.imageFormat ?? null}
-              original={original}
-              onChange={onLiveChange}
-              onCommit={onPanelCommit}
-              presets={presets.modulePresets}
-              onSavePreset={presets.save}
-              onRenamePreset={presets.rename}
-              onDeletePreset={presets.remove}
-              luts={luts}
-              missingLuts={missingLuts}
-              onAddLut={onAddLut}
-              onChooseExposure={onChooseExposure}
-              missingExposures={missingExposures}
-              onRenameLut={luts.rename}
-              onRemoveLut={onRemoveLut}
-              cropping={!!cropDraft}
-              aspect={aspect}
-              onAspectChange={onAspectChange}
-              onCustomAspectChange={onCustomAspectChange}
-              onFlipAspect={onFlipAspect}
-              onStartCrop={onStartCrop}
-              guides={guides !== null}
-              onStartGuides={onStartGuides}
-              onFitPerspective={onFitPerspective}
-              fittingPerspective={fittingPerspective}
-              onAutoTuneFilmic={onAutoTuneFilmic}
-              autoTuning={autoTuning}
-              onDetectIlluminant={onDetectIlluminant}
-              detecting={detecting}
-              toneInputs={toneInputs}
-              onFitToneCurve={onFitToneCurve}
-              fittingTone={fittingTone}
-              toneView={toneOverlay}
-              onToneView={onToneView}
-              rangeView={rangeOverlay}
-              onRangeView={onRangeView}
-              shapeUi={shapeUi}
-              onShapeUi={onShapeUi}
-            />
+            {spotlight && (
+              <Box position="sticky" top="0" zIndex="1">
+                <Spotlight
+                  params={params}
+                  imageFormat={metadata.imageFormat ?? null}
+                  panel={panelBox}
+                  onFocus={setPanelFocus}
+                  onRevert={onSpotlightRevert}
+                  onClose={onSpotlightClose}
+                />
+              </Box>
+            )}
+            <Box ref={panelBox}>
+              <ModulePanel
+                only={panelFocus}
+                params={params}
+                denoise={denoise}
+                lensCorrection={metadata.lensCorrection ?? null}
+                lensShot={lensShot}
+                asShotIlluminant={metadata.asShotIlluminant ?? null}
+                imageFormat={metadata.imageFormat ?? null}
+                original={original}
+                onChange={onLiveChange}
+                onCommit={onPanelCommit}
+                presets={presets.modulePresets}
+                onSavePreset={presets.save}
+                onRenamePreset={presets.rename}
+                onDeletePreset={presets.remove}
+                luts={luts}
+                missingLuts={missingLuts}
+                onAddLut={onAddLut}
+                onChooseExposure={onChooseExposure}
+                missingExposures={missingExposures}
+                onRenameLut={luts.rename}
+                onRemoveLut={onRemoveLut}
+                cropping={!!cropDraft}
+                aspect={aspect}
+                onAspectChange={onAspectChange}
+                onCustomAspectChange={onCustomAspectChange}
+                onFlipAspect={onFlipAspect}
+                onStartCrop={onStartCrop}
+                guides={guides !== null}
+                onStartGuides={onStartGuides}
+                onFitPerspective={onFitPerspective}
+                fittingPerspective={fittingPerspective}
+                onAutoTuneFilmic={onAutoTuneFilmic}
+                autoTuning={autoTuning}
+                onDetectIlluminant={onDetectIlluminant}
+                detecting={detecting}
+                toneInputs={toneInputs}
+                onFitToneCurve={onFitToneCurve}
+                fittingTone={fittingTone}
+                toneView={toneOverlay}
+                onToneView={onToneView}
+                rangeView={rangeOverlay}
+                onRangeView={onRangeView}
+                shapeUi={shapeUi}
+                onShapeUi={onShapeUi}
+              />
+            </Box>
           </Box>
           {copying && (
             <CopyEditsDialog

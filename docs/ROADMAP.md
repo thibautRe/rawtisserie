@@ -270,6 +270,16 @@ Rework `ParamSlider` into the one control used by every module:
 
 ### 2.6 Keyboard-driven, stepped editing (M–L, before 1.0, needs a prototype)
 
+> **Prototype** 2026-11-22: a spotlight (`develop/Spotlight.tsx`, matching in
+> `spotlight.ts`, `npm run test:spotlight`). Ctrl+Space, then letters that abbreviate a
+> module, its tabs and a slider as prefixes of their words in order ("filcon": Filmic ›
+> Contrast, "cbmb": Color balance › Mixer › Blue hue). The right panel shows only that
+> module on those tabs (`ModulePanel`'s `only`), the slider is outlined, and the mouse
+> drives it with no click (pointer locked; Shift ×10, Ctrl ×0.1): a click or Enter
+> applies, Esc puts it back, ↑↓ pick another match. Sliders register themselves
+> (`sliderRegistry.ts`) so that something else can drive them; tabs the query can name
+> are `SPOTLIGHT_VIEWS`. To try, before deciding what 2.6 is.
+
 **Required for 1.0** (decided 2026-11-21). Needs brainstorming and prototyping before
 it's planned. The idea is a primarily
 keyboard-driven flow that walks through an opinionated order of steps, one control at a

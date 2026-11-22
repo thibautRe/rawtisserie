@@ -1,5 +1,6 @@
 import { HStack, Input, Slider, Text } from '@chakra-ui/react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type SliderHandle, registerSlider } from './sliderRegistry.ts';
 import {
   type DragAnchor,
   type Extent,
@@ -114,6 +115,23 @@ export const ParamSlider = memo(
     const stopTracking = useRef<(() => void) | null>(null);
     useEffect(() => () => stopTracking.current?.(), []);
 
+    // Others may drive it (the spotlight): as last rendered.
+    const root = useRef<HTMLDivElement>(null);
+    const handle = useRef<SliderHandle>(null!);
+    handle.current = {
+      root: root.current,
+      label,
+      value,
+      range,
+      extent: grown,
+      curve,
+      format,
+      disabled: !!disabled || !!detents,
+      onChange,
+      onCommit,
+    };
+    useLayoutEffect(() => registerSlider(() => ({ ...handle.current, root: root.current })), []);
+
     const fine = (): SliderRange => ({ ...range, fine: fineStep(step, format, scale) });
 
     const step_ = (steps: number, factor: number) => {
@@ -185,6 +203,7 @@ export const ParamSlider = memo(
 
     return (
       <Slider.Root
+        ref={root}
         size="sm"
         // In track positions: the same as values, unless there's a curve.
         min={pos(lo)}

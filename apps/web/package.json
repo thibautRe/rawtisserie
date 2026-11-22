@@ -14,6 +14,7 @@
     "test:sliders": "node --test perf/sliders.check.ts",
     "test:picker": "node --test perf/picker.check.ts",
     "test:compare": "node --test perf/compare.check.ts",
+    "test:spotlight": "node --test perf/spotlight.check.ts",
     "test:library": "node --test perf/library.check.ts",
     "test:ui": "node --test perf/ui.check.ts"
   },

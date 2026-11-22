@@ -145,7 +145,7 @@ import {
   WandSparkles,
   Eye,
 } from 'lucide-react';
-import { Fragment, memo, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { InfoTip } from '../components/InfoTip.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
@@ -174,6 +174,7 @@ import type {
   ToneRangeView,
 } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
+import type { SpotlightView } from './spotlight.ts';
 import { type SliderCurve, sinhCurve, tracks } from './slider.ts';
 
 interface Props {
@@ -249,6 +250,17 @@ interface Props {
   onChooseExposure: (current: PhotoRef | null) => Promise<PhotoRef | null>;
   /** The other photos recipes refer to that can't be had, by SHA-256. */
   missingExposures: ReadonlySet<string>;
+  /**
+   * Only this instance (the kind, for its future one), showing these views (tabs): the
+   * spotlight's (roadmap 2.6). When it's cleared, the panel scrolls to that instance.
+   */
+  only?: PanelFocus | null;
+}
+
+/** What the spotlight shows of the panel. */
+export interface PanelFocus {
+  id: string;
+  view?: Readonly<Record<string, string>>;
 }
 
 const EXPOSURE_BLEND_LABELS: Record<ExposureBlend, string> = {
@@ -334,6 +346,7 @@ const InstanceMenu = memo(
  * switched off; editing it (or switching it on) adds an instance.
  */
 export function Module({
+  instanceId,
   title,
   enabled,
   modified,
@@ -343,6 +356,8 @@ export function Module({
   onReset,
   children,
 }: {
+  /** Marks the block, to find it (`data-instance`). */
+  instanceId?: string;
   title: string;
   enabled: boolean;
   modified: boolean;
@@ -357,7 +372,7 @@ export function Module({
   return (
     // A block a shade lighter than the panel's background, with gaps between them, shows
     // where each module starts and ends.
-    <Stack gap="1.5" px="3" pt="2" pb="3" bg="bg.panel">
+    <Stack gap="1.5" px="3" pt="2" pb="3" bg="bg.panel" data-instance={instanceId}>
       <HStack justify="space-between" h="6">
         <Heading
           size="xs"
@@ -1256,6 +1271,60 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * Memoised: a new frame re-renders the developer, not this. Handlers must be stable
  * (`useStableCallback`); they are read through `latest` anyway.
  */
+/**
+ * The views (tabs) the spotlight can name, by kind (roadmap 2.6): what they set in an
+ * instance's `InstanceView`.
+ */
+export const SPOTLIGHT_VIEWS: Partial<Record<ModuleKind, SpotlightView[]>> = (() => {
+  const mixerViews = MIXER_VIEWS.map((v, i) => ({
+    field: 'mixer',
+    value: v,
+    labels: [MIXER_VIEW_LABELS[v]],
+    isDefault: i === 0,
+  }));
+  return {
+    colorCalibration: [
+      ...CALIBRATION_PAGES.map((p, i) => ({
+        field: 'calibration',
+        value: p,
+        labels:
+          p === 'illuminant'
+            ? [CALIBRATION_PAGE_LABELS[p], 'White balance', 'Illuminant']
+            : [CALIBRATION_PAGE_LABELS[p]],
+        isDefault: i === 0,
+      })),
+      ...mixerViews,
+    ],
+    colorBalance: [
+      ...BALANCE_PAGES.map((p, i) => ({
+        field: 'balance',
+        value: p,
+        labels: [BALANCE_PAGE_LABELS[p]],
+        isDefault: i === 0,
+      })),
+      ...TONE_RANGES.map((r, i) => ({
+        field: 'balanceRange',
+        value: r,
+        labels: [RANGE_LABELS[r]],
+        isDefault: i === 0,
+      })),
+      ...mixerViews,
+    ],
+    colorPrimaries: (Object.keys(PRIMARY_SWATCHES) as PrimaryName[]).map((p, i) => ({
+      field: 'primary',
+      value: p,
+      labels: [p],
+      isDefault: i === 0,
+    })),
+    contrastEqualizer: EQUALIZER_CURVES.map((c, i) => ({
+      field: 'curve',
+      value: c,
+      labels: [EQUALIZER_LABELS[c]],
+      isDefault: i === 0,
+    })),
+  };
+})();
+
 export const ModulePanel = memo(function ModulePanel(props: Props) {
   const {
     params,
@@ -1281,6 +1350,22 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   });
   // What each instance shows, by id.
   const [views, setViews] = useState<Record<string, InstanceView>>({});
+  // The spotlight's views, set on the instance (they stay once it's gone); and once it's
+  // gone, the instance it showed scrolled to.
+  const only = props.only;
+  const onlyView = JSON.stringify(only?.view ?? {});
+  useLayoutEffect(() => {
+    if (!only?.view) return;
+    setViews((v) => ({ ...v, [only.id]: { ...DEFAULT_VIEW, ...v[only.id], ...(only.view as Partial<InstanceView>) } }));
+  }, [only?.id, onlyView]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lastOnly = useRef<string | null>(null);
+  useEffect(() => {
+    if (only) lastOnly.current = only.id;
+    else if (lastOnly.current) {
+      document.querySelector(`[data-instance="${CSS.escape(lastOnly.current)}"]`)?.scrollIntoView({ block: 'nearest' });
+      lastOnly.current = null;
+    }
+  }, [only]);
 
   // The same angles, for handlers: updated as soon as they are set.
   const angles = useRef<Record<string, Record<string, number>>>({});
@@ -1408,11 +1493,14 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     if (!hasKind({ imageFormat }, kind)) return null;
     const list = params.modules.filter((m) => m.kind === kind) as ModuleInstance<K>[];
     const count = list.length;
+    const only = props.only;
+    if (only && only.id !== kind && !list.some((m) => m.id === only.id)) return null;
     const presets = props.presets[kind] ?? NO_PRESETS;
     const canSave = !!props.onSavePreset;
     const maskable = MASKABLE_KINDS.includes(kind);
     return (count ? list : [undefined]).map((m, position) => {
       const id = m?.id ?? kind;
+      if (only && only.id !== id) return null;
       const title = m ? instanceTitle(params, m) : MODULE_TITLES[kind];
       // What the mask editor shows besides the instance: its shapes' types (not the
       // shapes, which change on every move of a drag), and the shape tools' state while
@@ -1482,6 +1570,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             };
             return (
               <Module
+                instanceId={id}
                 title={title}
                 enabled={m?.enabled ?? false}
                 modified={isInstanceModified(params, kind, id, original)}
