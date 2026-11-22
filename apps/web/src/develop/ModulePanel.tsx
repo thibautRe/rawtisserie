@@ -145,7 +145,7 @@ import {
   WandSparkles,
   Eye,
 } from 'lucide-react';
-import { Fragment, memo, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, memo, useId, useLayoutEffect, useRef, useState } from 'react';
 import { InfoTip } from '../components/InfoTip.tsx';
 import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
@@ -252,7 +252,7 @@ interface Props {
   missingExposures: ReadonlySet<string>;
   /**
    * Only this instance (the kind, for its future one), showing these views (tabs): the
-   * spotlight's (roadmap 2.6). When it's cleared, the panel scrolls to that instance.
+   * spotlight's (roadmap 2.6).
    */
   only?: PanelFocus | null;
 }
@@ -347,6 +347,7 @@ const InstanceMenu = memo(
  */
 export function Module({
   instanceId,
+  viewState,
   title,
   enabled,
   modified,
@@ -356,8 +357,9 @@ export function Module({
   onReset,
   children,
 }: {
-  /** Marks the block, to find it (`data-instance`). */
+  /** Marks the block, to find it (`data-instance`), with the views it shows (`data-views`). */
   instanceId?: string;
+  viewState?: string;
   title: string;
   enabled: boolean;
   modified: boolean;
@@ -372,7 +374,7 @@ export function Module({
   return (
     // A block a shade lighter than the panel's background, with gaps between them, shows
     // where each module starts and ends.
-    <Stack gap="1.5" px="3" pt="2" pb="3" bg="bg.panel" data-instance={instanceId}>
+    <Stack gap="1.5" px="3" pt="2" pb="3" bg="bg.panel" data-instance={instanceId} data-views={viewState}>
       <HStack justify="space-between" h="6">
         <Heading
           size="xs"
@@ -1276,12 +1278,14 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * instance's `InstanceView`.
  */
 export const SPOTLIGHT_VIEWS: Partial<Record<ModuleKind, SpotlightView[]>> = (() => {
-  const mixerViews = MIXER_VIEWS.map((v, i) => ({
-    field: 'mixer',
-    value: v,
-    labels: [MIXER_VIEW_LABELS[v]],
-    isDefault: i === 0,
-  }));
+  const mixerViews = (field: string) =>
+    MIXER_VIEWS.map((v, i) => ({
+      field: 'mixer',
+      value: v,
+      labels: [MIXER_VIEW_LABELS[v]],
+      isDefault: i === 0,
+      under: { field, value: 'mixer' },
+    }));
   return {
     colorCalibration: [
       ...CALIBRATION_PAGES.map((p, i) => ({
@@ -1293,7 +1297,7 @@ export const SPOTLIGHT_VIEWS: Partial<Record<ModuleKind, SpotlightView[]>> = (()
             : [CALIBRATION_PAGE_LABELS[p]],
         isDefault: i === 0,
       })),
-      ...mixerViews,
+      ...mixerViews('calibration'),
     ],
     colorBalance: [
       ...BALANCE_PAGES.map((p, i) => ({
@@ -1307,8 +1311,9 @@ export const SPOTLIGHT_VIEWS: Partial<Record<ModuleKind, SpotlightView[]>> = (()
         value: r,
         labels: [RANGE_LABELS[r]],
         isDefault: i === 0,
+        under: { field: 'balance', value: 'mixer' },
       })),
-      ...mixerViews,
+      ...mixerViews('balance'),
     ],
     colorPrimaries: (Object.keys(PRIMARY_SWATCHES) as PrimaryName[]).map((p, i) => ({
       field: 'primary',
@@ -1324,6 +1329,12 @@ export const SPOTLIGHT_VIEWS: Partial<Record<ModuleKind, SpotlightView[]>> = (()
     })),
   };
 })();
+
+/** An instance's views the spotlight knows of (`SPOTLIGHT_VIEWS`), as JSON: `data-views`. */
+function spotlightViewState(kind: ModuleKind, view: InstanceView): string | undefined {
+  const fields = [...new Set((SPOTLIGHT_VIEWS[kind] ?? []).map((v) => v.field))];
+  return JSON.stringify(Object.fromEntries(fields.map((f) => [f, view[f as keyof InstanceView]])));
+}
 
 export const ModulePanel = memo(function ModulePanel(props: Props) {
   const {
@@ -1350,22 +1361,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   });
   // What each instance shows, by id.
   const [views, setViews] = useState<Record<string, InstanceView>>({});
-  // The spotlight's views, set on the instance (they stay once it's gone); and once it's
-  // gone, the instance it showed scrolled to.
+  // The spotlight's views, set on the instance (they stay once it's gone).
   const only = props.only;
   const onlyView = JSON.stringify(only?.view ?? {});
   useLayoutEffect(() => {
     if (!only?.view) return;
     setViews((v) => ({ ...v, [only.id]: { ...DEFAULT_VIEW, ...v[only.id], ...(only.view as Partial<InstanceView>) } }));
   }, [only?.id, onlyView]); // eslint-disable-line react-hooks/exhaustive-deps
-  const lastOnly = useRef<string | null>(null);
-  useEffect(() => {
-    if (only) lastOnly.current = only.id;
-    else if (lastOnly.current) {
-      document.querySelector(`[data-instance="${CSS.escape(lastOnly.current)}"]`)?.scrollIntoView({ block: 'nearest' });
-      lastOnly.current = null;
-    }
-  }, [only]);
 
   // The same angles, for handlers: updated as soon as they are set.
   const angles = useRef<Record<string, Record<string, number>>>({});
@@ -1571,6 +1573,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             return (
               <Module
                 instanceId={id}
+                viewState={spotlightViewState(kind, e.view)}
                 title={title}
                 enabled={m?.enabled ?? false}
                 modified={isInstanceModified(params, kind, id, original)}

@@ -46,6 +46,7 @@ import {
 import { CropOverlay } from './CropOverlay.tsx';
 import { CompareMenu } from './CompareMenu.tsx';
 import { Spotlight } from './Spotlight.tsx';
+import { useSpotlightPanel } from './useSpotlightPanel.ts';
 import {
   type CompareLayout,
   type CompareTarget,
@@ -57,7 +58,7 @@ import {
 } from './compare.ts';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
 import { HistoryPanel } from './HistoryPanel.tsx';
-import { ModulePanel, type PanelFocus } from './ModulePanel.tsx';
+import { ModulePanel } from './ModulePanel.tsx';
 import {
   copyEdits,
   lastSelection,
@@ -463,11 +464,7 @@ export function DeveloperView({
   /** The original shows while \ is held. */
   const [comparing, setComparing] = useState(false);
   // The spotlight (roadmap 2.6, a prototype), and what it shows of the panel.
-  const [spotlight, setSpotlight] = useState(false);
-  const [panelFocus, setPanelFocus] = useState<PanelFocus | null>(null);
-  const panelBox = useRef<HTMLDivElement>(null);
-  const onSpotlightRevert = useStableCallback(() => store.setLive(store.committed));
-  const onSpotlightClose = useStableCallback(() => setSpotlight(false));
+  const spotlight = useSpotlightPanel();
 
   // Compare (roadmap M5): another history entry or version beside the edited image, with
   // the edited image's lens correction and geometry (`compareRecipe`).
@@ -1455,7 +1452,7 @@ export function DeveloperView({
       else if (mod && key === 'c' && e.shiftKey) setCopying(true);
       else if (mod && key === 'c' && !window.getSelection()?.toString()) copyLast();
       else if (mod && key === 'v') onPaste(e.shiftKey);
-      else if (e.ctrlKey && e.code === 'Space') setSpotlight(true);
+      else if (e.ctrlKey && e.code === 'Space') spotlight.show();
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'y') setCompareOn((on) => !on);
       else if (!mod && key === 'c') startCrop();
@@ -1838,22 +1835,34 @@ export function DeveloperView({
             />
           </Flex>
 
-          <Box as="aside" w="80" flexShrink={0} borderLeftWidth="1px" bg="bg" overflowY="auto" css={NO_SELECT}>
-            {spotlight && (
+          <Box
+            ref={spotlight.aside}
+            as="aside"
+            w="80"
+            flexShrink={0}
+            borderLeftWidth="1px"
+            bg="bg"
+            overflowY="auto"
+            // Not anchored by the browser: the spotlight keeps the module in place itself.
+            overflowAnchor="none"
+            css={NO_SELECT}
+            onScroll={spotlight.onScroll}
+          >
+            {spotlight.open && (
               <Box position="sticky" top="0" zIndex="1">
                 <Spotlight
                   params={params}
                   imageFormat={metadata.imageFormat ?? null}
-                  panel={panelBox}
-                  onFocus={setPanelFocus}
-                  onRevert={onSpotlightRevert}
-                  onClose={onSpotlightClose}
+                  panel={spotlight.panel}
+                  onFocus={spotlight.setFocus}
+                  onClose={spotlight.onClose}
                 />
               </Box>
             )}
-            <Box ref={panelBox}>
+            <div ref={spotlight.above} data-space="above" />
+            <Box ref={spotlight.panel}>
               <ModulePanel
-                only={panelFocus}
+                only={spotlight.focus}
                 params={params}
                 denoise={denoise}
                 lensCorrection={metadata.lensCorrection ?? null}
@@ -1899,6 +1908,7 @@ export function DeveloperView({
                 onShapeUi={onShapeUi}
               />
             </Box>
+            <div ref={spotlight.below} data-space="below" />
           </Box>
           {copying && (
             <CopyEditsDialog

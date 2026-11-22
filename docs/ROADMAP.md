@@ -272,13 +272,15 @@ Rework `ParamSlider` into the one control used by every module:
 
 > **Prototype** 2026-11-22: a spotlight (`develop/Spotlight.tsx`, matching in
 > `spotlight.ts`, `npm run test:spotlight`). Ctrl+Space, then letters that abbreviate a
-> module, its tabs and a slider as prefixes of their words in order ("filcon": Filmic ›
-> Contrast, "cbmb": Color balance › Mixer › Blue hue). The right panel shows only that
-> module on those tabs (`ModulePanel`'s `only`), the slider is outlined, and the mouse
-> drives it with no click (pointer locked; Shift ×10, Ctrl ×0.1): a click or Enter
-> applies, Esc puts it back, ↑↓ pick another match. Sliders register themselves
-> (`sliderRegistry.ts`) so that something else can drive them; tabs the query can name
-> are `SPOTLIGHT_VIEWS`. To try, before deciding what 2.6 is.
+> module, a tab or a control as prefixes of their words in order, any word skipped
+> ("filcon": Filmic › Contrast, "cbm": Color balance › Mixer, "temp": calibration's
+> Temperature). The right panel shows only that module on those tabs (`ModulePanel`'s
+> `only`) with the match outlined; Enter brings the whole panel back with the module
+> where it was on screen (empty space above or below where needed, gone once scrolled
+> out of sight: `useSpotlightPanel`) and focuses the match, so the keyboard works on it.
+> Controls are read from the page (each module's block, `data-views` its tabs), as the
+> panel has shown them. A first version drove the slider with the mouse, pointer locked:
+> dropped, trapping the pointer felt wrong. To try, before deciding what 2.6 is.
 
 **Required for 1.0** (decided 2026-11-21). Needs brainstorming and prototyping before
 it's planned. The idea is a primarily

@@ -1,36 +1,63 @@
 /**
- * The spotlight's matching (roadmap 2.6, a prototype): a short query abbreviates a
- * module, optionally some of its tabs, then one of its sliders, as prefixes of their
- * words in order: "filcon" is Filmic › Contrast, "cbmb" Color balance › Mixer › Blue hue,
- * "exp" Exposure. Modules and tabs are known up front; sliders only once the module is
- * shown, so the query is matched in two steps (`parseQuery`, then `matchSlider` on
- * what's left).
+ * The spotlight's matching (roadmap 2.6, a prototype). Everything it can reach is an
+ * entry: a module, one of its tabs, or a control on it (a slider, a button, a select),
+ * named by words (the module's title, the tabs on the way, the control's label). A query
+ * abbreviates an entry as prefixes of its words in order, any of them skipped: "filcon"
+ * is Filmic › Contrast, "cbmb" Color balance › Mixer › Blue hue, "temp" any Temperature.
+ *
+ * Modules and tabs are known up front (`SPOTLIGHT_VIEWS`); controls only as the panel
+ * has shown them (`ControlIndex`, from the page).
  */
 import { fold } from '../lib/fuzzy.ts';
 
-/** A module instance the spotlight can show (or a kind's future one: `id` is the kind). */
+/** A module instance (or a kind's future one: `id` is the kind). */
 export interface SpotlightModule {
   id: string;
   kind: string;
   title: string;
 }
 
-/** A tab or view of a module kind: `patch` is what it sets in the instance's view. */
+/** A tab or view of a module kind: what it sets in the instance's view. */
 export interface SpotlightView {
-  /** The view's field it sets: a target sets each field once. */
   field: string;
   value: string;
-  /** Names to match, the first one shown. */
+  /** Names to match, the first one shown (and the tab's text or name, to find it). */
   labels: readonly string[];
   /** What the field is unless set: a tie goes to another view (`cbm` is the mixer, not the master tab). */
   isDefault?: boolean;
+  /** Only shown on this other view (the mixer's views, on the Mixer tab). */
+  under?: { field: string; value: string };
 }
 
-export interface SpotlightTarget {
+export type ControlKind = 'slider' | 'button' | 'select';
+
+/** A control of a module, as the page showed it: the `nth` with that label. */
+export interface SpotlightControl {
+  kind: ControlKind;
+  label: string;
+  nth: number;
+}
+
+/** The controls an instance showed, with the views it showed them on. */
+export interface ShownControls {
+  views: Readonly<Record<string, string>>;
+  controls: readonly SpotlightControl[];
+}
+
+/** Controls seen, by instance id, then by its views (JSON). */
+export type ControlIndex = ReadonlyMap<string, ReadonlyMap<string, ShownControls>>;
+
+export interface SpotlightEntry {
   module: SpotlightModule;
+  /** The views it shows, in order (a parent before what's under it). */
   views: readonly SpotlightView[];
-  /** The query left for the sliders. */
-  rest: string;
+  /** What it's about: a control, or the last view's tab, or (neither) the module. */
+  control: SpotlightControl | null;
+  words: readonly string[];
+}
+
+export interface SpotlightMatch {
+  entry: SpotlightEntry;
   score: number;
 }
 
@@ -40,92 +67,102 @@ export const wordsOf = (label: string) =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 
+/** Each word skipped costs this; each word left after the last part, `TRAILING`. */
+const SKIP = 1;
+const TRAILING = 0.25;
+
 /**
- * How much of `query` (from its start) abbreviates `words`: each part of the query is a
- * prefix of a later word than the one before. For each length that can, the best score:
- * a letter is worth 1, a part starting the label or following its previous word 2 more,
- * and each word skipped costs 1.
+ * How well `query` abbreviates `words` as a whole: each part of it is a prefix of a later
+ * word than the one before. A letter is worth 1, a part on the next word (or the first)
+ * 2 more; words skipped and words left after cost. Null when it doesn't.
  */
-export function prefixMatches(query: string, words: readonly string[]): Map<number, number> {
-  const best = new Map<number, number>();
+export function abbreviationScore(query: string, words: readonly string[]): number | null {
+  let best: number | null = null;
   const walk = (at: number, word: number, score: number) => {
     for (let k = word; k < words.length; k++) {
       const w = words[k]!;
-      const skipped = k - word;
+      const gain = k === word ? 2 : -SKIP * (k - word);
       for (let l = 1; l <= w.length && at + l <= query.length; l++) {
         if (w[l - 1] !== query[at + l - 1]) break;
-        const s = score + l + (skipped === 0 ? 2 : -skipped);
-        const n = at + l;
-        if ((best.get(n) ?? -Infinity) < s) best.set(n, s);
-        walk(n, k + 1, s);
+        const s = score + l + gain;
+        if (at + l === query.length) {
+          const total = s - TRAILING * (words.length - k - 1);
+          if (best === null || total > best) best = total;
+        } else walk(at + l, k + 1, s);
       }
     }
   };
-  walk(0, 0, 0);
+  if (query) walk(0, 0, 0);
   return best;
 }
 
-/** Each letter left for the sliders costs this much: matching them to a module or tab is better. */
-const REST_COST = 0.5;
-/** How many tabs a target may name (colour balance › mixer › shadows). */
-const MAX_VIEWS = 2;
+/** What an entry shows and focuses, as a key: one entry per key. */
+export const entryKey = (e: SpotlightEntry) =>
+  [
+    e.module.id,
+    ...e.views.map((v) => `${v.field}=${v.value}`),
+    e.control ? `${e.control.label}#${e.control.nth}` : '',
+  ].join('|');
 
-/**
- * The targets `query` can mean, best first: a module (by its title or kind's title), the
- * tabs it names, and what's left for its sliders. One per module and tabs.
- */
-export function parseQuery(
-  query: string,
+/** The entries for `modules`: each module, its tabs, and the controls `index` has seen on it. */
+export function buildEntries(
   modules: readonly SpotlightModule[],
   views: Readonly<Record<string, readonly SpotlightView[]>>,
-): SpotlightTarget[] {
-  const q = fold(query).replace(/\s+/g, '');
-  if (!q) return [];
-  const found = new Map<string, SpotlightTarget>();
-  const keep = (t: SpotlightTarget) => {
-    const key = [t.module.id, ...t.views.map((v) => `${v.field}=${v.value}`)].join('|');
-    const old = found.get(key);
-    if (!old || old.score < t.score) found.set(key, t);
-  };
-  const extend = (module: SpotlightModule, chosen: SpotlightView[], at: number, score: number) => {
-    keep({ module, views: chosen, rest: q.slice(at), score: score - REST_COST * (q.length - at) });
-    if (chosen.length >= MAX_VIEWS || at >= q.length) return;
-    for (const view of views[module.kind] ?? []) {
-      if (chosen.some((c) => c.field === view.field)) continue;
+  index: ControlIndex,
+): SpotlightEntry[] {
+  const out: SpotlightEntry[] = [];
+  for (const module of modules) {
+    const own = views[module.kind] ?? [];
+    const title = wordsOf(module.title);
+    const parentOf = (v: SpotlightView) =>
+      v.under ? own.find((p) => p.field === v.under!.field && p.value === v.under!.value) : undefined;
+    out.push({ module, views: [], control: null, words: title });
+    for (const view of own) {
+      const parent = parentOf(view);
+      const path = parent ? [parent, view] : [view];
+      // One entry per name of the view (CAT is also White balance).
       for (const label of view.labels) {
-        for (const [n, s] of prefixMatches(q.slice(at), wordsOf(label)))
-          extend(module, [...chosen, view], at + n, score + s);
+        const words = [...title, ...(parent ? wordsOf(parent.labels[0]!) : []), ...wordsOf(label)];
+        out.push({ module, views: path, control: null, words });
       }
     }
-  };
-  for (const module of modules) {
-    for (const [n, s] of prefixMatches(q, wordsOf(module.title))) extend(module, [], n, s);
+    for (const shown of index.get(module.id)?.values() ?? []) {
+      // The views it was shown on: those that aren't shown anyway are named on the way.
+      const path = own.filter((v) => {
+        if (shown.views[v.field] !== v.value) return false;
+        return !v.under || shown.views[v.under.field] === v.under.value;
+      });
+      const named = path.filter((v) => !v.isDefault).flatMap((v) => wordsOf(v.labels[0]!));
+      for (const control of shown.controls) {
+        out.push({ module, views: path, control, words: [...title, ...named, ...wordsOf(control.label)] });
+      }
+    }
   }
-  const defaults = (t: SpotlightTarget) => t.views.filter((v) => v.isDefault).length;
-  // Ties: views that aren't shown anyway, the shorter title (Exposure before Multiple exposure), then the module's order.
-  const order = new Map(modules.map((m, i) => [m.id, i]));
-  return [...found.values()].sort(
-    (a, b) =>
-      b.score - a.score ||
-      defaults(a) - defaults(b) ||
-      a.module.title.length - b.module.title.length ||
-      order.get(a.module.id)! - order.get(b.module.id)! ||
-      a.views.length - b.views.length,
-  );
+  return out;
 }
 
-/**
- * The slider `rest` names among `labels` (in the panel's order): the best one whose words
- * it abbreviates whole. Nothing left: the first (the module's main slider). Null when
- * none matches.
- */
-export function matchSlider(rest: string, labels: readonly string[]): number | null {
-  if (!labels.length) return null;
-  if (!rest) return 0;
-  let best: { i: number; score: number } | null = null;
-  labels.forEach((label, i) => {
-    const score = prefixMatches(rest, wordsOf(label)).get(rest.length);
-    if (score !== undefined && (!best || score > best.score)) best = { i, score };
+/** The entries `query` names, best first, one per key. */
+export function rankEntries(query: string, entries: readonly SpotlightEntry[]): SpotlightMatch[] {
+  const q = fold(query).replace(/\s+/g, '');
+  if (!q) return [];
+  const best = new Map<string, SpotlightMatch & { order: number }>();
+  entries.forEach((entry, order) => {
+    const score = abbreviationScore(q, entry.words);
+    if (score === null) return;
+    const key = entryKey(entry);
+    const old = best.get(key);
+    if (!old || old.score < score) best.set(key, { entry, score, order });
   });
-  return (best as { i: number } | null)?.i ?? null;
+  const defaults = (e: SpotlightEntry) => e.views.filter((v) => v.isDefault).length;
+  // Ties: views that are shown anyway last, then fewer words (Exposure before
+  // Multiple exposure), then the panel's order.
+  return [...best.values()]
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        defaults(a.entry) - defaults(b.entry) ||
+        a.entry.words.length - b.entry.words.length ||
+        a.order - b.order,
+    )
+    .map(({ entry, score }) => ({ entry, score }));
 }

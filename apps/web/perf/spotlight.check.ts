@@ -50,96 +50,116 @@ const shot = async (name: string) => shots && (await page.screenshot({ path: joi
 const spotlight = () => page.locator('[data-spotlight]');
 /** The modules the panel shows. */
 const shownModules = () =>
+  page.locator('aside [data-instance]').evaluateAll((els) => els.map((e) => e.querySelector('h2')?.textContent));
+/** Where a module's block is on screen. */
+const topOf = (id: string) =>
+  page.evaluate((id) => document.querySelector(`[data-instance="${id}"]`)!.getBoundingClientRect().top, id);
+/** The id of the module showing `title`. */
+const idOf = (title: string) =>
   page
     .locator('aside [data-instance]')
-    .evaluateAll((els) => els.map((e) => e.querySelector('h2, h3, h4, h5, h6')?.textContent));
-/** The history's entries, newest first. */
-const historyLabels = () => page.locator('text=/^\\d+$/').count();
-/** What the spotlight says the bound slider is and shows. */
-const bound = async () => (await spotlight().locator('text=/^↔ /').textContent())?.slice(2);
-const boundValue = () => spotlight().locator('text=/^↔ /').locator('xpath=following-sibling::*[1]').textContent();
+    .filter({ has: page.getByRole('heading', { name: title, exact: true }) })
+    .first()
+    .getAttribute('data-instance');
+/** What has the focus: a slider's label, or a tab's text. */
+const focused = () =>
+  page.evaluate(() => {
+    const el = document.activeElement as HTMLElement;
+    const slider = el.closest('[data-scope="slider"][data-part="root"]');
+    if (slider) return `slider ${slider.querySelector('[data-part="label"]')?.textContent}`;
+    return `${el.getAttribute('role') ?? el.tagName.toLowerCase()} ${el.textContent?.trim()}`;
+  });
+const asideScroll = () => page.evaluate(() => document.querySelector('[data-instance]')!.closest('aside')!.scrollTop);
+const spaceAbove = () =>
+  page.evaluate(
+    () => Number.parseFloat(document.querySelector<HTMLElement>('[data-space="above"]')!.style.height) || 0,
+  );
 
 async function open(query: string) {
-  await page.mouse.move(800, 500);
   await page.keyboard.press('Control+Space');
   await spotlight().waitFor();
   await page.keyboard.type(query);
   await page.waitForTimeout(300);
 }
 
-/** Moves the mouse by `dx` pixels, in steps. */
-async function nudge(dx: number) {
-  for (let i = 0; i < 10; i++) {
-    await page.mouse.move(800 + ((i + 1) * dx) / 10, 500);
-    await page.waitForTimeout(16);
-  }
-}
-
-test('filcon: filmic alone in the panel, its contrast driven by the mouse, Enter applies', async () => {
-  await open('filcon');
-  assert.deepEqual(await shownModules(), ['Filmic']);
-  assert.equal(await bound(), 'Contrast');
-  const before = Number(await boundValue());
-  await nudge(150);
-  await shot('filcon');
-  const after = Number(await boundValue());
-  assert.ok(after > before, `contrast ${before} → ${after}`);
+/** Enter, checking the module stays where it is on screen. */
+async function enter(title: string) {
+  const id = (await idOf(title))!;
+  const before = await topOf(id);
   await page.keyboard.press('Enter');
   await spotlight().waitFor({ state: 'detached' });
-  // The whole panel again, and the change in the history.
-  assert.ok((await shownModules()).length > 3);
+  assert.ok((await shownModules()).length > 3, 'the whole panel is back');
+  const after = await topOf(id);
+  assert.ok(Math.abs(after - before) < 1, `${title} moved from ${before} to ${after}`);
+  return id;
+}
+
+test('filcon: filmic alone, then Enter focuses its contrast in place; the arrows move it', async () => {
+  await open('filcon');
+  assert.deepEqual(await shownModules(), ['Filmic']);
+  await shot('filcon');
+  await enter('Filmic');
+  assert.equal(await focused(), 'slider Contrast');
+  await page.keyboard.press('ArrowRight');
   await page
     .getByText(/^Filmic: contrast/)
     .first()
     .waitFor();
+  // The pointer is never taken.
+  assert.equal(await page.evaluate(() => document.pointerLockElement), null);
 });
 
-test('cbmb: colour balance on its mixer tab, its blue hue bound; Esc puts it back', async () => {
-  await open('cbmb');
+test('cbm and ccmix: the mixer tabs, shown and focused', async () => {
+  await open('cbm');
   assert.deepEqual(await shownModules(), ['Color balance']);
-  assert.equal(await bound(), 'Blue hue');
-  const before = await boundValue();
-  await nudge(-120);
-  assert.notEqual(await boundValue(), before);
-  await shot('cbmb');
-  await page.keyboard.press('Escape');
-  await spotlight().waitFor({ state: 'detached' });
-  assert.equal(
-    await page
-      .getByText(/^Color balance/)
-      .filter({ hasText: /hue/i })
-      .count(),
-    0,
-  );
+  await enter('Color balance');
+  assert.equal(await focused(), 'tab Mixer');
+  assert.equal(await page.locator(':focus').getAttribute('aria-selected'), 'true');
+
+  await open('ccmix');
+  assert.deepEqual(await shownModules(), ['Color calibration']);
+  await shot('ccmix');
+  await enter('Color calibration');
+  assert.equal(await focused(), 'tab Mixer');
+  assert.equal(await page.locator(':focus').getAttribute('aria-selected'), 'true');
 });
 
-test('exp, and a click applies', async () => {
+test('temp: a temperature slider without naming its module', async () => {
+  // Back to the light tab, where calibration's temperature is.
+  await open('ccwb');
+  await page.keyboard.press('Enter');
+  await open('temp');
+  assert.match((await spotlight().getByRole('option').first().textContent())!, /Color calibration.*Temperature/);
+  await enter('Color calibration');
+  assert.equal(await focused(), 'slider Temperature');
+});
+
+test('the first module keeps its place with space above, which goes once scrolled away', async () => {
   await open('exp');
   assert.deepEqual(await shownModules(), ['Exposure']);
-  assert.equal(await bound(), 'Exposure');
-  await nudge(60);
-  await page.mouse.down();
-  await page.mouse.up();
-  await spotlight().waitFor({ state: 'detached' });
-  await page
-    .getByText(/^Exposure: ev/)
-    .first()
-    .waitFor();
+  const id = await enter('Exposure');
+  assert.equal(await focused(), 'slider Exposure');
+  const space = await spaceAbove();
+  assert.ok(space > 20, `space above ${space}`);
+  // Scrolled past it: gone, and nothing moves.
+  const top = await topOf(id);
+  await page.evaluate((by) => document.querySelector('[data-instance]')!.closest('aside')!.scrollBy(0, by), space + 40);
+  await page.waitForTimeout(200);
+  assert.equal(await spaceAbove(), 0);
+  assert.ok(Math.abs((await topOf(id)) - (top - space - 40)) < 1);
 });
 
-test('another match with the arrows, and a query no slider takes', async () => {
+test('Esc: back to where the panel was, nothing focused there; another match with the arrows', async () => {
+  const scroll = await asideScroll();
   await open('co');
   const first = await shownModules();
   await page.keyboard.press('ArrowDown');
   await page.waitForTimeout(300);
   assert.notDeepEqual(await shownModules(), first);
   await page.keyboard.press('Escape');
-  await open('expzz');
-  assert.ok(
-    await spotlight()
-      .getByText(/No slider matches|Nothing matches/)
-      .isVisible(),
-  );
-  await page.keyboard.press('Escape');
   await spotlight().waitFor({ state: 'detached' });
+  assert.equal(await asideScroll(), scroll);
+  await open('zzz');
+  assert.ok(await spotlight().getByText('Nothing matches').isVisible());
+  await page.keyboard.press('Escape');
 });
