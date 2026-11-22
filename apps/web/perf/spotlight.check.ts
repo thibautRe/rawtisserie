@@ -214,3 +214,32 @@ test('every slider of the catalogue is where it says: the spotlight focuses each
   assert.ok(checked > 80, `only ${checked} sliders checked`);
   assert.deepEqual(wrong, []);
 });
+
+test('Ctrl+Space from a focused menu button: the query has the focus, and the button does nothing', async () => {
+  // A menu's trigger, as Styles is (the public developer has none).
+  await page.getByRole('button', { name: 'Compare options' }).focus();
+  await page.keyboard.press('Control+Space');
+  await spotlight().waitFor();
+  await page.keyboard.type('filcon');
+  assert.equal(await spotlight().getByRole('textbox').inputValue(), 'filcon');
+  assert.equal(await page.getByRole('menu').count(), 0);
+  // Again while open: back in the query.
+  await page.getByRole('button', { name: 'Compare', exact: true }).focus();
+  await page.keyboard.press('Control+Space');
+  await page.keyboard.type('x');
+  assert.equal(await spotlight().getByRole('textbox').inputValue(), 'filconx');
+  await page.keyboard.press('Escape');
+  await spotlight().waitFor({ state: 'detached' });
+
+  // A plain button (which acts on Space's release) isn't pressed either.
+  const compare = page.getByRole('button', { name: 'Compare', exact: true });
+  const pressed = await compare.getAttribute('aria-pressed');
+  await compare.focus();
+  await page.keyboard.press('Control+Space');
+  await spotlight().waitFor();
+  await page.keyboard.type('exp');
+  assert.equal(await spotlight().getByRole('textbox').inputValue(), 'exp');
+  assert.equal(await compare.getAttribute('aria-pressed'), pressed);
+  await page.keyboard.press('Escape');
+  await spotlight().waitFor({ state: 'detached' });
+});

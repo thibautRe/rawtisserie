@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PanelFocus } from './ModulePanel.tsx';
 import { type SpotlightResult, findTarget } from './Spotlight.tsx';
 import { useStableCallback } from './useStableCallback.ts';
@@ -30,6 +30,22 @@ export function useSpotlightPanel() {
     closing.current = { result };
     setOpen(false);
   });
+
+  // Ctrl+Space, from anywhere but a dialog: taken before anything else sees it (a focused
+  // button would act on Space, a menu's trigger open it and take the focus). Open
+  // already, it puts the focus back in the query.
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.code !== 'Space') return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (open) aside.current?.querySelector<HTMLInputElement>('[data-spotlight] input')?.focus();
+      else show();
+    };
+    window.addEventListener('keydown', down, true);
+    return () => window.removeEventListener('keydown', down, true);
+  }, [open, show]);
 
   const space = (el: HTMLDivElement | null) => (el ? Number.parseFloat(el.style.height) || 0 : 0);
 

@@ -1452,7 +1452,6 @@ export function DeveloperView({
       else if (mod && key === 'c' && e.shiftKey) setCopying(true);
       else if (mod && key === 'c' && !window.getSelection()?.toString()) copyLast();
       else if (mod && key === 'v') onPaste(e.shiftKey);
-      else if (e.ctrlKey && e.code === 'Space') spotlight.show();
       else if (!mod && key === '\\') setComparing(true);
       else if (!mod && key === 'y') setCompareOn((on) => !on);
       else if (!mod && key === 'c') startCrop();
