@@ -12,7 +12,6 @@ import {
   Input,
   InputGroup,
   Menu,
-  NativeSelect,
   Portal,
   Spinner,
   Stack,
@@ -55,6 +54,7 @@ import { type BatchEdit, fetchRecipe } from './batchEdit.ts';
 import { patchQuestion, photoCount } from './selectionText.ts';
 import { useConfirmLarge } from './useConfirmLarge.tsx';
 import { FilterSidebar } from './FilterSidebar.tsx';
+import { SortSelect } from './SortSelect.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
@@ -69,14 +69,6 @@ import { fromDrop, fromDropHandles, fromInput, keepsHandles, pickFiles, pickFold
 import { useLibrarySearch } from './useLibrarySearch.ts';
 import { useNarrow } from '../lib/useNarrow.ts';
 import { useStableCallback } from '../develop/useStableCallback.ts';
-
-const SORTS = [
-  { value: 'capturedDesc', label: 'Newest first' },
-  { value: 'capturedAsc', label: 'Oldest first' },
-  { value: 'importedDesc', label: 'Recently imported' },
-  { value: 'ratingDesc', label: 'Highest rated' },
-  { value: 'filename', label: 'Filename' },
-];
 
 export function LibraryPage() {
   const search = useLibrarySearch();
@@ -473,22 +465,7 @@ export function LibraryPage() {
       ),
   };
 
-  const sortSelect = (
-    <NativeSelect.Root size="sm" w={{ base: 'full', md: '44' }}>
-      <NativeSelect.Field
-        aria-label="Sort"
-        value={search.params.get('sort') ?? 'capturedDesc'}
-        onChange={(e) => search.set('sort', e.target.value === 'capturedDesc' ? null : e.target.value)}
-      >
-        {SORTS.map((s) => (
-          <option key={s.value} value={s.value}>
-            {s.label}
-          </option>
-        ))}
-      </NativeSelect.Field>
-      <NativeSelect.Indicator />
-    </NativeSelect.Root>
-  );
+  const sortSelect = <SortSelect search={search} />;
 
   return (
     <Flex

@@ -1,3 +1,5 @@
+import { countFilters } from './useLibrarySearch.ts';
+
 /**
  * Where the library was when it was left (its query string, scroll position, selection),
  * so that going back to it from the developer restores it like the browser's back
@@ -41,4 +43,22 @@ export function libraryPath(): string {
 /** What `navigate(libraryPath(), { state })` passes: the version to show in the grid. */
 export interface LibraryReturnState {
   focus?: string;
+}
+
+/**
+ * Where a photo picker over the library (`PhotoPicker`) starts: the library's filters
+ * as it was left (`saved`, its query string), the sort with them; without any filter
+ * there (or no library visited in this tab), the photo's collection, if it's in one;
+ * otherwise everything.
+ */
+export function pickerStart(saved: string | undefined, collectionId: string | null): string {
+  const params = new URLSearchParams(saved ?? '');
+  if (countFilters(params) > 0 || !collectionId) return params.toString();
+  params.set('collection', collectionId);
+  return params.toString();
+}
+
+/** `pickerStart` from the library as it was left in this tab. */
+export function photoPickerStart(collectionId: string | null): string {
+  return pickerStart(savedLibraryView()?.search, collectionId);
 }

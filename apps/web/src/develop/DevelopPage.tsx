@@ -305,8 +305,8 @@ export function LibraryDevelopPage() {
 
 function LibraryDeveloper({ id }: { id: string }) {
   const backend = useLocalBackend(originalByHash);
-  const exposurePicker = useExposurePicker();
   const { data: photo, error: photoError } = usePhoto(id);
+  const exposurePicker = useExposurePicker(photo?.collectionId ?? null);
   const save = useSaveHistory(id);
   const navigate = useNavigate();
   const [progress, setProgress] = useState(0);

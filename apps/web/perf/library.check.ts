@@ -783,22 +783,28 @@ test(
   },
 );
 
-test('a multiple exposure blends in a photo picked from the library', { skip: !existsSync(RAW) }, async () => {
+test('a multiple exposure blends in a photo picked from the library (4.16)', { skip: !existsSync(RAW) }, async () => {
   await open('/?q=beach');
   await cards().first().waitFor();
   originals = { p1: RAW, p3: RAW };
   const byHash: string[] = [];
+  const listed: string[] = [];
   page.on('request', (r) => {
-    if (r.url().includes('/api/originals/')) byHash.push(new URL(r.url()).pathname);
+    const url = new URL(r.url());
+    if (url.pathname.startsWith('/api/originals/')) byHash.push(url.pathname);
+    if (url.pathname === '/api/versions') listed.push(url.search);
   });
   await page.goto(`${URL_}/versions/v1/develop`);
   await page.locator('canvas').first().waitFor({ timeout: 120_000 });
+  const developing = page.url();
   const choose = page.locator('[data-exposure-photo]');
   await choose.scrollIntoViewIfNeeded();
   await choose.click();
-  // The library's photos, as the film roll lists them.
+  // The library's grid, on the filters the library was left with.
   const dialog = page.getByRole('dialog', { name: 'Blend in another photo' });
-  await dialog.locator('[data-roll-id="v3"]').click();
+  const searchBox = dialog.getByPlaceholder('Search filename, title, tags…');
+  assert.equal(await searchBox.inputValue(), 'beach');
+  await dialog.locator('[data-photo-id="v3"]').dblclick();
   await dialog.waitFor({ state: 'detached' });
   await page.waitForFunction(() => document.querySelector('[data-exposure-photo]')?.textContent === 'beach-3.ARW');
   // Saved in the history, by the original's hash; and its original asked for by that hash.
@@ -810,10 +816,31 @@ test('a multiple exposure blends in a photo picked from the library', { skip: !e
   assert.deepEqual([...new Set(byHash)], [`/api/originals/${'3'.padStart(64, '0')}`]);
   assert.equal(await page.getByText('isn’t available').count(), 0);
 
-  // One that can't be had is said so.
+  // Again: the photo chosen is selected. The picker's filters are its own, not the address's.
   await choose.click();
-  await page.getByRole('dialog', { name: 'Blend in another photo' }).locator('[data-roll-id="v5"]').click();
+  await dialog.locator('[data-photo-id="v3"][data-selected]').waitFor();
+  await searchBox.fill('beach-5');
+  await dialog.locator('[data-photo-id="v3"]').waitFor({ state: 'detached' });
+  assert.equal(page.url(), developing);
+  assert.ok(await dialog.getByRole('button', { name: 'Filter presets' }).isVisible());
+  // One that can't be had is said so.
+  await dialog.locator('[data-photo-id="v5"]').click();
+  await dialog.getByRole('button', { name: 'Blend in' }).click();
   await page.getByText('“beach-5.ARW” isn’t available').waitFor();
+
+  // The developer opened on its own (no library left in this tab): the photo's collection.
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await page.locator('canvas').first().waitFor({ timeout: 120_000 });
+  listed.length = 0;
+  await choose.click();
+  await page.waitForFunction(() => document.querySelector('[role="dialog"] [data-photo-id]'));
+  assert.ok(
+    listed.some((s) => new URLSearchParams(s).get('collection') === 'cjapan'),
+    listed.join(' '),
+  );
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'detached' });
 });
 
 test('an import shows its files waiting, then what happened to each, and retries what failed', async () => {

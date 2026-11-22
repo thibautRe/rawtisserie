@@ -67,14 +67,14 @@ interface Ratings {
 }
 
 function useRatings(search: LibrarySearch): Ratings {
-  // What a change made shows until the address has it: React Router renders navigations
+  // What a change made shows until the filters have it: React Router renders navigations
   // in a transition, and the filter would show the old set in between.
   const [pending, setPending] = useState<number[] | null>(null);
   useEffect(() => setPending(null), [search.search]);
   return {
     set: pending ?? ratingSet(search.params),
     apply: (change) => {
-      const next = new URLSearchParams(window.location.search);
+      const next = search.current();
       change(next);
       setPending(ratingSet(next));
       search.edit(change);

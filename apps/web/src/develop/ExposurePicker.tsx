@@ -1,82 +1,41 @@
-import { Button, CloseButton, Dialog, Portal, Text } from '@chakra-ui/react';
-import type { PhotoRef } from '@rawtisserie/pipeline';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLibraryPhotos } from '../api/hooks.ts';
 import type { Photo } from '@rawtisserie/api';
-import { FilmRoll as Roll } from '../library/FilmRoll.tsx';
-import { savedLibraryView } from '../library/libraryView.ts';
+import type { PhotoRef } from '@rawtisserie/pipeline';
+import { useCallback, useRef, useState } from 'react';
+import { photoPickerStart } from '../library/libraryView.ts';
+import { PhotoPicker } from '../library/PhotoPicker.tsx';
 
 /**
- * Pick the photo a multiple exposure blends in, from the library's photos as the film
- * roll shows them (the filters and sort the library was left with).
+ * Choosing the photo a multiple exposure blends in, from the library (`PhotoPicker`), as
+ * a promise: `choose` opens the picker and resolves with what was chosen; `dialog` is to
+ * be rendered. It starts on the library's filters, or else the collection of the photo
+ * edited (`collectionId`).
  */
-function ExposurePicker({
-  current,
-  onClose,
-}: {
-  current: PhotoRef | null;
-  /** The photo picked, or null. */
-  onClose: (picked: PhotoRef | null) => void;
-}) {
-  const [search] = useState(() => savedLibraryView()?.search ?? '');
-  const library = useLibraryPhotos(search);
-  const { items, want } = library;
-  useEffect(() => want(0, 0), [want]);
-  const at = useMemo(() => items.findIndex((p) => !!current && p?.sha256 === current.sha256), [items, current]);
-  const pick = useCallback((photo: Photo) => onClose({ sha256: photo.sha256, name: photo.filename }), [onClose]);
-  return (
-    <Dialog.Root open onOpenChange={(e) => !e.open && onClose(null)} size="xl">
-      <Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content>
-            <Dialog.Header>
-              <Dialog.Title>Blend in another photo</Dialog.Title>
-            </Dialog.Header>
-            <Dialog.Body>
-              <Text textStyle="sm" color="fg.muted" mb="3">
-                The library’s photos, as you left its filters. It’s blended in as it comes off the sensor, scaled to
-                cover this one.
-              </Text>
-              {library.total ? (
-                <Roll items={items} current={at} onRange={want} onSelect={pick} />
-              ) : (
-                <Text textStyle="sm">No photos match the library’s filters.</Text>
-              )}
-            </Dialog.Body>
-            <Dialog.Footer>
-              <Button variant="outline" size="sm" onClick={() => onClose(null)}>
-                Cancel
-              </Button>
-            </Dialog.Footer>
-            <Dialog.CloseTrigger asChild>
-              <CloseButton size="sm" />
-            </Dialog.CloseTrigger>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Portal>
-    </Dialog.Root>
-  );
-}
-
-/**
- * `ExposurePicker` as a promise: `choose` opens it and resolves with what was picked;
- * `dialog` is to be rendered.
- */
-export function useExposurePicker() {
-  const [asking, setAsking] = useState<{ current: PhotoRef | null } | null>(null);
+export function useExposurePicker(collectionId: string | null) {
+  const [asking, setAsking] = useState<{ current: PhotoRef | null; start: string } | null>(null);
   const resolve = useRef<((picked: PhotoRef | null) => void) | null>(null);
+  const collection = useRef(collectionId);
+  collection.current = collectionId;
   const choose = useCallback((current: PhotoRef | null) => {
     resolve.current?.(null);
-    setAsking({ current });
+    setAsking({ current, start: photoPickerStart(collection.current) });
     return new Promise<PhotoRef | null>((r) => (resolve.current = r));
   }, []);
-  const onClose = useCallback((picked: PhotoRef | null) => {
-    resolve.current?.(picked);
+  const onClose = useCallback((photo: Photo | null) => {
+    resolve.current?.(photo && { sha256: photo.sha256, name: photo.filename });
     resolve.current = null;
     setAsking(null);
   }, []);
-  const dialog = asking && <ExposurePicker current={asking.current} onClose={onClose} />;
+  const current = asking?.current;
+  const dialog = asking && (
+    <PhotoPicker
+      title="Blend in another photo"
+      description="It’s blended in as it comes off the sensor, scaled to cover this one."
+      start={asking.start}
+      isCurrent={current ? (p) => p.sha256 === current.sha256 : undefined}
+      confirm="Blend in"
+      onClose={onClose}
+    />
+  );
   return { choose, dialog };
 }
 

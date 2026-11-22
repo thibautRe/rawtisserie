@@ -12,7 +12,7 @@ then built on it in milestones that each ship something usable.
 ```
 M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-driven editing (1.0)
                  ├─▶ M3 Image quality ...... done, but 3.10 more embedded lens data
-                 ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules, 4.16 picker (1.0)
+                 ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules
                  ├─▶ M5 Compare ............ developer done; the library later
                  └─▶ M8 Library workflow ... done, but 8.9 focus areas, 8.15 phase 2
 M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
@@ -30,8 +30,7 @@ Left for 1.0, in this order:
 1. ~~M5 compare~~: the developer's done (2026-11-21); the library's isn't needed for 1.0.
 2. **[2.6 keyboard-driven, stepped editing](#26-keyboard-driven-stepped-editing-ml-before-10-needs-a-prototype)**:
    needs a prototype before it's planned.
-3. **[4.16 a photo picker for multiple exposure](#416-a-photo-picker-for-multiple-exposure-sm-before-10)**:
-   the film roll is too long to find a photo in.
+3. ~~4.16 a photo picker for multiple exposure~~: done (2026-11-22).
 4. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
    landing page, a theme check. Can go in any time before launch.
 
@@ -1329,7 +1328,20 @@ it's deleted for good or comes back.
 > (alone, inverted if asked, times the opacity, as they blend it). Golden recipe
 > `raster.json`. Later, if wanted: bitmap masks (painted, or AI segmentation).
 
-### 4.16 A photo picker for multiple exposure (S–M, before 1.0)
+### 4.16 A photo picker for multiple exposure (S–M) — done
+
+> **Done** 2026-11-22. As built: `library/PhotoPicker.tsx`, a large dialog with the
+> library's `FilterSidebar` (saved filters included), its search box, sort
+> (`SortSelect`) and `PhotoGrid`. The sidebar was already written against `LibrarySearch`
+> (only the rating filter read the address): `useStateSearch` gives the same operations
+> over the picker's own state, `useLibrarySearch` over the address. It opens on the
+> library's filters as it was left in the tab (`photoPickerStart`, from the saved
+> `LibraryView`), or, when the library had no filter or wasn't visited, on the edited
+> photo's collection, or on everything. The photo chosen before is selected; a click
+> selects, a double click, Enter or the dialog's button chooses. On phones the filters
+> are in a drawer, as in the library. It's the picker for anything that refers to a photo
+> from now on; multiple exposure is the only one today (compare picks among the photo's
+> own versions, from a menu). `test:library` covers it.
 
 **Required for 1.0** (asked 2026-11-21). Multiple exposure's picker
 (`develop/ExposurePicker.tsx`) lists the library's photos as a film roll: in a large

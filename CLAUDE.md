@@ -339,6 +339,8 @@ See README.md for the architecture overview and commands.
   `GeometryKey::layer` and the patch). Every renderer must load them: the developer
   (`RenderBackend.setExposureSource`, `/api/originals/:sha256`), the library export and
   previews, and the server's render and zoom workers (`RenderSource.exposures`).
+  The photo is chosen with `PhotoPicker` (roadmap 4.16), the library's grid and filters
+  over its own state (`useStateSearch`): anything new that chooses a photo uses it.
 - Edit params are versioned (`CURRENT_VERSION` / `EDIT_PARAMS_VERSION`, currently 8).
   Breaking look changes add a migration that sets `render_status = 'pending'` so
   library previews are re-rendered.
