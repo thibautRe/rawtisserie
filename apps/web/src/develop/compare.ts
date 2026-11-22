@@ -55,3 +55,15 @@ export function targetLabel(
   const entry = entries[target.seq - 1];
   return entry ? `${target.seq}. ${entry.label}` : 'Original';
 }
+
+/**
+ * The compared image's clip in a split view: only what's left of the divider, in its
+ * window's border box (`windowWidth`, centred in a pane `paneWidth` wide). The divider
+ * goes across the whole pane, so in the assessment mode it also passes over the white
+ * frame and the grey around it.
+ */
+export function splitClip(split: number, paneWidth: number, windowWidth: number): string {
+  const left = (paneWidth - windowWidth) / 2;
+  const hidden = Math.min(windowWidth, Math.max(0, left + windowWidth - split * paneWidth));
+  return `inset(0 ${hidden}px 0 0)`;
+}

@@ -122,10 +122,74 @@ test('the divider moves, and only the left of it shows the compared image', asyn
   assert.ok(Math.abs(right - area.width * 0.75) < 4, `clip ${after} for a window of ${area.width}`);
 });
 
+test('in the assessment mode, the divider crosses the white frame and the grey around it', async () => {
+  await page.keyboard.press('ControlOrMeta+b');
+  const win = compared().locator('xpath=../..');
+  // The window's frame comes in.
+  await page.waitForFunction(() => {
+    const c = document.querySelector('canvas[data-image="compared"]')!.parentElement!.parentElement!;
+    return Number.parseFloat(getComputedStyle(c).borderTopWidth) > 0;
+  });
+  await page.waitForTimeout(500);
+  const area = await box(page.locator('[data-split-divider]'));
+  const w = await box(win);
+  // The whole pane: taller and wider than the framed image.
+  assert.ok(area.height > w.height + 20 && area.width > w.width + 20, `${JSON.stringify(area)} ${JSON.stringify(w)}`);
+  // `inset(0 Npx 0 0)`, which the browser writes `inset(0px)` when nothing is hidden.
+  const hidden = async () => {
+    const clip = await win.evaluate((el) => el.style.clipPath);
+    return Number.parseFloat(/inset\(0(?:px)? ([\d.]+)px/.exec(clip)?.[1] ?? '0');
+  };
+  const drag = async (x: number) => {
+    const k = await box(page.locator('[data-split-divider] svg').first());
+    await page.mouse.move(k.x + k.width / 2, k.y + k.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, k.y + k.height / 2, { steps: 5 });
+    await page.mouse.up();
+  };
+  // Past the frame on the left: none of the compared image; on the right: all of it.
+  await drag(w.x - 10);
+  assert.ok(Math.abs((await hidden()) - w.width) < 2, `hidden ${await hidden()} of ${w.width}`);
+  await drag(w.x + w.width + 10);
+  assert.equal(await hidden(), 0);
+  // Within the frame's left edge: the frame shows left of the divider.
+  await drag(w.x + 4);
+  assert.ok(Math.abs((await hidden()) - (w.width - 4)) < 2, `hidden ${await hidden()}`);
+  await shot('assessment-split');
+  await page.mouse.move(5, 500);
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.waitForFunction(() => {
+    const c = document.querySelector('canvas[data-image="compared"]')!.parentElement!.parentElement!;
+    return Number.parseFloat(getComputedStyle(c).borderTopWidth) === 0;
+  });
+});
+
+/** Waits until the comparison is off: the compared pane is hidden. */
+const compareOff = () =>
+  page.waitForFunction(() => {
+    const c = document.querySelector('canvas[data-image="compared"]')!;
+    return c.parentElement!.parentElement!.parentElement!.offsetWidth === 0;
+  });
+
+test('the Compare button, pressed while on, and Esc turn the comparison off', async () => {
+  const button = page.getByRole('button', { name: 'Compare', exact: true });
+  assert.equal(await button.getAttribute('aria-pressed'), 'true');
+  await button.click();
+  await compareOff();
+  assert.equal(await button.getAttribute('aria-pressed'), 'false');
+  await button.click();
+  await comparedShown();
+  await page.mouse.move(5, 500);
+  await page.keyboard.press('Escape');
+  await compareOff();
+  await page.keyboard.press('y');
+  await comparedShown();
+});
+
 test('side by side, each image has its half and the zoom moves both', async () => {
   await page.getByRole('button', { name: 'Compare options' }).click();
+  // Choosing closes the menu (Esc now would leave the comparison).
   await page.getByRole('menuitemradio', { name: 'Side by side' }).click();
-  await page.keyboard.press('Escape');
   await page.waitForFunction(() => {
     const [e, c] = ['edited', 'compared'].map((n) =>
       document.querySelector(`canvas[data-image="${n}"]`)!.getBoundingClientRect(),
@@ -162,16 +226,18 @@ test('side by side, each image has its half and the zoom moves both', async () =
   await shot('side-by-side-zoomed');
 });
 
-test('a history entry picked in the panel is compared with, and Y turns it off', async () => {
+test('a history entry picked in the panel is compared with; its button again or Y turns it off', async () => {
   // Newest first: entry 1, the automatic recipe, is the second.
   await page.getByRole('button', { name: 'Compare with this entry' }).nth(1).click({ force: true });
   await page.getByText(/^1\. Defaults/).waitFor();
   await page.getByRole('button', { name: 'Compared with this entry' }).waitFor();
+  // Its button again: off.
+  await page.getByRole('button', { name: 'Compared with this entry' }).click({ force: true });
+  await compareOff();
+  await page.getByRole('button', { name: 'Compare with this entry' }).nth(1).click({ force: true });
+  await page.getByRole('button', { name: 'Compared with this entry' }).waitFor();
   await page.keyboard.press('y');
-  await page.waitForFunction(() => {
-    const c = document.querySelector('canvas[data-image="compared"]')!;
-    return c.parentElement!.parentElement!.parentElement!.offsetWidth === 0;
-  });
+  await compareOff();
   // The edited image has the whole viewport again.
   const e = await box(edited());
   assert.ok(e.width > 700, `edited image ${e.width} wide`);

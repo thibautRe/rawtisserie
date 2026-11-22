@@ -1372,7 +1372,10 @@ serve elsewhere later (choosing a photo for anything else that refers to one).
 > clipping indicators show on both. Hidden while cropping or placing guides. The same
 > `Developer` renders both: compare renders are flagged (`compare` in the render request)
 > so that the colour picker and raw denoise keep following the edited image. Holding `\`
-> still shows the original in place.
+> still shows the original in place. Turned off by the Compare button (orange while on),
+> Y, Esc (before Esc leaves the developer), or the compared history entry's button
+> again (2026-11-22). In the assessment mode the divider crosses the whole pane, the
+> white frame and the grey around it included (`splitClip`).
 >
 > Not done: own cache slots for the compared recipe (it shares the edited image's by
 > size, so its spatial stages are rebuilt once after the compared image renders);

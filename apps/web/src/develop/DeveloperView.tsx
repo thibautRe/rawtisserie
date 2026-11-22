@@ -50,6 +50,7 @@ import {
   type CompareTarget,
   type CompareVersion,
   compareRecipe,
+  splitClip,
   framingKey,
   targetLabel,
 } from './compare.ts';
@@ -350,25 +351,15 @@ function PaneLabel({ children, side = 'left' }: { children: React.ReactNode; sid
 
 /**
  * The split view's divider (roadmap M5): the compared image shows on its left, the edited
- * one on its right. Drawn over a box the size of the image's window (the white frame
- * included), where `split` places it.
+ * one on its right. Across the whole pane, where `split` places it.
  */
 const SplitDivider = memo(function SplitDivider({
   split,
   onChange,
-  assessment,
-  width,
-  height,
-  frameWidth,
   before,
 }: {
   split: number;
   onChange: (split: number) => void;
-  assessment: boolean;
-  /** The fitted image's size: the window's, with the assessment frame. */
-  width: number;
-  height: number;
-  frameWidth: number;
   /** What the compared image is. */
   before: string;
 }) {
@@ -387,61 +378,51 @@ const SplitDivider = memo(function SplitDivider({
     onDoubleClick: () => onChange(0.5),
   };
   return (
-    <Box
-      position={assessment ? 'relative' : 'absolute'}
-      inset={assessment ? undefined : '0'}
-      boxSizing="content-box"
-      borderWidth={`${frameWidth}px`}
-      borderStyle="solid"
-      borderColor="transparent"
-      style={assessment ? { width, height } : undefined}
-    >
-      <Box ref={area} position="absolute" inset="0" data-split-divider>
-        <Box position="absolute" top="0" bottom="0" w="0" style={{ left: `${split * 100}%` }}>
-          <Box
-            position="absolute"
-            top="0"
-            bottom="0"
-            left="-1px"
-            w="2px"
-            bg="white"
-            boxShadow="0 0 3px rgba(0, 0, 0, 0.6)"
-          />
-          <Box
-            position="absolute"
-            top="0"
-            bottom="0"
-            left="-6px"
-            w="12px"
-            cursor="ew-resize"
-            pointerEvents="auto"
-            touchAction="none"
-            title="Drag to move the divider · Double-click to centre it"
-            {...handlers}
-          />
-          <Center
-            position="absolute"
-            top="50%"
-            left="0"
-            transform="translate(-50%, -50%)"
-            boxSize="7"
-            borderRadius="full"
-            bg="white"
-            color="black"
-            boxShadow="md"
-            cursor="ew-resize"
-            pointerEvents="auto"
-            touchAction="none"
-            {...handlers}
-          >
-            <ChevronsLeftRight size={16} />
-          </Center>
-          <Box position="absolute" top="0" right="0" w="40vw">
-            <PaneLabel side="right">{before}</PaneLabel>
-          </Box>
-          <Box position="absolute" top="0" left="0" w="40vw">
-            <PaneLabel>Current</PaneLabel>
-          </Box>
+    <Box ref={area} position="absolute" inset="0" data-split-divider>
+      <Box position="absolute" top="0" bottom="0" w="0" style={{ left: `${split * 100}%` }}>
+        <Box
+          position="absolute"
+          top="0"
+          bottom="0"
+          left="-1px"
+          w="2px"
+          bg="white"
+          boxShadow="0 0 3px rgba(0, 0, 0, 0.6)"
+        />
+        <Box
+          position="absolute"
+          top="0"
+          bottom="0"
+          left="-6px"
+          w="12px"
+          cursor="ew-resize"
+          pointerEvents="auto"
+          touchAction="none"
+          title="Drag to move the divider · Double-click to centre it"
+          {...handlers}
+        />
+        <Center
+          position="absolute"
+          top="50%"
+          left="0"
+          transform="translate(-50%, -50%)"
+          boxSize="7"
+          borderRadius="full"
+          bg="white"
+          color="black"
+          boxShadow="md"
+          cursor="ew-resize"
+          pointerEvents="auto"
+          touchAction="none"
+          {...handlers}
+        >
+          <ChevronsLeftRight size={16} />
+        </Center>
+        <Box position="absolute" top="0" right="0" w="40vw">
+          <PaneLabel side="right">{before}</PaneLabel>
+        </Box>
+        <Box position="absolute" top="0" left="0" w="40vw">
+          <PaneLabel>Current</PaneLabel>
         </Box>
       </Box>
     </Box>
@@ -784,6 +765,8 @@ export function DeveloperView({
   // frame, which keeps its place and shape when zooming.
   const fitWidth = frame ? frame.fullWidth / dpr : 0;
   const fitHeight = frame ? frame.fullHeight / dpr : 0;
+  // The compared image's window, its white frame included (assessment: centred in the pane).
+  const compareWindowWidth = (assessment ? fitWidth : pane.width) + 2 * frameWidth;
   zoomLayout.current = frame && {
     windowWidth: assessment ? fitWidth : pane.width,
     windowHeight: assessment ? fitHeight : pane.height,
@@ -1477,6 +1460,7 @@ export function DeveloperView({
       else if (key === 'escape' && cropDraft) setCropDraft(null);
       else if (key === 'enter' && guides) applyGuides();
       else if (key === 'escape' && guides) cancelGuides();
+      else if (key === 'escape' && compareOn) setCompareOn(false);
       // Not on key repeat, so that holding Esc doesn't go past a menu it closes, and not
       // during an export or auto-tune, which leaving would abort.
       else if (key === 'escape' && onBack && !e.repeat && !exporting && !autoTuning) {
@@ -1516,7 +1500,12 @@ export function DeveloperView({
     ),
     [compareOn, compareLayout, compareTarget, history.entries, otherVersions], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const onCompareEntry = useStableCallback((seq: number) => onCompareTarget({ kind: 'history', seq }));
+  // The entry compared with: off again.
+  const onCompareEntry = useStableCallback((seq: number) =>
+    compareOn && compareTarget.kind === 'history' && compareTarget.seq === seq
+      ? setCompareOn(false)
+      : onCompareTarget({ kind: 'history', seq }),
+  );
   const compareLabel = targetLabel(compareTarget, history.entries, otherVersions);
   const comparedSeq = compareOn && compareTarget.kind === 'history' ? compareTarget.seq : null;
 
@@ -1706,9 +1695,7 @@ export function DeveloperView({
                     style={{
                       ...(assessment ? { width: fitWidth, height: fitHeight } : undefined),
                       // Split: only left of the divider (in the window's border box).
-                      clipPath: sideBySide
-                        ? undefined
-                        : `inset(0 ${frameWidth + (1 - split) * (assessment ? fitWidth : pane.width)}px 0 0)`,
+                      clipPath: sideBySide ? undefined : splitClip(split, pane.width, compareWindowWidth),
                     }}
                   >
                     <Box
@@ -1732,15 +1719,7 @@ export function DeveloperView({
                 </Center>
                 {comparison && !sideBySide && frame && (
                   <Center position="relative" minW="0" minH="0" gridRow="1" gridColumn="1" pointerEvents="none">
-                    <SplitDivider
-                      split={split}
-                      onChange={setSplit}
-                      assessment={assessment}
-                      width={fitWidth}
-                      height={fitHeight}
-                      frameWidth={frameWidth}
-                      before={compareLabel}
-                    />
+                    <SplitDivider split={split} onChange={setSplit} before={compareLabel} />
                   </Center>
                 )}
               </Grid>

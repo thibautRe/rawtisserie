@@ -48,7 +48,13 @@ export const CompareMenu = memo(function CompareMenu({
       <Button
         size="sm"
         variant={on ? 'subtle' : 'ghost'}
-        title="Compare with an earlier history entry or another version (Y). Hold \ to see the original."
+        colorPalette={on ? 'orange' : undefined}
+        aria-pressed={on}
+        title={
+          on
+            ? 'Stop comparing (Y or Esc)'
+            : 'Compare with an earlier history entry or another version (Y). Hold \\ to see the original.'
+        }
         onClick={onToggle}
       >
         <SplitSquareHorizontal /> Compare

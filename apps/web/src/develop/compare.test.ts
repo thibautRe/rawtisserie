@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type EditParams, defaultEditParams, findModule, updateModule } from '@rawtisserie/pipeline';
-import { compareRecipe, framingKey, targetLabel } from './compare.ts';
+import { compareRecipe, framingKey, splitClip, targetLabel } from './compare.ts';
 
 const cropped = (p: EditParams, x: number) =>
   updateModule(p, 'geometry', { params: { crop: { x, y: 0, width: 0.5, height: 0.5 } } });
@@ -37,4 +37,15 @@ test('targets are named', () => {
   assert.equal(targetLabel({ kind: 'history', seq: 0 }, entries, versions), 'Original');
   assert.equal(targetLabel({ kind: 'history', seq: 1 }, entries, versions), '1. Exposure');
   assert.equal(targetLabel({ kind: 'version', id: 'v2' }, entries, versions), 'Version 2');
+});
+
+test('the split divider crosses the whole pane, the assessment frame and margin too', () => {
+  const hidden = (clip: string) => Number(/inset\(0 ([\d.]+)px/.exec(clip)![1]);
+  // Without the assessment mode, the window is the pane.
+  assert.equal(hidden(splitClip(0.25, 800, 800)), 600);
+  // A window 500 wide centred in 800 (150 either side): the divider beyond it on the left
+  // hides all of it, on the right none of it; within it, what's right of it.
+  assert.equal(hidden(splitClip(0.1, 800, 500)), 500);
+  assert.equal(hidden(splitClip(0.95, 800, 500)), 0);
+  assert.equal(hidden(splitClip(0.5, 800, 500)), 250);
 });
