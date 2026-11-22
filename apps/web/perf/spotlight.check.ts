@@ -14,6 +14,10 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { type Browser, type Page, chromium } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
+import { MODULE_KINDS, type ModuleKind } from '@rawtisserie/pipeline';
+import { MODULE_TITLES } from '../src/develop/changes.ts';
+import { SPOTLIGHT_SLIDERS, SPOTLIGHT_VIEWS } from '../src/develop/panelCatalog.ts';
+import { type SpotlightSlider, type SpotlightView, buildEntries } from '../src/develop/spotlight.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const raw =
@@ -162,4 +166,51 @@ test('Esc: back to where the panel was, nothing focused there; another match wit
   await open('zzz');
   assert.ok(await spotlight().getByText('Nothing matches').isVisible());
   await page.keyboard.press('Escape');
+});
+
+test('every slider of the catalogue is where it says: the spotlight focuses each one', async () => {
+  const modules = MODULE_KINDS.map((kind: ModuleKind) => ({ id: kind, kind, title: MODULE_TITLES[kind] }));
+  const entries = buildEntries(
+    modules,
+    SPOTLIGHT_VIEWS as Record<string, SpotlightView[]>,
+    SPOTLIGHT_SLIDERS as Record<string, SpotlightSlider[]>,
+    new Map(),
+  );
+  const conditional = new Set(
+    Object.entries(SPOTLIGHT_SLIDERS).flatMap(([kind, list]) =>
+      list!.filter((s) => s.conditional).map((s) => `${kind}:${s.label}`),
+    ),
+  );
+  const shown = new Set(
+    await page.locator('aside [data-instance]').evaluateAll((els) => els.map((e) => e.getAttribute('data-instance'))),
+  );
+  const wrong: string[] = [];
+  let checked = 0;
+  for (const e of entries) {
+    if (!e.control || conditional.has(`${e.module.kind}:${e.control.label}`)) continue;
+    // Modules this photo doesn't have (instances have their own ids: the kind's title finds them).
+    if (!shown.has(e.module.kind) && !(await idOf(e.module.title))) continue;
+    await page.keyboard.press('Control+Space');
+    await spotlight().waitFor();
+    await page.keyboard.insertText(e.words.join(''));
+    await page.waitForTimeout(120);
+    await page.keyboard.press('Enter');
+    await spotlight().waitFor({ state: 'detached' });
+    const got = await page.evaluate(() => {
+      const root = document.activeElement?.closest('[data-scope="slider"][data-part="root"]');
+      if (!root) return null;
+      const label = root.querySelector('[data-part="label"]')?.textContent ?? '';
+      const block = root.closest('[data-instance]')!;
+      const same = [...block.querySelectorAll('[data-scope="slider"][data-part="root"]')].filter(
+        (r) => r.querySelector('[data-part="label"]')?.textContent === label,
+      );
+      return { label: label.replace(/ \(.*\)$/, ''), nth: same.indexOf(root) };
+    });
+    checked++;
+    const want = { label: e.control.label, nth: e.control.nth };
+    if (JSON.stringify(got) !== JSON.stringify(want))
+      wrong.push(`${e.words.join(' ')}: focused ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
+  }
+  assert.ok(checked > 80, `only ${checked} sliders checked`);
+  assert.deepEqual(wrong, []);
 });

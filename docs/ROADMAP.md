@@ -278,8 +278,10 @@ Rework `ParamSlider` into the one control used by every module:
 > `only`) with the match outlined; Enter brings the whole panel back with the module
 > where it was on screen (empty space above or below where needed, gone once scrolled
 > out of sight: `useSpotlightPanel`) and focuses the match, so the keyboard works on it.
-> Controls are read from the page (each module's block, `data-views` its tabs), as the
-> panel has shown them. A first version drove the slider with the mouse, pointer locked:
+> Sliders, tabs and folds are known up front (`develop/panelCatalog.ts`, which also
+> holds the labels the panel uses for them; `test:spotlight` focuses every slider listed,
+> so the list can't drift from the panel); buttons and selects are read from the page as
+> the panel has shown them. A first version drove the slider with the mouse, pointer locked:
 > dropped, trapping the pointer felt wrong. To try, before deciding what 2.6 is.
 
 **Required for 1.0** (decided 2026-11-21). Needs brainstorming and prototyping before

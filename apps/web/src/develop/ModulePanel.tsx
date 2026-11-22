@@ -174,7 +174,25 @@ import type {
   ToneRangeView,
 } from './protocol.ts';
 import { useStableCallback } from './useStableCallback.ts';
-import type { SpotlightView } from './spotlight.ts';
+import {
+  BALANCE_GRADING,
+  BALANCE_PAGE_LABELS,
+  BALANCE_PAGES,
+  type BalancePage,
+  CALIBRATION_PAGE_LABELS,
+  CALIBRATION_PAGES,
+  type CalibrationPage,
+  CHANNELS,
+  DIFFUSE_ORDERS,
+  EQUALIZER_LABELS,
+  GRADING_LABELS,
+  MIXER_VIEW_LABELS,
+  MIXER_VIEWS,
+  type MixerView,
+  OUTPUT_GROUPS,
+  RANGE_LABELS,
+  SPOTLIGHT_VIEWS,
+} from './panelCatalog.ts';
 import { type SliderCurve, sinhCurve, tracks } from './slider.ts';
 
 interface Props {
@@ -424,14 +442,6 @@ const Section = memo(
   (a, b) => a.deps.length === b.deps.length && a.deps.every((d, i) => d === b.deps[i]),
 );
 
-const EQUALIZER_LABELS: Record<EqualizerCurve, string> = {
-  luma: 'Luminance contrast',
-  chroma: 'Color contrast',
-  edges: 'Edge awareness',
-  lumaDenoise: 'Luminance denoise',
-  chromaDenoise: 'Color denoise',
-};
-
 const PRIMARY_SWATCHES: Record<PrimaryName, string> = {
   red: 'red.solid',
   yellow: 'yellow.solid',
@@ -668,11 +678,6 @@ function DenoiseState({
   );
 }
 
-const CALIBRATION_PAGES = ['illuminant', 'mixer', 'output'] as const;
-type CalibrationPage = (typeof CALIBRATION_PAGES)[number];
-const CALIBRATION_PAGE_LABELS = Object.fromEntries(
-  CALIBRATION_PAGES.map((page) => [page, PRESET_GROUPS.colorCalibration![page]!.label]),
-) as Record<CalibrationPage, string>;
 const CALIBRATION_PAGE_TITLES: Record<CalibrationPage, string> = {
   illuminant: 'White balance: chromatic adaptation from the scene’s light',
   mixer: 'Channel mixer',
@@ -683,51 +688,11 @@ const CALIBRATION_PAGE_KEYS = Object.fromEntries(
   CALIBRATION_PAGES.map((page) => [page, PRESET_GROUPS.colorCalibration![page]!.keys]),
 ) as Record<CalibrationPage, readonly (keyof Calibration)[]>;
 
-/** The groups of the output tab, in the order they apply. */
-const OUTPUT_GROUPS = [
-  {
-    key: 'colorfulness',
-    title: 'Colorfulness',
-    min: -1,
-    max: 1,
-    hardMin: -1,
-    hardMax: 1,
-    hint: 'Offset the coefficients so that they add up to 0',
-  },
-  {
-    key: 'brightness',
-    title: 'Brightness',
-    min: -1,
-    max: 1,
-    hardMin: -1,
-    hardMax: 1,
-    hint: 'Offset the coefficients so that they add up to 0',
-  },
-  {
-    key: 'grey',
-    title: 'Gray (monochrome when not 0)',
-    min: 0,
-    max: 1,
-    hardMin: -2,
-    hardMax: 2,
-    hint: 'Scale the coefficients so that they add up to 1 (keeps the brightness)',
-  },
-] as const;
-
-/** Ways to see and edit the mixer's matrix (Ansel's mixer modes). */
-const MIXER_VIEWS = ['primaries', 'whitePreserving', 'channels'] as const;
-type MixerView = (typeof MIXER_VIEWS)[number];
-const MIXER_VIEW_LABELS: Record<MixerView, string> = {
-  primaries: 'Primaries',
-  whitePreserving: 'White-preserving',
-  channels: 'Channels',
-};
 const MIXER_VIEW_TITLES: Record<MixerView, string> = {
   primaries: 'Each input channel’s hue and purity, and where the white goes',
   whitePreserving: 'Each input channel’s rotation and saturation; whites stay white',
   channels: 'Each output channel as a mix of the input channels',
 };
-const CHANNELS = ['Red', 'Green', 'Blue'] as const;
 const CHANNEL_TRACKS = [tracks.channel('#d04a3a'), tracks.channel('#3aa04a'), tracks.channel('#3a6ad0')];
 const NORMALIZE_KEYS = {
   red: 'normalizeRed',
@@ -758,8 +723,6 @@ const GLOW_SHAPE_TITLES: Record<GlowShape, string> = {
 const GLOW_RADIUS_CURVE = sinhCurve(500, 3);
 /** Diffuse or sharpen's radii, 0 … 1024 px: Ansel's presets go from 1 to 512. */
 const DIFFUSE_RADIUS_CURVE = sinhCurve(1024, 4);
-/** Diffuse or sharpen's four orders: what each acts on and which gradient it follows. */
-const DIFFUSE_ORDERS = ['1st order', '2nd order', '3rd order', '4th order'] as const;
 
 /** A small uppercase title over a group of sliders in a module. */
 function GroupTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
@@ -870,10 +833,6 @@ const TEMPERATURE_TRACK = `linear-gradient(to right, ${Array.from({ length: 11 }
 
 type Balance = ModuleParams['colorBalance'];
 
-/** Colour balance's tabs: Ansel's colour balance rgb master tab, the mixers, and the ranges. */
-const BALANCE_PAGES = ['master', 'mixer', 'settings'] as const;
-type BalancePage = (typeof BALANCE_PAGES)[number];
-const BALANCE_PAGE_LABELS: Record<BalancePage, string> = { master: 'Master', mixer: 'Mixer', settings: 'Settings' };
 const BALANCE_PAGE_TITLES: Record<BalancePage, string> = {
   master: 'Hue, chroma, saturation and brilliance, everywhere and by range',
   mixer: 'A light correction and channel mix for each range (split-toning)',
@@ -883,32 +842,8 @@ const BALANCE_PAGE_TITLES: Record<BalancePage, string> = {
 const BALANCE_PAGE_KEYS = Object.fromEntries(
   BALANCE_PAGES.map((page) => [page, PRESET_GROUPS.colorBalance![page]!.keys]),
 ) as Record<BalancePage, readonly (keyof Balance)[]>;
-const RANGE_LABELS: Record<ToneRange, string> = { shadows: 'Shadows', midtones: 'Mid-tones', highlights: 'Highlights' };
 /** The ranges' colours in the weights graph. */
 const RANGE_COLORS: Record<ToneRange, string> = { shadows: '#3e63dd', midtones: '#8d8d8d', highlights: '#f5a524' };
-/** Colour balance's grading groups, each `[global, shadows, mid-tones, highlights]`. */
-const BALANCE_GRADING = [
-  {
-    key: 'chroma',
-    title: 'Chroma',
-    hint: 'Linear chroma (Filmlight Yrg): every color moves away from gray in proportion',
-  },
-  {
-    key: 'saturation',
-    title: 'Saturation',
-    hint: 'Perceptual saturation (darktable UCS): more color, darker; less color, brighter',
-  },
-  {
-    key: 'brilliance',
-    title: 'Brilliance',
-    hint: 'Perceptual brightness (darktable UCS), keeping the saturation',
-  },
-] as const;
-/**
- * Colour balance's grading sliders: Global (the ranges' average, which moves all three)
- * and one per range (the values stored).
- */
-const GRADING_LABELS = ['Global', 'Shadows', 'Mid-tones', 'Highlights'] as const;
 /** What a range's grading value can be typed to (dragging stays within ±1). */
 const GRADING_HARD = 2;
 /**
@@ -1273,62 +1208,6 @@ const BLEACH_LABELS: Record<Bleach, string> = {
  * Memoised: a new frame re-renders the developer, not this. Handlers must be stable
  * (`useStableCallback`); they are read through `latest` anyway.
  */
-/**
- * The views (tabs) the spotlight can name, by kind (roadmap 2.6): what they set in an
- * instance's `InstanceView`.
- */
-export const SPOTLIGHT_VIEWS: Partial<Record<ModuleKind, SpotlightView[]>> = (() => {
-  const mixerViews = (field: string) =>
-    MIXER_VIEWS.map((v, i) => ({
-      field: 'mixer',
-      value: v,
-      labels: [MIXER_VIEW_LABELS[v]],
-      isDefault: i === 0,
-      under: { field, value: 'mixer' },
-    }));
-  return {
-    colorCalibration: [
-      ...CALIBRATION_PAGES.map((p, i) => ({
-        field: 'calibration',
-        value: p,
-        labels:
-          p === 'illuminant'
-            ? [CALIBRATION_PAGE_LABELS[p], 'White balance', 'Illuminant']
-            : [CALIBRATION_PAGE_LABELS[p]],
-        isDefault: i === 0,
-      })),
-      ...mixerViews('calibration'),
-    ],
-    colorBalance: [
-      ...BALANCE_PAGES.map((p, i) => ({
-        field: 'balance',
-        value: p,
-        labels: [BALANCE_PAGE_LABELS[p]],
-        isDefault: i === 0,
-      })),
-      ...TONE_RANGES.map((r, i) => ({
-        field: 'balanceRange',
-        value: r,
-        labels: [RANGE_LABELS[r]],
-        isDefault: i === 0,
-        under: { field: 'balance', value: 'mixer' },
-      })),
-      ...mixerViews('balance'),
-    ],
-    colorPrimaries: (Object.keys(PRIMARY_SWATCHES) as PrimaryName[]).map((p, i) => ({
-      field: 'primary',
-      value: p,
-      labels: [p],
-      isDefault: i === 0,
-    })),
-    contrastEqualizer: EQUALIZER_CURVES.map((c, i) => ({
-      field: 'curve',
-      value: c,
-      labels: [EQUALIZER_LABELS[c]],
-      isDefault: i === 0,
-    })),
-  };
-})();
 
 /** An instance's views the spotlight knows of (`SPOTLIGHT_VIEWS`), as JSON: `data-views`. */
 function spotlightViewState(kind: ModuleKind, view: InstanceView): string | undefined {
@@ -1366,7 +1245,11 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   const onlyView = JSON.stringify(only?.view ?? {});
   useLayoutEffect(() => {
     if (!only?.view) return;
-    setViews((v) => ({ ...v, [only.id]: { ...DEFAULT_VIEW, ...v[only.id], ...(only.view as Partial<InstanceView>) } }));
+    // Folds are 'true' in the spotlight's views.
+    const patch = Object.fromEntries(
+      Object.entries(only.view).map(([k, v]) => [k, v === 'true' ? true : v === 'false' ? false : v]),
+    ) as Partial<InstanceView>;
+    setViews((v) => ({ ...v, [only.id]: { ...DEFAULT_VIEW, ...v[only.id], ...patch } }));
   }, [only?.id, onlyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The same angles, for handlers: updated as soon as they are set.

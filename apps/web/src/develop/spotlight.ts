@@ -5,8 +5,9 @@
  * abbreviates an entry as prefixes of its words in order, any of them skipped: "filcon"
  * is Filmic › Contrast, "cbmb" Color balance › Mixer › Blue hue, "temp" any Temperature.
  *
- * Modules and tabs are known up front (`SPOTLIGHT_VIEWS`); controls only as the panel
- * has shown them (`ControlIndex`, from the page).
+ * Modules, tabs and sliders are known up front (`SPOTLIGHT_VIEWS`, `SPOTLIGHT_SLIDERS`);
+ * other controls (buttons, selects) only as the panel has shown them (`ControlIndex`,
+ * from the page).
  */
 import { fold } from '../lib/fuzzy.ts';
 
@@ -38,6 +39,19 @@ export interface SpotlightControl {
   nth: number;
 }
 
+/** A slider of a module kind, as the panel has it (`SPOTLIGHT_SLIDERS`). */
+export interface SpotlightSlider {
+  label: string;
+  /** The title of the group it's in, when its label repeats in the module. */
+  group?: string;
+  /** Which of the sliders with that label it is, as the panel shows them. */
+  nth?: number;
+  /** The views it's shown on (fields of `SPOTLIGHT_VIEWS`). */
+  views?: Readonly<Record<string, string>>;
+  /** It also depends on the module's settings: when, in words. */
+  conditional?: string;
+}
+
 /** The controls an instance showed, with the views it showed them on. */
 export interface ShownControls {
   views: Readonly<Record<string, string>>;
@@ -53,6 +67,8 @@ export interface SpotlightEntry {
   views: readonly SpotlightView[];
   /** What it's about: a control, or the last view's tab, or (neither) the module. */
   control: SpotlightControl | null;
+  /** The control's group, when its label repeats in the module. */
+  group?: string;
   words: readonly string[];
 }
 
@@ -73,18 +89,21 @@ const TRAILING = 0.25;
 
 /**
  * How well `query` abbreviates `words` as a whole: each part of it is a prefix of a later
- * word than the one before. A letter is worth 1, a part on the next word (or the first)
- * 2 more; words skipped and words left after cost. Null when it doesn't.
+ * word than the one before. A letter is worth 1; each part costs 1, given back when it's
+ * on the next word (or the first) and once more when it's the whole word, so cutting the
+ * query into more parts never pays ("primaries brightness" is Brightness, not "primarie"
+ * + "s" + "brightnes" + "s" of Brightness smoothing). Words skipped and words left after
+ * cost. Null when it doesn't abbreviate them.
  */
 export function abbreviationScore(query: string, words: readonly string[]): number | null {
   let best: number | null = null;
   const walk = (at: number, word: number, score: number) => {
     for (let k = word; k < words.length; k++) {
       const w = words[k]!;
-      const gain = k === word ? 2 : -SKIP * (k - word);
+      const placed = k === word ? 0 : -SKIP * (k - word) - 1;
       for (let l = 1; l <= w.length && at + l <= query.length; l++) {
         if (w[l - 1] !== query[at + l - 1]) break;
-        const s = score + l + gain;
+        const s = score + l + placed + (l === w.length ? 1 : 0);
         if (at + l === query.length) {
           const total = s - TRAILING * (words.length - k - 1);
           if (best === null || total > best) best = total;
@@ -104,10 +123,14 @@ export const entryKey = (e: SpotlightEntry) =>
     e.control ? `${e.control.label}#${e.control.nth}` : '',
   ].join('|');
 
-/** The entries for `modules`: each module, its tabs, and the controls `index` has seen on it. */
+/**
+ * The entries for `modules`: each module, its tabs, its sliders (known up front), and the
+ * other controls `index` has seen on it (buttons, selects).
+ */
 export function buildEntries(
   modules: readonly SpotlightModule[],
   views: Readonly<Record<string, readonly SpotlightView[]>>,
+  sliders: Readonly<Record<string, readonly SpotlightSlider[]>>,
   index: ControlIndex,
 ): SpotlightEntry[] {
   const out: SpotlightEntry[] = [];
@@ -126,15 +149,24 @@ export function buildEntries(
         out.push({ module, views: path, control: null, words });
       }
     }
+    // The views a control is on: those that aren't shown anyway are named on the way.
+    const pathOf = (on: Readonly<Record<string, string>>) =>
+      own.filter((v) => on[v.field] === v.value && (!v.under || on[v.under.field] === v.under.value));
+    const named = (path: readonly SpotlightView[]) =>
+      path.filter((v) => !v.isDefault).flatMap((v) => wordsOf(v.labels[0]!));
+    for (const slider of sliders[module.kind] ?? []) {
+      const path = pathOf(slider.views ?? {});
+      const control = { kind: 'slider' as const, label: slider.label, nth: slider.nth ?? 0 };
+      const words = [...title, ...named(path), ...wordsOf(slider.group ?? ''), ...wordsOf(slider.label)];
+      out.push({ module, views: path, control, group: slider.group, words });
+    }
     for (const shown of index.get(module.id)?.values() ?? []) {
-      // The views it was shown on: those that aren't shown anyway are named on the way.
-      const path = own.filter((v) => {
-        if (shown.views[v.field] !== v.value) return false;
-        return !v.under || shown.views[v.under.field] === v.under.value;
-      });
-      const named = path.filter((v) => !v.isDefault).flatMap((v) => wordsOf(v.labels[0]!));
+      const path = pathOf(shown.views);
       for (const control of shown.controls) {
-        out.push({ module, views: path, control, words: [...title, ...named, ...wordsOf(control.label)] });
+        if (control.kind === 'slider') continue;
+        // "Reset Exposure", "Exposure presets": the module is named already.
+        const own = wordsOf(control.label).filter((w) => !title.includes(w));
+        out.push({ module, views: path, control, words: [...title, ...named(path), ...own] });
       }
     }
   }

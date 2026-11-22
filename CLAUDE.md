@@ -217,6 +217,10 @@ See README.md for the architecture overview and commands.
   or a render picks up a stale one. `tests/diffuse_jobs.rs` checks it's the same render. Pool size is capped at 4: more
   workers starve the main thread on hyperthreaded laptops. Findings and dead ends are in
   `docs/PERFORMANCE.md`; read it before another performance pass.
+- The spotlight (roadmap 2.6, a prototype: `develop/Spotlight.tsx`) knows every slider
+  of the module panel from `develop/panelCatalog.ts` (`SPOTLIGHT_SLIDERS`, with the tabs
+  and folds each is on): a slider added, renamed or moved in `ModulePanel` goes there
+  too. `npm run test:spotlight -w @rawtisserie/web` focuses each one and fails otherwise.
 - The developer's main thread must stay idle during a drag: Chakra's style resolution is
   what's expensive, not the pixels. Sections of `ModulePanel` and the other panels are
   memoised, so `Section` deps must list everything its content reads, and handlers go

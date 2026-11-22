@@ -6,19 +6,22 @@
  * it and focuses what was named (a slider: the arrow keys move it), with the module where
  * it was on screen (`onClose`'s `top`: the developer keeps it there). Esc closes it.
  *
- * Controls are found in the page: those of every module as the panel shows them when it
- * opens, then those of each module it shows (`seen`, kept for the tab's session).
+ * Modules, tabs and sliders are known up front (`panelCatalog.ts`). Other controls
+ * (buttons, selects) are found in the page: those of every module as the panel shows them
+ * when it opens, then those of each module it shows (`seen`, kept for the tab's session).
  */
 import { HStack, Input, Kbd, Stack, Text } from '@chakra-ui/react';
 import { type EditParams, MODULE_KINDS, type ModuleKind, hasKind } from '@rawtisserie/pipeline';
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
-import { type PanelFocus, SPOTLIGHT_VIEWS } from './ModulePanel.tsx';
+import type { PanelFocus } from './ModulePanel.tsx';
+import { SPOTLIGHT_SLIDERS, SPOTLIGHT_VIEWS } from './panelCatalog.ts';
 import {
   type ShownControls,
   type SpotlightControl,
   type SpotlightEntry,
   type SpotlightModule,
+  type SpotlightSlider,
   type SpotlightView,
   buildEntries,
   entryKey,
@@ -68,6 +71,8 @@ function controlsIn(block: Element): Found[] {
     out.push({ kind, label: name, nth, focus, outline });
   };
   for (const el of block.querySelectorAll<HTMLElement>(`${SLIDER}, button, select`)) {
+    // Nothing to do there now (a reset with nothing to reset).
+    if ((el instanceof HTMLButtonElement || el instanceof HTMLSelectElement) && el.disabled) continue;
     if (el.matches(SLIDER)) {
       add('slider', el.querySelector('[data-part="label"]')?.textContent, el.querySelector('[data-part="thumb"]'), el);
     } else if (el.closest(SLIDER) || ['tab', 'radio'].includes(el.getAttribute('role') ?? '')) {
@@ -103,7 +108,10 @@ export function findTarget(block: Element, target: SpotlightTarget): Found | nul
   const controls = controlsIn(block);
   if ('control' in target) {
     const c = target.control;
-    return controls.find((f) => f.kind === c.kind && f.label === c.label && f.nth === c.nth) ?? null;
+    // "Hardness" is "Hardness (auto)" while it's set automatically.
+    const named = (f: Found) => f.label === c.label || f.label.startsWith(`${c.label} (`);
+    const same = controls.filter((f) => f.kind === c.kind && named(f));
+    return same[c.nth] ?? null;
   }
   if ('tab' in target) {
     const name = target.tab.toLowerCase();
@@ -123,7 +131,12 @@ const focusOf = (e: SpotlightEntry | undefined): PanelFocus | null =>
 
 /** How an entry reads in the list: the module, the tabs named, the control. */
 const describe = (e: SpotlightEntry) =>
-  [e.module.title, ...e.views.filter((v) => !v.isDefault || !e.control).map((v) => v.labels[0]), e.control?.label]
+  [
+    e.module.title,
+    ...e.views.filter((v) => !v.isDefault || !e.control).map((v) => v.labels[0]),
+    e.group,
+    e.control?.label,
+  ]
     .filter(Boolean)
     .join(' › ');
 
@@ -162,7 +175,13 @@ export function Spotlight({
     [params, imageFormat],
   );
   const entries = useMemo(
-    () => buildEntries(modules, SPOTLIGHT_VIEWS as Record<string, SpotlightView[]>, seen),
+    () =>
+      buildEntries(
+        modules,
+        SPOTLIGHT_VIEWS as Record<string, SpotlightView[]>,
+        SPOTLIGHT_SLIDERS as Record<string, SpotlightSlider[]>,
+        seen,
+      ),
     [modules, learnt],
   );
   const matches = useMemo(() => rankEntries(query, entries).slice(0, SHOWN), [query, entries]);

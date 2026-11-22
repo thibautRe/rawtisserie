@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { MODULE_KINDS } from '@rawtisserie/pipeline';
+import { MODULE_TITLES } from './changes.ts';
+import { SPOTLIGHT_SLIDERS, SPOTLIGHT_VIEWS } from './panelCatalog.ts';
 import {
   type ControlIndex,
-  type ShownControls,
+  type SpotlightSlider,
   type SpotlightView,
   abbreviationScore,
   buildEntries,
@@ -35,23 +38,29 @@ const views: Record<string, SpotlightView[]> = {
     ...mixerViews.map((v) => ({ ...v, under: { field: 'calibration', value: 'mixer' } })),
   ],
 };
-const sliders = (views: Record<string, string>, ...labels: string[]): [string, ShownControls] => [
-  JSON.stringify(views),
-  { views, controls: labels.map((label) => ({ kind: 'slider' as const, label, nth: 0 })) },
-];
-const index: ControlIndex = new Map([
-  ['m1', new Map([sliders({}, 'Exposure', 'Black level')])],
-  ['m2', new Map([sliders({ calibration: 'illuminant', mixer: 'primaries' }, 'Temperature', 'Gamut compression')])],
-  [
-    'm3',
-    new Map([
-      sliders({ balance: 'master', mixer: 'primaries' }, 'Hue shift', 'Vibrance'),
-      sliders({ balance: 'mixer', mixer: 'primaries' }, 'Temperature', 'Blue hue', 'Blue purity'),
-    ]),
+const staticSliders: Record<string, SpotlightSlider[]> = {
+  exposure: [{ label: 'Exposure' }, { label: 'Black level' }],
+  colorCalibration: [
+    { label: 'Temperature', views: { calibration: 'illuminant' } },
+    { label: 'Gamut compression', views: { calibration: 'illuminant' } },
+    { label: 'Blue hue', views: { calibration: 'mixer', mixer: 'primaries' } },
   ],
-  ['m4', new Map([sliders({}, 'White relative exposure', 'Contrast', 'Toe', 'Shoulder')])],
+  colorBalance: [
+    { label: 'Hue shift', views: { balance: 'master' } },
+    { label: 'Vibrance', views: { balance: 'master' } },
+    { label: 'Shadows', group: 'Chroma', nth: 0, views: { balance: 'master' } },
+    { label: 'Shadows', group: 'Saturation', nth: 1, views: { balance: 'master' } },
+    { label: 'Temperature', views: { balance: 'mixer' } },
+    { label: 'Blue hue', views: { balance: 'mixer', mixer: 'primaries' } },
+    { label: 'Blue purity', views: { balance: 'mixer', mixer: 'primaries' } },
+  ],
+  filmic: ['White relative exposure', 'Contrast', 'Toe', 'Shoulder'].map((label) => ({ label })),
+};
+// Buttons and selects come from the page.
+const index: ControlIndex = new Map([
+  ['m4', new Map([['{}', { views: {}, controls: [{ kind: 'button' as const, label: 'Auto-tune filmic', nth: 0 }] }]])],
 ]);
-const entries = buildEntries(modules, views, index);
+const entries = buildEntries(modules, views, staticSliders, index);
 const top = (q: string) => {
   const e = rankEntries(q, entries)[0]?.entry;
   return e && [e.module.id, ...e.views.map((v) => v.value), e.control?.label ?? ''].join(' ').trim();
@@ -90,4 +99,32 @@ test('a control without its module, the nearest first', () => {
     ['m2', 'm3'],
   );
   assert.equal(top('vib'), 'm3 master Vibrance');
+  assert.equal(top('fiauto'), 'm4 Auto-tune filmic');
+});
+
+test('sliders known up front: on tabs never shown, and named by their group', () => {
+  assert.equal(top('ccblue'), 'm2 mixer primaries Blue hue');
+  assert.equal(top('ccbh'), 'm2 mixer primaries Blue hue');
+  assert.equal(top('cbsatsh'), 'm3 master Shadows');
+  const e = rankEntries('cbsatsh', entries)[0]!.entry;
+  assert.deepEqual(e.control, { kind: 'slider', label: 'Shadows', nth: 1 });
+  assert.deepEqual(rankEntries('cbchsh', entries)[0]!.entry.control, { kind: 'slider', label: 'Shadows', nth: 0 });
+});
+
+test('in the real catalogue, every slider typed out in full comes first', () => {
+  const all = buildEntries(
+    MODULE_KINDS.map((kind) => ({ id: kind, kind, title: MODULE_TITLES[kind] })),
+    SPOTLIGHT_VIEWS as Record<string, SpotlightView[]>,
+    SPOTLIGHT_SLIDERS as Record<string, SpotlightSlider[]>,
+    new Map([
+      [
+        'exposure',
+        new Map([['{}', { views: {}, controls: [{ kind: 'button' as const, label: 'Reset Exposure', nth: 0 }] }]]),
+      ],
+    ]),
+  );
+  const sliders = all.filter((e) => e.control?.kind === 'slider');
+  assert.ok(sliders.length > 150, `${sliders.length} sliders`);
+  const wrong = sliders.filter((e) => rankEntries(e.words.join(''), all)[0]?.entry !== e).map((e) => e.words.join(' '));
+  assert.deepEqual(wrong, []);
 });
