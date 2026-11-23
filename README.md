@@ -1,3 +1,5 @@
+<div align="center">
+
 # 🍗 RAWtisserie
 
 **From raw to well done.**
@@ -5,7 +7,11 @@
 RAWtisserie is a photo library and RAW developer that runs in your browser, inspired by
 [Ansel](https://ansel.photos) and [darktable](https://www.darktable.org).
 
+</div>
+
 ![The developer: scopes and history on the left, the photo in the middle, modules on the right, the film roll along the bottom](docs/images/developer.jpg)
+
+## Features
 
 - **Library**: import RAW files and images, then filter, rate, tag and cull them. Originals
   are never modified.
@@ -16,8 +22,7 @@ RAWtisserie is a photo library and RAW developer that runs in your browser, insp
   the same module to render previews. `/develop` works without an account, and nothing
   is uploaded.
 
-More in [the feature list](docs/guide/features.md) and the
-[keyboard shortcuts](docs/guide/keyboard-shortcuts.md).
+More in the [user guide](docs/guide/README.md).
 
 ## Getting started
 
