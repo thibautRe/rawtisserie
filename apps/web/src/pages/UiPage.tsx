@@ -1071,7 +1071,7 @@ const TRANSFER_TOASTS = [
 const IMPORT_REVIEWS: [string, Review][] = [
   ['Review: looking through', { phase: 'scanning', label: 'DCIM', progress: { step: 'listing', found: 2140 } }],
   ['Review: reading tags', { phase: 'scanning', label: null, progress: { step: 'reading', done: 1873, total: 5936 } }],
-  ['Review: a card', sampleReview(412, 380, 415)],
+  ['Review: a card', sampleReview(412, 380, 415, 0, 0, 12)],
   ['Review: RAW + JPEG', sampleReview(212, 0, 3, 212)],
   ['Review: nothing new', sampleReview(24, 24, 0)],
   ['Review: darktable edits', sampleReview(36, 0, 0, 0, 30)],

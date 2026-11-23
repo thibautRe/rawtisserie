@@ -11,7 +11,7 @@ import {
   Stack,
   Text,
 } from '@chakra-ui/react';
-import { Ban, Copy, FileImage, FolderMinus, Image, SlidersHorizontal, Tags } from 'lucide-react';
+import { Ban, Copy, FileImage, FolderMinus, Image, SlidersHorizontal, Tags, Trash2 } from 'lucide-react';
 import { IMPORT_APP_NAMES, type ImportApp } from '@rawtisserie/pipeline';
 import { type ReactNode, useRef } from 'react';
 import { formatBytes } from '../lib/format.ts';
@@ -19,6 +19,7 @@ import type { CaptureTime } from './captureTime.ts';
 import type { FileTags } from './fileTags.ts';
 import { ImportCollections } from './ImportCollections.tsx';
 import { type Sorting, defaultSorting } from './importCollections.ts';
+import type { Known } from './imports.ts';
 import { type Picked, type PickedFile, isRaw, withPairs } from './pickedFiles.ts';
 
 /**
@@ -40,7 +41,7 @@ export type Review =
   | {
       phase: 'ready';
       picked: Picked;
-      known: ReadonlySet<PickedFile>;
+      known: Known;
       includePairs: boolean;
       importEdits: boolean;
       /** What the photos get from their files (`readFileTags`). */
@@ -58,11 +59,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 const bytes = (files: readonly PickedFile[]) => formatBytes(files.reduce((s, f) => s + f.file.size, 0));
 
 /** The counts the review shows (`picked` with the pairs it imports, if any, in its files). */
-export function reviewCounts(
-  picked: Picked,
-  known: ReadonlySet<PickedFile>,
-  fileTags: ReadonlyMap<PickedFile, FileTags> = new Map(),
-) {
+export function reviewCounts(picked: Picked, known: Known, fileTags: ReadonlyMap<PickedFile, FileTags> = new Map()) {
   const fresh = picked.files.filter((f) => !known.has(f));
   const raw = picked.files.filter((f) => isRaw(f.path));
   const images = picked.files.filter((f) => !isRaw(f.path));
@@ -76,12 +73,14 @@ export function reviewCounts(
     const apps = new Set([t?.edits?.app, ...(t?.duplicates ?? []).map((d) => d.edits?.app)]);
     for (const app of apps) if (app) edited.set(app, (edited.get(app) ?? 0) + 1);
   }
-  return { raw, images, fresh, known: picked.files.length - fresh.length, tagged, edited, duplicates };
+  const trashed = picked.files.filter((f) => known.get(f) === 'trash').length;
+  const inLibrary = picked.files.length - fresh.length - trashed;
+  return { raw, images, fresh, known: inLibrary, trashed, tagged, edited, duplicates };
 }
 
 /**
  * Before anything is sent: how many RAW files and images were found, how many the
- * library has already (by name, size and date), and how many are new. JPEGs next to
+ * library or the trash has already (by name, size and date), and how many are new. JPEGs next to
  * their RAW files are left out unless asked for. Open while `review` is non-null; the
  * last one stays while it closes.
  */
@@ -186,6 +185,11 @@ export function ReviewBody({
           {counts.known.toLocaleString()} already in your library
         </Line>
       )}
+      {counts.trashed > 0 && (
+        <Line icon={<Trash2 size={14} />} muted>
+          {counts.trashed.toLocaleString()} in your trash (restore them from there)
+        </Line>
+      )}
       {counts.tagged > 0 && (
         <Line icon={<Tags size={14} />} muted>
           {plural(counts.tagged, 'new photo')} with tags, ratings or labels from their files
@@ -265,10 +269,11 @@ export function ReviewBody({
 }
 
 /**
- * A review of `n` files from a card, `known` of them in the library already, with
+ * A review of `n` files from a card, `known` of them in the library already (and
+ * `trashed` after them in the trash), with
  * `pairs` JPEGs next to their RAWs and `edited` new ones with darktable edits (for `/ui`).
  */
-export function sampleReview(n: number, known: number, ignored: number, pairs = 0, edited = 0): Review {
+export function sampleReview(n: number, known: number, ignored: number, pairs = 0, edited = 0, trashed = 0): Review {
   const files = Array.from({ length: n }, (_, i) => ({
     path: `DCIM/100MSDCF/DSC0${1000 + i}.ARW`,
     file: new File([], `DSC0${1000 + i}.ARW`),
@@ -284,16 +289,20 @@ export function sampleReview(n: number, known: number, ignored: number, pairs = 
   const times = new Map(
     files.map((f, i) => [f, `2026-11-${i < n / 2 ? '09' : '10'}T${String(18 + (i % 4)).padStart(2, '0')}:00:00`]),
   );
+  const fresh = known + trashed;
   return {
     phase: 'ready',
     picked: { files, pairs: jpegs, sidecars: [], refused: [], ignored, label: 'DCIM' },
-    known: new Set(files.slice(0, known)),
+    known: new Map([
+      ...files.slice(0, known).map((f) => [f, 'library'] as const),
+      ...files.slice(known, known + trashed).map((f) => [f, 'trash'] as const),
+    ]),
     includePairs: false,
     importEdits: true,
     fileTags: new Map([
-      ...files.slice(known, known + pairs).map((f): [PickedFile, FileTags] => [f, { tags: ['Holidays'] }]),
+      ...files.slice(fresh, fresh + pairs).map((f): [PickedFile, FileTags] => [f, { tags: ['Holidays'] }]),
       ...files
-        .slice(known, known + edited)
+        .slice(fresh, fresh + edited)
         .map((f, i): [PickedFile, FileTags] => [
           f,
           { edits: { app: 'darktable', text: '' }, ...(i % 3 === 0 && { duplicates: [{ rating: 3 }] }) },

@@ -258,7 +258,7 @@ const READS = 8;
 /**
  * What each photo picked (files and pairs) gets from its files: its sidecars first, then
  * what it carries itself (images), then, for a RAW file, the JPEGs next to it. Only
- * photos that get something are in the map. Photos in `skip` (the library has them)
+ * photos that get something are in the map. Photos in `skip` (the user has them)
  * aren't read; `progress.done` counts the photos read, out of `photosToRead`. Stops
  * reading when `signal` aborts (what it has then is all it gives).
  */
@@ -268,7 +268,7 @@ export async function readFileTags(
     skip,
     progress,
     signal,
-  }: { skip?: ReadonlySet<PickedFile>; progress?: { done: number }; signal?: AbortSignal } = {},
+  }: { skip?: { has(f: PickedFile): boolean }; progress?: { done: number }; signal?: AbortSignal } = {},
 ): Promise<Map<PickedFile, FileTags>> {
   const embedded = new Map<PickedFile, Promise<FileTags>>();
   const own = (f: PickedFile) => {
@@ -308,5 +308,5 @@ export async function readFileTags(
 }
 
 /** The photos `readFileTags` reads (files and pairs, but those in `skip`). */
-export const photosToRead = (picked: Picked, skip?: ReadonlySet<PickedFile>) =>
+export const photosToRead = (picked: Picked, skip?: { has(f: PickedFile): boolean }) =>
   [...picked.files, ...picked.pairs].filter((f) => !skip?.has(f));

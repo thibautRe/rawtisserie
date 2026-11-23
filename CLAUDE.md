@@ -73,7 +73,8 @@ See README.md for the architecture overview and commands.
   unless uploaded with `allowDeleted`, as is a file whose versions are all in the trash
   (taken anyway, it gets a new version). The upload route checks all of it again.
   Every import is reviewed first (`ImportReview`): `findKnown` asks by name, size and
-  modification time (`photos.file_modified_at`), without hashing. The review also reads
+  modification time (`photos.file_modified_at`), without hashing; files it finds in the
+  library or the trash are skipped without being read, hashed or sent. The review also reads
   tags, rating and label from the files' XMP/IPTC and `.xmp` sidecars (`fileTags.ts`; a
   RAW file also gets its JPEG's), sent with the upload for the new version. The app uploads in
   chunks (`photos/uploads.ts`: `/api/uploads`, resumable, taken in by `ingestReceived`

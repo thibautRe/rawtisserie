@@ -103,6 +103,8 @@ const IMPORTS = [1, 2, 3, 4].map((n) => ({
 let knownHashes: Record<string, { status: string; filename: string }> = {};
 /** File names `/api/photos/check` finds by name, size and date. */
 let knownNames = new Set<string>();
+/** Those it finds only in the trash. */
+let trashedNames = new Set<string>();
 let failUploads = new Set<string>();
 /** Completing uploads waits for this, when set (an import to interrupt). */
 let holdCompletes: Promise<void> | null = null;
@@ -188,6 +190,7 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   flaky = new Set();
   knownHashes = {};
   knownNames = new Set();
+  trashedNames = new Set();
   failUploads = new Set();
   received = new Map();
   cutChunks = new Set();
@@ -209,7 +212,13 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
       };
       return json({
         files: hashes.filter((h) => knownHashes[h]).map((h) => ({ sha256: h, ...knownHashes[h] })),
-        named: files.flatMap((f, index) => (knownNames.has(f.name) ? [{ index, status: 'library' }] : [])),
+        named: files.flatMap((f, index) =>
+          knownNames.has(f.name)
+            ? [{ index, status: 'library' }]
+            : trashedNames.has(f.name)
+              ? [{ index, status: 'trash' }]
+              : [],
+        ),
       });
     }
     if (path === '/api/uploads' && method === 'POST') {
@@ -975,6 +984,48 @@ test("a card: its folders walked through, what the library has, JPEGs next to th
   ]);
   assert.equal(typeof sentFiles[0]!.modified, 'number');
   await done.getByRole('button', { name: 'Close' }).click();
+});
+
+test('a file in the trash is skipped before anything is read or sent, and uploaded anyway when asked', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = join(await mkdtemp(join(tmpdir(), 'trashed-')), 'Shoot');
+  await mkdir(dir);
+  for (const [name, n] of [
+    ['A.ARW', 1],
+    ['B.ARW', 2],
+  ] as const)
+    await writeFile(join(dir, name), Buffer.alloc(1024, n));
+  trashedNames = new Set(['B.ARW']);
+  await page.locator('input[type=file][webkitdirectory]').setInputFiles(dir);
+
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  assert.match(await review.innerText(), /1 in your trash/);
+  await review.getByRole('button', { name: 'Import 1 photo' }).click();
+  const done = page.locator('[data-import-state=done]');
+  await done.waitFor({ timeout: 20_000 });
+  assert.match(await done.innerText(), /1 file you deleted before/);
+  // Not hashed and asked about either: only the new one was.
+  const asked = sent.filter((s) => s.path === '/api/photos/check' && (s.body as { hashes?: unknown }).hashes);
+  assert.equal(asked.flatMap((s) => (s.body as { hashes: string[] }).hashes).length, 1);
+  assert.deepEqual(
+    started().map((u) => u.name),
+    ['A.ARW'],
+  );
+  await done.getByRole('button', { name: 'Upload anyway' }).click();
+  await done.getByText(/2 photos imported|Imported 2/).waitFor({ timeout: 20_000 });
+  assert.deepEqual(
+    started().map((u) => [u.name, (u as { allowDeleted?: boolean }).allowDeleted]),
+    [
+      ['A.ARW', false],
+      ['B.ARW', true],
+    ],
+  );
+  await page.locator('[data-import-state=done]').getByRole('button', { name: 'Close' }).click();
 });
 
 /** A RAW-like TIFF file with an EXIF capture time (`2026:11:09 22:10:00`). */

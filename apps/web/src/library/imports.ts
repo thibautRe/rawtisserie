@@ -122,13 +122,14 @@ export interface ImportDeps {
 /**
  * Import what was picked: added to the run still going, if any (same id), else a new
  * run. Returns the run's id. `known` (from `findKnown`) are listed as already in the
- * library, without being hashed or sent. `fileTags` (`readFileTags`) go to the versions
+ * library or in the trash, without being hashed or sent (those in the trash can be,
+ * with Upload anyway). `fileTags` (`readFileTags`) go to the versions
  * created, and the photos to their `collections` (`planCollections`).
  */
 export function startImport(
   picked: Picked,
   deps: ImportDeps,
-  known: ReadonlySet<PickedFile> = new Set(),
+  known: Known = new Map(),
   from: PickedFrom = { kind: picked.label ? 'folder' : 'files', handles: null },
   fileTags: ReadonlyMap<PickedFile, FileTags> = new Map(),
   collections: ReadonlyMap<PickedFile, string[]> = new Map(),
@@ -148,8 +149,11 @@ export function startImport(
   const items = picked.files.map((f): ImportItem => {
     const key = crypto.randomUUID();
     const item = { key, name: f.file.name, path: f.path, size: f.file.size, modified: f.file.lastModified, sent: 0 };
-    if (known.has(f)) return { ...item, status: 'skipped', kind: 'duplicate', reason: 'Already in your library' };
+    if (known.get(f) === 'library')
+      return { ...item, status: 'skipped', kind: 'duplicate', reason: 'Already in your library' };
     files.set(key, f.file);
+    // Kept to upload anyway (`uploadDeleted`): it gets no tags from its files then.
+    if (known.get(f) === 'trash') return { ...item, status: 'skipped', kind: 'deleted', reason: 'In your trash' };
     const tags = fileTags.get(f);
     const collection = collections.get(f);
     return { ...item, status: 'waiting', ...(tags && { fileTags: tags }), ...(collection && { collection }) };
@@ -395,13 +399,16 @@ async function checkHashes(hashes: string[]): Promise<Map<string, KnownStatus>> 
 /** Most files asked about at once by name. */
 const NAMED_BATCH = 5000;
 
+/** Files the user has already: in the library, or only in the trash. */
+export type Known = ReadonlyMap<PickedFile, 'library' | 'trash'>;
+
 /**
- * The files the library has already, found by name, size and modification time (no
- * hashing: see `/api/photos/check`). Those only in the trash aren't: they're hashed,
- * then skipped like files deleted for good (to upload anyway). If the server can't be asked, none are (hashing still finds them).
+ * The files the user has already, found by name, size and modification time (no
+ * hashing: see `/api/photos/check`). If the server can't be asked, none are (hashing
+ * still finds them).
  */
-export async function findKnown(list: readonly PickedFile[]): Promise<Set<PickedFile>> {
-  const known = new Set<PickedFile>();
+export async function findKnown(list: readonly PickedFile[]): Promise<Known> {
+  const known = new Map<PickedFile, 'library' | 'trash'>();
   for (let at = 0; at < list.length; at += NAMED_BATCH) {
     const batch = list.slice(at, at + NAMED_BATCH);
     const res = await fetch('/api/photos/check', {
@@ -414,7 +421,7 @@ export async function findKnown(list: readonly PickedFile[]): Promise<Set<Picked
     }).catch(() => null);
     if (!res?.ok) return known;
     const { named } = (await res.json()) as { named: { index: number; status: 'library' | 'trash' }[] };
-    for (const n of named) if (n.status === 'library') known.add(batch[n.index]!);
+    for (const n of named) known.set(batch[n.index]!, n.status);
   }
   return known;
 }
