@@ -1,6 +1,8 @@
 # RAWtisserie — notes for contributors
 
-See README.md for the architecture overview and commands.
+See README.md for commands, docs/ARCHITECTURE.md for the architecture overview and
+docs/MODULES.md for the image modules. User-facing docs (the seed of a future
+documentation site) are in docs/guide/.
 
 - **Edit params exist twice**: `crates/pipeline/src/params.rs` (source of truth) and
   `packages/pipeline/src/params.ts`. Change both together. `npm test -w @rawtisserie/pipeline`
