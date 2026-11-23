@@ -21,6 +21,7 @@ import { fits, quotaExceeded, storageUsage } from '../accounts/quota.ts';
 import { currentUser, requireUser } from '../auth/routes.ts';
 import { config } from '../config.ts';
 import { HttpError } from '../errors.ts';
+import { RATE_LIMITS } from '../limits.ts';
 import { db, sql, uploads, versions } from '../db.ts';
 import type Uploads from '../__generated__/uploads.ts';
 import type Versions from '../__generated__/versions.ts';
@@ -117,6 +118,8 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
   app.addHook('preHandler', requireUser);
   // Chunks are read as a stream, counted as they come (`MAX_CHUNK`).
   app.addContentTypeParser('application/octet-stream', (_req, payload, done) => done(null, payload));
+  // Not the API's limit: an import's requests come as fast as the files are read.
+  const limited = { config: { rateLimit: RATE_LIMITS.uploads } };
 
   const find = async (ownerId: string, id: string): Promise<Uploads> => {
     const row = z.uuid().safeParse(id).success ? await uploads(db).findOne({ id, owner_id: ownerId }) : null;
@@ -133,7 +136,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
    * Start an upload: `{ id }`, or `{ skipped }` (as `POST /api/photos` reports it) when
    * the file can't be taken: not a RAW file, too large, or over the quota.
    */
-  app.post('/api/uploads', async (request, reply) => {
+  app.post('/api/uploads', limited, async (request, reply) => {
     const user = currentUser(request);
     const body = z
       .object({
@@ -188,7 +191,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
   });
 
   /** How much of it the server has. */
-  app.get('/api/uploads/:id', async (request, reply) => {
+  app.get('/api/uploads/:id', limited, async (request, reply) => {
     try {
       const row = await find(currentUser(request).id, (request.params as { id: string }).id);
       return { offset: (await received(row.id)) ?? 0, size: row.size };
@@ -201,7 +204,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
    * The next chunk, at `Upload-Offset` (what the server has: otherwise 409 with the
    * right `offset`). Answers the new offset. A chunk cut short keeps what arrived.
    */
-  app.put('/api/uploads/:id', async (request, reply) => {
+  app.put('/api/uploads/:id', limited, async (request, reply) => {
     const stream = request.body as Readable;
     try {
       const row = await find(currentUser(request).id, (request.params as { id: string }).id);
@@ -235,7 +238,7 @@ export async function uploadRoutes(app: FastifyInstance, { renderQueue }: { rend
   });
 
   /** Take it in, once it's all there: answers like `POST /api/photos`, for this file. */
-  app.post('/api/uploads/:id/complete', async (request, reply) => {
+  app.post('/api/uploads/:id/complete', limited, async (request, reply) => {
     const user = currentUser(request);
     try {
       const row = await find(user.id, (request.params as { id: string }).id);

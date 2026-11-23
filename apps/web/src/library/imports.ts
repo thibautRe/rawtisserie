@@ -436,28 +436,54 @@ const CHUNK = 8 * 1024 * 1024;
 /** Tries of a chunk before the file fails (waiting 1, 2, 4… s in between). */
 const CHUNK_TRIES = 5;
 
+/** Times a request refused for going too fast (429) is tried again before the file fails. */
+const RATE_LIMITED_TRIES = 10;
+
 class UploadError extends Error {
   status: number;
   /** What the server has, when it says (409). */
   offset: number | undefined;
-  constructor(status: number, message: string, offset?: number) {
+  /** How long to wait before trying again, in ms (429, from `retry-after`). */
+  retryAfter: number;
+  constructor(status: number, message: string, offset?: number, retryAfter: string | null = null) {
     super(message);
     this.status = status;
     this.offset = offset;
+    const seconds = Number(retryAfter);
+    this.retryAfter = retryAfter && Number.isFinite(seconds) ? Math.min(Math.max(seconds, 1), 120) * 1000 : 5000;
   }
 }
 
-async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => null)) as (T & { error?: string; offset?: number }) | null;
-  if (!res.ok) throw new UploadError(res.status, json?.error ?? `Upload failed (${res.status})`, json?.offset);
-  return json as T;
+/** `send`, waiting and trying again while the server says it goes too fast (429). */
+async function patiently<T>(send: () => Promise<T>): Promise<T> {
+  for (let tries = 1; ; tries++) {
+    try {
+      return await send();
+    } catch (err) {
+      if (!(err instanceof UploadError) || err.status !== 429 || tries >= RATE_LIMITED_TRIES) throw err;
+      await wait(err.retryAfter);
+    }
+  }
 }
+
+const call = <T>(method: string, url: string, body?: unknown) =>
+  patiently(async () => {
+    const res = await fetch(url, {
+      method,
+      credentials: 'same-origin',
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const json = (await res.json().catch(() => null)) as (T & { error?: string; offset?: number }) | null;
+    if (!res.ok)
+      throw new UploadError(
+        res.status,
+        json?.error ?? `Upload failed (${res.status})`,
+        json?.offset,
+        res.headers.get('retry-after'),
+      );
+    return json as T;
+  });
 
 /** One chunk at `offset`, reporting the bytes sent (XHR: fetch can't). Resolves with the new offset. */
 function putChunk(id: string, offset: number, chunk: Blob, onProgress: (sent: number) => void) {
@@ -471,7 +497,15 @@ function putChunk(id: string, offset: number, chunk: Blob, onProgress: (sent: nu
     xhr.onload = () => {
       const body = xhr.response as { offset?: number; error?: string } | null;
       if (xhr.status >= 200 && xhr.status < 300 && typeof body?.offset === 'number') resolve(body.offset);
-      else reject(new UploadError(xhr.status, body?.error ?? `Upload failed (${xhr.status})`, body?.offset));
+      else
+        reject(
+          new UploadError(
+            xhr.status,
+            body?.error ?? `Upload failed (${xhr.status})`,
+            body?.offset,
+            xhr.getResponseHeader('retry-after'),
+          ),
+        );
     };
     xhr.onerror = () => reject(new UploadError(0, 'Upload failed: the connection was lost'));
     xhr.send(chunk);
@@ -539,7 +573,8 @@ async function upload(file: File, o: UploadOptions): Promise<UploadResult> {
   while (offset < file.size) {
     const from = offset;
     try {
-      offset = await putChunk(id, from, file.slice(from, from + CHUNK), (n) => o.onProgress(from + n));
+      // Refused before any byte is kept: the same chunk again, once allowed.
+      offset = await patiently(() => putChunk(id, from, file.slice(from, from + CHUNK), (n) => o.onProgress(from + n)));
       failures = 0;
     } catch (err) {
       if (!(err instanceof UploadError) || err.status === 404 || err.status === 413) throw err;

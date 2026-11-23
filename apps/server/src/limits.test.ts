@@ -16,6 +16,7 @@ async function setup() {
   app.post('/api/auth/login', { config: { rateLimit: RATE_LIMITS.login } }, async () => 'ok');
   app.get('/api/things', async () => 'ok');
   app.get('/api/file', { config: { rateLimit: false } }, async () => 'ok');
+  app.put('/api/uploads/:id', { config: { rateLimit: RATE_LIMITS.uploads } }, async () => 'ok');
   app.get('/assets/app.js', async () => 'ok');
   return app;
 }
@@ -49,6 +50,20 @@ test('the API is limited per user, files and the web app are not', async () => {
   // Opted out, and not the API.
   assert.equal((await as('alice', '/api/file')()).statusCode, 200);
   assert.equal((await as('alice', '/assets/app.js')()).statusCode, 200);
+});
+
+test("an import's uploads are counted apart from the API, and the API's requests apart from them", async () => {
+  const app = await setup();
+  const as = (method: 'GET' | 'PUT', url: string) => () => app.inject({ method, url, headers: { 'x-user': 'alice' } });
+  const api = await statuses(RATE_LIMITS.api.max + 1, as('GET', '/api/things'));
+  assert.equal(api.at(-1), 429);
+  // The API's budget is spent; uploads still go, up to their own.
+  const chunks = await statuses(RATE_LIMITS.uploads.max + 1, as('PUT', '/api/uploads/1'));
+  assert.equal(chunks.filter((s) => s === 200).length, RATE_LIMITS.uploads.max);
+  const refused = await as('PUT', '/api/uploads/1')();
+  assert.equal(refused.statusCode, 429);
+  // Told when to try again (the app waits that long).
+  assert.ok(Number(refused.headers['retry-after']) > 0);
 });
 
 test('counts stop at their maximum', () => {

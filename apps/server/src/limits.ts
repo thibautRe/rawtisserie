@@ -16,7 +16,8 @@ const HOUR = 60 * MINUTE;
 
 /**
  * Requests per key (the user when signed in, the address otherwise) and window. `api`
- * applies to every route without its own; the others are routes' `config.rateLimit`.
+ * applies to every route without its own; the others are routes' `config.rateLimit`,
+ * each route counted apart (its own store).
  * Behind a proxy, addresses are only right with `TRUST_PROXY` (see `config.ts`).
  */
 export const RATE_LIMITS = {
@@ -32,6 +33,12 @@ export const RATE_LIMITS = {
   reports: { max: 60, timeWindow: MINUTE, keyGenerator: byAddress },
   /** Server-rendered loupe tiles: each one is work for the zoom worker. */
   zoomTiles: { max: 600, timeWindow: MINUTE },
+  /**
+   * Each of the chunked upload's routes (`photos/uploads.ts`), apart from the rest: an
+   * import to a server next door sends files as fast as a card reads (a RAW file is six
+   * requests: 20 a second at 90 MB/s). 8 MiB chunks: 400 MB/s. The app waits when told.
+   */
+  uploads: { max: 3000, timeWindow: MINUTE },
 } as const;
 
 /** How many of each a user may keep. */

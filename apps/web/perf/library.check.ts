@@ -110,6 +110,10 @@ let failUploads = new Set<string>();
 let holdCompletes: Promise<void> | null = null;
 /** Chunks (by their number, from 0) whose connection is cut, once. */
 let cutChunks = new Set<number>();
+/** Chunks refused once for going too fast (429, `retry-after: 1`). */
+let limitedChunks = new Set<number>();
+/** Uploads started that are refused once for going too fast, by file name. */
+let limitedStarts = new Set<string>();
 let chunks = 0;
 /** Uploads started (`/api/uploads`), by id: what's been received. */
 let received = new Map<string, { name: string; size: number; offset: number }>();
@@ -194,6 +198,8 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   failUploads = new Set();
   received = new Map();
   cutChunks = new Set();
+  limitedChunks = new Set();
+  limitedStarts = new Set();
   chunks = 0;
   holdCompletes = null;
   filterPresets = [];
@@ -223,6 +229,8 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
     }
     if (path === '/api/uploads' && method === 'POST') {
       const { name, size } = route.request().postDataJSON() as { name: string; size: number };
+      if (limitedStarts.delete(name))
+        return route.fulfill({ status: 429, headers: { 'retry-after': '1' }, json: { error: 'Rate limit exceeded' } });
       const id = `up-${received.size}`;
       received.set(id, { name, size, offset: 0 });
       return json({ id, offset: 0 });
@@ -231,6 +239,11 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
     if (upload) {
       const u = received.get(upload[1]!)!;
       if (method === 'PUT') {
+        if (limitedChunks.delete(chunks))
+          return (
+            chunks++,
+            route.fulfill({ status: 429, headers: { 'retry-after': '1' }, json: { error: 'Rate limit exceeded' } })
+          );
         if (cutChunks.delete(chunks++)) return route.abort('connectionreset');
         u.offset += route.request().postDataBuffer()!.length;
         return json({ offset: u.offset });
@@ -1132,6 +1145,33 @@ test('a large file goes in chunks, and a lost connection costs one chunk', async
     [20 * 1024 * 1024],
   );
   assert.equal(started().length, 1);
+});
+
+test('requests refused for going too fast wait as told, then go on', async () => {
+  await open('/');
+  await cards().first().waitFor();
+  limitedStarts = new Set(['first.ARW']);
+  limitedChunks = new Set([2]);
+  await page.locator('input[type=file]:not([webkitdirectory])').setInputFiles([
+    { name: 'first.ARW', mimeType: 'application/octet-stream', buffer: Buffer.alloc(1024, 1) },
+    { name: 'second.ARW', mimeType: 'application/octet-stream', buffer: Buffer.alloc(9 * 1024 * 1024, 2) },
+  ]);
+  const review = page.locator('[data-import-review=ready]');
+  await review.waitFor();
+  await review.getByRole('button', { name: 'Import 2 photos' }).click();
+  const done = page.locator('[data-import-state=done]');
+  await done.waitFor({ timeout: 30_000 });
+  assert.match(await done.innerText(), /Imported 2 photos/);
+  // The first file's start asked twice; the second file's last chunk sent twice.
+  assert.deepEqual(
+    started().map((u) => u.name),
+    ['first.ARW', 'first.ARW', 'second.ARW'],
+  );
+  assert.equal(chunks, 4);
+  assert.deepEqual(
+    [...received.values()].map((u) => u.offset),
+    [1024, 9 * 1024 * 1024],
+  );
 });
 
 test('an import interrupted by a reload is offered again, and resumes once its files are picked', async () => {
