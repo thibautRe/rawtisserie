@@ -74,10 +74,21 @@ RAWtisserie would not exist without the work of Aurélien Pierre on
 [darktable](https://www.darktable.org) and [Ansel](https://ansel.photos): its
 scene-referred approach and most of its image modules come from there.
 
-The filmic, colour calibration, colour primaries, contrast equalizer and retouch modules are
-ports of [Ansel](https://ansel.photos)'s `filmicrgb`, `channelmixerrgb`, `colorprimaries`,
-`atrous` and `retouch`/`heal` by Aurélien Pierre and contributors, licensed GPL-3.0-or-later. Lens correction from
-embedded data follows darktable's `lens.cc` (GPL-3.0-or-later). Lens correction profiles
+Ported from [Ansel](https://ansel.photos), by Aurélien Pierre and contributors
+(GPL-3.0-or-later):
+
+- filmic (`filmicrgb`), colour calibration (`channelmixerrgb`), colour balance
+  (`colorbalancergb` and `splittoningrgb`), colour primaries (`colorprimaries`), the tone
+  curve (`rgbcurve`), the contrast equalizer (`atrous`), diffuse or sharpen (`diffuse`)
+  and retouch (`retouch`/`heal`);
+- the RCD and Markesteijn demosaics, and raw denoise (`rawdenoiseai`, its network runtime
+  `nn_model.c` and the [ansel-denoise](https://github.com/aurelienpierreeng/ansel-denoise)
+  models), with darktable and Ansel's camera noise profiles;
+- the blend modes (`blendif_rgb_jzczhz`) and the clipping indicators (`overexposed`).
+
+From [darktable](https://www.darktable.org) (GPL-3.0-or-later): lens correction from
+embedded data (`lens.cc`), creative LUTs (`lut3d`), the export frame (`borders`) and the
+idea behind perspective correction (`ashift`). Lens correction profiles
 come from the [lensfun](https://lensfun.github.io) database (CC BY-SA 3.0,
 `packages/pipeline/lensfun/`, built by `scripts/lensfun-db.mjs`), searched and
 interpolated as lensfun's library does. RAW decoding uses

@@ -114,25 +114,25 @@ written to `target/tmp/golden/`.
 
 The feature roadmap is in [ROADMAP.md](ROADMAP.md).
 
-- Demosaicing is bilinear at full resolution (fine for previews, soft at 100%).
-  RCD/PPG and Markesteijn (X-Trans) would be better.
 - Full-resolution export of very large files (60 MP+) needs a few GB of wasm memory.
   Tiled processing would fix this.
-- The wasm build is single-threaded. wasm threads (SharedArrayBuffer + COOP/COEP) or a
-  native N-API build for the server would speed up cold renders and geometry changes.
+- The wasm build is single-threaded. The developer spreads per-pixel work, diffuse and
+  raw denoise over a pool of workers, but the other spatial stages run on one thread.
+  wasm threads (SharedArrayBuffer + COOP/COEP, roadmap P.5) or a native build for the
+  server would speed up cold renders and geometry changes.
 - The fused per-pixel pass is a natural WebGL/WebGPU fragment shader. Rust would still
-  build the gains and lookup tables, and the GPU would only apply them.
-- Colour balance's ranges are by luminance alone; a guided-filter tone equalizer would
-  preserve local contrast. Its perceptual grading costs ~80 ns/pixel native (see
-  `docs/PERFORMANCE.md`); its mixers alone ~4 ns.
+  build the gains and lookup tables, and the GPU would only apply them (roadmap P.7).
+- Colour balance's perceptual grading costs ~80 ns/pixel native (see
+  [PERFORMANCE.md](PERFORMANCE.md)); its mixers alone ~4 ns.
 - Filmic is the costliest per-pixel stage (~45 ns/pixel interactively, ~80 ns exact).
 - The contrast equalizer is the costliest spatial stage: ~75 ms per megapixel when only
   luminance is edited, about twice that with colour. It re-runs on curve edits; caching
   the bands would make those cheap but costs ~60 MB per megapixel. Zoomed in at 100 %,
   its margin makes the first render of a view take about a second in the browser.
 - Lens correction reads Sony's embedded data and lensfun's database, not yet DNG opcodes or
-  other makers' embedded data. No histogram, denoise or XMP sidecar import/export yet.
+  other makers' embedded data (roadmap 3.10).
+- darktable and Ansel edits are read from XMP sidecars at import only; no sidecars are
+  written.
 - Retouch has no wavelet scales, automatic source search or "visualise spots" view yet.
-- Masks can't pick their ranges from the image yet, and there are no raster (painted or
-  AI) masks.
-- Storage is local disk; the storage module is small enough to swap for S3-compatible storage.
+- Masks can't pick their ranges from the image yet, and have no painted or AI
+  (segmentation) parts; raster masks only reuse another module's mask.
