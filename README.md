@@ -9,7 +9,7 @@ RAWtisserie is a photo library and RAW developer that runs in your browser, insp
 
 </div>
 
-![The developer: scopes and history on the left, the photo in the middle, modules on the right, the film roll along the bottom](docs/images/developer.jpg)
+![The developer: scopes and history on the left, the photo in the middle, modules on the right, the film roll along the bottom](docs/images/developer.avif)
 
 ## Features
 
