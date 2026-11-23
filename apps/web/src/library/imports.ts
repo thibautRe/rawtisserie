@@ -215,7 +215,7 @@ export const subscribeRuns = subscribe;
 /** Send the failed files of a run again. */
 export const retryFailed = (runId: string, deps: ImportDeps) => requeue(runId, (i) => i.status === 'failed', {}, deps);
 
-/** Import the files of a run that were deleted for good before, after all. */
+/** Import the files of a run that were deleted before (for good, or in the trash), after all. */
 export const uploadDeleted = (runId: string, deps: ImportDeps) =>
   requeue(runId, (i) => i.kind === 'deleted', { allowDeleted: true }, deps);
 
@@ -302,11 +302,16 @@ async function process(runId: string, deps: ImportDeps) {
         });
         continue;
       }
-      if (status?.status === 'deleted' && !item.allowDeleted) {
-        updateItem(runId, item.key, { status: 'skipped', kind: 'deleted', reason: 'You deleted this file before' });
+      if ((status?.status === 'deleted' || status?.status === 'trash') && !item.allowDeleted) {
+        updateItem(runId, item.key, {
+          status: 'skipped',
+          kind: 'deleted',
+          // Worded like the server's refusal (`IN_TRASH`).
+          reason: status.status === 'trash' ? 'In your trash' : 'You deleted this file before',
+        });
         continue;
       }
-      // A file only in the trash is stored already, but needs a new version: sent anyway.
+      // A file only in the trash (sent anyway) is stored already: it costs no more storage.
       if (usage && usage.quota !== null && status?.status !== 'trash' && used + item.size > usage.quota) {
         updateItem(runId, item.key, {
           status: 'skipped',
@@ -392,8 +397,8 @@ const NAMED_BATCH = 5000;
 
 /**
  * The files the library has already, found by name, size and modification time (no
- * hashing: see `/api/photos/check`). Those only in the trash aren't: importing them
- * brings them back. If the server can't be asked, none are (hashing still finds them).
+ * hashing: see `/api/photos/check`). Those only in the trash aren't: they're hashed,
+ * then skipped like files deleted for good (to upload anyway). If the server can't be asked, none are (hashing still finds them).
  */
 export async function findKnown(list: readonly PickedFile[]): Promise<Set<PickedFile>> {
   const known = new Set<PickedFile>();

@@ -662,7 +662,7 @@ export async function photoRoutes(
   /**
    * Upload one or more RAW files (multipart/form-data, field name `files`). Each gets one
    * version, marked with `import` (the client's id for this import) when given. A file
-   * deleted for good before is skipped unless `allowDeleted`.
+   * deleted before (for good, or only in the trash) is skipped unless `allowDeleted`.
    */
   app.post('/api/photos', async (request, reply) => {
     const user = currentUser(request);

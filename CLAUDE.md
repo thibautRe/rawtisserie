@@ -70,7 +70,8 @@ See README.md for the architecture overview and commands.
   files are hashed in the browser and checked (`POST /api/photos/check`) before upload,
   versions get the import's id (`import_id`, the library's `?import=` filter), and an
   original deleted for good leaves only its hash in `deleted_originals`, so it's skipped
-  unless uploaded with `allowDeleted`. The upload route checks all of it again.
+  unless uploaded with `allowDeleted`, as is a file whose versions are all in the trash
+  (taken anyway, it gets a new version). The upload route checks all of it again.
   Every import is reviewed first (`ImportReview`): `findKnown` asks by name, size and
   modification time (`photos.file_modified_at`), without hashing. The review also reads
   tags, rating and label from the files' XMP/IPTC and `.xmp` sidecars (`fileTags.ts`; a

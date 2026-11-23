@@ -31,7 +31,10 @@ export type Ingested =
   | { status: 'skipped'; kind: SkipKind; reason: string };
 
 export interface IngestOptions {
-  /** Take it even if it was deleted for good before (then it's no longer remembered). */
+  /**
+   * Take it even if it was deleted before: for good (then it's no longer remembered), or
+   * only into the trash (then it comes back as a new version).
+   */
   allowDeleted: boolean;
   /** Columns of the version created with it (its import, where it came from…). */
   version?: Partial<Versions>;
@@ -58,6 +61,9 @@ export async function ingestFile(
   return ingestReceived(userId, filename, upload, options);
 }
 
+/** Why a file whose versions are all in the trash wasn't taken in (`allowDeleted` takes it). */
+export const IN_TRASH = 'In your trash';
+
 /** Take in a file received already (`upload`, removed from local disk either way). */
 export async function ingestReceived(
   userId: string,
@@ -73,6 +79,7 @@ export async function ingestReceived(
       await photos(db).update({ id: existing.id }, { file_modified_at: modifiedAt });
     const [inLibrary] = await db.query(sql`
       SELECT 1 FROM versions WHERE photo_id = ${existing.id} AND trashed_at IS NULL LIMIT 1`);
+    if (!inLibrary && !allowDeleted) return { status: 'skipped', kind: 'deleted', reason: IN_TRASH };
     return { status: 'existing', photoId: existing.id, filename: existing.original_filename, inLibrary: !!inLibrary };
   }
   if (!allowDeleted) {
@@ -140,8 +147,8 @@ export async function versionFor(
   if (result.status === 'created') return { versionId: result.versionId };
   if (result.inLibrary)
     return { skipped: { filename, kind: 'duplicate', reason: `Already in your library as ${result.filename}` } };
-  // Only in the trash: the file is stored already, so it comes back as a new version
-  // (the trashed ones stay there, to restore or not).
+  // Only in the trash, taken anyway (`allowDeleted`): the file is stored already, so it
+  // comes back as a new version (the trashed ones stay there, to restore or not).
   const [created] = await versions(db).insert({ ...version, photo_id: result.photoId });
   return { versionId: created!.id };
 }
