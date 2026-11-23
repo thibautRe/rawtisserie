@@ -1141,7 +1141,7 @@ interface InstanceView {
   balanceRange: ToneRange;
   /** Angles remembered while their magnitude is zero (see `MIXER_ANGLES`). */
   angles: Record<string, number>;
-  /** The mask editor is open (when the instance has a mask). */
+  /** The mask editor is open (when the instance has a mask): folded until opened, or a mask is added. */
   maskOpen: boolean;
   /** Mask ranges as they were when switched off, to bring back when switched on. */
   maskRanges: Partial<Record<RangeKey, MaskRange>>;
@@ -1160,7 +1160,7 @@ const DEFAULT_VIEW: InstanceView = {
   balance: 'master',
   balanceRange: 'shadows',
   angles: {},
-  maskOpen: true,
+  maskOpen: false,
   maskRanges: {},
 };
 
