@@ -22,6 +22,7 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
   const moveToTrash = useTrashWithUndo();
   const [renaming, setRenaming] = useState(false);
   const index = photo.versions.findIndex((v) => v.id === photo.id);
+  const several = photo.versions.length > 1;
   const label = versionLabel({ name: photo.versionName, index: photo.versionIndex });
 
   const open = (id: string, replace = false) => navigate(`/versions/${id}/develop`, { replace });
@@ -76,26 +77,31 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
         <Portal>
           <Menu.Positioner>
             <Menu.Content minW="64">
-              <Menu.ItemGroup>
-                <Menu.ItemGroupLabel>Versions</Menu.ItemGroupLabel>
-                {photo.versions.map((v) => (
-                  <Menu.Item key={v.id} value={`go:${v.id}`}>
-                    <Box w="8" h="6" flexShrink={0} bg="bg.muted" borderRadius="xs" overflow="hidden">
-                      {v.thumbUrl && <Image src={v.thumbUrl} alt="" w="full" h="full" objectFit="cover" />}
-                    </Box>
-                    <Text flex="1" truncate>
-                      {versionLabel(v)}
-                    </Text>
-                    {v.edited && (
-                      <Text textStyle="2xs" color="fg.subtle">
-                        edited
-                      </Text>
-                    )}
-                    <Box w="4">{v.id === photo.id && <Check size={14} />}</Box>
-                  </Menu.Item>
-                ))}
-              </Menu.ItemGroup>
-              <Menu.Separator />
+              {/* With a single version, there's no other to go to or to move it past. */}
+              {several && (
+                <>
+                  <Menu.ItemGroup>
+                    <Menu.ItemGroupLabel>Versions</Menu.ItemGroupLabel>
+                    {photo.versions.map((v) => (
+                      <Menu.Item key={v.id} value={`go:${v.id}`}>
+                        <Box w="8" h="6" flexShrink={0} bg="bg.muted" borderRadius="xs" overflow="hidden">
+                          {v.thumbUrl && <Image src={v.thumbUrl} alt="" w="full" h="full" objectFit="cover" />}
+                        </Box>
+                        <Text flex="1" truncate>
+                          {versionLabel(v)}
+                        </Text>
+                        {v.edited && (
+                          <Text textStyle="2xs" color="fg.subtle">
+                            edited
+                          </Text>
+                        )}
+                        <Box w="4">{v.id === photo.id && <Check size={14} />}</Box>
+                      </Menu.Item>
+                    ))}
+                  </Menu.ItemGroup>
+                  <Menu.Separator />
+                </>
+              )}
               <Menu.Item value="duplicate">
                 <Copy /> Duplicate
               </Menu.Item>
@@ -105,12 +111,16 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
               <Menu.Item value="rename">
                 <Pencil /> Rename…
               </Menu.Item>
-              <Menu.Item value="earlier" disabled={index <= 0}>
-                <ArrowUp /> Move earlier
-              </Menu.Item>
-              <Menu.Item value="later" disabled={index < 0 || index >= photo.versions.length - 1}>
-                <ArrowDown /> Move later
-              </Menu.Item>
+              {several && (
+                <>
+                  <Menu.Item value="earlier" disabled={index <= 0}>
+                    <ArrowUp /> Move earlier
+                  </Menu.Item>
+                  <Menu.Item value="later" disabled={index < 0 || index >= photo.versions.length - 1}>
+                    <ArrowDown /> Move later
+                  </Menu.Item>
+                </>
+              )}
               <Menu.Separator />
               <Menu.Item value="delete" color="fg.error" _highlighted={{ bg: 'bg.error', color: 'fg.error' }}>
                 <Trash2 /> Move to trash

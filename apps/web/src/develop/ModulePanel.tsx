@@ -367,12 +367,17 @@ const InstanceMenu = memo(
             <Menu.Item value="rename">
               <Pencil /> Rename…
             </Menu.Item>
-            <Menu.Item value="up" disabled={position === 0}>
-              <ArrowUp /> Move up
-            </Menu.Item>
-            <Menu.Item value="down" disabled={position >= count - 1}>
-              <ArrowDown /> Move down
-            </Menu.Item>
+            {/* Alone of its kind, there's nowhere to move it. */}
+            {count > 1 && (
+              <>
+                <Menu.Item value="up" disabled={position === 0}>
+                  <ArrowUp /> Move up
+                </Menu.Item>
+                <Menu.Item value="down" disabled={position >= count - 1}>
+                  <ArrowDown /> Move down
+                </Menu.Item>
+              </>
+            )}
             <Menu.Separator />
             <Menu.Item
               value="delete"
