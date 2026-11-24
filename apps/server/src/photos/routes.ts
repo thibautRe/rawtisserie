@@ -220,7 +220,10 @@ export async function photoRoutes(
 
   // ── Library (versions) ────────────────────────────────────────────────────
 
-  /** A page of the library, and how many of the versions kept don't match the filters. */
+  /**
+   * A page of the library, and how many of the versions kept don't match the filters
+   * (`IS NOT TRUE`, not `NOT`: a filter on a null column, as a flag, is null there).
+   */
   const listPage = async (ownerId: string, q: ListQuery, keep: readonly string[] = []): Promise<VersionPage> => {
     const where = listClause(ownerId, q, keep);
     const [rows, [{ count }], outside] = await Promise.all([
@@ -232,7 +235,7 @@ export async function photoRoutes(
         ? db.query(sql`
             SELECT count(*)::int AS count FROM ${VERSIONS_FROM}
             WHERE p.owner_id = ${ownerId} AND v.trashed_at IS NULL AND v.id = ANY(${keep}::uuid[])
-              AND NOT (${whereClause(ownerId, q)})`)
+              AND (${whereClause(ownerId, q)}) IS NOT TRUE`)
         : null,
     ]);
     return {
