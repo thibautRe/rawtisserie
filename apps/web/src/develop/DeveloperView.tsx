@@ -101,6 +101,7 @@ import { type ZoomLayout, visibleRegion } from './zoom.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { useZoom } from './useZoom.ts';
 import { ImportNotice } from './ImportNotice.tsx';
+import { commandLabel } from '../lib/keys.ts';
 
 interface Props {
   backend: RenderBackend;
@@ -292,10 +293,22 @@ const Toolbar = memo(function Toolbar({
           {exif.join(' · ')}
         </Text>
       </Stack>
-      <IconButton aria-label="Undo (Ctrl+Z)" size="sm" variant="ghost" disabled={!canUndo} onClick={onUndo}>
+      <IconButton
+        aria-label={`Undo (${commandLabel('Ctrl+Z')})`}
+        size="sm"
+        variant="ghost"
+        disabled={!canUndo}
+        onClick={onUndo}
+      >
         <Undo2 />
       </IconButton>
-      <IconButton aria-label="Redo (Ctrl+Shift+Z)" size="sm" variant="ghost" disabled={!canRedo} onClick={onRedo}>
+      <IconButton
+        aria-label={`Redo (${commandLabel('Ctrl+Shift+Z')})`}
+        size="sm"
+        variant="ghost"
+        disabled={!canRedo}
+        onClick={onRedo}
+      >
         <Redo2 />
       </IconButton>
       {styles}
@@ -306,7 +319,7 @@ const Toolbar = memo(function Toolbar({
         loading={exporting}
         loadingText="Exporting…"
         onClick={onExport}
-        title="Export (Ctrl+E)"
+        title={`Export (${commandLabel('Ctrl+E')})`}
       >
         <Download /> Export
       </Button>
@@ -1337,7 +1350,7 @@ export function DeveloperView({
       toaster.create({
         type: 'info',
         title: 'Nothing copied yet',
-        description: 'Copy settings with Ctrl+C',
+        description: `Copy settings with ${commandLabel('Ctrl+C')}`,
         duration: 2500,
       });
       return;

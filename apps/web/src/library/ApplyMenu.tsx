@@ -7,6 +7,7 @@ import { useShiftKey } from '../lib/useShiftKey.ts';
 import { pasteEdit, readClipboard, useClipboard } from '../develop/editClipboard.ts';
 import { ChevronRight, ClipboardPaste, Copy } from 'lucide-react';
 import { type BatchEdit, presetEdit, styleEdit } from './batchEdit.ts';
+import { commandLabel } from '../lib/keys.ts';
 
 /**
  * Apply a style or a module preset to the selected versions (roadmap 8.1). A style
@@ -148,7 +149,7 @@ export function ApplyMenu({
                 <Menu.ItemGroup>
                   {onCopy && (
                     <Menu.Item value="copy">
-                      <Copy /> Copy settings… <Menu.ItemCommand>Ctrl+Shift+C</Menu.ItemCommand>
+                      <Copy /> Copy settings… <Menu.ItemCommand>{commandLabel('Ctrl+Shift+C')}</Menu.ItemCommand>
                     </Menu.Item>
                   )}
                   {clipboard && (
@@ -157,7 +158,7 @@ export function ApplyMenu({
                       <Text flex="1" truncate maxW="48">
                         Paste from {clipboard.source}
                       </Text>
-                      <Menu.ItemCommand>Ctrl+V</Menu.ItemCommand>
+                      <Menu.ItemCommand>{commandLabel('Ctrl+V')}</Menu.ItemCommand>
                     </Menu.Item>
                   )}
                 </Menu.ItemGroup>

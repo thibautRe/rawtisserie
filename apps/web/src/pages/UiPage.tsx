@@ -52,6 +52,7 @@ import { type ImportRun, sampleRun } from '../library/imports.ts';
 import type { ColorLabel, Flag, Photo, Transfer } from '@rawtisserie/api';
 import { PhotoCard } from '../library/PhotoCard.tsx';
 import { FilmRoll } from '../library/FilmRoll.tsx';
+import { commandLabel } from '../lib/keys.ts';
 
 /**
  * Sets the colour mode on the whole document (menus and popovers are portalled out of
@@ -666,7 +667,7 @@ export function UiPage() {
                         <Menu.Positioner>
                           <Menu.Content>
                             <Menu.Item value="duplicate">
-                              Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
+                              Duplicate <Menu.ItemCommand>{commandLabel('Ctrl+D')}</Menu.ItemCommand>
                             </Menu.Item>
                             <Menu.Item value="rename">Rename…</Menu.Item>
                             <Menu.Separator />

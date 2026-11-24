@@ -68,6 +68,7 @@ import { useEditPreview } from './useEditPreview.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { TAG_INPUT_ID, useTagCompletion } from './TagCompletion.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
+import { commandLabel } from '../lib/keys.ts';
 
 export const PANEL_PROPS = { as: 'aside', w: '80', flexShrink: 0, borderLeftWidth: '1px' } as const;
 
@@ -142,10 +143,10 @@ export function DuplicateMenu({
         <Menu.Positioner>
           <Menu.Content>
             <Menu.Item value="copy">
-              Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
+              Duplicate <Menu.ItemCommand>{commandLabel('Ctrl+D')}</Menu.ItemCommand>
             </Menu.Item>
             <Menu.Item value="original">
-              Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
+              Duplicate from original <Menu.ItemCommand>{commandLabel('Ctrl+Shift+D')}</Menu.ItemCommand>
             </Menu.Item>
           </Menu.Content>
         </Menu.Positioner>
@@ -173,9 +174,9 @@ export function InfoPanel({
         <Text>Select a photo to see and edit its metadata.</Text>
         <Text textStyle="xs">
           Shortcuts: <b>0–5</b> rate · <b>P</b> pick · <b>X</b> reject · <b>U</b> unflag · <b>6–9</b> labels · <b>T</b>{' '}
-          tag · <b>D</b> develop · <b>Ctrl+D</b> duplicate · <b>Ctrl+C</b>/<b>Ctrl+V</b> copy and paste settings ·{' '}
-          <b>Ctrl+E</b> export · <b>Del</b> move to trash · arrows to move. Tags get shortcuts of their own:{' '}
-          <b>Edit…</b> in a tag’s menu, in the filters.
+          tag · <b>D</b> develop · <b>{commandLabel('Ctrl+D')}</b> duplicate · <b>{commandLabel('Ctrl+C')}</b>/
+          <b>{commandLabel('Ctrl+V')}</b> copy and paste settings · <b>{commandLabel('Ctrl+E')}</b> export · <b>Del</b>{' '}
+          move to trash · arrows to move. Tags get shortcuts of their own: <b>Edit…</b> in a tag’s menu, in the filters.
         </Text>
       </Stack>
     );
@@ -442,7 +443,7 @@ function SinglePanel({
                     <Aperture /> Develop <Menu.ItemCommand>D</Menu.ItemCommand>
                   </Menu.Item>
                   <Menu.Item value="export">
-                    <ImageDown /> Export… <Menu.ItemCommand>Ctrl+E</Menu.ItemCommand>
+                    <ImageDown /> Export… <Menu.ItemCommand>{commandLabel('Ctrl+E')}</Menu.ItemCommand>
                   </Menu.Item>
                   <Menu.Item value="download" asChild>
                     <a href={photo.originalUrl} download>
@@ -460,10 +461,11 @@ function SinglePanel({
                     <Palette /> Apply a preset or style
                   </ApplyMenu>
                   <Menu.Item value="duplicate">
-                    <Copy /> Duplicate <Menu.ItemCommand>Ctrl+D</Menu.ItemCommand>
+                    <Copy /> Duplicate <Menu.ItemCommand>{commandLabel('Ctrl+D')}</Menu.ItemCommand>
                   </Menu.Item>
                   <Menu.Item value="original">
-                    <CopyPlus /> Duplicate from original <Menu.ItemCommand>Ctrl+Shift+D</Menu.ItemCommand>
+                    <CopyPlus /> Duplicate from original{' '}
+                    <Menu.ItemCommand>{commandLabel('Ctrl+Shift+D')}</Menu.ItemCommand>
                   </Menu.Item>
                   <Menu.Item value="collection">
                     <FolderInput /> Move to collection…
@@ -939,7 +941,7 @@ function BulkPanel({
             <Palette /> Apply a preset or style to {n}
           </Button>
         </ApplyMenu>
-        <Button size="xs" variant="outline" onClick={onExport} title="Export (Ctrl+E)">
+        <Button size="xs" variant="outline" onClick={onExport} title={`Export (${commandLabel('Ctrl+E')})`}>
           <ImageDown /> Export {photoCount(count)}
         </Button>
         <DuplicateMenu onDuplicate={onDuplicate}>

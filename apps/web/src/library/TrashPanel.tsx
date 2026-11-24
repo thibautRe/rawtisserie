@@ -6,6 +6,7 @@ import { deletedIn } from '../components/trashText.ts';
 import { formatBytes, formatDateTime, versionLabel } from '../lib/format.ts';
 import { CaptureDetails, PANEL_PROPS } from './InfoPanel.tsx';
 import { BLOCKS_PROPS, PanelBlock } from './PanelBlock.tsx';
+import { commandLabel } from '../lib/keys.ts';
 
 interface Props {
   selected: TrashItem[];
@@ -30,7 +31,8 @@ export function TrashPanel({ selected, total, bytes, days, onRestore, onDelete }
           towards your storage.
         </Text>
         <Text textStyle="xs">
-          Shortcuts: <b>Space</b> view · <b>Ctrl+A</b> select all · <b>Del</b> delete permanently · arrows to move
+          Shortcuts: <b>Space</b> view · <b>{commandLabel('Ctrl+A')}</b> select all · <b>Del</b> delete permanently ·
+          arrows to move
         </Text>
       </Stack>
     );

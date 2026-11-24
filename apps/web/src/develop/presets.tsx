@@ -53,6 +53,7 @@ import { ManagerDialog } from './ManagerDialog.tsx';
 import { MenuThumbnail } from './thumbnails.tsx';
 import { instanceTitle } from './changes.ts';
 import { useStableCallback } from './useStableCallback.ts';
+import { commandLabel } from '../lib/keys.ts';
 
 export const NO_PRESETS: readonly ModulePreset[] = [];
 const NO_STYLES: readonly Style[] = [];
@@ -760,14 +761,14 @@ export const StyleMenu = memo(function StyleMenu({
               )}
               {styles.length > 0 && <Menu.Separator />}
               <Menu.Item value="copy">
-                <Copy /> Copy settings… <Menu.ItemCommand>Ctrl+Shift+C</Menu.ItemCommand>
+                <Copy /> Copy settings… <Menu.ItemCommand>{commandLabel('Ctrl+Shift+C')}</Menu.ItemCommand>
               </Menu.Item>
               <Menu.Item value="paste" disabled={!paste}>
                 <ClipboardPaste />
                 <Text flex="1" truncate maxW="48">
                   {paste ? `Paste from ${paste}` : 'Paste'}
                 </Text>
-                <Menu.ItemCommand>Ctrl+V</Menu.ItemCommand>
+                <Menu.ItemCommand>{commandLabel('Ctrl+V')}</Menu.ItemCommand>
               </Menu.Item>
               <Menu.Separator />
               <Menu.Item value="create">

@@ -23,6 +23,7 @@ import { TileLoader } from './tileLoader.ts';
 import { useTagShortcuts } from './useTagShortcuts.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { displayTag } from '../lib/tags.ts';
+import { commandLabel } from '../lib/keys.ts';
 
 interface Props {
   /** What the library lists now (it may have dropped photos rated out of its filters). */
@@ -35,6 +36,8 @@ interface Props {
   total?: number;
   /** Rate, flag or label a photo (none: the loupe only shows them, as in the trash). */
   onChange?: (id: string, patch: BulkPatch) => void;
+  /** Paste the copied settings onto a photo (Ctrl+V; with Shift, appending every module). */
+  onPaste?: (id: string, appendAll: boolean) => void;
   /** Closed on this photo. */
   onClose: (id: string) => void;
   onDevelop?: (id: string) => void;
@@ -46,6 +49,8 @@ interface Props {
 
 /** How long a photo must stay before its zoom levels are asked (which decodes it on the server). */
 const ZOOM_INFO_DELAY_MS = 300;
+/** The previews loaded ahead, relative to the photo shown (culling mostly goes forward). */
+const PRELOAD = [1, 2, 3, -1];
 /** Load the next page once the loupe is this close to the end of the list. */
 const LOAD_MORE_AHEAD = 5;
 
@@ -65,6 +70,7 @@ export function Loupe({
   offset: offsetNow = 0,
   total,
   onChange,
+  onPaste,
   onClose,
   onDevelop,
   onShow,
@@ -119,17 +125,40 @@ export function Loupe({
     else forceRender();
   };
 
-  // Preload the neighbours' previews.
+  // Preload (and decode) the next previews and the one before, and note their sizes:
+  // the stage is laid out from them, so a photo shown before its own `onLoad` would
+  // otherwise leave it hidden (black) for a moment.
+  const sizes = useRef(new Map<string, { url: string; width: number; height: number }>());
+  const preloads = useRef(new Map<string, HTMLImageElement>());
   useEffect(() => {
-    const images = [1, -1, 2].flatMap((d) => {
-      const url = seen.current.get(order[index + d] ?? '')?.previewUrl;
-      if (!url) return [];
+    const wanted = new Map<string, string>();
+    for (const d of PRELOAD) {
+      const p = seen.current.get(order[index + d] ?? '');
+      if (p?.previewUrl && sizes.current.get(p.id)?.url !== p.previewUrl) wanted.set(p.previewUrl, p.id);
+    }
+    for (const [url, img] of preloads.current) {
+      if (wanted.has(url)) continue;
+      img.src = '';
+      preloads.current.delete(url);
+    }
+    for (const [url, photoId] of wanted) {
+      if (preloads.current.has(url)) continue;
       const img = new window.Image();
       img.src = url;
-      return [img];
-    });
-    return () => images.forEach((img) => (img.src = ''));
+      preloads.current.set(url, img);
+      img
+        .decode()
+        .then(() => sizes.current.set(photoId, { url, width: img.naturalWidth, height: img.naturalHeight }))
+        .catch(() => {})
+        .finally(() => preloads.current.delete(url));
+    }
   }, [index, order]);
+  useEffect(
+    () => () => {
+      for (const img of preloads.current.values()) img.src = '';
+    },
+    [],
+  );
 
   // ── Zoom ──
   const [win, size] = useElementSize<HTMLDivElement>();
@@ -146,8 +175,7 @@ export function Loupe({
     return () => clearTimeout(t);
   }, [id]);
   const info = useZoomInfo(photo, dwelled === id || zoom !== null).data;
-  const [natural, setNatural] = useState<{ id: string; width: number; height: number } | null>(null);
-  const preview = natural?.id === id ? natural : null;
+  const preview = sizes.current.get(id) ?? null;
 
   const dpr = window.devicePixelRatio || 1;
   // Full size: what the server says, or until then estimated from the preview and the sensor.
@@ -203,8 +231,15 @@ export function Loupe({
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e) => {
     const target = e.target as HTMLElement | null;
-    if (e.metaKey || e.ctrlKey || e.altKey || target?.closest('input, textarea, select, [contenteditable]')) return;
+    if (e.altKey || target?.closest('input, textarea, select, [contenteditable]')) return;
     const key = e.key.toLowerCase();
+    if (e.metaKey || e.ctrlKey) {
+      if (key !== 'v' || !onPaste) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onPaste(photo.id, e.shiftKey);
+      return;
+    }
     if (!onChange && /^[0-9pxua]$/.test(key)) return;
     if (/^[0-5]$/.test(key)) change({ rating: Number(key) });
     else if (/^[6-9]$/.test(key)) {
@@ -235,6 +270,7 @@ export function Loupe({
 
   const scale = zoom?.scale ?? layout?.fitScale;
   const rejected = photo.flag === 'rejected';
+  const status = statusColor(photo);
 
   const loupe = (
     <Flex
@@ -337,7 +373,6 @@ export function Loupe({
           left="0"
           lineHeight="0"
           transformOrigin="0 0"
-          opacity={rejected ? 0.6 : 1}
           visibility={layout ? 'visible' : 'hidden'}
           style={{ width: layout?.fitWidth ?? 0, height: layout?.fitHeight ?? 0 }}
         >
@@ -354,9 +389,12 @@ export function Loupe({
               w="full"
               h="full"
               draggable={false}
-              onLoad={(e) =>
-                setNatural({ id: photo.id, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })
-              }
+              onLoad={(e) => {
+                const { naturalWidth: width, naturalHeight: height } = e.currentTarget;
+                const known = sizes.current.get(photo.id);
+                sizes.current.set(photo.id, { url: photo.previewUrl!, width, height });
+                if (known?.width !== width || known.height !== height) forceRender();
+              }}
             />
           )}
           {info &&
@@ -382,6 +420,19 @@ export function Loupe({
               );
             })}
         </Box>
+        {/* Over the photo, so that it never moves when the status changes. */}
+        {status && (
+          <Box
+            position="absolute"
+            top="0"
+            left="0"
+            right="0"
+            h="3px"
+            bg={status}
+            pointerEvents="none"
+            data-loupe-status={photo.flag ?? 'rated'}
+          />
+        )}
         {(!photo.previewUrl || (zoom && tilesPending)) && (
           <Spinner position="absolute" bottom="3" right="3" size="sm" color="whiteAlpha.800" />
         )}
@@ -488,7 +539,7 @@ export function Loupe({
           )}
           <Text color="whiteAlpha.600" whiteSpace="nowrap" hideBelow="lg">
             {onChange
-              ? '← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · A auto-advance · Esc close'
+              ? `← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · A auto-advance${onPaste ? ` · ${commandLabel('Ctrl+V')} paste` : ''} · Esc close`
               : '← → move · Z zoom · Esc close'}
           </Text>
         </HStack>
@@ -519,6 +570,14 @@ export function Loupe({
       </Theme>
     </Box>
   );
+}
+
+/** The line under the header: the flag's colour, or the rating's when there's no flag. */
+function statusColor(photo: Photo) {
+  if (photo.flag === 'rejected') return 'red.500';
+  if (photo.flag === 'picked') return 'green.500';
+  if (photo.rating > 0) return 'orange.400';
+  return null;
 }
 
 /**

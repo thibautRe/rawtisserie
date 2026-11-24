@@ -41,6 +41,19 @@ export function formatKeyPress(k: KeyPress): string {
     .join('+');
 }
 
+/**
+ * One of the app's own shortcuts (written `Ctrl+Shift+D`, where Ctrl means Ctrl or ⌘:
+ * both work everywhere) as the platform writes it: `⇧⌘D` on a Mac.
+ */
+export function commandLabel(keys: string, mac = MAC): string {
+  if (!mac) return keys;
+  const parts = keys.split('+');
+  const key = parts.pop()!;
+  const symbols = ['Alt', 'Shift', 'Ctrl'].filter((m) => parts.includes(m)).map((m) => MAC_SYMBOLS[m]);
+  return symbols.join('') + key;
+}
+const MAC_SYMBOLS: Record<string, string> = { Alt: '⌥', Shift: '⇧', Ctrl: '⌘' };
+
 /** A shortcut as it's written: `Ctrl+Alt+O, Ctrl+Alt+A`. */
 export const formatShortcut = (s: Shortcut) => s.map(formatKeyPress).join(', ');
 

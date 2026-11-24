@@ -5,6 +5,7 @@ import { FIGURE_SPACE, SampleValues } from './PinnedSamples.tsx';
 import { usePixelSample } from './picker.ts';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
+import { commandLabel } from '../lib/keys.ts';
 
 /** Clipping indicator settings; display options, not part of the recipe. */
 export interface ClippingSettings {
@@ -180,7 +181,7 @@ const ViewToggles = memo(function ViewToggles({
       <Button
         size="2xs"
         variant={assessment ? 'subtle' : 'ghost'}
-        title="Colour assessment, ISO 12646 (Ctrl/⌘+B)"
+        title={`Colour assessment, ISO 12646 (${commandLabel('Ctrl+B')})`}
         onClick={() => onAssessmentChange(!assessment)}
       >
         <Frame /> Assessment

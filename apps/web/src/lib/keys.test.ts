@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type KeyPress, SEQUENCE_TIMEOUT, ShortcutMatcher, formatShortcut, pressOf, shortcutConflict } from './keys.ts';
+import {
+  type KeyPress,
+  SEQUENCE_TIMEOUT,
+  ShortcutMatcher,
+  commandLabel,
+  formatShortcut,
+  pressOf,
+  shortcutConflict,
+} from './keys.ts';
 
 const k = (spec: string): KeyPress => {
   const parts = spec.split('+');
@@ -61,4 +69,11 @@ test("a shortcut can't take the app's keys, or hide another tag's", () => {
   assert.equal(shortcutConflict(s('g'), []), null);
   assert.equal(shortcutConflict(s('Alt+p'), []), null);
   assert.equal(formatShortcut(s('Ctrl+Alt+O', 'Ctrl+Alt+A')), 'Ctrl+Alt+O, Ctrl+Alt+A');
+});
+
+test("the app's shortcuts are written with ⌘ on a Mac", () => {
+  assert.equal(commandLabel('Ctrl+Shift+D', false), 'Ctrl+Shift+D');
+  assert.equal(commandLabel('Ctrl+Shift+D', true), '⇧⌘D');
+  assert.equal(commandLabel('Ctrl+E', true), '⌘E');
+  assert.equal(commandLabel('Del', true), 'Del');
 });

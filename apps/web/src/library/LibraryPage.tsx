@@ -1,4 +1,4 @@
-import { isTyping } from '../lib/keys.ts';
+import { commandLabel, isTyping } from '../lib/keys.ts';
 import {
   Badge,
   Box,
@@ -294,10 +294,16 @@ export function LibraryPage() {
       toaster.create({
         type: 'info',
         title: 'Nothing copied yet',
-        description: 'Copy settings with Ctrl+C',
+        description: `Copy settings with ${commandLabel('Ctrl+C')}`,
         duration: 2500,
       });
     else editSelection(pasteEdit(clip, appendAll));
+  };
+  /** Paste onto one photo (the loupe's). */
+  const pasteTo = (id: string, appendAll: boolean) => {
+    const clip = readClipboard();
+    if (!clip) toaster.create({ type: 'info', title: 'Nothing copied yet', duration: 2500 });
+    else void batchEdit([id], pasteEdit(clip, appendAll)).catch(failed('Could not paste'));
   };
   // For the keys, which listen across renders.
   const latest = useRef({ copyFrom, pasteToSelection, exportSelection, duplicateSelection, trashSelection: () => {} });
@@ -740,6 +746,7 @@ export function LibraryPage() {
           total={total}
           onLoadMore={() => library.want(loupeRun.end, loupeRun.end)}
           onChange={(id, patch) => bulk.mutate({ ids: [id], patch })}
+          onPaste={pasteTo}
           onClose={(id) => {
             setLoupe(null);
             // On phones a selection means taps select: closing doesn't start one.
