@@ -51,7 +51,15 @@ test('TypeScript defaults match the Rust defaults', () => {
 
 test('defaultRecipe matches Rust', () => {
   initPipeline();
-  for (const metadata of [{}, { lensCorrection: null }, { lensCorrection: 'sony' }, { imageFormat: 'jpeg' }]) {
+  for (const metadata of [
+    {},
+    { lensCorrection: null },
+    { lensCorrection: 'sony' },
+    { imageFormat: 'jpeg' },
+    { exposureBias: -0.3 },
+    { exposureBias: 1 / 3, lensCorrection: 'sony' },
+    { exposureBias: -9 },
+  ]) {
     assert.deepEqual(
       defaultRecipe(metadata),
       JSON.parse(defaultRecipeWasm(JSON.stringify(metadata))),
@@ -59,6 +67,17 @@ test('defaultRecipe matches Rust', () => {
     );
   }
   assert.equal(defaultRecipe({ lensCorrection: null }), defaultEditParams);
+  assert.equal(defaultRecipe({ exposureBias: 0 }), defaultEditParams);
+});
+
+test("a new photo's exposure takes back the camera's compensation", () => {
+  const ev = (exposureBias: number | null) =>
+    defaultRecipe({ exposureBias }).modules.find((m) => m.kind === 'exposure')!.params;
+  assert.deepEqual(ev(-0.3), { ev: 1, black: 0 });
+  assert.equal(ev(1).ev, -0.3);
+  assert.equal(ev(null).ev, 0.7);
+  // The default recipe itself is left alone.
+  assert.equal(defaultEditParams.modules.find((m) => m.kind === 'exposure')!.params.ev, 0.7);
 });
 
 test('an image that is not a RAW file starts empty and has no filmic or lens correction', () => {

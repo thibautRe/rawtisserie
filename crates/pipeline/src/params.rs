@@ -256,6 +256,10 @@ impl EditParams {
         if metadata.lens_correction.is_some() {
             params.add(Lens::default());
         }
+        let ev = default_exposure(metadata.exposure_bias);
+        if ev != Exposure::default().ev {
+            params.get_mut::<Exposure>().ev = ev;
+        }
         params
     }
 
@@ -838,6 +842,14 @@ impl Default for Exposure {
     fn default() -> Self {
         Self { ev: 0.7, black: 0.0 }
     }
+}
+
+/// A new photo's exposure: the default push, plus the exposure compensation the camera
+/// was set to taken back (Ansel's "compensate camera exposure", in the slider itself): a
+/// photo shot at −0.3 EV starts at +1.0 EV. Mirrored by TS `defaultExposure`.
+pub fn default_exposure(exposure_bias: Option<f64>) -> f32 {
+    let bias = exposure_bias.filter(|b| b.is_finite()).unwrap_or(0.0).clamp(-5.0, 5.0);
+    (((Exposure::default().ev as f64 - bias) * 100.0).round() / 100.0) as f32
 }
 
 /// Colour calibration, after Ansel's `channelmixerrgb.c` (see [`crate::ops::calibration`]):
@@ -1895,6 +1907,16 @@ mod tests {
         let p = EditParams::default_for(&sony);
         assert_eq!(kinds(&p), [ModuleKind::Lens, ModuleKind::Exposure, ModuleKind::ColorCalibration, ModuleKind::ColorBalance, ModuleKind::Filmic]);
         assert_eq!(p.modules[0].id, "lens");
+    }
+
+    #[test]
+    fn default_for_compensates_the_cameras_exposure() {
+        let under = PhotoMetadata { exposure_bias: Some(-0.3), ..Default::default() };
+        assert_eq!(EditParams::default_for(&under).get::<Exposure>().unwrap().ev, 1.0);
+        let over = PhotoMetadata { exposure_bias: Some(1.0 / 3.0), ..Default::default() };
+        assert_eq!(EditParams::default_for(&over).get::<Exposure>().unwrap().ev, 0.37);
+        let none = PhotoMetadata { exposure_bias: Some(0.0), ..Default::default() };
+        assert_eq!(EditParams::default_for(&none), EditParams::default());
     }
 
     /// The default recipe as it was before colour balance joined it (what old recipes migrate to).

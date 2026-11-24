@@ -1051,12 +1051,23 @@ export const emptyEditParams: EditParams = Object.freeze({ version: EDIT_PARAMS_
 
 type RecipeMetadata = Pick<
   PhotoMetadata,
-  'lensCorrection' | 'imageFormat' | 'make' | 'model' | 'lensModel' | 'focalLength' | 'fNumber'
+  'lensCorrection' | 'imageFormat' | 'make' | 'model' | 'lensModel' | 'focalLength' | 'fNumber' | 'exposureBias'
 >;
 
 /**
+ * A new photo's exposure: the default push, plus the exposure compensation the camera
+ * was set to taken back (Ansel's "compensate camera exposure", in the slider itself): a
+ * photo shot at −0.3 EV starts at +1.0 EV. Mirrors `params::default_exposure`.
+ */
+export function defaultExposure(exposureBias: number | null | undefined): number {
+  const bias = Number.isFinite(exposureBias) ? Math.min(5, Math.max(-5, exposureBias!)) : 0;
+  return Math.round((defaultModuleParams.exposure.ev - bias) * 100) / 100;
+}
+
+/**
  * The recipe a new image starts with, given what its file contains: the default
- * recipe, plus lens correction when the file embeds correction data or, given lensfun's
+ * recipe (its exposure compensating the camera's, `defaultExposure`), plus lens
+ * correction when the file embeds correction data or, given lensfun's
  * database, when it knows the camera and lens (the file's own data first); nothing for
  * an image that isn't a RAW file (developed already). Mirrors `EditParams::default_for`,
  * which doesn't read lensfun's database.
@@ -1064,10 +1075,17 @@ type RecipeMetadata = Pick<
 export function defaultRecipe(metadata: Partial<RecipeMetadata>, lensfun?: Lensfun | null): EditParams {
   if (metadata.imageFormat) return emptyEditParams;
   const profile = metadata.lensCorrection || !lensfun ? null : lensfun.match(lensfunShot(metadata)).profile;
-  if (!metadata.lensCorrection && !profile) return defaultEditParams;
-  const lens = instance('lens', 'lens');
-  if (profile) lens.params.lensfun = profile;
-  return { ...defaultEditParams, modules: [lens, ...structuredClone(defaultEditParams.modules)] };
+  const ev = defaultExposure(metadata.exposureBias);
+  const lensed = !!metadata.lensCorrection || !!profile;
+  if (!lensed && ev === defaultModuleParams.exposure.ev) return defaultEditParams;
+  const modules = structuredClone(defaultEditParams.modules) as ModuleInstance[];
+  for (const m of modules) if (m.kind === 'exposure') m.params = { ...m.params, ev };
+  if (lensed) {
+    const lens = instance('lens', 'lens');
+    if (profile) lens.params.lensfun = profile;
+    modules.unshift(lens);
+  }
+  return { ...defaultEditParams, modules };
 }
 
 /** What lensfun needs of a photo's metadata. */

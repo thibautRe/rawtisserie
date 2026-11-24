@@ -89,7 +89,8 @@ Most of these are ports of [Ansel](https://ansel.photos)'s modules; the
 
 **Exposure and tones**
 
-- Exposure.
+- Exposure. A new photo starts at +0.7 EV plus whatever exposure compensation the camera
+  was set to, taken back: a photo shot at −0.3 EV starts at +1.0 EV.
 - Filmic tone mapping, with its AgX colour science and an auto-tune.
 - Tones: a tone curve, which can also work as a tone equalizer that preserves local
   contrast.
