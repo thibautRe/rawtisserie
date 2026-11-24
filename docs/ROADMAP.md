@@ -15,7 +15,7 @@ M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-dr
                  ├─▶ M3 Image quality ...... done, but 3.10 more embedded lens data
                  ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules
                  ├─▶ M5 Compare ............ developer done; the library later
-                 └─▶ M8 Library workflow ... done, but 8.9 focus areas, 8.15 phase 2
+                 └─▶ M8 Library workflow ... done, but 8.9 focus areas (1.0), 8.15 phase 2
 M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
 M7 Hosted service ──── 7.1, 7.3, 7.5, 7.11 done; the rest before opening sign-ups
 M9 Branding ────────── 1.0; fonts and /ui done, logo, spinner, /develop page to do
@@ -34,6 +34,9 @@ Left for 1.0, in this order:
 3. ~~4.16 a photo picker for multiple exposure~~: done (2026-11-22).
 4. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
    landing page, a theme check. Can go in any time before launch.
+5. **[8.9 focus areas](#89-focus-areas-ml-before-10)** (moved into 1.0 on 2026-11-24):
+   the sharpness map, its overlay in the loupe (a key) and the developer, and 100 %
+   crops of the focus area in the previews of detail modules' presets.
 
 Done for 1.0: raw denoise (3.5), lensfun (3.6), diffuse and sharpen (3.7), perspective
 (3.8), tone curve and tone equalizer (4.6, 4.10), colour balance RGB (4.7), 3D LUTs
@@ -50,7 +53,7 @@ launch, is done), 4.2's auto-apply rules.
 2. M7 before opening sign-ups: 7.4 lazy re-renders and 7.6 purge rejected, then 7.9
    plans and billing. 7.2 and 7.7 once storage and database costs are worth the
    complexity; 7.8 can start any time; 7.10 only at a few hundred TB.
-3. Smaller open items, any time: 3.10, 4.2's auto-apply rules, 8.9, 8.15 phase 2, the
+3. Smaller open items, any time: 3.10, 4.2's auto-apply rules, 8.15 phase 2, the
    "Not done" and "Later" notes beside done items, [Performance](#performance) and
    [Cross-cutting](#cross-cutting) (rawler from a release, Rust tooling, the slider perf
    budget, render queue fairness).
@@ -437,7 +440,7 @@ Done (details in the [archive](ROADMAP-ARCHIVE.md)):
   tree, splitting a collection at a photo (select from it and move them into a new one
   instead), and a photo's collection in its card or the loupe.
 
-### 8.9 Focus areas (M–L)
+### 8.9 Focus areas (M–L, before 1.0)
 
 Show where a photo is in focus, to tell at a glance whether the focus landed where it
 should (the eye, not the ear), and reuse that knowledge where a view has to pick a part
