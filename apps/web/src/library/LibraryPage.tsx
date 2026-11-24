@@ -337,8 +337,10 @@ export function LibraryPage() {
   const applyToSelection = useStableCallback((patch: BulkPatch, then?: () => void) => {
     if (!grid.count) return;
     ask(grid.count, patchQuestion(patch, grid.count), () => {
+      // Taken before they're kept: they match the filters it holds.
+      const target = grid.allMatching ? grid.target() : undefined;
       keep(selectedPhotos.map((p) => p.id));
-      bulk.mutate({ ids: [...selection], target: grid.allMatching ? grid.target() : undefined, patch });
+      bulk.mutate({ ids: [...selection], target, patch });
       then?.();
     });
   });

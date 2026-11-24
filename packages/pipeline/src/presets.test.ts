@@ -22,6 +22,7 @@ import type { Shape } from './shapes.ts';
 import {
   BUILTIN_PRESETS,
   BUILTIN_STYLES,
+  type ModulePresetPayload,
   PRESET_GROUPS,
   applyModulePreset,
   applyStyle,
@@ -56,8 +57,13 @@ test('built-in styles are valid and keep what they hold', () => {
 
 test('the vignette darkens outside an ellipse: as a preset onto exposure, as a style a new instance', () => {
   const preset = BUILTIN_PRESETS.find((p) => p.id === 'builtin:exposure:vignette')!;
-  const onExposure = applyModulePreset(defaultEditParams, 'exposure', 'exposure', preset.payload);
-  const exposure = findModule(onExposure, 'exposure', 'exposure')!;
+  const onExposure = applyModulePreset(
+    defaultEditParams,
+    'exposure',
+    'exposure',
+    preset.payload as ModulePresetPayload<'exposure'>,
+  );
+  const exposure = findModule(onExposure, 'exposure')!;
   assert.equal(exposure.params.ev, -0.6);
   assert.equal(exposure.mask?.invert, true);
   const shape = onExposure.shapes?.[exposure.mask!.drawn[0]!.shape];

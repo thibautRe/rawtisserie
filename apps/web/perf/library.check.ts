@@ -648,7 +648,9 @@ test('T focuses the tag input of several photos too', async () => {
   await page.keyboard.type('dusk');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => (document.activeElement as HTMLInputElement).value === '');
-  assert.deepEqual(sent.at(-1)?.body, { filter: '', except: [], patch: { addTags: ['dusk'] } });
+  // The photos tagged are kept listed now, whatever the filters: the selection holds them too.
+  const kept = PHOTOS.map((p) => p.id);
+  assert.deepEqual(sent.at(-1)?.body, { filter: '', except: [], keep: kept, patch: { addTags: ['dusk'] } });
 });
 
 /** A golden-test RAW (`scripts/fetch-golden-raws.sh`). */
