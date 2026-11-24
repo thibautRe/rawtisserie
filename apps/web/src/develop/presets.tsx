@@ -37,7 +37,17 @@ import {
   modulePresetPayload,
   styleFromRecipe,
 } from '@rawtisserie/pipeline';
-import { Bookmark, BookmarkPlus, ChevronDown, ClipboardPaste, Copy, Palette, Pencil, Plus } from 'lucide-react';
+import {
+  Bookmark,
+  BookmarkPlus,
+  ChevronDown,
+  ClipboardPaste,
+  Copy,
+  Palette,
+  Pencil,
+  Plus,
+  WandSparkles,
+} from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useShiftKey } from '../lib/useShiftKey.ts';
 import {
@@ -63,6 +73,13 @@ const AUTO_TUNE_LABELS: Partial<Record<ModuleKind, string>> = {
   filmic: 'Auto-tune white and black exposure on each photo',
   toneCurve: 'Fit the node range to each photo',
 };
+
+/** Marks an auto-tune among the other choices: it runs on each photo, it isn't a setting. */
+const AutoTuneIcon = () => (
+  <Box as="span" display="inline-flex" verticalAlign="-2px" mr="1.5" color="orange.fg" title="Auto-tune">
+    <WandSparkles size={13} aria-hidden />
+  </Box>
+);
 
 const groupsOf = (kind: ModuleKind) =>
   Object.entries((PRESET_GROUPS[kind] ?? {}) as Record<string, PresetGroup<ModuleKind>>);
@@ -445,6 +462,7 @@ export function SavePresetDialog({
       )}
       {AUTO_TUNE_KINDS.includes(kind) && (
         <CheckItem checked={autoTune} onChange={setAutoTune}>
+          <AutoTuneIcon />
           {AUTO_TUNE_LABELS[kind]} when applied
         </CheckItem>
       )}
@@ -566,6 +584,7 @@ export function StylePicker({
                   onChange={(on) => onChange({ ...value, autoTune: { ...value.autoTune, [m.id]: on } })}
                 >
                   <Text as="span" textStyle="xs">
+                    <AutoTuneIcon />
                     {AUTO_TUNE_LABELS[m.kind]}
                   </Text>
                 </CheckItem>
@@ -608,7 +627,13 @@ export function CreateStyleDialog({
   onSave: (input: PresetInput) => void;
 }) {
   const [name, setName] = useState('');
-  const [selection, setSelection] = useState(() => defaultSelection(recipe, ['geometry', 'lens']));
+  // Auto-tunes on: a style goes onto other photos, which their measures fit.
+  const [selection, setSelection] = useState(() => ({
+    ...defaultSelection(recipe, ['geometry', 'lens']),
+    autoTune: Object.fromEntries(
+      recipe.modules.filter((m) => AUTO_TUNE_KINDS.includes(m.kind)).map((m) => [m.id, true]),
+    ),
+  }));
   const trimmed = name.trim();
   const taken = existing.some((s) => s.name === trimmed);
   return (

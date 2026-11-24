@@ -872,6 +872,25 @@ test('a multiple exposure blends in a photo picked from the library (4.16)', { s
   await dialog.waitFor({ state: 'detached' });
 });
 
+test(
+  "a new style auto-tunes filmic and fits the tones' curve on each photo, unless unticked",
+  { skip: !existsSync(RAW) },
+  async () => {
+    await open('/');
+    await cards().first().waitFor();
+    originals = { p1: RAW };
+    await page.goto(`${URL_}/versions/v1/develop`);
+    await page.locator('canvas').first().waitFor({ timeout: 120_000 });
+    await page.getByRole('button', { name: /Styles/ }).click();
+    await page.getByRole('menuitem', { name: /Create style/ }).click();
+    const dialog = page.getByRole('dialog', { name: 'New style' });
+    const autoTune = dialog.getByRole('checkbox', { name: /Auto-tune white and black exposure/ });
+    await autoTune.waitFor();
+    assert.equal(await autoTune.isChecked(), true);
+    if (process.env.STYLE_SHOT) await dialog.screenshot({ path: process.env.STYLE_SHOT });
+  },
+);
+
 test('an import shows its files waiting, then what happened to each, and retries what failed', async () => {
   await open('/');
   await cards().first().waitFor();
