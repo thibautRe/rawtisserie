@@ -279,15 +279,18 @@ const Toolbar = memo(function Toolbar({
   return (
     <HStack px="3" py="2" borderBottomWidth="1px" gap="2" {...ZEN_HIDE}>
       <AppMenu />
-      <HStack gap="1" minW="0" flex="1">
-        <Text textStyle="sm" fontWeight="semibold" truncate flexShrink={0} maxW="50%">
-          {filename}
-        </Text>
-        {versions}
-        <Text textStyle="xs" fontFamily="numeric" color="fg.muted" truncate ms="2" title={exif.join(' · ')}>
+      {/* Two small lines, within the height of the header's buttons (as the library's). */}
+      <Stack gap="0" minW="0" flex="1">
+        <HStack gap="1" minW="0" h="4">
+          <Text textStyle="xs" fontWeight="semibold" truncate>
+            {filename}
+          </Text>
+          {versions}
+        </HStack>
+        <Text textStyle="2xs" fontFamily="numeric" color="fg.muted" truncate title={exif.join(' · ')}>
           {exif.join(' · ')}
         </Text>
-      </HStack>
+      </Stack>
       {styles}
       {compare}
       <Button

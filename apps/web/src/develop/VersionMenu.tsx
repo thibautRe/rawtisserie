@@ -60,7 +60,15 @@ export function VersionMenu({ photo, whenSaved }: { photo: PhotoDetail; whenSave
     <>
       <Menu.Root onSelect={(d) => void onSelect(d.value).catch(failed('Something went wrong'))}>
         <Menu.Trigger asChild>
-          <Button size="2xs" variant="ghost" color="fg.muted" flexShrink={0} title="Versions of this photo">
+          <Button
+            size="2xs"
+            h="4"
+            px="1"
+            variant="ghost"
+            color="fg.muted"
+            flexShrink={0}
+            title="Versions of this photo"
+          >
             {photo.versionCount > 1 ? `${label} (${photo.versionIndex}/${photo.versionCount})` : label}
             <ChevronDown />
           </Button>
