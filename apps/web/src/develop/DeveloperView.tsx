@@ -1652,7 +1652,9 @@ export function DeveloperView({
                     position={assessment ? 'relative' : 'absolute'}
                     inset={assessment ? undefined : '0'}
                     boxSizing="content-box"
-                    overflow="hidden"
+                    // Assessment frames the image: at fit, it fills the window, which only
+                    // clips the shapes being edited, whose overlay may reach past it.
+                    overflow={assessment && showShapes && !zoom ? 'visible' : 'hidden'}
                     touchAction="none"
                     borderWidth={`${frameWidth}px`}
                     borderStyle="solid"

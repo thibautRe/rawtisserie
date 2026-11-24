@@ -175,3 +175,27 @@ test('a path may have nodes outside the image, previewed there too', async () =>
   await bar().waitFor({ state: 'detached' });
   assert.equal(await entries(), before + 1);
 });
+
+test('in assessment, a path may have nodes on the frame and the surround too', async () => {
+  const assessment = page.getByRole('button', { name: /Assessment/ });
+  await assessment.click();
+  await page.waitForTimeout(1500);
+  const before = await entries();
+  await page.getByRole('button', { name: /^Path/ }).first().click();
+  await bar().waitFor();
+  await page.mouse.click(...(await on(0.3, 0.3)));
+  // Above the image: over its white frame, then the grey around it.
+  for (const y of [-0.02, -0.15]) {
+    const at = await on(0.5, y);
+    await page.mouse.move(...at);
+    assert.equal(await previews(), 1, `preview at ${y}`);
+  }
+  await page.mouse.click(...(await on(0.5, -0.15)));
+  await page.mouse.click(...(await on(0.7, 0.3)));
+  await shot('path-assessment');
+  await apply().click();
+  await bar().waitFor({ state: 'detached' });
+  assert.equal(await entries(), before + 1);
+  assert.equal(await page.locator('svg rect[style*="cursor: move"]').count(), 3);
+  await assessment.click();
+});
