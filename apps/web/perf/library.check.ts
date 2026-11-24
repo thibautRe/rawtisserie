@@ -1559,6 +1559,18 @@ test('collections: a tree in the filters, newest first, picked with those under 
   assert.match(moved.collectionId, /Wedding$/);
 });
 
+test('Clear all leaves the trees unfolded where they showed a picked collection or tag', async () => {
+  await open('/?collection=c1109&tag=People%7CAlice');
+  await page.locator('[data-collection="c1109"]').waitFor();
+  await page.getByText('Alice', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Clear all' }).click();
+  await page.waitForURL((u) => u.search === '');
+  // The filters have rendered without them: the button's gone.
+  await page.getByRole('button', { name: 'Clear all' }).waitFor({ state: 'detached' });
+  assert.equal(await page.locator('[data-collection="c1109"]').count(), 1);
+  assert.equal(await page.getByText('Alice', { exact: true }).count(), 1);
+});
+
 test('filters saved as a preset, then applied again over others', async () => {
   await open('/?q=beach&sort=filename');
   await cards().first().waitFor();

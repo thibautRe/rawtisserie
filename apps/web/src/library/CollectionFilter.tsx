@@ -17,7 +17,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCollectionChange, useCollections } from '../api/hooks.ts';
 import type { FacetValue } from '@rawtisserie/api';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
@@ -112,6 +112,15 @@ export function CollectionFilter({
   const anchor = useRef<string | null>(null);
   const shift = useRef(false);
   const holdsPicked = (n: CollectionNode) => picked.some((id) => id !== n.id && isWithin(byId, id, n.id));
+  // Unfolded to show a picked collection: they stay unfolded once it's unpicked (Clear all).
+  useEffect(() => {
+    const holding = picked.flatMap((id) => {
+      const up: string[] = [];
+      for (let at = byId.get(id)?.parentId; at && !up.includes(at); at = byId.get(at)?.parentId) up.push(at);
+      return up;
+    });
+    if (holding.some((id) => !open.has(id))) setOpen((o) => new Set([...o, ...holding]));
+  }, [picked.join(), byId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!list) return null;
   if (!list.length && !picked.includes(NO_COLLECTION))

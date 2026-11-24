@@ -7,7 +7,7 @@
  */
 import { Box, Button, Checkbox, HStack, IconButton, Menu, Portal, Stack, Text } from '@chakra-ui/react';
 import { ChevronDown, ChevronRight, CornerDownRight, Ellipsis, Keyboard, Pencil, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTagChange, useTagManager } from '../api/hooks.ts';
 import type { FacetValue } from '@rawtisserie/api';
 import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
@@ -15,7 +15,7 @@ import { TagSearch } from '../components/TagSearch.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { formatShortcut } from '../lib/keys.ts';
 import { type TagInfo, describeDelete, managedTags, plural } from '../lib/tagManager.ts';
-import { type TagNode, displayTag, filterTagTree, isUnder, retag, tagTree } from '../lib/tags.ts';
+import { SEPARATOR, type TagNode, displayTag, filterTagTree, isUnder, retag, tagTree } from '../lib/tags.ts';
 import { type EditorTarget, TagEditor } from './TagEditor.tsx';
 import { TOP_LEVEL, cycleTag, isAny, setUntagged, tagGroups, tagState, toggleAny } from './tagFilter.ts';
 import type { LibrarySearch } from './useLibrarySearch.ts';
@@ -134,6 +134,14 @@ export function TagTree({
     const all = new Set([...values.map((v) => v.value), ...manage.info.keys(), ...used]);
     return tagTree([...all].map((value) => ({ value, count: counts.get(value) ?? 0 })));
   }, [values, manage.info, used.join('\0')]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Unfolded to show a tag in the filters: they stay unfolded once it's out (Clear all).
+  useEffect(() => {
+    const holding = used.flatMap((tag) => {
+      const levels = tag.split(SEPARATOR);
+      return levels.slice(1).map((_, i) => levels.slice(0, i + 1).join(SEPARATOR));
+    });
+    if (holding.some((t) => !open.has(t))) setOpen((o) => new Set([...o, ...holding]));
+  }, [used.join('\0')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!tree.length && !noTags)
     return (
