@@ -296,6 +296,17 @@ function scrollToInstance(id: string, frames = 10) {
   block.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+/**
+ * Where a module preset goes: onto instance `id`, or (`asNew`) onto a new instance added
+ * after it, which `addInstance` names. The recipe it goes onto, and the instance's id.
+ */
+function presetTarget(recipe: EditParams, kind: ModuleKind, id: string, asNew: boolean): [EditParams, string] {
+  if (!asNew) return [recipe, id];
+  const next = addInstance(recipe, id);
+  const added = next.modules.find((m) => m.kind === kind && !recipe.modules.some((o) => o.id === m.id));
+  return added ? [next, added.id] : [recipe, id];
+}
+
 /** The contrast equalizer's graphs, finer around their neutral value. */
 const EQUALIZER_SCALES = Object.fromEntries(
   EQUALIZER_CURVES.map((c) => [c, fineScale(defaultModuleParams.contrastEqualizer[c][0]!)]),
@@ -1491,15 +1502,22 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         title={title}
                         presets={presets}
                         canSave={canSave}
-                        onApply={(preset) =>
+                        canAppend={!!m && !SINGLE_INSTANCE_KINDS.includes(kind)}
+                        onApply={(preset, asNew) => {
+                          const [next, target] = presetTarget(endPreview(), kind, id, asNew);
                           latest.current.onCommit(
-                            applyModulePreset(endPreview(), kind, id, preset.payload as ModulePresetPayload<K>),
-                            `${title}: preset ${preset.name}`,
-                          )
-                        }
-                        onPreview={(preset) =>
+                            applyModulePreset(next, kind, target, preset.payload as ModulePresetPayload<K>),
+                            `${title}: preset ${preset.name}${asNew ? ' (new instance)' : ''}`,
+                          );
+                          if (target !== id) scrollToInstance(target);
+                        }}
+                        onPreview={(preset, asNew) =>
                           preview(
-                            preset && ((p) => applyModulePreset(p, kind, id, preset.payload as ModulePresetPayload<K>)),
+                            preset &&
+                              ((p) => {
+                                const [next, target] = presetTarget(p, kind, id, asNew);
+                                return applyModulePreset(next, kind, target, preset.payload as ModulePresetPayload<K>);
+                              }),
                           )
                         }
                         onEndPreview={endPreview}

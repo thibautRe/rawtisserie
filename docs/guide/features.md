@@ -127,7 +127,11 @@ mask.
 
 - Module presets, built-in and your own, for a whole module or part of one (colour
   calibration's mixer, for example).
+- With Shift, a module preset goes onto a new instance of its module rather than the one
+  it's picked from: the built-in **Vignette** exposure preset darkens the edges without
+  touching the photo's exposure.
 - Styles: a set of modules to apply to other photos, appended or replacing per module.
+  A built-in **Vignette** style adds that vignette as a new exposure instance.
 - Auto-tunes asked for by a preset or style run when it's applied.
 
 ### Export

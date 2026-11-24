@@ -891,6 +891,29 @@ test(
   },
 );
 
+test(
+  'the vignette: Shift applies the preset as a new exposure instance; the built-in style adds one too',
+  { skip: !existsSync(RAW) },
+  async () => {
+    await open('/');
+    await cards().first().waitFor();
+    originals = { p1: RAW };
+    await page.goto(`${URL_}/versions/v1/develop`);
+    await page.locator('canvas').first().waitFor({ timeout: 120_000 });
+    const exposures = () => page.locator('[data-instance^="exposure"]');
+    assert.equal(await exposures().count(), 1);
+    await page.getByRole('button', { name: 'Exposure presets', exact: true }).click();
+    await page.getByText('Shift: as a new instance').waitFor();
+    await page.getByRole('menuitem', { name: 'Vignette' }).click({ modifiers: ['Shift'] });
+    await page.waitForFunction(() => document.querySelectorAll('[data-instance^="exposure"]').length === 2);
+    // The photo's own exposure is left alone.
+    assert.match((await exposures().first().textContent()) ?? '', /0\.70/);
+    await page.getByRole('button', { name: /Styles/ }).click();
+    await page.getByRole('menuitem', { name: 'Vignette' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('[data-instance^="exposure"]').length === 3);
+  },
+);
+
 test('an import shows its files waiting, then what happened to each, and retries what failed', async () => {
   await open('/');
   await cards().first().waitFor();

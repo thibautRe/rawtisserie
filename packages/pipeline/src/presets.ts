@@ -33,6 +33,7 @@ import {
   MODULE_KINDS,
   PRIMARIES,
   SINGLE_INSTANCE_KINDS,
+  defaultMask,
   defaultModuleParams,
   freshId,
   mapMaskShapeRefs,
@@ -673,8 +674,30 @@ const DIFFUSE_PRESETS: readonly ModulePreset[] = [
   }),
 ];
 
+/**
+ * A vignette: −0.6 EV outside a large feathered ellipse in the middle of the frame (on the
+ * sensor, so it follows the photo whichever way it's turned), the mask's edge softened
+ * further. Lengths are fractions of the sensor's short side.
+ */
+const VIGNETTE = {
+  ev: -0.6,
+  shapes: {
+    vignette: { type: 'ellipse', center: [0.5, 0.5], radii: [0.55, 0.3], rotation: 0, feather: 0.35, opacity: 1 },
+  } satisfies Record<string, Shape>,
+  mask: { ...defaultMask, drawn: [{ op: 'union', shape: 'vignette' }], invert: true, feather: 150 } satisfies Mask,
+};
+
 /** Presets shipped with the app. Most only set some parameters, and keep the rest. */
 export const BUILTIN_PRESETS: readonly ModulePreset[] = [
+  {
+    ...builtIn('exposure', 'vignette', 'Vignette', { ev: VIGNETTE.ev }),
+    payload: {
+      version: EDIT_PARAMS_VERSION,
+      params: { ev: VIGNETTE.ev },
+      mask: structuredClone(VIGNETTE.mask),
+      shapes: structuredClone(VIGNETTE.shapes),
+    },
+  },
   builtIn('colorCalibration', 'mono-luminance', 'Monochrome: luminance', {
     // Rec.2020 luminance: the working space's.
     grey: [0.2627, 0.678, 0.0593],
@@ -827,4 +850,29 @@ export const BUILTIN_PRESETS: readonly ModulePreset[] = [
     },
     true,
   ),
+];
+
+/** Styles shipped with the app: whole instances, added to what the photo has. */
+export const BUILTIN_STYLES: readonly Style[] = [
+  {
+    id: 'builtin:style:vignette',
+    name: 'Vignette',
+    builtIn: true,
+    type: 'style',
+    moduleKind: null,
+    payload: {
+      version: EDIT_PARAMS_VERSION,
+      modules: [
+        {
+          kind: 'exposure',
+          label: 'Vignette',
+          enabled: true,
+          mode: 'append',
+          params: { ...defaultModuleParams.exposure, ev: VIGNETTE.ev },
+          mask: structuredClone(VIGNETTE.mask),
+        },
+      ],
+      shapes: structuredClone(VIGNETTE.shapes),
+    },
+  },
 ];

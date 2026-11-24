@@ -21,6 +21,7 @@ import {
 import type { Shape } from './shapes.ts';
 import {
   BUILTIN_PRESETS,
+  BUILTIN_STYLES,
   PRESET_GROUPS,
   applyModulePreset,
   applyStyle,
@@ -47,6 +48,29 @@ test('built-in presets are valid and keep their parameters', () => {
     ids.add(p.id);
     assert.deepEqual(normalizeModulePreset(p.moduleKind, p.payload), p.payload, p.id);
   }
+});
+
+test('built-in styles are valid and keep what they hold', () => {
+  for (const s of BUILTIN_STYLES) assert.deepEqual(normalizeStyle(s.payload), s.payload, s.id);
+});
+
+test('the vignette darkens outside an ellipse: as a preset onto exposure, as a style a new instance', () => {
+  const preset = BUILTIN_PRESETS.find((p) => p.id === 'builtin:exposure:vignette')!;
+  const onExposure = applyModulePreset(defaultEditParams, 'exposure', 'exposure', preset.payload);
+  const exposure = findModule(onExposure, 'exposure', 'exposure')!;
+  assert.equal(exposure.params.ev, -0.6);
+  assert.equal(exposure.mask?.invert, true);
+  const shape = onExposure.shapes?.[exposure.mask!.drawn[0]!.shape];
+  assert.deepEqual(shape && 'center' in shape && shape.center, [0.5, 0.5]);
+
+  const style = BUILTIN_STYLES.find((s) => s.id === 'builtin:style:vignette')!;
+  const styled = applyStyle(defaultEditParams, style.payload);
+  const exposures = styled.modules.filter((m) => m.kind === 'exposure');
+  assert.equal(exposures.length, 2);
+  assert.deepEqual(exposures[0], defaultEditParams.modules[0]);
+  assert.equal(exposures[1]!.label, 'Vignette');
+  assert.equal(exposures[1]!.mask?.drawn.length, 1);
+  assert.equal(Object.keys(styled.shapes ?? {}).length, 1);
 });
 
 test('a preset can hold part of a module', () => {

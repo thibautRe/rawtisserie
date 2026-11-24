@@ -21,6 +21,7 @@ import {
 import {
   AUTO_TUNE_KINDS,
   BUILTIN_PRESETS,
+  BUILTIN_STYLES,
   type EditParams,
   type Mask,
   type ModuleKind,
@@ -144,7 +145,11 @@ export function usePresetLibrary(): PresetLibrary {
     }
     return byKind;
   }, [own]);
-  const styles = useMemo(() => (own?.filter((p) => p.type === 'style') as Style[] | undefined) ?? NO_STYLES, [own]);
+  // The built-in ones first, as for module presets.
+  const styles = useMemo(
+    () => [...BUILTIN_STYLES, ...((own?.filter((p) => p.type === 'style') as Style[] | undefined) ?? NO_STYLES)],
+    [own],
+  );
 
   return { modulePresets, styles, save: me ? save : null, rename, remove };
 }
@@ -170,6 +175,7 @@ export const PresetMenu = memo(
     title,
     presets,
     canSave,
+    canAppend,
     onApply,
     onPreview,
     onEndPreview,
@@ -181,9 +187,11 @@ export const PresetMenu = memo(
     title: string;
     presets: readonly ModulePreset[];
     canSave: boolean;
-    onApply: (preset: ModulePreset) => void;
+    /** Whether the kind takes more instances: with Shift, a preset is applied as a new one (`asNew`). */
+    canAppend: boolean;
+    onApply: (preset: ModulePreset, asNew: boolean) => void;
     /** Show the image with this preset (or without any, null) for now. */
-    onPreview: (preset: ModulePreset | null) => void;
+    onPreview: (preset: ModulePreset | null, asNew: boolean) => void;
     /** Go back to the recipe from before the previews. */
     onEndPreview: () => void;
     /** The recipe from before the previews with this preset applied: its thumbnail. */
@@ -194,6 +202,13 @@ export const PresetMenu = memo(
     onDelete: (preset: ModulePreset) => void;
   }) => {
     const [managing, setManaging] = useState(false);
+    const [open, setOpen] = useState(false);
+    const [highlighted, setHighlighted] = useState<ModulePreset | null>(null);
+    const shift = useShiftKey(open);
+    const asNew = (held: boolean) => canAppend && held;
+    useEffect(() => {
+      if (open) onPreview(highlighted, asNew(shift.held));
+    }, [open, highlighted, shift.held]); // eslint-disable-line react-hooks/exhaustive-deps
     const builtIn = presets.filter((p) => p.builtIn);
     const own = presets.filter((p) => !p.builtIn);
     const find = (id: string) => presets.find((p) => p.id === id);
@@ -219,14 +234,20 @@ export const PresetMenu = memo(
           lazyMount
           unmountOnExit
           onHighlightChange={({ highlightedValue: value }) =>
-            onPreview((value?.startsWith('apply:') && find(value.slice(6))) || null)
+            setHighlighted((value?.startsWith('apply:') && find(value.slice(6))) || null)
           }
-          onOpenChange={({ open }) => !open && onEndPreview()}
+          onOpenChange={({ open }) => {
+            setOpen(open);
+            if (!open) {
+              setHighlighted(null);
+              onEndPreview();
+            }
+          }}
           onSelect={({ value }) => {
             if (value === 'save') return onSave();
             if (value === 'manage') return setManaging(true);
             const preset = value.startsWith('apply:') && find(value.slice(6));
-            if (preset) onApply(preset);
+            if (preset) onApply(preset, asNew(shift.ref.current));
           }}
         >
           <Menu.Trigger asChild>
@@ -252,6 +273,11 @@ export const PresetMenu = memo(
                 {!presets.length && (
                   <Text px="2" py="1.5" textStyle="xs" color="fg.muted">
                     No presets yet
+                  </Text>
+                )}
+                {canAppend && presets.length > 0 && (
+                  <Text px="2" pb="1" textStyle="2xs" color="fg.subtle">
+                    Shift: as a new instance
                   </Text>
                 )}
                 {canSave && (
@@ -291,7 +317,7 @@ export const PresetMenu = memo(
       </>
     );
   },
-  (a, b) => a.title === b.title && a.presets === b.presets && a.canSave === b.canSave,
+  (a, b) => a.title === b.title && a.presets === b.presets && a.canSave === b.canSave && a.canAppend === b.canAppend,
 );
 
 /** A name field that says when saving will replace an existing preset. */
@@ -635,7 +661,7 @@ export function CreateStyleDialog({
     ),
   }));
   const trimmed = name.trim();
-  const taken = existing.some((s) => s.name === trimmed);
+  const taken = existing.some((s) => !s.builtIn && s.name === trimmed);
   return (
     <SaveDialog
       title="New style"
@@ -738,6 +764,7 @@ export const StyleMenu = memo(function StyleMenu({
   }, [open, highlighted, shift.held]); // eslint-disable-line react-hooks/exhaustive-deps
   const find = (value: string | null) =>
     value === 'paste' ? 'paste' : (styles.find((s) => value === `apply:${s.id}`) ?? null);
+  const own = styles.filter((s) => !s.builtIn);
   return (
     <>
       <Menu.Root
@@ -799,7 +826,7 @@ export const StyleMenu = memo(function StyleMenu({
               <Menu.Item value="create">
                 <Plus /> Create style…
               </Menu.Item>
-              {styles.length > 0 && (
+              {own.length > 0 && (
                 <Menu.Item value="manage">
                   <Pencil /> Manage styles…
                 </Menu.Item>
@@ -812,7 +839,7 @@ export const StyleMenu = memo(function StyleMenu({
         <ManagerDialog
           title="Styles"
           description="Rename or delete your styles."
-          items={styles.map((s) => ({
+          items={own.map((s) => ({
             id: s.id,
             name: s.name,
             detail: s.payload.modules.length === 1 ? '1 module' : `${s.payload.modules.length} modules`,
