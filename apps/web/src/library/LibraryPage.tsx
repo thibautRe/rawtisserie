@@ -57,7 +57,7 @@ import { type BatchEdit, fetchRecipe } from './batchEdit.ts';
 import { patchQuestion, photoCount } from './selectionText.ts';
 import { useConfirmLarge } from './useConfirmLarge.tsx';
 import { FilterSidebar } from './FilterSidebar.tsx';
-import { SortSelect } from './SortSelect.tsx';
+import { HEADER_SIZE, SortSelect } from './SortSelect.tsx';
 import { InfoPanel } from './InfoPanel.tsx';
 import { type LibraryReturnState, saveLibraryView, savedLibraryView } from './libraryView.ts';
 import { Loupe } from './Loupe.tsx';
@@ -500,7 +500,7 @@ export function LibraryPage() {
   const sortSelect = <SortSelect search={search} />;
   const applyButton = outside > 0 && (
     <Button
-      size="xs"
+      size={HEADER_SIZE}
       variant="outline"
       colorPalette="orange"
       flexShrink="0"
@@ -563,7 +563,7 @@ export function LibraryPage() {
           <AppMenu />
           <InputGroup startElement={<Search size={14} />} maxW={{ md: 'xs' }} flex={{ base: '1', md: 'initial' }}>
             <Input
-              size="sm"
+              size={HEADER_SIZE}
               placeholder="Search filename, title, tags…"
               defaultValue={search.params.get('q') ?? ''}
               onChange={(e) => search.set('q', e.target.value)}
@@ -571,7 +571,7 @@ export function LibraryPage() {
           </InputGroup>
           {narrow && (
             <IconButton
-              size="sm"
+              size={HEADER_SIZE}
               variant="outline"
               aria-label="Sort and filter"
               onClick={() => setFiltersOpen(true)}
@@ -602,7 +602,7 @@ export function LibraryPage() {
               {applyButton}
               <Box flex="1" />
               <Button
-                size="sm"
+                size={HEADER_SIZE}
                 variant="outline"
                 disabled={!photos.length}
                 onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
@@ -613,14 +613,19 @@ export function LibraryPage() {
             </>
           )}
           {narrow ? (
-            <IconButton size="sm" colorPalette="orange" aria-label="Import photos" onClick={() => importFrom('files')}>
+            <IconButton
+              size={HEADER_SIZE}
+              colorPalette="orange"
+              aria-label="Import photos"
+              onClick={() => importFrom('files')}
+            >
               <Upload />
             </IconButton>
           ) : (
             // The menu around the group: the group styles its direct children (the
             // trigger's corners, where they meet), and a menu inside it would be one.
             <Menu.Root positioning={{ placement: 'bottom-end' }}>
-              <ButtonGroup size="sm" colorPalette="orange" attached>
+              <ButtonGroup size={HEADER_SIZE} colorPalette="orange" attached>
                 <Button onClick={() => importFrom('files')} title="Import RAW files">
                   <Upload /> Import
                 </Button>

@@ -1,6 +1,9 @@
 import { NativeSelect } from '@chakra-ui/react';
 import type { LibrarySearch } from './useLibrarySearch.ts';
 
+/** The library's header controls: big enough for a finger on phones, small beside the rest of the UI. */
+export const HEADER_SIZE = { base: 'sm', md: 'xs' } as const;
+
 const SORTS = [
   { value: 'capturedDesc', label: 'Newest first' },
   { value: 'capturedAsc', label: 'Oldest first' },
@@ -12,7 +15,7 @@ const SORTS = [
 /** The library's sort, kept with its filters (`sort`; none: newest first). */
 export function SortSelect({ search }: { search: LibrarySearch }) {
   return (
-    <NativeSelect.Root size="sm" w={{ base: 'full', md: '44' }}>
+    <NativeSelect.Root size={HEADER_SIZE} w={{ base: 'full', md: '40' }}>
       <NativeSelect.Field
         aria-label="Sort"
         value={search.params.get('sort') ?? 'capturedDesc'}

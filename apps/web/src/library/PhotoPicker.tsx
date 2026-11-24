@@ -23,7 +23,7 @@ import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { useNarrow } from '../lib/useNarrow.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
-import { SortSelect } from './SortSelect.tsx';
+import { HEADER_SIZE, SortSelect } from './SortSelect.tsx';
 import { useStateSearch } from './useLibrarySearch.ts';
 
 /** Columns of the picker's grid. */
@@ -129,7 +129,7 @@ export function PhotoPicker({
                     flex={{ base: '1', md: 'initial' }}
                   >
                     <Input
-                      size="sm"
+                      size={HEADER_SIZE}
                       placeholder="Search filename, title, tags…"
                       defaultValue={search.params.get('q') ?? ''}
                       onChange={(e) => search.set('q', e.target.value)}
@@ -137,7 +137,7 @@ export function PhotoPicker({
                   </InputGroup>
                   {narrow ? (
                     <IconButton
-                      size="sm"
+                      size={HEADER_SIZE}
                       variant="outline"
                       aria-label="Sort and filter"
                       onClick={() => setFiltersOpen(true)}

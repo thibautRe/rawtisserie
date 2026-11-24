@@ -19,6 +19,7 @@ import { Loupe } from '../library/Loupe.tsx';
 import { PhotoGrid } from '../library/PhotoGrid.tsx';
 import { TrashPanel } from '../library/TrashPanel.tsx';
 import { useGridSelection } from '../library/useGridSelection.ts';
+import { HEADER_SIZE } from '../library/SortSelect.tsx';
 
 const failed = (title: string) => (err: Error) => toaster.create({ type: 'error', title, description: err.message });
 
@@ -134,7 +135,7 @@ export function TrashPage() {
           <Box flex="1" />
           {!narrow && (
             <Button
-              size="sm"
+              size={HEADER_SIZE}
               variant="outline"
               disabled={!photos.length}
               onClick={() => setLoupe(loupeStart ?? photos[0]!.id)}
@@ -145,7 +146,7 @@ export function TrashPage() {
           )}
           {narrow ? (
             <IconButton
-              size="sm"
+              size={HEADER_SIZE}
               variant="outline"
               colorPalette="red"
               aria-label="Empty trash"
@@ -157,7 +158,7 @@ export function TrashPage() {
             </IconButton>
           ) : (
             <Button
-              size="sm"
+              size={HEADER_SIZE}
               variant="outline"
               colorPalette="red"
               disabled={!total}
