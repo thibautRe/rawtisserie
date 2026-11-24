@@ -2,6 +2,7 @@ import { Box, Button, HStack, IconButton, Image, Menu, Portal, Text } from '@cha
 import { ChevronDown, SplitSquareHorizontal } from 'lucide-react';
 import { memo } from 'react';
 import type { CompareLayout, CompareTarget, CompareVersion } from './compare.ts';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 
 const LAYOUTS: { value: CompareLayout; label: string }[] = [
   { value: 'split', label: 'Split' },
@@ -46,7 +47,7 @@ export const CompareMenu = memo(function CompareMenu({
   return (
     <HStack gap="0">
       <Button
-        size="sm"
+        size={HEADER_SIZE}
         variant={on ? 'subtle' : 'ghost'}
         colorPalette={on ? 'orange' : undefined}
         aria-pressed={on}
@@ -61,7 +62,7 @@ export const CompareMenu = memo(function CompareMenu({
       </Button>
       <Menu.Root positioning={{ placement: 'bottom-end' }}>
         <Menu.Trigger asChild>
-          <IconButton aria-label="Compare options" size="sm" variant="ghost" minW="6">
+          <IconButton aria-label="Compare options" size={HEADER_SIZE} variant="ghost" minW="6">
             <ChevronDown />
           </IconButton>
         </Menu.Trigger>

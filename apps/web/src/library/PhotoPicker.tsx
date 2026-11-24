@@ -23,7 +23,8 @@ import { PanelDrawer } from '../components/PanelDrawer.tsx';
 import { useNarrow } from '../lib/useNarrow.ts';
 import { FilterSidebar } from './FilterSidebar.tsx';
 import { PhotoGrid } from './PhotoGrid.tsx';
-import { HEADER_SIZE, SortSelect } from './SortSelect.tsx';
+import { SortSelect } from './SortSelect.tsx';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 import { useStateSearch } from './useLibrarySearch.ts';
 
 /** Columns of the picker's grid. */

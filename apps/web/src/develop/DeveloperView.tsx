@@ -106,6 +106,7 @@ import { useZoom } from './useZoom.ts';
 import { ImportNotice } from './ImportNotice.tsx';
 import { ZEN_HIDE, ZenButton, useZen } from './zen.tsx';
 import { commandLabel } from '../lib/keys.ts';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 
 interface Props {
   backend: RenderBackend;
@@ -278,21 +279,19 @@ const Toolbar = memo(function Toolbar({
   return (
     <HStack px="3" py="2" borderBottomWidth="1px" gap="2" {...ZEN_HIDE}>
       <AppMenu />
-      <Stack gap="0" minW="0" flex="1">
-        <HStack gap="1" minW="0">
-          <Text fontWeight="semibold" truncate>
-            {filename}
-          </Text>
-          {versions}
-        </HStack>
-        <Text textStyle="xs" fontFamily="numeric" color="fg.muted" truncate>
+      <HStack gap="1" minW="0" flex="1">
+        <Text textStyle="sm" fontWeight="semibold" truncate flexShrink={0} maxW="50%">
+          {filename}
+        </Text>
+        {versions}
+        <Text textStyle="xs" fontFamily="numeric" color="fg.muted" truncate ms="2" title={exif.join(' · ')}>
           {exif.join(' · ')}
         </Text>
-      </Stack>
+      </HStack>
       {styles}
       {compare}
       <Button
-        size="sm"
+        size={HEADER_SIZE}
         variant="outline"
         loading={exporting}
         loadingText="Exporting…"

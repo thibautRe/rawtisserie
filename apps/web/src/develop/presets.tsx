@@ -65,6 +65,7 @@ import { MenuThumbnail } from './thumbnails.tsx';
 import { instanceTitle } from './changes.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { commandLabel } from '../lib/keys.ts';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 
 export const NO_PRESETS: readonly ModulePreset[] = [];
 const NO_STYLES: readonly Style[] = [];
@@ -788,7 +789,7 @@ export const StyleMenu = memo(function StyleMenu({
         }}
       >
         <Menu.Trigger asChild>
-          <Button size="sm" variant="ghost" title="Styles: sets of modules to apply to other photos">
+          <Button size={HEADER_SIZE} variant="ghost" title="Styles: sets of modules to apply to other photos">
             <Palette /> Styles <ChevronDown />
           </Button>
         </Menu.Trigger>

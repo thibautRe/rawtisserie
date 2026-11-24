@@ -1,8 +1,6 @@
 import { NativeSelect } from '@chakra-ui/react';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 import type { LibrarySearch } from './useLibrarySearch.ts';
-
-/** The library's header controls: big enough for a finger on phones, small beside the rest of the UI. */
-export const HEADER_SIZE = { base: 'sm', md: 'xs' } as const;
 
 const SORTS = [
   { value: 'capturedDesc', label: 'Newest first' },

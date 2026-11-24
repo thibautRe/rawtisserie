@@ -19,7 +19,7 @@ import { Loupe } from '../library/Loupe.tsx';
 import { PhotoGrid } from '../library/PhotoGrid.tsx';
 import { TrashPanel } from '../library/TrashPanel.tsx';
 import { useGridSelection } from '../library/useGridSelection.ts';
-import { HEADER_SIZE } from '../library/SortSelect.tsx';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 
 const failed = (title: string) => (err: Error) => toaster.create({ type: 'error', title, description: err.message });
 

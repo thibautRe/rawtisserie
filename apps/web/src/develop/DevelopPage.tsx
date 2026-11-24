@@ -34,6 +34,7 @@ import { fetchDenoiseModel } from './denoiseModels.ts';
 import { lutTable } from './luts.ts';
 import { defaultRecipeFor, preloadLensfun } from './lensfun.ts';
 import { useUserLutNames } from './luts.ts';
+import { HEADER_SIZE } from '../lib/headerSize.ts';
 
 /** A backend for the page, with the other photos multiple exposures blend in from `exposures` (stable). */
 function useLocalBackend(exposures: ExposureSource) {
@@ -159,12 +160,12 @@ export function LocalDevelopPage() {
             <>
               {/* Edits live only in this tab: anything past the automatic entry is lost on leaving. */}
               <LeaveWarning active={history.entries.length > 1} />
-              <Button size="sm" variant="ghost" onClick={() => input.current?.click()}>
+              <Button size={HEADER_SIZE} variant="ghost" onClick={() => input.current?.click()}>
                 <FolderOpen /> Open…
               </Button>
               {me && (
                 <Button
-                  size="sm"
+                  size={HEADER_SIZE}
                   colorPalette="orange"
                   loading={savingToLibrary}
                   onClick={() => void saveToLibrary(history)}
