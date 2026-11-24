@@ -269,6 +269,11 @@ export interface Overlays {
   toneCurve?: ToneCurveView | null;
   /** Show where one range of a colour balance instance applies (`clipping::ToneRangeView`). */
   toneRange?: ToneRangeView | null;
+  /**
+   * Paint `mask`, `toneCurve` and `toneRange` from this recipe rather than the rendered
+   * one: a compared render shows the edited image's (same framing). Not sent to Rust.
+   */
+  recipe?: EditParams;
 }
 
 /** Where one of a colour balance instance's ranges applies on its input, in yellow. */

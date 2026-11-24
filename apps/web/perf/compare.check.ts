@@ -296,6 +296,50 @@ test('H hides everything but the image while held, a short press keeps it hidden
   assert.deepEqual(await box(edited()), before);
 });
 
+test('a mask shown and the shapes edited are on the compared image too', async () => {
+  const control = (label: string) =>
+    page
+      .locator('[data-scope="switch"][data-part="root"]')
+      .filter({ has: page.locator(`input[aria-label="${label}"]`) })
+      .first()
+      .locator('[data-part="control"]');
+  // Exposure's mask (its settings open with it), by luminance: shown in yellow.
+  await control('Exposure mask').click();
+  await control('Select by luminance').click();
+  await page.getByRole('button', { name: 'Show the mask', exact: true }).click();
+  await page.waitForTimeout(1500);
+
+  // How yellow the compared image is.
+  const yellow = () =>
+    compared().evaluate((c: HTMLCanvasElement) => {
+      const ctx = Object.assign(document.createElement('canvas'), { width: 64, height: 64 }).getContext('2d')!;
+      ctx.drawImage(c, 0, 0, 64, 64);
+      const d = ctx.getImageData(0, 0, 64, 64).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += (d[i]! + d[i + 1]!) / 2 - d[i + 2]!;
+      return sum / (64 * 64);
+    });
+  await page.keyboard.press('y');
+  await comparedShown();
+  await page.waitForTimeout(1500);
+  const shown = await yellow();
+  await page.getByRole('button', { name: 'Hide the mask', exact: true }).click();
+  await page.waitForTimeout(1500);
+  const hidden = await yellow();
+  assert.ok(shown > hidden + 5, `yellow ${shown} with the mask shown, ${hidden} without`);
+
+  // Shapes being edited (here, retouch's spots) are drawn there too, taking no pointer.
+  assert.equal(await page.locator('[inert] svg').count(), 0);
+  await page
+    .getByRole('button', { name: /^Circle/ })
+    .first()
+    .click();
+  await page.locator('[inert] svg').waitFor();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+});
+
 test('the history folds as it was left; undo, redo and a menu are in its header; a reset asks first', async () => {
   // Unfolded by the test above, with entries: the automatic recipe and +2 EV at least.
   const rows = () => page.getByRole('button', { name: /^Compared? with this entry$/ });

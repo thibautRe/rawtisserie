@@ -718,7 +718,19 @@ export function DeveloperView({
     rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
-  // The compared image, at the same size, with the clipping indicators only.
+  // The compared image shows the edited image's mask or tone overlay too, painted from
+  // its committed recipe (on release, so a drag doesn't render it each frame).
+  const comparedOverlays = useMemo(() => {
+    if (comparing || framing || !(maskOverlay || toneOverlay || rangeOverlay)) return null;
+    return {
+      mask: maskOverlay?.id ?? null,
+      maskView: maskOverlay ? { part: maskOverlay.part, values: maskOverlay.values } : undefined,
+      toneCurve: toneOverlay,
+      toneRange: rangeOverlay,
+      recipe: committed,
+    };
+  }, [comparing, framing, maskOverlay, toneOverlay, rangeOverlay, committed]);
+  // The compared image, at the same size, with the clipping indicators and those overlays.
   const compareJob = useMemo(
     () =>
       compareParams && {
@@ -730,10 +742,11 @@ export function DeveloperView({
           display: clipping.display ? { mode: clipping.mode } : null,
           sensor: clipping.sensor,
           stripes: clipping.zebra ? STRIPE_PX * dpr : 0,
+          ...comparedOverlays,
         },
         compare: true,
       },
-    [compareParams, job.width, job.height, clipping, dpr, denoisedRenders],
+    [compareParams, job.width, job.height, clipping, dpr, denoisedRenders, comparedOverlays],
   );
   const { frame: compareFrame, pending: comparePending } = useRenderLoop(backend, compareJob);
   // The pins' places in the frame, where the worker reads them.
@@ -805,9 +818,10 @@ export function DeveloperView({
       display: clipping.display ? { mode: clipping.mode } : null,
       sensor: clipping.sensor,
       stripes: clipping.zebra ? Math.max(1, (STRIPE_PX * dpr) / enlarged) : 0,
+      ...comparedOverlays,
     };
     return { params: compareParams, width, height, region, scale: 1, overlays, compare: true };
-  }, [zoom, JSON.stringify(layout), compareParams, dpr, clipping]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [zoom, JSON.stringify(layout), compareParams, dpr, clipping, comparedOverlays]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame: compareRegionFrame, pending: compareRegionPending } = useRenderLoop(backend, compareRegionJob);
   // A frame of the same image (not of another crop, or of the unedited image).
   const sameImage = (f: Frame | null) =>
@@ -1745,6 +1759,23 @@ export function DeveloperView({
                         style={{ width: '100%', height: '100%', display: 'block' }}
                       />
                       <canvas ref={compareRegionCanvas} style={regionStyle(compareRegion, compareRegionFrame)} />
+                      {/* The edited image's shapes, the same on both: the framing is the same. */}
+                      {comparison && showShapes && frame && layout && (
+                        <div inert style={{ position: 'absolute', inset: 0 }}>
+                          <ShapeOverlay
+                            readOnly
+                            params={params}
+                            mapping={frame.mapping}
+                            width={fitWidth}
+                            height={fitHeight}
+                            zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                            ui={shapeUi}
+                            onUi={onShapeUi}
+                            onChange={onLiveChange}
+                            onCommit={onShapeCommit}
+                          />
+                        </div>
+                      )}
                     </Box>
                   </Box>
                   {sideBySide && <PaneLabel>{compareLabel}</PaneLabel>}

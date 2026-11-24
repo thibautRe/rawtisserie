@@ -81,6 +81,12 @@ interface Props {
   onChange: (p: EditParams) => void;
   /** Commit a change as its own history entry. */
   onCommit: (p: EditParams, label: string) => void;
+  /**
+   * Only shown (the compared image's copy of the edited one's shapes): no key handling,
+   * which the edited image's overlay does. Put it in an `inert` element: its handles
+   * would catch the pointer otherwise.
+   */
+  readOnly?: boolean;
 }
 
 type Handle = 'rx' | 'ry' | 'rotate' | 'feather' | { node: number; part: 'at' | 'in' | 'out' };
@@ -482,6 +488,7 @@ export function ShapeOverlay(props: Props) {
 
   // ── Keyboard ──
   useEffect(() => {
+    if (latest.current.readOnly) return;
     const down = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
       const { ui, params, onUi, onCommit } = latest.current;
@@ -703,7 +710,7 @@ export function ShapeOverlay(props: Props) {
   return (
     <svg
       ref={svg}
-      {...(ui.tool !== 'select' ? noPan : {})}
+      {...(ui.tool !== 'select' && !props.readOnly ? noPan : {})}
       viewBox={`0 0 ${width} ${height}`}
       style={{
         position: 'absolute',
@@ -711,8 +718,8 @@ export function ShapeOverlay(props: Props) {
         width: '100%',
         height: '100%',
         overflow: 'hidden',
-        pointerEvents: ui.tool === 'select' ? 'none' : 'all',
-        cursor: ui.tool === 'select' ? undefined : 'crosshair',
+        pointerEvents: ui.tool === 'select' || props.readOnly ? 'none' : 'all',
+        cursor: ui.tool === 'select' || props.readOnly ? undefined : 'crosshair',
         touchAction: 'none',
       }}
       onPointerDown={onRootDown}

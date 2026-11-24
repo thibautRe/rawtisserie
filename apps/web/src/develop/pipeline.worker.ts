@@ -498,9 +498,14 @@ async function handle(msg: WorkerRequest) {
       return;
     }
     if (!developer) throw new Error('No RAW file loaded');
+    // What the overlays are painted from needs its LUTs and photos too (a compared render's).
+    const needs =
+      msg.type === 'render' && msg.overlays.recipe
+        ? { ...msg.params, modules: [...msg.params.modules, ...msg.overlays.recipe.modules] }
+        : msg.params;
     if (msg.type === 'thumbnail') prepareThumbnailLuts(developer, msg.params);
-    else if (msg.type !== 'fitPerspective') prepareLuts(developer, msg.params);
-    if (msg.type !== 'fitPerspective') prepareExposures(developer, msg.params);
+    else if (msg.type !== 'fitPerspective') prepareLuts(developer, needs);
+    if (msg.type !== 'fitPerspective') prepareExposures(developer, needs);
     const params = JSON.stringify(msg.params);
     if (msg.type === 'render') {
       const isDraft = msg.fullWidth !== msg.maxWidth || msg.fullHeight !== msg.maxHeight;
@@ -520,6 +525,27 @@ async function handle(msg: WorkerRequest) {
       const sensor = sensorMapping(developer, msg.params, params);
       const focus = toSensor(sensor, (x! + fullWidth! / 2) / frameWidth!, (y! + fullHeight! / 2) / frameHeight!);
       if (isDraft) denoise.pausedUntil = performance.now() + DRAG_PAUSE_MS;
+      // The mask and tone overlays of another recipe (a compared render shows the edited
+      // image's): painted from it, before the clipping indicators painted from this one.
+      const { recipe, ...own } = msg.overlays;
+      const fromRecipe =
+        recipe && (own.mask || own.toneCurve || own.toneRange)
+          ? { mask: own.mask, maskView: own.maskView, toneCurve: own.toneCurve, toneRange: own.toneRange }
+          : null;
+      const ownOverlays: Overlays = fromRecipe ? { ...own, mask: null, toneCurve: null, toneRange: null } : own;
+      const recipeJson = fromRecipe && JSON.stringify(recipe);
+      const paintFromRecipe = (
+        data: Uint8Array,
+        width: number,
+        height: number,
+        maxWidth: number,
+        maxHeight: number,
+        region: Uint32Array | undefined,
+      ) => {
+        if (!fromRecipe) return;
+        const json = JSON.stringify(fromRecipe);
+        developer!.paintOverlays(recipeJson!, maxWidth, maxHeight, data, width, height, json, region);
+      };
       if (!msg.compare) {
         picker[msg.fullRegion ? 'region' : 'fit'] = {
           json: params,
@@ -566,13 +592,14 @@ async function handle(msg: WorkerRequest) {
       if (pool && (!isDraft || upgrade)) {
         await offloadDiffuse(developer, params, full.width, full.height, full.region);
         const { width, height, data } = await pool.render(developer, params, full.width, full.height, full.region);
-        let overlays: Overlays = msg.overlays;
+        let overlays: Overlays = ownOverlays;
         if (upgrade && overlays.stripes) {
           // Stripe widths were scaled for the draft.
           const [draftWidth] = developer.outputSize(params, msg.maxWidth, msg.maxHeight);
           overlays = { ...overlays, stripes: (overlays.stripes * frameWidth!) / draftWidth! };
         }
         const scope = drawScope(data, width, height);
+        paintFromRecipe(data, width, height, full.width, full.height, full.region);
         if (overlays.display || overlays.sensor || overlays.mask || overlays.toneCurve || overlays.toneRange) {
           const json = JSON.stringify(overlays);
           developer.paintOverlays(params, full.width, full.height, data, width, height, json, full.region);
@@ -581,19 +608,21 @@ async function handle(msg: WorkerRequest) {
         return;
       }
       const region = regionArg(msg.region);
-      const o = msg.overlays;
+      const o = ownOverlays;
       const painted = !!(o.display || o.sensor || o.mask || o.toneCurve || o.toneRange);
-      // With a scope, the overlays are painted after it is drawn (as `render` would).
-      const split = painted && !!msg.scope;
-      const overlays = split ? '{}' : JSON.stringify(msg.overlays);
+      // With a scope, the overlays are painted after it is drawn (as `render` would), and
+      // after those of another recipe.
+      const split = (painted && !!msg.scope) || !!fromRecipe;
+      const overlays = split ? '{}' : JSON.stringify(o);
       await offloadDiffuse(developer, params, msg.maxWidth, msg.maxHeight, region);
       const img = developer.render(params, msg.maxWidth, msg.maxHeight, overlays, region);
       const { width, height } = img;
       const data = img.takeData();
       img.free();
       const scope = drawScope(data, width, height);
-      if (split) {
-        const json = JSON.stringify(msg.overlays);
+      paintFromRecipe(data, width, height, msg.maxWidth, msg.maxHeight, region);
+      if (split && painted) {
+        const json = JSON.stringify(o);
         developer.paintOverlays(params, msg.maxWidth, msg.maxHeight, data, width, height, json, region);
       }
       await rendered(data, width, height, scope);
