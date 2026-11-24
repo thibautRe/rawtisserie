@@ -259,7 +259,9 @@ documentation site) are in docs/guide/.
   (pointer moves re-render it, not the developer); its bar is portalled below the image
   (`bar`), Apply, Enter and Esc close the path and leave the tool, and while the tool is on
   Ctrl/⌘+Z undoes its nodes (none left: it leaves the tool), not the history. The
-  compared image gets a read-only copy (`readOnly`, in an `inert` element). In a
+  compared image gets a read-only copy (`readOnly`, in an `inert` element). The overlay
+  is in its own layer over the stage (`shapeStage`, moved by `useZoom`'s `followers`), not
+  clipped with the image: shapes reach past it, over assessment's frame too. In a
   browser: `npm run test:shapes -w @rawtisserie/web`.
 - Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
   trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press

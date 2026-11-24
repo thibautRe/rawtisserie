@@ -45,6 +45,7 @@ export function useZoom(
     clickToggles = false,
     onSwipe,
     mirror,
+    followers,
   }: {
     /** A left click (without dragging) toggles too, as a middle click does. */
     clickToggles?: boolean;
@@ -54,6 +55,8 @@ export function useZoom(
      * compared image, roadmap M5). Its own gestures move both, unless its pointer events are off.
      */
     mirror?: { window: RefObject<HTMLElement | null>; stage: RefObject<HTMLElement | null> };
+    /** More layers over the stage, in the same window, that move with it (unclipped overlays). */
+    followers?: RefObject<HTMLElement | null>[];
   } = {},
 ) {
   const swipe = useRef(onSwipe);
@@ -75,8 +78,8 @@ export function useZoom(
     const transform = `translate(${p.tx}px, ${p.ty}px) scale(${p.k})`;
     const cursor = s.panning ? 'grabbing' : p.view ? 'grab' : '';
     stage.style.transform = transform;
-    const mirrored = mirror?.stage.current;
-    if (mirrored) mirrored.style.transform = transform;
+    for (const other of [mirror?.stage, ...(followers ?? [])])
+      if (other?.current) other.current.style.transform = transform;
     for (const win of [windowRef.current, mirror?.window.current]) if (win) win.style.cursor = cursor;
   };
 

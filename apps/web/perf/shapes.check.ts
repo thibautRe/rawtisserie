@@ -199,3 +199,54 @@ test('in assessment, a path may have nodes on the frame and the surround too', a
   assert.equal(await page.locator('svg rect[style*="cursor: move"]').count(), 3);
   await assessment.click();
 });
+
+test('in assessment zoomed in, the frame stays and a path may still have nodes around it', async () => {
+  const assessment = page.getByRole('button', { name: /Assessment/ });
+  await assessment.click();
+  await page.waitForTimeout(1500);
+  // The image's window (its white frame included), which stays where it is when zooming.
+  const win = async () =>
+    (
+      await page
+        .locator('canvas[data-image="edited"]')
+        .evaluateHandle((c) => c.parentElement!.parentElement!.parentElement!)
+    )
+      .asElement()!
+      .boundingBox()
+      .then((b) => b!);
+  const w = await win();
+  // A slow zoom in, caught midway: the image stays inside the frame.
+  await page.mouse.move(w.x + w.width / 2, w.y + w.height / 2);
+  await page.mouse.wheel(0, -60);
+  await page.waitForTimeout(50);
+  await shot('assessment-zooming');
+  const inside = await page.locator('canvas[data-image="edited"]').evaluate((c) => {
+    const clip = c.parentElement!.parentElement!.getBoundingClientRect();
+    const frame = c.parentElement!.parentElement!.parentElement!.getBoundingClientRect();
+    return clip.left > frame.left && clip.top > frame.top && clip.right < frame.right && clip.bottom < frame.bottom;
+  });
+  assert.ok(inside, 'the image is clipped inside its frame');
+  await page.getByTitle(/^Zoom:/).click();
+  await page.getByRole('menuitemradio', { name: '100 %' }).click();
+  await page.waitForTimeout(1500);
+
+  const before = await entries();
+  await page.getByRole('button', { name: /^Path/ }).first().click();
+  await bar().waitFor();
+  const at = (x: number, y: number): [number, number] => [w.x + w.width * x, w.y + w.height * y];
+  await page.mouse.click(...at(0.3, 0.3));
+  // Above the window: in the surround.
+  const outside: [number, number] = [w.x + w.width / 2, w.y - 25];
+  await page.mouse.move(...outside);
+  assert.equal(await previews(), 1);
+  await page.mouse.click(...outside);
+  await page.mouse.click(...at(0.7, 0.3));
+  await shot('assessment-zoomed-path');
+  await apply().click();
+  await bar().waitFor({ state: 'detached' });
+  assert.equal(await entries(), before + 1);
+  assert.equal(await page.locator('svg rect[style*="cursor: move"]').count(), 3);
+  await page.getByTitle(/^Zoom:/).click();
+  await page.getByRole('menuitemradio', { name: 'Fit' }).click();
+  await assessment.click();
+});

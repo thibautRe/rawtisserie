@@ -573,12 +573,15 @@ export function DeveloperView({
   // the fitted frame is known.
   const zoomWindow = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  /** The shape overlay's layer: over the stage and moved with it, but not clipped (assessment). */
+  const shapeStage = useRef<HTMLDivElement>(null);
   const zoomLayout = useRef<ZoomLayout | null>(null);
   // The compared image's window and stage, which the zoom moves with the edited image's.
   const compareWindow = useRef<HTMLDivElement>(null);
   const compareStage = useRef<HTMLDivElement>(null);
   const { view: zoom, zoomTo } = useZoom(zoomWindow, stage, zoomLayout, !cropDraft, {
     mirror: { window: compareWindow, stage: compareStage },
+    followers: [shapeStage],
   });
   // The colour picker (roadmap 2.7): the pointer's place over the image goes to the
   // worker (once a frame at most), the pixel there comes back into a store that only
@@ -1652,9 +1655,9 @@ export function DeveloperView({
                     position={assessment ? 'relative' : 'absolute'}
                     inset={assessment ? undefined : '0'}
                     boxSizing="content-box"
-                    // Assessment frames the image: at fit, it fills the window, which only
-                    // clips the shapes being edited, whose overlay may reach past it.
-                    overflow={assessment && showShapes && !zoom ? 'visible' : 'hidden'}
+                    // The image is clipped inside it (below); the shapes being edited may reach
+                    // past it, over assessment's frame and surround.
+                    overflow="visible"
                     touchAction="none"
                     borderWidth={`${frameWidth}px`}
                     borderStyle="solid"
@@ -1662,25 +1665,61 @@ export function DeveloperView({
                     visibility={frame ? 'visible' : 'hidden'}
                     style={assessment ? { width: fitWidth, height: fitHeight } : undefined}
                   >
-                    {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
+                    <Box position="absolute" inset="0" overflow="hidden">
+                      {/* The fitted image, moved and scaled by the zoom (its transform is set by `useZoom`). */}
+                      <Box
+                        ref={stage}
+                        position="absolute"
+                        top="0"
+                        left="0"
+                        lineHeight="0"
+                        transformOrigin="0 0"
+                        cursor={pinning ? 'crosshair' : undefined}
+                        // The pipette's clicks pin samples: a double click isn't a zoom then.
+                        data-no-zoom={pinning || undefined}
+                        style={{ width: fitWidth, height: fitHeight }}
+                      >
+                        <canvas
+                          ref={canvas}
+                          data-image="edited"
+                          style={{ width: '100%', height: '100%', display: 'block' }}
+                        />
+                        <canvas ref={regionCanvas} style={regionStyle(region, regionFrame)} />
+                        {guides && !comparing && frame && layout && (
+                          <GuideOverlay
+                            lines={guides}
+                            mapping={frame.mapping}
+                            width={fitWidth}
+                            height={fitHeight}
+                            zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
+                            onChange={onGuidesChange}
+                          />
+                        )}
+                        {!framing && !comparing && layout && (
+                          <PinMarkers places={pinPlaces} zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1} />
+                        )}
+                        {cropDraft && !comparing && (
+                          <CropOverlay
+                            rect={cropDraft}
+                            aspect={aspectRatio(aspect, originalAspect)}
+                            frameAspect={frameAspect}
+                            onChange={setCropDraft}
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                    {/* The shapes: moved with the image, not clipped with it. Only the overlay's
+                        own parts take the pointer. */}
                     <Box
-                      ref={stage}
+                      ref={shapeStage}
                       position="absolute"
                       top="0"
                       left="0"
                       lineHeight="0"
                       transformOrigin="0 0"
-                      cursor={pinning ? 'crosshair' : undefined}
-                      // The pipette's clicks pin samples: a double click isn't a zoom then.
-                      data-no-zoom={pinning || undefined}
+                      pointerEvents="none"
                       style={{ width: fitWidth, height: fitHeight }}
                     >
-                      <canvas
-                        ref={canvas}
-                        data-image="edited"
-                        style={{ width: '100%', height: '100%', display: 'block' }}
-                      />
-                      <canvas ref={regionCanvas} style={regionStyle(region, regionFrame)} />
                       {showShapes && frame && layout && (
                         <ShapeOverlay
                           params={params}
@@ -1693,27 +1732,6 @@ export function DeveloperView({
                           onChange={onLiveChange}
                           onCommit={onShapeCommit}
                           bar={pathBar}
-                        />
-                      )}
-                      {guides && !comparing && frame && layout && (
-                        <GuideOverlay
-                          lines={guides}
-                          mapping={frame.mapping}
-                          width={fitWidth}
-                          height={fitHeight}
-                          zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1}
-                          onChange={onGuidesChange}
-                        />
-                      )}
-                      {!framing && !comparing && layout && (
-                        <PinMarkers places={pinPlaces} zoom={zoom ? Math.max(1, zoom.scale / layout.fitScale) : 1} />
-                      )}
-                      {cropDraft && !comparing && (
-                        <CropOverlay
-                          rect={cropDraft}
-                          aspect={aspectRatio(aspect, originalAspect)}
-                          frameAspect={frameAspect}
-                          onChange={setCropDraft}
                         />
                       )}
                     </Box>
