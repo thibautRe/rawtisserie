@@ -1,4 +1,4 @@
-import { isTyping } from '../lib/keys.ts';
+import { buttonKey, isTyping } from '../lib/keys.ts';
 import { Box, Button, Center, Flex, HStack, Heading, IconButton, Spinner, Stack, Text } from '@chakra-ui/react';
 import { ChevronRight, Maximize, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -87,8 +87,10 @@ export function TrashPage() {
 
   // The library's selection keys, and Space to view; Del asks to delete for good.
   useEffect(() => {
+    const buttons = new WeakSet<KeyboardEvent>();
     const onKey = (e: KeyboardEvent) => {
-      if (loupe || isTyping(e.target) || e.altKey || document.querySelector('[role="alertdialog"]')) return;
+      if (loupe || isTyping(e.target) || e.altKey || buttons.has(e) || document.querySelector('[role="alertdialog"]'))
+        return;
       const key = e.key.toLowerCase();
       const move = (delta: number) => {
         const missing = grid.step(delta, e.shiftKey);
@@ -106,8 +108,20 @@ export function TrashPage() {
       else return;
       e.preventDefault();
     };
+    // Space or Enter on a button: the button's if the keyboard focused it, else the page's.
+    const claim = (e: KeyboardEvent) => {
+      if (loupe || document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"]'))
+        return;
+      const owner = buttonKey(e);
+      if (owner === 'button') buttons.add(e);
+      else if (owner === 'page') onKey(e);
+    };
+    window.addEventListener('keydown', claim, true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', claim, true);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [loupe, loupeStart, photos, grid, trash, columns]);
 
   const dialogText =

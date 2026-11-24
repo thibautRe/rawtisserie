@@ -1,4 +1,4 @@
-import { commandLabel, isTyping } from '../lib/keys.ts';
+import { buttonKey, commandLabel, isTyping } from '../lib/keys.ts';
 import {
   Badge,
   Box,
@@ -432,6 +432,12 @@ export function LibraryPage() {
     const claim = (e: KeyboardEvent) => {
       const overlay = '[role="dialog"], [role="alertdialog"], [role="menu"][data-state="open"]';
       if (document.querySelector(overlay)) forOverlay.add(e);
+      else if (!loupe) {
+        // Space or Enter on a button: the button's if the keyboard focused it, else the library's.
+        const owner = buttonKey(e);
+        if (owner === 'button') forOverlay.add(e);
+        else if (owner === 'page') onKey(e);
+      }
     };
     window.addEventListener('keydown', claim, true);
     window.addEventListener('keydown', onKey);

@@ -10,6 +10,41 @@ export const isTyping = (target: EventTarget | null) =>
     target.tagName === 'SELECT' ||
     (target instanceof HTMLInputElement && !NOT_TYPED.has(target.type)));
 
+const CONTROLS =
+  'button, a[href], summary, input[type="checkbox"], input[type="radio"], [role="button"], [role="checkbox"], [role="switch"], [role="radio"], [role="tab"], [role="menuitem"]';
+
+/**
+ * The element the keyboard last moved the focus to (Tab, arrows), if it still has it.
+ * Not `:focus-visible`: browsers show a ring on a menu's trigger given the focus back
+ * when the menu closes, even closed with the mouse.
+ */
+let keyboardFocus: EventTarget | null = null;
+let lastInput: 'pointer' | 'keyboard' = 'pointer';
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', () => (lastInput = 'pointer'), true);
+  window.addEventListener('keydown', (e) => !MODIFIER_KEYS.has(e.key) && (lastInput = 'keyboard'), true);
+  window.addEventListener('focusin', (e) => (keyboardFocus = lastInput === 'keyboard' ? e.target : null), true);
+}
+
+/**
+ * Space or Enter on a focused button, for a page whose shortcuts have those keys too
+ * (Space opens the loupe), listening first (capture). The button's when the keyboard
+ * moved the focus there: `'button'`, and the page leaves it. Else the focus is left from
+ * a click (a menu's trigger gets it back when the menu closes): the key is taken from
+ * the button, which loses the focus, and `'page'` says to run the page's shortcut (the
+ * event goes no further).
+ */
+export function buttonKey(e: KeyboardEvent): 'button' | 'page' | null {
+  if ((e.key !== ' ' && e.key !== 'Enter') || e.ctrlKey || e.metaKey || e.altKey) return null;
+  const control = e.target instanceof Element ? e.target.closest<HTMLElement>(CONTROLS) : null;
+  if (!control) return null;
+  if (keyboardFocus === e.target || keyboardFocus === control) return 'button';
+  control.blur();
+  e.preventDefault();
+  e.stopPropagation();
+  return 'page';
+}
+
 /** One key press of a shortcut: the physical key (`code`, whatever the layout) and what it showed. */
 export interface KeyPress {
   code: string;

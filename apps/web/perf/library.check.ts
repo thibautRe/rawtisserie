@@ -1559,6 +1559,30 @@ test('collections: a tree in the filters, newest first, picked with those under 
   assert.match(moved.collectionId, /Wedding$/);
 });
 
+test("Space on a button clicked opens the loupe, not the button; reached by Tab, it is the button's", async () => {
+  await open('/');
+  await cards().first().click();
+  const actions = page.getByRole('button', { name: 'Actions' });
+  await actions.click();
+  await page.getByRole('menu').waitFor();
+  // Closed with the mouse: the trigger has the focus back.
+  await page.mouse.click(800, 600);
+  await page.getByRole('menu').waitFor({ state: 'hidden' });
+  await page.keyboard.press('Space');
+  const close = page.getByRole('button', { name: 'Close (Esc)' });
+  await close.waitFor();
+  assert.equal(await page.getByRole('menu').isVisible(), false, 'the menu opened under the loupe');
+  await page.keyboard.press('Escape');
+  await close.waitFor({ state: 'detached' });
+  // Reached by the keyboard: the menu opens, and not the loupe.
+  await actions.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Space');
+  await page.getByRole('menu').waitFor();
+  assert.equal(await close.count(), 0, 'the loupe opened');
+});
+
 test('Clear all leaves the trees unfolded where they showed a picked collection or tag', async () => {
   await open('/?collection=c1109&tag=People%7CAlice');
   await page.locator('[data-collection="c1109"]').waitFor();
