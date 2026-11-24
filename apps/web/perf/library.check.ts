@@ -186,6 +186,9 @@ const PHONE = { width: 390, height: 844 };
 async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   await page?.close();
   page = await browser.newPage({ viewport, hasTouch: viewport.width < 768 });
+  // Shortcuts are written as the platform writes them (Option on a Mac): the checks
+  // expect Ctrl+Alt, whatever machine runs them.
+  await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }));
   page.on('pageerror', (e) => assert.fail(`page error: ${e.message}`));
   sent = [];
   patched = new Map();
