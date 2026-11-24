@@ -25,6 +25,7 @@ import { DeveloperView } from './DeveloperView.tsx';
 import { chooseLocalExposure, localExposure, useExposurePicker } from './ExposurePicker.tsx';
 import type { ExposureSource } from './renderBackend.ts';
 import { FilmRoll } from './FilmRoll.tsx';
+import { ZEN_HIDE } from './zen.tsx';
 import { fileExportInfo, photoExportInfo } from './exportInfo.ts';
 import type { HistoryOp, HistorySnapshot } from './history.ts';
 import { VersionMenu } from './VersionMenu.tsx';
@@ -298,7 +299,9 @@ export function LibraryDevelopPage() {
         <LibraryDeveloper id={id} />
       </Box>
       {/* Outside the developer: it stays while the next photo loads. */}
-      <FilmRoll currentId={id} />
+      <Box flexShrink={0} {...ZEN_HIDE}>
+        <FilmRoll currentId={id} />
+      </Box>
     </Flex>
   );
 }

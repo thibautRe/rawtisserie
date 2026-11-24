@@ -101,7 +101,7 @@ import { type ZoomLayout, visibleRegion } from './zoom.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { useZoom } from './useZoom.ts';
 import { ImportNotice } from './ImportNotice.tsx';
-import { ZEN_HIDE, ZenButton, useZen, zenRoot } from './zen.tsx';
+import { ZEN_HIDE, ZenButton, useZen } from './zen.tsx';
 import { commandLabel } from '../lib/keys.ts';
 
 interface Props {
@@ -1540,7 +1540,7 @@ export function DeveloperView({
   return (
     <SampleContext.Provider value={samples}>
       <ThumbnailContext.Provider value={thumbnails}>
-        <Flex h="full" minH="0" {...zenRoot(zen.state)}>
+        <Flex h="full" minH="0">
           <Flex
             ref={sidebar}
             {...ZEN_HIDE}

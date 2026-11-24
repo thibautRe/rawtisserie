@@ -1,19 +1,21 @@
 /**
  * The developer's distraction-free view: everything but the image is hidden, without
  * moving or resizing it (nothing renders again). Hidden things keep their place
- * (`visibility`, for all under them): mark them with `ZEN_HIDE`, under the element
- * `zenRoot` styles.
+ * (`visibility`, for all under them): mark them with `ZEN_HIDE`, anywhere on the page
+ * (the film roll is outside the developer). `useZen` marks the page (`html[data-zen]`),
+ * which `ZEN_CSS` (global) reads.
  *
- * Held (H, or the status bar's button): hidden while pressed, back on release. A short
- * press keeps it hidden ("sticky"), with the button still there to bring it back (or H,
- * or Esc). While a press is short, the button stays; held past `HOLD_MS`, it goes too.
+ * Pressed (H, or the status bar's button), everything goes, the button too; released
+ * after a hold (`HOLD_MS`), it all comes back. Released sooner, a click: the view stays
+ * ("sticky"), with the button back alone to end it (or H, or Esc).
  */
 import { IconButton } from '@chakra-ui/react';
 import { Eye, EyeOff } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { isTyping } from '../lib/keys.ts';
 
-export type ZenState = 'off' | 'pressing' | 'peek' | 'sticky';
+/** `pressed`: held down (all hidden), `sticky`: hidden after a click, the button left. */
+export type ZenState = 'off' | 'pressed' | 'sticky';
 
 /** Past this, a press is a hold: the view comes back on release. */
 export const HOLD_MS = 300;
@@ -21,45 +23,39 @@ export const HOLD_MS = 300;
 /** Put on what the view hides. */
 export const ZEN_HIDE = { 'data-zen-hide': '' } as const;
 
-/** Props for the element holding everything the view hides: it hides them, on the image's background. */
-export const zenRoot = (state: ZenState) => ({
-  'data-zen': state,
-  bg: state === 'off' ? undefined : 'canvas',
-  // Everything under them: some parts set their own visibility (sliders' thumbs). But the
-  // button, while it shows (`data-zen-keep`).
-  css: {
-    '&:not([data-zen="off"]) [data-zen-hide]': { visibility: 'hidden' },
-    '&:not([data-zen="off"]) [data-zen-hide] *': { visibility: 'hidden !important' },
-    '&:not([data-zen="off"]) [data-zen-hide] [data-zen-keep]': { visibility: 'visible !important' },
-    '&:not([data-zen="off"]) [data-zen-hide] [data-zen-keep] *': { visibility: 'visible !important' },
-  },
-});
+/**
+ * Global CSS (theme): what's marked hides, all under it too (some parts set their own
+ * visibility, as sliders' thumbs do), but the button while it shows (`data-zen-keep`);
+ * the page takes the image's background.
+ */
+export const ZEN_CSS = {
+  'html[data-zen] body': { bg: 'canvas' },
+  'html[data-zen] [data-zen-hide]': { visibility: 'hidden' },
+  'html[data-zen] [data-zen-hide] *': { visibility: 'hidden !important' },
+  'html[data-zen] [data-zen-hide] [data-zen-keep]': { visibility: 'visible !important' },
+  'html[data-zen] [data-zen-hide] [data-zen-keep] *': { visibility: 'visible !important' },
+};
 
 /** The view's state, and the press handlers of its button. Listens to H (and Esc while it sticks). */
 export function useZen() {
   const [state, setState] = useState<ZenState>('off');
   const current = useRef(state);
   current.current = state;
-  const press = useRef<{ at: number; from: ZenState; timer: number } | null>(null);
+  const press = useRef<{ at: number; from: ZenState } | null>(null);
 
   const start = useCallback(() => {
     if (press.current) return;
-    const from = current.current;
-    // Sticking: this press ends it.
-    const timer =
-      from === 'sticky' ? 0 : window.setTimeout(() => setState((s) => (s === 'pressing' ? 'peek' : s)), HOLD_MS);
-    press.current = { at: performance.now(), from, timer };
-    if (from !== 'sticky') setState('pressing');
+    press.current = { at: performance.now(), from: current.current };
+    setState('pressed');
   }, []);
   const end = useCallback(() => {
     const p = press.current;
     if (!p) return;
     press.current = null;
-    clearTimeout(p.timer);
-    setState(p.from === 'sticky' || performance.now() - p.at >= HOLD_MS ? 'off' : 'sticky');
+    // A click ends a sticky view, or starts one; a hold was a peek.
+    setState(p.from === 'off' && performance.now() - p.at < HOLD_MS ? 'sticky' : 'off');
   }, []);
   const off = useCallback(() => {
-    if (press.current) clearTimeout(press.current.timer);
     press.current = null;
     setState('off');
   }, []);
@@ -89,13 +85,21 @@ export function useZen() {
     };
   }, [start, end, off]);
 
+  useEffect(() => {
+    if (state === 'off') delete document.documentElement.dataset.zen;
+    else document.documentElement.dataset.zen = state;
+  }, [state]);
+  useEffect(
+    () => () => {
+      delete document.documentElement.dataset.zen;
+    },
+    [],
+  );
+
   return { state, start, end };
 }
 
-/**
- * The status bar's button. It stays visible while the view hides the rest (but when held
- * past `HOLD_MS`), to bring it back.
- */
+/** The status bar's button. It stays when the view sticks, to end it. */
 export const ZenButton = memo(function ZenButton({
   state,
   onStart,
@@ -105,7 +109,6 @@ export const ZenButton = memo(function ZenButton({
   onStart: () => void;
   onEnd: () => void;
 }) {
-  const shown = state === 'pressing' || state === 'sticky';
   return (
     <IconButton
       size="2xs"
@@ -113,7 +116,7 @@ export const ZenButton = memo(function ZenButton({
       aria-label={state === 'sticky' ? 'Show the interface (H)' : 'Hide the interface (H)'}
       aria-pressed={state !== 'off'}
       title="Distraction-free: press to hide everything but the image, hold to peek (H)"
-      data-zen-keep={shown ? '' : undefined}
+      data-zen-keep={state === 'sticky' ? '' : undefined}
       boxShadow={state === 'sticky' ? 'md' : undefined}
       onPointerDown={(e) => {
         if (e.button !== 0) return;

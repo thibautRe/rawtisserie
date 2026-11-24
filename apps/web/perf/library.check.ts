@@ -916,6 +916,25 @@ test(
   },
 );
 
+test('the distraction-free view hides the film roll too', { skip: !existsSync(RAW) }, async () => {
+  await open('/');
+  await cards().first().waitFor();
+  originals = { p1: RAW };
+  await page.goto(`${URL_}/versions/v1/develop`);
+  await page.locator('canvas').first().waitFor({ timeout: 120_000 });
+  const rollHidden = () =>
+    roll()
+      .first()
+      .evaluate((el) => getComputedStyle(el).visibility === 'hidden');
+  assert.equal(await rollHidden(), false);
+  await page.keyboard.press('h');
+  assert.equal(await rollHidden(), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await rollHidden(), false);
+  // Esc ended the view: the developer is still there.
+  assert.match(page.url(), /\/develop/);
+});
+
 test('an import shows its files waiting, then what happened to each, and retries what failed', async () => {
   await open('/');
   await cards().first().waitFor();

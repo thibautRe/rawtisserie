@@ -259,12 +259,14 @@ test('H hides everything but the image while held, a short press keeps it hidden
     if (JSON.stringify(now) === JSON.stringify(before)) break;
     before = now;
   }
-  // Held: hidden, back on release.
+  const button = page.getByRole('button', { name: /the interface/ });
+  // Held: everything goes at once, the button too, and comes back on release.
   await page.keyboard.down('h');
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(50);
   assert.equal(await hidden(), true);
+  assert.equal(await button.isVisible(), false);
+  await page.waitForTimeout(400);
   assert.deepEqual(await box(edited()), before);
-  assert.equal(await page.getByRole('button', { name: /the interface/ }).isVisible(), false);
   await page.keyboard.up('h');
   assert.equal(await hidden(), false);
   // A short press: it stays hidden, with the button left to bring it back.
@@ -275,14 +277,19 @@ test('H hides everything but the image while held, a short press keeps it hidden
   if (shots) await page.screenshot({ path: join(shots, 'distraction-free.png') });
   await show.click();
   assert.equal(await hidden(), false);
-  // The button held past the threshold: it goes too, until released.
-  const button = page.getByRole('button', { name: 'Hide the interface (H)' });
+  // The button pressed: it goes with the rest at once; held, all comes back on release.
   const b = await box(button);
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(50);
   assert.equal(await button.isVisible(), false);
+  await page.waitForTimeout(400);
   await page.mouse.up();
+  assert.equal(await hidden(), false);
+  // Clicked: hidden, the button back alone.
+  await button.click();
+  assert.equal(await page.getByRole('button', { name: 'Show the interface (H)' }).isVisible(), true);
+  await page.keyboard.press('Escape');
   assert.equal(await hidden(), false);
   assert.deepEqual(await box(edited()), before);
 });
