@@ -242,3 +242,47 @@ test('a history entry picked in the panel is compared with; its button again or 
   const e = await box(edited());
   assert.ok(e.width > 700, `edited image ${e.width} wide`);
 });
+
+test('H hides everything but the image while held, a short press keeps it hidden, and the image never moves', async () => {
+  const hidden = () =>
+    page
+      .locator('aside')
+      .first()
+      .evaluate((el) => getComputedStyle(el).visibility === 'hidden');
+  // At fit (the tests before zoomed in), once the view has settled.
+  await page.getByTitle(/^Zoom:/).click();
+  await page.getByRole('menuitemradio', { name: 'Fit' }).click();
+  let before = await box(edited());
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(250);
+    const now = await box(edited());
+    if (JSON.stringify(now) === JSON.stringify(before)) break;
+    before = now;
+  }
+  // Held: hidden, back on release.
+  await page.keyboard.down('h');
+  await page.waitForTimeout(400);
+  assert.equal(await hidden(), true);
+  assert.deepEqual(await box(edited()), before);
+  assert.equal(await page.getByRole('button', { name: /the interface/ }).isVisible(), false);
+  await page.keyboard.up('h');
+  assert.equal(await hidden(), false);
+  // A short press: it stays hidden, with the button left to bring it back.
+  await page.keyboard.press('h');
+  assert.equal(await hidden(), true);
+  const show = page.getByRole('button', { name: 'Show the interface (H)' });
+  assert.equal(await show.isVisible(), true);
+  if (shots) await page.screenshot({ path: join(shots, 'distraction-free.png') });
+  await show.click();
+  assert.equal(await hidden(), false);
+  // The button held past the threshold: it goes too, until released.
+  const button = page.getByRole('button', { name: 'Hide the interface (H)' });
+  const b = await box(button);
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(400);
+  assert.equal(await button.isVisible(), false);
+  await page.mouse.up();
+  assert.equal(await hidden(), false);
+  assert.deepEqual(await box(edited()), before);
+});

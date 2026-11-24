@@ -68,6 +68,8 @@ each time.
   and display and sensor clipping indicators.
 - Zoom with the mouse wheel or a touchpad pinch (fit to 800 %), middle click for 100 %
   at the pointer, and drag to pan.
+- Distraction-free: hold `H` (or the status bar's eye button) to hide everything but the
+  image, which stays where it is; a short press keeps it hidden until pressed again.
 - Scopes: waveform, RGB parade and vectorscope.
 - A colour picker that follows the pointer, with pins to keep samples in place.
 - Every change goes into the history, saved as you work, and any entry can be gone back to.

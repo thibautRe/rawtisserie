@@ -12,7 +12,8 @@ pastes copied settings onto the photo (with Shift, appending every module) · `D
 develops · Esc, Space or `E` closes.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
-colour-assessment frame · hold `\` to compare with the unedited image · `C` crop
+colour-assessment frame · hold `\` to compare with the unedited image · hold `H` to hide
+everything but the image (a short press keeps it hidden until `H` or Esc) · `C` crop
 (Enter applies, Esc cancels) · retouch and masks: Delete removes the selected spot or
 shape, Enter closes a path, Esc cancels a path, then leaves the tool, the selection and the shapes' overlay ·
 Esc closes an open menu, otherwise goes back to the library · double-click a slider to reset it · click its number to type a value · typed

@@ -101,6 +101,7 @@ import { type ZoomLayout, visibleRegion } from './zoom.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { useZoom } from './useZoom.ts';
 import { ImportNotice } from './ImportNotice.tsx';
+import { ZEN_HIDE, ZenButton, useZen, zenRoot } from './zen.tsx';
 import { commandLabel } from '../lib/keys.ts';
 
 interface Props {
@@ -280,7 +281,7 @@ const Toolbar = memo(function Toolbar({
   });
 
   return (
-    <HStack px="3" py="2" borderBottomWidth="1px" gap="2">
+    <HStack px="3" py="2" borderBottomWidth="1px" gap="2" {...ZEN_HIDE}>
       <AppMenu />
       <Stack gap="0" minW="0" flex="1">
         <HStack gap="1" minW="0">
@@ -523,6 +524,7 @@ export function DeveloperView({
         ? versionRecipe.recipe
         : null;
   // ISO 12646 colour assessment: a white frame around a smaller image on neutral grey.
+  const zen = useZen();
   const [assessment, setAssessment] = useState(() => localStorage.getItem('developer.assessment') === '1');
   useEffect(() => localStorage.setItem('developer.assessment', assessment ? '1' : '0'), [assessment]);
   const [clipping, setClipping] = useClippingSettings();
@@ -1538,9 +1540,10 @@ export function DeveloperView({
   return (
     <SampleContext.Provider value={samples}>
       <ThumbnailContext.Provider value={thumbnails}>
-        <Flex h="full" minH="0">
+        <Flex h="full" minH="0" {...zenRoot(zen.state)}>
           <Flex
             ref={sidebar}
+            {...ZEN_HIDE}
             as="aside"
             direction="column"
             w="56"
@@ -1767,6 +1770,7 @@ export function DeveloperView({
               )}
               {showShapes && shapeUi.tool !== 'select' && (
                 <Text
+                  {...ZEN_HIDE}
                   position="absolute"
                   bottom="4"
                   bg="bg.panel"
@@ -1789,7 +1793,15 @@ export function DeveloperView({
                 </Text>
               )}
               {guides && (
-                <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
+                <HStack
+                  {...ZEN_HIDE}
+                  position="absolute"
+                  bottom="4"
+                  bg="bg.panel"
+                  p="2"
+                  borderRadius="md"
+                  boxShadow="lg"
+                >
                   <Text textStyle="xs" color="fg.muted" px="2">
                     {detectingLines
                       ? 'Looking for lines…'
@@ -1816,7 +1828,15 @@ export function DeveloperView({
                 </HStack>
               )}
               {cropDraft && (
-                <HStack position="absolute" bottom="4" bg="bg.panel" p="2" borderRadius="md" boxShadow="lg">
+                <HStack
+                  {...ZEN_HIDE}
+                  position="absolute"
+                  bottom="4"
+                  bg="bg.panel"
+                  p="2"
+                  borderRadius="md"
+                  boxShadow="lg"
+                >
                   <Text textStyle="xs" color="fg.muted" px="2">
                     Drag to crop · Enter to apply · Esc to cancel
                   </Text>
@@ -1844,11 +1864,13 @@ export function DeveloperView({
               onClippingChange={setClipping}
               assessment={assessment}
               onAssessmentChange={setAssessment}
+              zen={<ZenButton state={zen.state} onStart={zen.start} onEnd={zen.end} />}
             />
           </Flex>
 
           <Box
             ref={spotlight.aside}
+            {...ZEN_HIDE}
             as="aside"
             w="80"
             flexShrink={0}

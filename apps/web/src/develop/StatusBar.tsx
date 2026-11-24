@@ -6,6 +6,7 @@ import { usePixelSample } from './picker.ts';
 import type { ClipMode } from './protocol.ts';
 import type { SaveStatus } from './useAutosave.ts';
 import { commandLabel } from '../lib/keys.ts';
+import { ZEN_HIDE } from './zen.tsx';
 
 /** Clipping indicator settings; display options, not part of the recipe. */
 export interface ClippingSettings {
@@ -55,6 +56,8 @@ interface Props {
   /** The colour picker's pipette: clicks on the image pin samples. */
   pipette?: boolean;
   onPipette?: () => void;
+  /** The distraction-free view's button (`ZenButton`), after the view toggles. */
+  zen?: React.ReactNode;
 }
 
 /** A slim bar under the image: save state, render time and view toggles. */
@@ -70,9 +73,10 @@ export function StatusBar({
   onAssessmentChange,
   pipette,
   onPipette,
+  zen,
 }: Props) {
   return (
-    <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0}>
+    <HStack h="7" px="2" gap="1" borderTopWidth="1px" bg="bg.panel" flexShrink={0} {...ZEN_HIDE}>
       {save && <SaveIndicator {...save} />}
       <Text textStyle="2xs" color="fg.subtle" fontFamily="numeric" fontVariantNumeric="tabular-nums" px="1">
         {/* Room for 5 digits, kept without a time: the readout after it doesn't move. */}
@@ -101,6 +105,7 @@ export function StatusBar({
         assessment={assessment}
         onAssessmentChange={onAssessmentChange}
       />
+      {zen}
     </HStack>
   );
 }

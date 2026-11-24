@@ -17,6 +17,7 @@ import {
 } from '@rawtisserie/pipeline';
 import { memo, useEffect, useState } from 'react';
 import { useUserLutNames } from './luts.ts';
+import { ZEN_HIDE } from './zen.tsx';
 
 const STATUS_TEXT: Record<ImportStatus, string> = {
   mapped: 'Came through',
@@ -78,7 +79,7 @@ export function ImportReportNotice({ report }: { report: ImportReport }) {
     .filter(Boolean)
     .join(', ');
   return (
-    <Alert.Root status="warning" size="sm" borderRadius="0" flexShrink={0} data-import-notice>
+    <Alert.Root status="warning" size="sm" borderRadius="0" flexShrink={0} data-import-notice {...ZEN_HIDE}>
       <Alert.Indicator />
       <Alert.Content>
         <HStack gap="2" justify="space-between" align="flex-start">
