@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Target, normalizeFilterQuery, parseLibraryQuery } from './query.ts';
+import { ListRequest, Target, normalizeFilterQuery, parseLibraryQuery, parseListQuery } from './query.ts';
 
 test("the library's query string reads as /api/versions' does: repeated keys are lists", () => {
   const q = parseLibraryQuery('q=beach&tag=People&tag=Places%7CParis&flag=picked&ratingMin=3&sort=filename');
@@ -65,4 +65,13 @@ test('collections are ids, or "none" for photos in none', () => {
   assert.deepEqual(parseLibraryQuery(`collection=${id}`).collection, [id]);
   assert.throws(() => parseLibraryQuery('collection=Trips'));
   assert.equal(normalizeFilterQuery(`collection=none&sort=filename`), 'collection=none');
+});
+
+test('a page listing versions kept outside the filters: the query with its paging, and ids', () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  const q = parseListQuery('flag=unflagged&limit=50&offset=100');
+  assert.deepEqual([q.flag, q.limit, q.offset], [['unflagged'], 50, 100]);
+  assert.deepEqual(ListRequest.parse({ query: '', keep: [id] }).keep, [id]);
+  assert.throws(() => ListRequest.parse({ query: '', keep: ['nope'] }));
+  assert.deepEqual(Target.parse({ filter: '', keep: [id] }), { filter: '', except: [], keep: [id] });
 });

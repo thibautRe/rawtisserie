@@ -124,7 +124,10 @@ documentation site) are in docs/guide/.
   Server routes resolve it with `targetClause` (`photos/query.ts`) in their own query; a
   new bulk action must too, or it only reaches the photos loaded. Work done in the browser
   per photo gets the ids from `/api/versions/ids`. Above `LARGE_SELECTION` (200) actions
-  ask first (`useConfirmLarge`).
+  ask first (`useConfirmLarge`). Photos an action changes stay listed, as in the loupe,
+  until the user applies the filters again: `keepListed` before the change (the list is
+  then read through `POST /api/versions/list` with `keep`, and targets carry it). A new
+  action that changes photos from the library keeps them too.
 - The API's shapes live in `packages/api` (`@rawtisserie/api`), imported by both apps: the
   web app's hooks type their requests with them, and the server's DTOs (`versionDto`,
   `adminUserDto`, `transferDto`…) and handlers declare them as return types, so a field

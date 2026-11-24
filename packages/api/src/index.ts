@@ -302,4 +302,23 @@ export interface Transfer {
  * library's filters match (its query string), but those unticked since. The server
  * resolves a filter itself.
  */
-export type Target = { ids: string[] } | { filter: string; except: string[] };
+export type Target = { ids: string[] } | { filter: string; except: string[]; keep?: string[] };
+
+/** A page of the library (`GET /api/versions`, or `POST /api/versions/list` with `keep`). */
+export interface VersionPage {
+  versions: Photo[];
+  /** How many the filters match, with the versions kept. */
+  total: number;
+  /** How many of the versions kept don't match the filters any more (with `keep` only). */
+  outside?: number;
+}
+
+/**
+ * `POST /api/versions/list`: a page of the library (`query`, as `/api/versions` takes it),
+ * listing too the versions changed since its filters were applied (`keep`), as the loupe
+ * does, until they're applied again.
+ */
+export interface VersionListRequest {
+  query: string;
+  keep: string[];
+}

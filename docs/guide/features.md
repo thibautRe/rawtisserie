@@ -44,7 +44,11 @@ each time.
 ### Culling
 
 - Rate, flag, label and delete from the keyboard, in the grid or in a full-window loupe.
-- The loupe zooms to 100 %, and can advance to the next photo after each rating.
+- A photo you change stays where it is, in the grid as in the loupe, even when it no
+  longer matches the filters (reject one while showing the unflagged ones): **Apply
+  filters**, in the header, hides those.
+- The loupe zooms to 100 %, and can advance to the next photo after each rating. A line
+  over the top of the photo shows its status: red rejected, green picked, orange rated.
 - Going to the developer and back keeps the filters, scroll position and selection.
 
 ### Working on many photos

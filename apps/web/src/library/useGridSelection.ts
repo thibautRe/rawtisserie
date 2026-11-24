@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Photo, Target } from '@rawtisserie/api';
 import { useStableCallback } from '../develop/useStableCallback.ts';
+import { keptUnder } from '../api/hooks.ts';
 
 /** Every photo a filter matches (roadmap 8.13), but those unticked since. */
 interface AllMatching {
@@ -155,7 +156,8 @@ export function useGridSelection<T extends Photo>(
 
   /** What actions on the selection apply to, for the server. */
   const target = useCallback(
-    (): Target => (all ? { filter: all.scope, except: [...all.except] } : { ids: [...picked] }),
+    (): Target =>
+      all ? { filter: all.scope, except: [...all.except], ...keptUnder(all.scope) } : { ids: [...picked] },
     [all, picked],
   );
 

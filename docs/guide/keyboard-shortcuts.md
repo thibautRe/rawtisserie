@@ -7,7 +7,8 @@ the original) · Delete deletes · Esc clears · Space/`E` opens the culling lou
 
 **Culling loupe**: arrows move · `0`–`5`, `P`/`X`/`U` and `6`–`9` as in the grid
 (ratings and flags move on with auto-advance, `A` toggles it) · click or `Z` zooms to
-100 % (the zoom stays from one photo to the next) · `I` hides the details · `D`/Enter
+100 % (the zoom stays from one photo to the next) · `I` hides the details · Ctrl/⌘+V
+pastes copied settings onto the photo (with Shift, appending every module) · `D`/Enter
 develops · Esc, Space or `E` closes.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B

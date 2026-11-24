@@ -284,9 +284,10 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
       // A selection by filter (`filter`, `except`) has no ids: nothing to keep here.
       const { ids = [], patch } = route.request().postDataJSON() as {
         ids?: string[];
-        patch: { addTags?: string[]; removeTags?: string[] };
+        patch: { addTags?: string[]; removeTags?: string[]; flag?: Photo['flag'] };
       };
       for (const id of ids) {
+        if (patch.flag !== undefined) patched.set(id, { ...patched.get(id), flag: patch.flag });
         const tags = patched.get(id)?.tags ?? PHOTOS.find((p) => p.id === id)?.tags ?? [];
         const next = [...tags.filter((t) => !patch.removeTags?.includes(t)), ...(patch.addTags ?? [])];
         if (patch.addTags || patch.removeTags) patched.set(id, { ...patched.get(id), tags: [...new Set(next)] });
@@ -295,20 +296,26 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
     }
     if (path === '/api/auth/me') return json({ user: { id: 'u', email: 'a@b.c', displayName: 'A', isAdmin: false } });
     if (path === '/api/account/storage') return json({ used: 0, quota: null });
-    if (path === '/api/versions') {
-      const q = url.searchParams.get('q') ?? '';
+    if (path === '/api/versions' || path === '/api/versions/list') {
+      const listed =
+        path === '/api/versions' ? null : (route.request().postDataJSON() as { query: string; keep: string[] });
+      const params = listed ? new URLSearchParams(listed.query) : url.searchParams;
+      const q = params.get('q') ?? '';
       // `many…`: a library of hundreds, in pages.
       if (q.startsWith('many')) {
         const all = MANY.filter((p) => p.filename.includes(q));
-        const offset = Number(url.searchParams.get('offset') ?? 0);
-        const limit = Number(url.searchParams.get('limit') ?? 200);
+        const offset = Number(params.get('offset') ?? 0);
+        const limit = Number(params.get('limit') ?? 200);
         return json({ versions: all.slice(offset, offset + limit), total: all.length });
       }
-      const versions = PHOTOS.filter((p) => p.filename.includes(q)).map((p) => {
-        const tags = patched.get(p.id)?.tags;
-        return tags ? { ...p, tags } : p;
-      });
-      return json({ versions, total: versions.length });
+      // Only the search and "unflagged" are filtered here.
+      const unflagged = params.getAll('flag').join() === 'unflagged';
+      const current = PHOTOS.map((p) => ({ ...p, ...patched.get(p.id) }) as Photo);
+      const matches = (p: Photo) => p.filename.includes(q) && (!unflagged || !p.flag);
+      const keep = new Set(listed?.keep ?? []);
+      const versions = current.filter((p) => matches(p) || keep.has(p.id));
+      const outside = current.filter((p) => keep.has(p.id) && !matches(p)).length;
+      return json({ versions, total: versions.length, ...(listed && { outside }) });
     }
     if (path === '/api/versions/facets')
       return json({
@@ -1357,6 +1364,35 @@ test('Shift+arrows select from where they started, and going back unselects', as
     await selected(),
     PHOTOS.slice(0, 3).map((p) => p.id),
   );
+});
+
+test('a photo flagged out of the filters stays until they are applied again, in the grid as in the loupe', async () => {
+  await open('/?flag=unflagged');
+  await cards().first().waitFor();
+  await cards().first().click();
+  await page.keyboard.press('x');
+  // Listed again, with the photo kept: it stays, and the header offers to apply the filters.
+  const apply = page.getByRole('button', { name: /Apply filters/ });
+  await apply.waitFor();
+  assert.equal(await cards().count(), 6);
+  const listed = sent.filter((s) => s.path === '/api/versions/list');
+  assert.deepEqual((listed.at(-1)!.body as { keep: string[] }).keep, ['v1']);
+  // The loupe: rejected, the line over the photo says so (it isn't faded any more).
+  await page.keyboard.press('Space');
+  await page.locator('[data-loupe-status="rejected"]').waitFor();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('p');
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.querySelector('[data-loupe-status]') === null);
+  assert.equal(await cards().count(), 6);
+  await page
+    .getByRole('button', { name: /Apply filters/ })
+    .filter({ hasText: '2' })
+    .waitFor();
+  // Applied: both go, and the button with them.
+  await apply.click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 4);
+  assert.equal(await apply.count(), 0);
 });
 
 test('"No tags" is a filter, and picking a tag unpicks it', async () => {

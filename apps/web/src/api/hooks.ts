@@ -38,6 +38,8 @@ import type {
   PhotoDetail,
   PhotoPatch,
   RemoteInstance,
+  VersionListRequest,
+  VersionPage,
   StorageUsage,
   Transfer,
   Target,
@@ -113,10 +115,29 @@ export function useLogout() {
 
 export const PAGE_SIZE = 200;
 
-interface PhotoPage {
-  versions: Photo[];
-  total: number;
+type PhotoPage = VersionPage;
+
+/**
+ * Versions changed from the library since its filters (`search`) were applied: listed
+ * whether they still match or not, as the loupe does (a photo rejected under "Unflagged"
+ * stays), until the filters are applied again (`useApplyFilters`, or other filters).
+ */
+let kept: { search: string; ids: string[] } = { search: '', ids: [] };
+
+/** Keep these listed under `search` (call it before the change, which reads the list again). */
+export function keepListed(search: string, ids: readonly string[]) {
+  if (kept.search !== search) kept = { search, ids: [] };
+  const added = ids.filter((id) => !kept.ids.includes(id));
+  // The oldest go first past the server's limit.
+  if (added.length) kept = { search, ids: [...kept.ids, ...added].slice(-MAX_KEPT) };
 }
+
+/** The versions kept under `search`, for a `Target` by filter. */
+export const keptUnder = (search: string): { keep?: string[] } =>
+  kept.search === search && kept.ids.length ? { keep: kept.ids } : {};
+
+/** The server's limit (`MAX_KEPT`). */
+const MAX_KEPT = 5000;
 
 /** Cached library lists: `usePhotos`' pages in a row, or one of `useLibraryPhotos`' pages. */
 type CachedPhotos = InfiniteData<PhotoPage> | PhotoPage;
@@ -137,7 +158,9 @@ export async function fetchTargetPhotos(target: Extract<Target, { filter: string
     const params = new URLSearchParams(target.filter);
     params.set('limit', '500');
     params.set('offset', String(offset));
-    const page = await api.get<PhotoPage>(`/api/versions?${params}`);
+    const page = target.keep?.length
+      ? await api.post<PhotoPage>('/api/versions/list', { query: params.toString(), keep: target.keep })
+      : await api.get<PhotoPage>(`/api/versions?${params}`);
     photos.push(...page.versions.filter((p) => !except.has(p.id)));
     if (!page.versions.length || offset + page.versions.length >= page.total) return photos;
   }
@@ -147,7 +170,10 @@ const fetchPage = (search: string, offset: number) => {
   const params = new URLSearchParams(search);
   params.set('limit', String(PAGE_SIZE));
   params.set('offset', String(offset));
-  return api.get<PhotoPage>(`/api/versions?${params}`);
+  const { keep } = keptUnder(search);
+  if (!keep) return api.get<PhotoPage>(`/api/versions?${params}`);
+  const body: VersionListRequest = { query: params.toString(), keep };
+  return api.post<PhotoPage>('/api/versions/list', body);
 };
 
 /**
@@ -156,7 +182,21 @@ const fetchPage = (search: string, offset: number) => {
  * pages holding a range of positions (those on screen); the first one always is.
  */
 export function useLibraryPhotos(search: string) {
+  // Other filters: what was kept under the last ones goes.
+  if (kept.search !== search) kept = { search, ids: [] };
   return usePagedVersions(['photos', search], (offset) => fetchPage(search, offset));
+}
+
+/** Apply the library's filters again: the photos kept since (`keepListed`) that no longer match go. */
+export function useApplyFilters() {
+  const qc = useQueryClient();
+  return useCallback(
+    (search: string) => {
+      if (kept.search === search) kept = { search, ids: [] };
+      void qc.invalidateQueries({ queryKey: ['photos', search] });
+    },
+    [qc],
+  );
 }
 
 /** The trash, like the library (`useLibraryPhotos`), with the latest page's summary. */

@@ -5,6 +5,8 @@ import {
   type Photo,
   type PhotoPatch,
   type Target as ApiTarget,
+  type VersionListRequest,
+  type VersionPage,
 } from '@rawtisserie/api';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
@@ -34,14 +36,21 @@ import { VERSIONS_FROM, VERSION_COLUMNS, type VersionRow, versionDetailDto, vers
 import { type SkipKind, ingestFile, versionFor } from './ingest.ts';
 import {
   type Fits,
+  Kept,
+  ListRequest,
   PhotoFilters,
   PhotoListQuery,
   SORTS,
   Target,
+  listClause,
   parseLibraryQuery,
+  parseListQuery,
   targetClause,
   whereClause,
 } from './query.ts';
+
+type ListQuery = z.infer<typeof PhotoListQuery>;
+type _SentList = Fits<VersionListRequest, z.input<typeof ListRequest>>;
 import { RENDER_FORMATS, RENDER_SIZES, originalKey, renderKey, type RenderFormat, type RenderSize } from './storage.ts';
 import { TAG_LEVELS, Tag } from './tags.ts';
 import { MAX_COUNT, RATE_LIMITS, checkCount } from '../limits.ts';
@@ -211,17 +220,37 @@ export async function photoRoutes(
 
   // ── Library (versions) ────────────────────────────────────────────────────
 
-  app.get('/api/versions', async (request) => {
-    const user = currentUser(request);
-    const q = PhotoListQuery.parse(request.query);
-    const where = whereClause(user.id, q);
-    const [rows, [{ count }]] = await Promise.all([
+  /** A page of the library, and how many of the versions kept don't match the filters. */
+  const listPage = async (ownerId: string, q: ListQuery, keep: readonly string[] = []): Promise<VersionPage> => {
+    const where = listClause(ownerId, q, keep);
+    const [rows, [{ count }], outside] = await Promise.all([
       db.query(sql`
         SELECT ${VERSION_COLUMNS} FROM ${VERSIONS_FROM}
         WHERE ${where} ORDER BY ${SORTS[q.sort]} LIMIT ${q.limit} OFFSET ${q.offset}`),
       db.query(sql`SELECT count(*)::int AS count FROM ${VERSIONS_FROM} WHERE ${where}`),
+      keep.length
+        ? db.query(sql`
+            SELECT count(*)::int AS count FROM ${VERSIONS_FROM}
+            WHERE p.owner_id = ${ownerId} AND v.trashed_at IS NULL AND v.id = ANY(${keep}::uuid[])
+              AND NOT (${whereClause(ownerId, q)})`)
+        : null,
     ]);
-    return { versions: (rows as VersionRow[]).map(versionDto), total: count as number };
+    return {
+      versions: (rows as VersionRow[]).map(versionDto),
+      total: count as number,
+      ...(outside && { outside: outside[0]!.count as number }),
+    };
+  };
+
+  app.get('/api/versions', async (request) => listPage(currentUser(request).id, PhotoListQuery.parse(request.query)));
+
+  /**
+   * The same, keeping versions changed since the filters were applied (`keep`, too many
+   * for an address): the library lists them until its filters are applied again.
+   */
+  app.post('/api/versions/list', async (request) => {
+    const { query, keep } = ListRequest.parse(request.body);
+    return listPage(currentUser(request).id, parseListQuery(query), keep);
   });
 
   /** Distinct values (with counts) to populate the filter sidebar. */
@@ -332,13 +361,17 @@ export async function photoRoutes(
    */
   app.post('/api/versions/ids', async (request) => {
     const user = currentUser(request);
-    const { filter, except } = z
-      .object({ filter: z.string().max(20_000), except: z.array(z.uuid()).max(5000).default([]) })
+    const { filter, except, keep } = z
+      .object({
+        filter: z.string().max(20_000),
+        except: z.array(z.uuid()).max(5000).default([]),
+        keep: Kept.optional(),
+      })
       .parse(request.body);
     const query = parseLibraryQuery(filter);
     const rows = await db.query(sql`
       SELECT v.id FROM ${VERSIONS_FROM}
-      WHERE ${whereClause(user.id, query)} AND v.id <> ALL(${except}::uuid[])
+      WHERE ${listClause(user.id, query, keep)} AND v.id <> ALL(${except}::uuid[])
       ORDER BY ${SORTS[query.sort]}`);
     return { ids: rows.map((r) => r.id as string) };
   });

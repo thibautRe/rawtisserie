@@ -171,13 +171,40 @@ export function tagConditions(f: PhotoFilters): SQLQuery[] {
 
 /** The library's own query string (filters and sort, as in its address), parsed like `/api/versions`'s. */
 export function parseLibraryQuery(query: string) {
+  return PhotoListQuery.omit({ limit: true, offset: true }).parse(queryFields(query));
+}
+
+function queryFields(query: string) {
   const params = new URLSearchParams(query);
   const fields: Record<string, string | string[]> = {};
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     fields[key] = values.length > 1 ? values : values[0]!;
   }
-  return PhotoListQuery.omit({ limit: true, offset: true }).parse(fields);
+  return fields;
+}
+
+/** The most versions the library keeps listed outside its filters (`keep`). */
+export const MAX_KEPT = 5000;
+/**
+ * Versions the library changed since it applied its filters: listed whether they match
+ * or not, as the loupe does, until the filters are applied again.
+ */
+export const Kept = z.array(z.uuid()).max(MAX_KEPT);
+
+/** `whereClause`, and the versions kept (`Kept`) among the owner's outside the trash. */
+export function listClause(ownerId: string, f: PhotoFilters, keep: readonly string[] | undefined): SQLQuery {
+  const where = whereClause(ownerId, f);
+  if (!keep?.length) return where;
+  return sql`(${where} OR (p.owner_id = ${ownerId} AND v.trashed_at IS NULL AND v.id = ANY(${keep}::uuid[])))`;
+}
+
+/** A page of the library with versions kept (`POST /api/versions/list`): the query string, and the ids. */
+export const ListRequest = z.object({ query: z.string().max(20_000), keep: Kept });
+
+/** The library's query string with paging (`/api/versions`'), parsed. */
+export function parseListQuery(query: string) {
+  return PhotoListQuery.parse(queryFields(query));
 }
 
 /**
@@ -187,7 +214,11 @@ export function parseLibraryQuery(query: string) {
  */
 export const Target = z.union([
   z.object({ ids: z.array(z.uuid()).min(1).max(5000) }),
-  z.object({ filter: z.string().max(20_000), except: z.array(z.uuid()).max(5000).default([]) }),
+  z.object({
+    filter: z.string().max(20_000),
+    except: z.array(z.uuid()).max(5000).default([]),
+    keep: Kept.optional(),
+  }),
 ]);
 export type Target = z.infer<typeof Target>;
 /** The web app's `Target` (`@rawtisserie/api`) must be what this accepts: a compile-time check. */
@@ -201,7 +232,7 @@ type _SentTarget = Fits<ApiTarget, z.input<typeof Target>>;
 export function targetClause(ownerId: string, target: Target): SQLQuery {
   if ('ids' in target)
     return sql`p.owner_id = ${ownerId} AND v.trashed_at IS NULL AND v.id = ANY(${target.ids}::uuid[])`;
-  return sql`${whereClause(ownerId, parseLibraryQuery(target.filter))} AND v.id <> ALL(${target.except}::uuid[])`;
+  return sql`${listClause(ownerId, parseLibraryQuery(target.filter), target.keep)} AND v.id <> ALL(${target.except}::uuid[])`;
 }
 
 /** The filters of a library query string, checked: only the filters' keys, in a stable order. */

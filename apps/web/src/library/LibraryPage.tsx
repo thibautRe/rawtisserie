@@ -18,7 +18,8 @@ import {
   Text,
 } from '@chakra-ui/react';
 import type { EditParams } from '@rawtisserie/pipeline';
-import { ChevronDown, Filter, FolderInput, Maximize, Search, Upload } from 'lucide-react';
+import { ChevronDown, Filter, FolderInput, ListRestart, Maximize, Search, Upload } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import {
@@ -30,6 +31,8 @@ import {
   useDuplicateVersion,
   useLibraryPhotos,
   useMoveToCollection,
+  keepListed,
+  useApplyFilters,
 } from '../api/hooks.ts';
 import { collectionPath, displayCollection } from '../lib/collections.ts';
 import { CollectionPicker, type PickerRequest } from './CollectionPicker.tsx';
@@ -80,6 +83,12 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const library = useLibraryPhotos(search.search);
   const { items, total } = library;
+  // Photos changed here stay listed, as in the loupe, until the filters are applied again.
+  const keep = (ids: readonly string[]) => keepListed(search.search, ids);
+  const applyFilters = useApplyFilters();
+  const qc = useQueryClient();
+  /** How many photos listed no longer match the filters. */
+  const outside = library.latest?.outside ?? 0;
 
   const location = useLocation();
   // Coming back with the filters it was left with (from the developer): restore the
@@ -178,7 +187,12 @@ export function LibraryPage() {
       () =>
         void selectionIds()
           .then((ids) => Promise.all(ids.map((id) => duplicate.mutateAsync({ id, fromOriginal }))))
-          .then((copies) => grid.selectMany(copies.map((c) => c.id)))
+          .then((copies) => {
+            // Listed even if the filters wouldn't (a copy from the original isn't edited).
+            keep(copies.map((c) => c.id));
+            void qc.invalidateQueries({ queryKey: ['photos', search.search] });
+            grid.selectMany(copies.map((c) => c.id));
+          })
           .catch(failed('Could not duplicate')),
     );
   };
@@ -191,7 +205,10 @@ export function LibraryPage() {
       { title: `${edit.label}: ${photoCount(grid.count)}?`, confirm: 'Apply' },
       () =>
         void selectionIds()
-          .then((ids) => batchEdit(ids, edit))
+          .then((ids) => {
+            keep(ids);
+            return batchEdit(ids, edit);
+          })
           .catch(failed('Could not edit')),
     );
   };
@@ -230,20 +247,25 @@ export function LibraryPage() {
         const name = collectionId
           ? displayCollection(collectionPath(new Map(latestCollections.current.map((c) => [c.id, c])), collectionId))
           : null;
-        ask(count, { title: `Move ${photoCount(count)} to ${name ?? 'no collection'}?`, confirm: 'Move' }, () =>
-          moveToCollection.mutate(
-            { target, collectionId },
-            {
-              onSuccess: (moved) =>
-                toaster.create({
-                  type: 'info',
-                  title: name
-                    ? `Moved ${photoCount(moved)} to ${name}`
-                    : `${photoCount(moved)} out of their collection`,
-                  duration: 3000,
-                }),
-              onError: failed('Could not move them'),
-            },
+        ask(
+          count,
+          { title: `Move ${photoCount(count)} to ${name ?? 'no collection'}?`, confirm: 'Move' },
+          () => (
+            keep(selectedPhotos.map((p) => p.id)),
+            moveToCollection.mutate(
+              { target, collectionId },
+              {
+                onSuccess: (moved) =>
+                  toaster.create({
+                    type: 'info',
+                    title: name
+                      ? `Moved ${photoCount(moved)} to ${name}`
+                      : `${photoCount(moved)} out of their collection`,
+                    duration: 3000,
+                  }),
+                onError: failed('Could not move them'),
+              },
+            )
           ),
         );
       },
@@ -303,7 +325,10 @@ export function LibraryPage() {
   const pasteTo = (id: string, appendAll: boolean) => {
     const clip = readClipboard();
     if (!clip) toaster.create({ type: 'info', title: 'Nothing copied yet', duration: 2500 });
-    else void batchEdit([id], pasteEdit(clip, appendAll)).catch(failed('Could not paste'));
+    else {
+      keep([id]);
+      void batchEdit([id], pasteEdit(clip, appendAll)).catch(failed('Could not paste'));
+    }
   };
   // For the keys, which listen across renders.
   const latest = useRef({ copyFrom, pasteToSelection, exportSelection, duplicateSelection, trashSelection: () => {} });
@@ -312,6 +337,7 @@ export function LibraryPage() {
   const applyToSelection = useStableCallback((patch: BulkPatch, then?: () => void) => {
     if (!grid.count) return;
     ask(grid.count, patchQuestion(patch, grid.count), () => {
+      keep(selectedPhotos.map((p) => p.id));
       bulk.mutate({ ids: [...selection], target: grid.allMatching ? grid.target() : undefined, patch });
       then?.();
     });
@@ -472,6 +498,24 @@ export function LibraryPage() {
   };
 
   const sortSelect = <SortSelect search={search} />;
+  const applyButton = outside > 0 && (
+    <Button
+      size="xs"
+      variant="outline"
+      colorPalette="orange"
+      flexShrink="0"
+      onClick={() => applyFilters(search.search)}
+      title={`${photoCount(outside)} changed here no longer ${outside === 1 ? 'matches' : 'match'} the filters: apply them again to hide ${outside === 1 ? 'it' : 'them'}`}
+    >
+      <ListRestart />
+      <Text as="span" hideBelow="md">
+        Apply filters
+      </Text>
+      <Badge size="xs" colorPalette="orange" variant="solid" fontFamily="numeric">
+        {outside}
+      </Badge>
+    </Button>
+  );
 
   return (
     <Flex
@@ -525,7 +569,7 @@ export function LibraryPage() {
               onChange={(e) => search.set('q', e.target.value)}
             />
           </InputGroup>
-          {narrow ? (
+          {narrow && (
             <IconButton
               size="sm"
               variant="outline"
@@ -549,9 +593,13 @@ export function LibraryPage() {
                 </Badge>
               )}
             </IconButton>
+          )}
+          {narrow ? (
+            applyButton
           ) : (
             <>
               {sortSelect}
+              {applyButton}
               <Box flex="1" />
               <Button
                 size="sm"
@@ -745,7 +793,10 @@ export function LibraryPage() {
           offset={loupeRun.start}
           total={total}
           onLoadMore={() => library.want(loupeRun.end, loupeRun.end)}
-          onChange={(id, patch) => bulk.mutate({ ids: [id], patch })}
+          onChange={(id, patch) => {
+            keep([id]);
+            bulk.mutate({ ids: [id], patch });
+          }}
           onPaste={pasteTo}
           onClose={(id) => {
             setLoupe(null);
