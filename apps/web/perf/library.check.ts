@@ -1440,13 +1440,14 @@ test('a photo flagged out of the filters stays until they are applied again, in 
   assert.equal(await cards().count(), 6);
   const listed = sent.filter((s) => s.path === '/api/versions/list');
   assert.deepEqual((listed.at(-1)!.body as { keep: string[] }).keep, ['v1']);
-  // The loupe: rejected, the line over the photo says so (it isn't faded any more).
+  // The loupe: the photo kept there too.
   await page.keyboard.press('Space');
-  await page.locator('[data-loupe-status="rejected"]').waitFor();
+  const close = page.getByRole('button', { name: 'Close (Esc)' });
+  await close.waitFor();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('p');
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => document.querySelector('[data-loupe-status]') === null);
+  await close.waitFor({ state: 'detached' });
   assert.equal(await cards().count(), 6);
   await page
     .getByRole('button', { name: /Apply filters/ })

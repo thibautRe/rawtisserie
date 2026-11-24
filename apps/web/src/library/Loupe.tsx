@@ -270,7 +270,6 @@ export function Loupe({
 
   const scale = zoom?.scale ?? layout?.fitScale;
   const rejected = photo.flag === 'rejected';
-  const status = statusColor(photo);
 
   const loupe = (
     <Flex
@@ -420,19 +419,6 @@ export function Loupe({
               );
             })}
         </Box>
-        {/* Over the photo, so that it never moves when the status changes. */}
-        {status && (
-          <Box
-            position="absolute"
-            top="0"
-            left="0"
-            right="0"
-            h="3px"
-            bg={status}
-            pointerEvents="none"
-            data-loupe-status={photo.flag ?? 'rated'}
-          />
-        )}
         {(!photo.previewUrl || (zoom && tilesPending)) && (
           <Spinner position="absolute" bottom="3" right="3" size="sm" color="whiteAlpha.800" />
         )}
@@ -570,14 +556,6 @@ export function Loupe({
       </Theme>
     </Box>
   );
-}
-
-/** The line under the header: the flag's colour, or the rating's when there's no flag. */
-function statusColor(photo: Photo) {
-  if (photo.flag === 'rejected') return 'red.500';
-  if (photo.flag === 'picked') return 'green.500';
-  if (photo.rating > 0) return 'orange.400';
-  return null;
 }
 
 /**

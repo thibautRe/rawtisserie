@@ -47,8 +47,7 @@ each time.
 - A photo you change stays where it is, in the grid as in the loupe, even when it no
   longer matches the filters (reject one while showing the unflagged ones): **Apply
   filters**, in the header, hides those.
-- The loupe zooms to 100 %, and can advance to the next photo after each rating. A line
-  over the top of the photo shows its status: red rejected, green picked, orange rated.
+- The loupe zooms to 100 %, and can advance to the next photo after each rating.
 - Going to the developer and back keeps the filters, scroll position and selection.
 
 ### Working on many photos
