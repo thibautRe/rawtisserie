@@ -123,3 +123,35 @@ test('Cancel drops the path and leaves the tool', async () => {
   await bar().waitFor({ state: 'detached' });
   assert.equal(await entries(), before);
 });
+
+test('drawing inside another shape adds nodes, and Esc keeps the path as Enter does', async () => {
+  // A large ellipse over most of the image.
+  await page
+    .getByRole('button', { name: /^Ellipse/ })
+    .first()
+    .click();
+  const [cx, cy] = await on(0.5, 0.5);
+  const [ex, ey] = await on(0.9, 0.9);
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(ex, ey, { steps: 5 });
+  await page.mouse.up();
+  await page.getByText('Exposure: mask shape added').first().waitFor();
+  const before = await entries();
+
+  // The path's nodes, all inside it: none selects or moves the ellipse.
+  await page.getByRole('button', { name: /^Path/ }).first().click();
+  await bar().waitFor();
+  for (const [x, y] of [
+    [0.45, 0.45],
+    [0.55, 0.45],
+    [0.5, 0.55],
+  ] as const)
+    await page.mouse.click(...(await on(x, y)));
+  assert.equal(await apply().isEnabled(), true);
+  assert.equal(await entries(), before);
+
+  await page.keyboard.press('Escape');
+  await bar().waitFor({ state: 'detached' });
+  assert.equal(await entries(), before + 1);
+});

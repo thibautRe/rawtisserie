@@ -27,7 +27,6 @@ import { Button, HStack, Text } from '@chakra-ui/react';
 import { Check, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { commandLabel } from '../lib/keys.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CLICK_RADIUS_PX, type ShapeUi, defaultSource, displayScale, round } from './retouch.ts';
 
@@ -525,8 +524,16 @@ export function ShapeOverlay(props: Props) {
           setDraft(nodes.length > 1 ? nodes.slice(0, -1) : null);
         } else onUi({ tool: 'select' });
       } else if (e.key === 'Escape') {
-        if (draftRef.current) setDraft(null);
-        else if (ui.tool !== 'select') onUi({ tool: 'select' });
+        // A path being drawn is kept, as with Enter (it may have taken a while); one too
+        // short for a shape is dropped with the tool.
+        if (draftRef.current) {
+          if (draftRef.current.length >= 3) closePath();
+          else {
+            setDraft(null);
+            undone.current = [];
+            onUi({ tool: 'select' });
+          }
+        } else if (ui.tool !== 'select') onUi({ tool: 'select' });
         else if (selected !== null) onUi({ selected: null });
         else onUi({ editing: false });
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected !== null) {
@@ -558,6 +565,8 @@ export function ShapeOverlay(props: Props) {
   const selected = ui.selected !== null && ui.selected < items.length ? ui.selected : null;
   const hit = HIT_PX / zoom;
   const handleR = HANDLE_PX / zoom;
+  // With a tool, presses on the image draw: other shapes can't be selected or moved.
+  const drawing = ui.tool !== 'select';
   const noPan = { 'data-no-pan': '' };
 
   const handleDot = (key: string, p: Point, onDown: (e: React.PointerEvent) => void, square = false) =>
@@ -572,7 +581,7 @@ export function ShapeOverlay(props: Props) {
         fill="white"
         stroke={ORANGE}
         strokeWidth={1.5 / zoom}
-        style={{ cursor: 'move', pointerEvents: 'all' }}
+        style={{ cursor: 'move', pointerEvents: drawing ? 'none' : 'all' }}
         onPointerDown={onDown}
       />
     ) : (
@@ -585,7 +594,7 @@ export function ShapeOverlay(props: Props) {
         fill="white"
         stroke={ORANGE}
         strokeWidth={1.5 / zoom}
-        style={{ cursor: 'grab', pointerEvents: 'all' }}
+        style={{ cursor: 'grab', pointerEvents: drawing ? 'none' : 'all' }}
         onPointerDown={onDown}
       />
     );
@@ -678,7 +687,7 @@ export function ShapeOverlay(props: Props) {
         strokeWidth={stroke}
         strokeLinecap="round"
         strokeLinejoin="round"
-        style={{ pointerEvents: o.closed ? 'all' : 'stroke', cursor }}
+        style={{ pointerEvents: drawing ? 'none' : o.closed ? 'all' : 'stroke', cursor }}
         onPointerDown={onDown}
       />
     );
@@ -858,12 +867,11 @@ function PathBar({ nodes, onCancel, onApply }: { nodes: number; onCancel: () => 
       ? 'Click to place the first node, drag for a curve'
       : nodes < 3
         ? 'Click to add nodes, drag for curves'
-        : 'Click the first node or Enter to close';
+        : 'Click the first node, Enter or Apply to close';
   return (
     <HStack bg="bg.panel" p="2" borderRadius="md" boxShadow="lg" data-path-bar="">
       <Text textStyle="xs" color="fg.muted" px="2">
         {hint}
-        {nodes > 0 && ` · ${commandLabel('Ctrl+Z')} removes the last node`} · Esc to cancel
       </Text>
       <Button size="xs" variant="ghost" onClick={onCancel}>
         <X /> Cancel
