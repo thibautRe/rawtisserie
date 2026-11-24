@@ -42,6 +42,8 @@ before(async () => {
   await page.goto(`http://localhost:${PORT}/develop`);
   await page.locator('input[type="file"]').setInputFiles(raw);
   await page.locator('canvas[data-image="edited"]').waitFor({ timeout: 120_000 });
+  // The history (folded at first) shows what each edit committed.
+  await page.getByRole('button', { name: 'History', exact: true }).click();
   await page.waitForTimeout(1500);
 });
 

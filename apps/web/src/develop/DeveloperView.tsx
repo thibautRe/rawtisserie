@@ -8,6 +8,7 @@ import {
   type PhotoMetadata,
   type Style,
   AUTO_TUNE_KINDS,
+  AUTO_RECIPE_LABEL,
   AUTO_RECIPE_LABELS,
   applyStyle,
   forPhoto,
@@ -28,7 +29,7 @@ import {
   exposurePhotos,
   type PhotoRef,
 } from '@rawtisserie/pipeline';
-import { Check, ChevronsLeftRight, Download, Redo2, Undo2, X } from 'lucide-react';
+import { Check, ChevronsLeftRight, Download, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AppMenu } from '../components/AppMenu.tsx';
 import { backendMeasures } from './autoTune.ts';
@@ -57,7 +58,9 @@ import {
   targetLabel,
 } from './compare.ts';
 import { type HistorySnapshot, HistoryStore } from './history.ts';
-import { HistoryPanel } from './HistoryPanel.tsx';
+import { HistoryPanel, useHistoryOpen } from './HistoryPanel.tsx';
+import { defaultRecipeFor } from './lensfun.ts';
+import { ConfirmDialog } from '../components/ConfirmDialog.tsx';
 import { ModulePanel } from './ModulePanel.tsx';
 import {
   copyEdits,
@@ -245,13 +248,9 @@ const Toolbar = memo(function Toolbar({
   metadata,
   versions,
   styles,
-  canUndo,
-  canRedo,
   compare,
   exporting,
   actions,
-  onUndo,
-  onRedo,
   onExport,
 }: {
   filename: string;
@@ -259,14 +258,10 @@ const Toolbar = memo(function Toolbar({
   versions: React.ReactNode;
   /** The styles menu, with an account. */
   styles: React.ReactNode;
-  canUndo: boolean;
-  canRedo: boolean;
   /** The Compare button and its menu. */
   compare: React.ReactNode;
   exporting: boolean;
   actions: React.ReactNode;
-  onUndo: () => void;
-  onRedo: () => void;
   /** Opens the export dialog. */
   onExport: () => void;
 }) {
@@ -294,24 +289,6 @@ const Toolbar = memo(function Toolbar({
           {exif.join(' · ')}
         </Text>
       </Stack>
-      <IconButton
-        aria-label={`Undo (${commandLabel('Ctrl+Z')})`}
-        size="sm"
-        variant="ghost"
-        disabled={!canUndo}
-        onClick={onUndo}
-      >
-        <Undo2 />
-      </IconButton>
-      <IconButton
-        aria-label={`Redo (${commandLabel('Ctrl+Shift+Z')})`}
-        size="sm"
-        variant="ghost"
-        disabled={!canRedo}
-        onClick={onRedo}
-      >
-        <Redo2 />
-      </IconButton>
       {styles}
       {compare}
       <Button
@@ -956,10 +933,25 @@ export function DeveloperView({
     store.compress();
     offerUndo('History compressed', snapshot);
   };
-  const canUndo = history.end > 0;
-  const canRedo = history.end < history.entries.length;
+  /**
+   * Start again as a new import does: the original, then the automatic recipe (its
+   * auto-tunes run), every other entry dropped. Asked first; a toast can undo it.
+   */
+  const resetHistory = () => {
+    dismissUndo();
+    setCropDraft(null);
+    setGuides(null);
+    const snapshot = store.snapshot();
+    const recipe = defaultRecipeFor(metadata);
+    store.restore({ entries: [{ label: AUTO_RECIPE_LABEL, recipe, createdAt: new Date().toISOString() }], end: 1 });
+    if (hasPendingAutoTune(recipe)) void amendTuned(recipe);
+    offerUndo('History reset', snapshot);
+  };
+  const [historyOpen, toggleHistory] = useHistoryOpen();
+  const [confirmReset, setConfirmReset] = useState(false);
   const onSelectEntry = useStableCallback(goto);
   const onCompress = useStableCallback(compress);
+  const onReset = useStableCallback(() => setConfirmReset(true));
   const onUndo = useStableCallback(() => goto(history.end - 1));
   const onRedo = useStableCallback(() => goto(history.end + 1));
 
@@ -1565,12 +1557,33 @@ export function DeveloperView({
                 original={original}
                 entries={history.entries}
                 end={history.end}
+                open={historyOpen}
+                onToggle={toggleHistory}
                 onSelect={onSelectEntry}
+                onUndo={onUndo}
+                onRedo={onRedo}
                 onCompress={onCompress}
+                onReset={onReset}
                 compared={comparedSeq}
                 onCompare={onCompareEntry}
               />
             </Box>
+            <ConfirmDialog
+              text={
+                confirmReset
+                  ? {
+                      title: 'Reset history?',
+                      body: 'Every edit is dropped: the history starts again from the original and the automatic recipe, as when the photo was imported.',
+                    }
+                  : null
+              }
+              confirm="Reset history"
+              onConfirm={() => {
+                setConfirmReset(false);
+                resetHistory();
+              }}
+              onClose={() => setConfirmReset(false)}
+            />
           </Flex>
           <Flex direction="column" flex="1" minW="0">
             <Toolbar
@@ -1578,13 +1591,9 @@ export function DeveloperView({
               metadata={metadata}
               versions={versionsNode}
               styles={stylesNode}
-              canUndo={canUndo}
-              canRedo={canRedo}
               compare={compareNode}
               exporting={exporting}
               actions={actionsNode}
-              onUndo={onUndo}
-              onRedo={onRedo}
               onExport={openExport}
             />
             <ImportNotice edits={importedEdits} metadata={metadata} label={history.entries[history.end - 1]?.label} />

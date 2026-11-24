@@ -227,6 +227,8 @@ test('side by side, each image has its half and the zoom moves both', async () =
 });
 
 test('a history entry picked in the panel is compared with; its button again or Y turns it off', async () => {
+  // The history is folded at first.
+  await page.getByRole('button', { name: 'History', exact: true }).click();
   // Newest first: entry 1, the automatic recipe, is the second.
   await page.getByRole('button', { name: 'Compare with this entry' }).nth(1).click({ force: true });
   await page.getByText(/^1\. Defaults/).waitFor();
@@ -292,4 +294,38 @@ test('H hides everything but the image while held, a short press keeps it hidden
   await page.keyboard.press('Escape');
   assert.equal(await hidden(), false);
   assert.deepEqual(await box(edited()), before);
+});
+
+test('the history folds as it was left; undo, redo and a menu are in its header; a reset asks first', async () => {
+  // Unfolded by the test above, with entries: the automatic recipe and +2 EV at least.
+  const rows = () => page.getByRole('button', { name: /^Compared? with this entry$/ });
+  const n = await rows().count();
+  assert.ok(n >= 3, `${n} rows`);
+  const undo = page.getByRole('button', { name: /^Undo/ });
+  const redo = page.getByRole('button', { name: /^Redo/ });
+  assert.equal(await redo.isEnabled(), false);
+  await undo.click();
+  assert.equal(await redo.isEnabled(), true);
+  await redo.click();
+  assert.equal(await redo.isEnabled(), false);
+
+  // Reset: asked first, and Cancel keeps everything.
+  const reset = async () => {
+    await page.getByRole('button', { name: 'More history actions' }).click();
+    await page.getByRole('menuitem', { name: /Reset history/ }).click();
+    return page.getByRole('alertdialog');
+  };
+  await (await reset()).getByRole('button', { name: 'Cancel' }).click();
+  assert.equal(await rows().count(), n);
+  await (await reset()).getByRole('button', { name: 'Reset history' }).click();
+  await page.getByText('History reset').waitFor();
+  // The original and the automatic recipe, as a new import.
+  assert.equal(await rows().count(), 2);
+  await page.getByRole('button', { name: /^1\s*Defaults/ }).waitFor();
+  assert.equal(await redo.isEnabled(), false);
+
+  // Folded, and remembered.
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  assert.equal(await rows().count(), 0);
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('developer.history')!)), { open: false });
 });

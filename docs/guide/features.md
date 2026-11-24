@@ -72,6 +72,7 @@ each time.
 - Scopes: waveform, RGB parade and vectorscope.
 - A colour picker that follows the pointer, with pins to keep samples in place.
 - Every change goes into the history, saved as you work, and any entry can be gone back to.
+  Its menu compresses it to one entry per module, or resets it to the photo as imported.
 - Compare the edit with an earlier entry of its history (the original included) or with
   another version of the photo, side by side or split.
 - A spotlight (Ctrl+Space, experimental) to jump to any slider by typing a few letters.
