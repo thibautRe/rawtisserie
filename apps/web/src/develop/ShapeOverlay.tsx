@@ -775,7 +775,8 @@ export function ShapeOverlay(props: Props) {
         inset: 0,
         width: '100%',
         height: '100%',
-        overflow: 'hidden',
+        // Shapes may reach past the image (the image's window clips them).
+        overflow: 'visible',
         pointerEvents: ui.tool === 'select' || props.readOnly ? 'none' : 'all',
         cursor: ui.tool === 'select' || props.readOnly ? undefined : 'crosshair',
         touchAction: 'none',
@@ -786,6 +787,18 @@ export function ShapeOverlay(props: Props) {
       onPointerCancel={onUp}
       onPointerLeave={() => setHover(null)}
     >
+      {/* With a tool, the area around the image takes presses too: a path's nodes, a
+          gradient's start, a shape's centre may be outside it. */}
+      {drawing && !props.readOnly && (
+        <rect
+          x={-10 * width}
+          y={-10 * height}
+          width={21 * width}
+          height={21 * height}
+          fill="transparent"
+          style={{ pointerEvents: 'all' }}
+        />
+      )}
       {items.map(drawItem)}
       {draft && (
         <g style={{ pointerEvents: 'none' }}>
@@ -855,6 +868,7 @@ export function ShapeOverlay(props: Props) {
 }
 
 const nodeAt = (n: PathNode): Point => [n[0], n[1]];
+const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 const distance = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 /**
@@ -869,7 +883,18 @@ function PathBar({ nodes, onCancel, onApply }: { nodes: number; onCancel: () => 
         ? 'Click to add nodes, drag for curves'
         : 'Click the first node, Enter or Apply to close';
   return (
-    <HStack bg="bg.panel" p="2" borderRadius="md" boxShadow="lg" data-path-bar="">
+    <HStack
+      bg="bg.panel"
+      p="2"
+      borderRadius="md"
+      boxShadow="lg"
+      data-path-bar=""
+      // Portalled from the overlay: React would pass its pointer events on to it, and a
+      // press on Apply would add a node under the button.
+      onPointerDown={stop}
+      onPointerMove={stop}
+      onPointerUp={stop}
+    >
       <Text textStyle="xs" color="fg.muted" px="2">
         {hint}
       </Text>

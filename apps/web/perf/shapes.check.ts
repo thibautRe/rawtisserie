@@ -96,6 +96,8 @@ test('the path tool has a bar like the crop’s, previews the next segment, and 
   // Apply: the shape is in the history, and the tool is left.
   await apply().click();
   await bar().waitFor({ state: 'detached' });
+  // With its three nodes (selected: their handles show), none under the button.
+  assert.equal(await page.locator('svg rect[style*="cursor: move"]').count(), 3);
   await page.getByText('Exposure: mask shape added').waitFor();
   assert.equal(await entries(), before + 1);
   await shot('path-applied');
@@ -152,6 +154,24 @@ test('drawing inside another shape adds nodes, and Esc keeps the path as Enter d
   assert.equal(await entries(), before);
 
   await page.keyboard.press('Escape');
+  await bar().waitFor({ state: 'detached' });
+  assert.equal(await entries(), before + 1);
+});
+
+test('a path may have nodes outside the image, previewed there too', async () => {
+  const before = await entries();
+  await page.getByRole('button', { name: /^Path/ }).first().click();
+  await bar().waitFor();
+  await page.mouse.click(...(await on(0.3, 0.3)));
+  // Above the image, in the grey around it.
+  const outside = await on(0.5, -0.1);
+  await page.mouse.move(...outside);
+  assert.equal(await previews(), 1);
+  await page.mouse.click(...outside);
+  await page.mouse.click(...(await on(0.7, 0.3)));
+  assert.equal(await apply().isEnabled(), true);
+  await shot('path-outside');
+  await apply().click();
   await bar().waitFor({ state: 'detached' });
   assert.equal(await entries(), before + 1);
 });
