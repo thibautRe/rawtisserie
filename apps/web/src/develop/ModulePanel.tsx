@@ -282,6 +282,20 @@ export interface PanelFocus {
   view?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Scroll the module panel gently to an instance's block once it's on the page (a new
+ * instance, rendered after the recipe's commit): its top, or as much of it as fits.
+ */
+function scrollToInstance(id: string, frames = 10) {
+  const block = document.querySelector<HTMLElement>(`[data-instance="${CSS.escape(id)}"]`);
+  if (!block) {
+    if (frames > 0) requestAnimationFrame(() => scrollToInstance(id, frames - 1));
+    return;
+  }
+  // Not at all if it's in view; its top first if it's taller than the panel.
+  block.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 /** The contrast equalizer's graphs, finer around their neutral value. */
 const EQUALIZER_SCALES = Object.fromEntries(
   EQUALIZER_CURVES.map((c) => [c, fineScale(defaultModuleParams.contrastEqualizer[c][0]!)]),
@@ -1504,8 +1518,13 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                         count={count}
                         disabled={!m}
                         onAction={(action) => {
-                          if (action === 'new') commit((p) => addInstance(p, id));
-                          else if (action === 'rename') setRenaming(id);
+                          if (action === 'new') {
+                            const before = latest.current.params;
+                            const next = addInstance(before, id);
+                            commit(() => next);
+                            const added = next.modules.find((m) => !before.modules.some((o) => o.id === m.id));
+                            if (added) scrollToInstance(added.id);
+                          } else if (action === 'rename') setRenaming(id);
                           else if (action === 'up') commit((p) => moveInstance(p, id, -1));
                           else if (action === 'down') commit((p) => moveInstance(p, id, 1));
                           else commit((p) => removeInstance(p, id));
