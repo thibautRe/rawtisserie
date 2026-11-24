@@ -278,8 +278,15 @@ test('instances of a module do not affect each other', async () => {
       .filter({ has: page.locator('[data-scope="slider"]') })
       .last();
   const addSecond = async (kind: string) => {
-    const toggle = section(kind).getByRole('checkbox', { name: `Enable ${kind}` });
-    if (!(await toggle.isChecked())) await section(kind).locator('[data-scope="switch"][data-part="control"]').click();
+    const enable = page.getByRole('checkbox', { name: `Enable ${kind}` });
+    const toggle = section(kind).locator(enable);
+    // The module's own switch: its settings may have others (the equalizer has).
+    if (!(await toggle.isChecked()))
+      await section(kind)
+        .locator('[data-scope="switch"][data-part="root"]')
+        .filter({ has: enable })
+        .locator('[data-part="control"]')
+        .click();
     await settle();
     await page.getByRole('button', { name: `${kind} instances`, exact: true }).click();
     await page.getByRole('menuitem', { name: /New instance/ }).click();
