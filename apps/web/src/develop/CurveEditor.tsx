@@ -1,6 +1,6 @@
 import { Box, HStack, Text } from '@chakra-ui/react';
 import { useRef, useState } from 'react';
-import { curveAt } from './curve.ts';
+import { type CurveScale, LINEAR_SCALE, curveAt } from './curve.ts';
 
 interface Props {
   /** Node values, 0 … 1, evenly spaced from left to right. */
@@ -14,6 +14,8 @@ interface Props {
   label: string;
   /** The curve's colour (orange by default). */
   color?: string;
+  /** How values are drawn (`fineScale`: finer around `neutral`); linear by default. */
+  scale?: CurveScale;
   /** Other curves, drawn faintly behind. */
   others?: readonly { values: readonly number[]; color: string }[];
   /** Drawn behind the curve: heights 0 … 1, evenly spread from the left end to the right one. */
@@ -49,6 +51,7 @@ export function CurveEditor({
   right,
   label,
   color,
+  scale = LINEAR_SCALE,
   others = [],
   histogram,
   overlay,
@@ -68,6 +71,8 @@ export function CurveEditor({
 
   const px = (i: number) => PAD + (i / (values.length - 1)) * (W - 2 * PAD);
   const py = (v: number) => PAD + (1 - v) * (H - 2 * PAD);
+  /** A value's height, through the scale (`py` is for the histogram's heights). */
+  const pv = (v: number) => py(scale.toShown(v));
 
   /** The node nearest to the pointer, and the value under it. */
   const locate = (e: React.PointerEvent | React.MouseEvent) => {
@@ -75,7 +80,7 @@ export function CurveEditor({
     const x = ((e.clientX - r.left) / r.width) * W;
     const y = ((e.clientY - r.top) / r.height) * H;
     const node = clamp(Math.round(((x - PAD) / (W - 2 * PAD)) * (values.length - 1)), 0, values.length - 1);
-    return { node, value: clamp(1 - (y - PAD) / (H - 2 * PAD), 0, 1) };
+    return { node, value: clamp(scale.toValue(clamp(1 - (y - PAD) / (H - 2 * PAD), 0, 1)), 0, 1) };
   };
 
   const set = (node: number, value: number) => values.map((v, i) => (i === node ? Math.round(value * 1000) / 1000 : v));
@@ -126,7 +131,7 @@ export function CurveEditor({
   const path = (nodes: readonly number[]) =>
     Array.from({ length: samples + 1 }, (_, k) => {
       const x = k / samples;
-      return `${k === 0 ? 'M' : 'L'}${(PAD + x * (W - 2 * PAD)).toFixed(1)},${py(curveAt(nodes, x)).toFixed(1)}`;
+      return `${k === 0 ? 'M' : 'L'}${(PAD + x * (W - 2 * PAD)).toFixed(1)},${pv(curveAt(nodes, x)).toFixed(1)}`;
     }).join(' ');
 
   return (
@@ -181,8 +186,8 @@ export function CurveEditor({
           <line
             x1={PAD}
             x2={W - PAD}
-            y1={py(neutral)}
-            y2={py(neutral)}
+            y1={pv(neutral)}
+            y2={pv(neutral)}
             stroke="var(--chakra-colors-fg-subtle)"
             strokeDasharray="3 3"
             strokeWidth="1"
@@ -210,7 +215,7 @@ export function CurveEditor({
             <circle
               key={i}
               cx={px(i)}
-              cy={py(v)}
+              cy={pv(v)}
               r={focused === i ? 4 : 3}
               fill={v === defaults[i] ? 'var(--chakra-colors-fg-muted)' : (color ?? 'var(--chakra-colors-orange-fg)')}
             />

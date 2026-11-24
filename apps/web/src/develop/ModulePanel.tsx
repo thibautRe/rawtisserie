@@ -151,6 +151,7 @@ import { RenameDialog } from '../components/RenameDialog.tsx';
 import { ASPECTS, type CropAspect, aspectLabel, isCropped, parseAspect } from './aspect.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CurveEditor, CurveMarks } from './CurveEditor.tsx';
+import { type CurveScale, fineScale } from './curve.ts';
 import { useModuleReads } from './picker.ts';
 import type { PresetInput } from '../api/hooks.ts';
 import { type FilmicRange, moveRange, pickRange } from './filmicRange.ts';
@@ -280,6 +281,11 @@ export interface PanelFocus {
   id: string;
   view?: Readonly<Record<string, string>>;
 }
+
+/** The contrast equalizer's graphs, finer around their neutral value. */
+const EQUALIZER_SCALES = Object.fromEntries(
+  EQUALIZER_CURVES.map((c) => [c, fineScale(defaultModuleParams.contrastEqualizer[c][0]!)]),
+) as Record<EqualizerCurve, CurveScale>;
 
 const EXPOSURE_BLEND_LABELS: Record<ExposureBlend, string> = {
   additive: 'Additive',
@@ -2862,6 +2868,8 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             values={e.values[e.view.curve]}
             defaults={defaultModuleParams.contrastEqualizer[e.view.curve]}
             neutral={defaultModuleParams.contrastEqualizer[e.view.curve][0]!}
+            // Finer around neutral: a detail gain is (2y)², ×2.25 a quarter of the way up.
+            scale={EQUALIZER_SCALES[e.view.curve]}
             left="coarse"
             right="fine"
             onChange={(v) => latest.current.onChange(e.edit({ [e.view.curve]: v }))}
