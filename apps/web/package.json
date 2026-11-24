@@ -16,7 +16,8 @@
     "test:compare": "node --test perf/compare.check.ts",
     "test:spotlight": "node --test perf/spotlight.check.ts",
     "test:library": "node --test perf/library.check.ts",
-    "test:ui": "node --test perf/ui.check.ts"
+    "test:ui": "node --test perf/ui.check.ts",
+    "test:shapes": "node --test perf/shapes.check.ts"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.37.0",

@@ -964,6 +964,8 @@ export function DeveloperView({
     offerUndo('History reset', snapshot);
   };
   const [historyOpen, toggleHistory] = useHistoryOpen();
+  /** Where the path tool's bar goes, below the image. */
+  const [pathBar, setPathBar] = useState<HTMLDivElement | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const onSelectEntry = useStableCallback(goto);
   const onCompress = useStableCallback(compress);
@@ -1688,6 +1690,7 @@ export function DeveloperView({
                           onUi={onShapeUi}
                           onChange={onLiveChange}
                           onCommit={onShapeCommit}
+                          bar={pathBar}
                         />
                       )}
                       {guides && !comparing && frame && layout && (
@@ -1810,7 +1813,11 @@ export function DeveloperView({
                   {error}
                 </Text>
               )}
-              {showShapes && shapeUi.tool !== 'select' && (
+              {/* The path tool's bar, which its overlay puts here (`ShapeOverlay`'s `bar`). */}
+              {showShapes && shapeUi.tool === 'path' && (
+                <Box ref={setPathBar} {...ZEN_HIDE} position="absolute" bottom="4" />
+              )}
+              {showShapes && shapeUi.tool !== 'select' && shapeUi.tool !== 'path' && (
                 <Text
                   {...ZEN_HIDE}
                   position="absolute"
@@ -1824,13 +1831,11 @@ export function DeveloperView({
                   color="fg.muted"
                   pointerEvents="none"
                 >
-                  {shapeUi.tool === 'path'
-                    ? 'Click to add nodes, drag for curves · Enter or the first node to close'
-                    : shapeUi.tool === 'brush'
-                      ? 'Paint a stroke'
-                      : shapeUi.tool === 'gradient'
-                        ? 'Drag from where it applies fully to where it stops'
-                        : `Click or drag to add a ${shapeUi.target === 'mask' ? 'shape' : 'spot'}`}
+                  {shapeUi.tool === 'brush'
+                    ? 'Paint a stroke'
+                    : shapeUi.tool === 'gradient'
+                      ? 'Drag from where it applies fully to where it stops'
+                      : `Click or drag to add a ${shapeUi.target === 'mask' ? 'shape' : 'spot'}`}
                   {' · Middle-drag to pan · Esc to stop'}
                 </Text>
               )}

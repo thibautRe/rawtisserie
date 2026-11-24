@@ -255,6 +255,12 @@ documentation site) are in docs/guide/.
   (`useZoom`'s `mirror`). Its renders are flagged `compare`, so the picker and raw denoise
   keep following the edited image: a new kind of secondary render must be flagged too.
   A new framing module kind goes into `FRAMING_KINDS`. In a browser: `npm run test:compare -w @rawtisserie/web`.
+- Drawing shapes (`develop/ShapeOverlay.tsx`): the path tool's draft lives in the overlay
+  (pointer moves re-render it, not the developer); its bar is portalled below the image
+  (`bar`), Apply and Enter close the path and leave the tool, and while the tool is on
+  Ctrl/⌘+Z undoes its nodes (none left: it leaves the tool), not the history. The
+  compared image gets a read-only copy (`readOnly`, in an `inert` element). In a
+  browser: `npm run test:shapes -w @rawtisserie/web`.
 - Phones (roadmap 10.1): below `md` (`useNarrow`, `lib/useNarrow.ts`) the library and the
   trash put their side panels in `PanelDrawer`s, a tap opens the loupe and a long press
   selects (`longPress.ts`; closing the loupe doesn't select there). The loupe's

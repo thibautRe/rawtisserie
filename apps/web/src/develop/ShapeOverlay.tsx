@@ -23,7 +23,11 @@ import {
   updateShape,
   updateSpot,
 } from '@rawtisserie/pipeline';
+import { Button, HStack, Text } from '@chakra-ui/react';
+import { Check, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { commandLabel } from '../lib/keys.ts';
 import { MODULE_TITLES, instanceTitle } from './changes.ts';
 import { CLICK_RADIUS_PX, type ShapeUi, defaultSource, displayScale, round } from './retouch.ts';
 
@@ -87,6 +91,8 @@ interface Props {
    * would catch the pointer otherwise.
    */
   readOnly?: boolean;
+  /** Where the path tool's bar goes (below the image, outside the zoomed stage). */
+  bar?: HTMLElement | null;
 }
 
 type Handle = 'rx' | 'ry' | 'rotate' | 'feather' | { node: number; part: 'at' | 'in' | 'out' };
@@ -149,6 +155,10 @@ export function ShapeOverlay(props: Props) {
     draftRef.current = d;
     setDraftState(d);
   };
+  /** Nodes taken off the path draft by undo, last first, for redo. */
+  const undone = useRef<PathNode[]>([]);
+  /** Where the pointer is over the image with the path tool: the next node's place. */
+  const [hover, setHover] = useState<Point | null>(null);
 
   const sensor = { width: m.width, height: m.height };
   const unit = Math.min(m.width, m.height);
@@ -250,10 +260,13 @@ export function ShapeOverlay(props: Props) {
     latest.current.onUi({ selected: t.items(recipe).length - 1 });
   };
 
+  /** Close the path draft into a shape (three nodes at least), and leave the path tool. */
   const closePath = () => {
     const nodes = draftRef.current;
-    setDraft(null);
     if (!nodes || nodes.length < 3) return;
+    setDraft(null);
+    undone.current = [];
+    latest.current.onUi({ tool: 'select' });
     const shape: Shape = {
       type: 'path',
       points: nodes.map((n) => n.map(round) as PathNode),
@@ -320,6 +333,8 @@ export function ShapeOverlay(props: Props) {
         }
       }
       setDraft([...nodes, [p[0], p[1], p[0], p[1], p[0], p[1]]]);
+      undone.current = [];
+      setHover(null);
       drag.current = { kind: 'node', start: p, moved: false };
     }
   };
@@ -406,7 +421,10 @@ export function ShapeOverlay(props: Props) {
 
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
-    if (!d) return;
+    if (!d) {
+      if (latest.current.ui.tool === 'path') setHover(at(e));
+      return;
+    }
     const p = at(e);
     if (d.kind === 'brush') {
       const last = d.points.at(-1)!;
@@ -494,7 +512,19 @@ export function ShapeOverlay(props: Props) {
       const { ui, params, onUi, onCommit } = latest.current;
       const t = target(ui);
       const selected = ui.selected !== null && ui.selected < t.items(params).length ? ui.selected : null;
-      if (e.key === 'Escape') {
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      if (ui.tool === 'path' && mod && (key === 'z' || key === 'y')) {
+        // Within the path tool, undo and redo are its nodes'; with none left, undo leaves it.
+        const nodes = draftRef.current ?? [];
+        if (key === 'y' || e.shiftKey) {
+          const node = undone.current.pop();
+          if (node) setDraft([...nodes, node]);
+        } else if (nodes.length) {
+          undone.current.push(nodes.at(-1)!);
+          setDraft(nodes.length > 1 ? nodes.slice(0, -1) : null);
+        } else onUi({ tool: 'select' });
+      } else if (e.key === 'Escape') {
         if (draftRef.current) setDraft(null);
         else if (ui.tool !== 'select') onUi({ tool: 'select' });
         else if (selected !== null) onUi({ selected: null });
@@ -515,7 +545,11 @@ export function ShapeOverlay(props: Props) {
 
   // A draft left when switching tools is dropped.
   useEffect(() => {
-    if (ui.tool !== 'path') setDraft(null);
+    if (ui.tool !== 'path') {
+      setDraft(null);
+      setHover(null);
+      undone.current = [];
+    }
   }, [ui.tool]);
 
   // ── Drawing ──
@@ -705,7 +739,22 @@ export function ShapeOverlay(props: Props) {
     );
   };
 
-  const draftLine = draft && draft.length > 1 ? line(flattenPath(draft), true) : null;
+  // The path draft: its segments solid, and finely dashed what a click would add (to the
+  // pointer, then back to the first node), or the closing segment.
+  const nodes = draft ?? [];
+  const solid =
+    nodes.length > 1
+      ? line([...flattenPath(nodes).slice(0, 16 * (nodes.length - 1)), nodeAt(nodes.at(-1)!)], false)
+      : null;
+  const first = nodes[0];
+  // Over the first node (three nodes or more), a click closes the path: the pointer snaps to it.
+  const closing =
+    !!hover && !!first && nodes.length >= 3 && distance(disp(nodeAt(first)), disp(hover)) * zoom <= CLOSE_PX;
+  const next =
+    hover && !closing ? [...nodes, [hover[0], hover[1], hover[0], hover[1], hover[0], hover[1]] as PathNode] : nodes;
+  const preview =
+    next.length > 1 ? line([...flattenPath(next).slice(16 * (nodes.length - 1)), nodeAt(next[0]!)], false) : null;
+  const showBar = ui.tool === 'path' && !props.readOnly && props.bar;
 
   return (
     <svg
@@ -726,11 +775,42 @@ export function ShapeOverlay(props: Props) {
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={onUp}
+      onPointerLeave={() => setHover(null)}
     >
       {items.map(drawItem)}
       {draft && (
         <g style={{ pointerEvents: 'none' }}>
-          {draftLine && outline('draft', draftLine, ORANGE, true)}
+          {preview && (
+            <g data-path-preview="">
+              {[
+                ['rgba(0,0,0,.55)', 2.5],
+                [ORANGE, 1.25],
+              ].map(([color, width]) => (
+                <path
+                  key={color}
+                  d={preview}
+                  fill="none"
+                  stroke={color as string}
+                  strokeWidth={(width as number) / zoom}
+                  strokeDasharray={`${3 / zoom} ${3 / zoom}`}
+                />
+              ))}
+            </g>
+          )}
+          {/* Where a click puts the next node. */}
+          {hover && !closing && (
+            <rect
+              x={disp(hover)[0] - handleR}
+              y={disp(hover)[1] - handleR}
+              width={2 * handleR}
+              height={2 * handleR}
+              fill="none"
+              stroke={ORANGE}
+              strokeWidth={1 / zoom}
+              strokeDasharray={`${2 / zoom} ${2 / zoom}`}
+            />
+          )}
+          {solid && outline('draft', solid, ORANGE)}
           {draft.map((n, i) => {
             const p = disp([n[0], n[1]]);
             return (
@@ -741,14 +821,63 @@ export function ShapeOverlay(props: Props) {
                 width={2 * handleR}
                 height={2 * handleR}
                 fill={i === 0 ? ORANGE : 'white'}
-                stroke={ORANGE}
-                strokeWidth={1.5 / zoom}
+                stroke={i === 0 && closing ? 'white' : ORANGE}
+                strokeWidth={(i === 0 && closing ? 3 : 1.5) / zoom}
               />
             );
           })}
         </g>
       )}
+      {showBar &&
+        createPortal(
+          <PathBar
+            nodes={nodes.length}
+            onCancel={() => {
+              setDraft(null);
+              undone.current = [];
+              latest.current.onUi({ tool: 'select' });
+            }}
+            onApply={closePath}
+          />,
+          props.bar!,
+        )}
     </svg>
+  );
+}
+
+const nodeAt = (n: PathNode): Point => [n[0], n[1]];
+const distance = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+/**
+ * What the path tool says and does below the image, like the crop's: Apply closes the
+ * path (three nodes at least), Cancel drops it; both leave the tool.
+ */
+function PathBar({ nodes, onCancel, onApply }: { nodes: number; onCancel: () => void; onApply: () => void }) {
+  const hint =
+    nodes === 0
+      ? 'Click to place the first node, drag for a curve'
+      : nodes < 3
+        ? 'Click to add nodes, drag for curves'
+        : 'Click the first node or Enter to close';
+  return (
+    <HStack bg="bg.panel" p="2" borderRadius="md" boxShadow="lg" data-path-bar="">
+      <Text textStyle="xs" color="fg.muted" px="2">
+        {hint}
+        {nodes > 0 && ` · ${commandLabel('Ctrl+Z')} removes the last node`} · Esc to cancel
+      </Text>
+      <Button size="xs" variant="ghost" onClick={onCancel}>
+        <X /> Cancel
+      </Button>
+      <Button
+        size="xs"
+        colorPalette="orange"
+        disabled={nodes < 3}
+        title={nodes < 3 ? 'A path needs three nodes' : 'Close the path and apply it'}
+        onClick={onApply}
+      >
+        <Check /> Apply
+      </Button>
+    </HStack>
   );
 }
 
