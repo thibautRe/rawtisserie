@@ -300,7 +300,9 @@ export const SPOTLIGHT_SLIDERS: Partial<Record<ModuleKind, SpotlightSlider[]>> =
   geometry: sliders(['Straighten', 'Vertical', 'Horizontal', 'Shear', 'Aspect']),
   retouch: [
     { label: 'Opacity', conditional: 'a spot selected' },
-    { label: 'Feather', conditional: 'a spot selected' },
+    { label: 'Feather', conditional: 'a spot selected other than a brush stroke' },
+    { label: 'Stroke size', conditional: 'a brush spot selected' },
+    { label: 'Stroke hardness', conditional: 'a brush spot selected' },
     { label: 'Blur radius', conditional: 'a blur spot selected' },
   ],
   multipleExposure: sliders(['Its exposure']),

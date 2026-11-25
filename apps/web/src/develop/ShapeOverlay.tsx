@@ -508,6 +508,8 @@ export function ShapeOverlay(props: Props) {
     if (latest.current.readOnly) return;
     const down = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      // Keys in a popover or menu (a mask shape's settings) are theirs: Esc closes it.
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="menu"]')) return;
       const { ui, params, onUi, onCommit } = latest.current;
       const t = target(ui);
       const selected = ui.selected !== null && ui.selected < t.items(params).length ? ui.selected : null;

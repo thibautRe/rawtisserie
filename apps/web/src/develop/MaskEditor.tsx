@@ -1,4 +1,17 @@
-import { Box, Button, HStack, IconButton, NativeSelect, Stack, Switch, Tabs, Text } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  HStack,
+  IconButton,
+  Menu,
+  NativeSelect,
+  Popover,
+  Portal,
+  Stack,
+  Switch,
+  Tabs,
+  Text,
+} from '@chakra-ui/react';
 import {
   type BlendMode,
   type EditParams,
@@ -17,7 +30,7 @@ import {
   updateMask,
   updateShape,
 } from '@rawtisserie/pipeline';
-import { Contrast, Eye, ScanEye, Trash2 } from 'lucide-react';
+import { Contrast, Eye, Layers, ScanEye, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import {
   type Handle,
@@ -34,7 +47,8 @@ import {
 import { ParamSlider } from './ParamSlider.tsx';
 import type { MaskView } from './protocol.ts';
 import { type ShapeUi, isEditing } from './retouch.ts';
-import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
+import { BrushSettings, ShapeSettingsSliders, ShapeToolBar } from './ShapeTools.tsx';
+import { type ShapeSettings, withShapeSettings } from './shapeSettings.ts';
 
 const OP_LABELS: Record<ShapeOp, string> = {
   union: 'Add',
@@ -356,6 +370,8 @@ interface Props {
   shapeTypes: (ShapeType | undefined)[];
   /** Each drawn part's shape if it's a raster shape (another instance's mask). */
   rasters: (RasterShape | null)[];
+  /** Each drawn part's shape's settings (opacity, feather, a stroke's size…). */
+  settings: (ShapeSettings | null)[];
   /** The instances whose masks it can use (before it in the pipeline). */
   sources: RasterSource[];
   ui: ShapeUi;
@@ -400,6 +416,7 @@ export function MaskEditor({
   mask,
   shapeTypes,
   rasters,
+  settings,
   sources,
   ui,
   params,
@@ -428,7 +445,6 @@ export function MaskEditor({
   };
   const opSelectId = useId();
   const blendSelectId = useId();
-  const rasterSelectId = useId();
   const sourceTitle = (source: string) => sources.find((s) => s.id === source)?.title;
   /** Use instance `source`'s mask as a shape, added like drawn ones. */
   const addRaster = (source: string) => {
@@ -444,6 +460,13 @@ export function MaskEditor({
     if (!shapeId || shape?.type !== 'raster') return;
     const label = `${title()}: mask of ${sourceTitle(shape.source) ?? shape.source} ${shape.invert ? 'not inverted' : 'inverted'}`;
     onCommit(updateShape(p, shapeId, { ...shape, invert: !shape.invert }), label);
+  };
+  /** Drawn part `i`'s shape with `patch` applied, or the recipe as it is without one. */
+  const withSettings = (i: number, patch: Partial<ShapeSettings>) => {
+    const p = params();
+    const shapeId = p.modules.find((m) => m.id === id)?.mask?.drawn[i]?.shape;
+    const shape = shapeId === undefined ? undefined : p.shapes?.[shapeId];
+    return shapeId && shape ? updateShape(p, shapeId, withShapeSettings(shape, patch)) : p;
   };
   const display = isDisplayReferred(kind);
   const edit = (patch: Partial<Mask>) => updateMask(params(), kind, id, patch);
@@ -515,7 +538,38 @@ export function MaskEditor({
         <GroupTitle hint="Circles, ellipses, gradients, paths and brush strokes drawn on the image, and other modules' masks">
           Shapes
         </GroupTitle>
-        <ShapeToolBar ui={ui} target="mask" id={id} kind={kind} noun="mask shapes" onUi={onUi} />
+        <ShapeToolBar ui={ui} target="mask" id={id} kind={kind} noun="mask shapes" onUi={onUi}>
+          <Menu.Root positioning={{ placement: 'bottom-start' }} onSelect={(d) => addRaster(d.value)}>
+            <Menu.Trigger asChild>
+              <IconButton
+                aria-label="Mask of another module"
+                title="Mask of another module: where a module before this one applies, as a shape"
+              >
+                <Layers />
+              </IconButton>
+            </Menu.Trigger>
+            <Portal>
+              <Menu.Positioner>
+                <Menu.Content minW="48" maxH="min(24rem, 60vh)" overflowY="auto">
+                  <Menu.ItemGroup>
+                    <Menu.ItemGroupLabel>Use the mask of</Menu.ItemGroupLabel>
+                    {sources.length ? (
+                      sources.map((s) => (
+                        <Menu.Item key={s.id} value={s.id}>
+                          {s.title}
+                        </Menu.Item>
+                      ))
+                    ) : (
+                      <Menu.Item value="" disabled>
+                        No module before this one
+                      </Menu.Item>
+                    )}
+                  </Menu.ItemGroup>
+                </Menu.Content>
+              </Menu.Positioner>
+            </Portal>
+          </Menu.Root>
+        </ShapeToolBar>
         {editing && ui.tool !== 'select' && mask.drawn.length > 0 && (
           <HStack gap="2">
             <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
@@ -604,6 +658,40 @@ export function MaskEditor({
                     <NativeSelect.Indicator />
                   </NativeSelect.Root>
                 )}
+                {settings[i] && (
+                  <Popover.Root lazyMount unmountOnExit positioning={{ placement: 'bottom-end' }}>
+                    <Popover.Trigger asChild>
+                      <IconButton
+                        size="2xs"
+                        variant="ghost"
+                        aria-label={`Settings of mask shape ${i + 1}`}
+                        title={rasters[i] ? 'Opacity' : 'Opacity, feather, size…'}
+                      >
+                        <SlidersHorizontal />
+                      </IconButton>
+                    </Popover.Trigger>
+                    <Portal>
+                      <Popover.Positioner>
+                        <Popover.Content w="60" borderWidth="1px">
+                          <Popover.Body p="3">
+                            <Stack gap="1.5">
+                              <Text textStyle="xs" fontWeight="medium">
+                                Shape {i + 1}
+                              </Text>
+                              <ShapeSettingsSliders
+                                settings={settings[i]!}
+                                onChange={(patch) => onChange(withSettings(i, patch))}
+                                onCommit={(patch, what) =>
+                                  onCommit(withSettings(i, patch), `${title()}: mask shape ${what}`)
+                                }
+                              />
+                            </Stack>
+                          </Popover.Body>
+                        </Popover.Content>
+                      </Popover.Positioner>
+                    </Portal>
+                  </Popover.Root>
+                )}
                 <IconButton
                   size="2xs"
                   variant="ghost"
@@ -618,30 +706,6 @@ export function MaskEditor({
               </HStack>
             ))}
           </Stack>
-        )}
-        {sources.length > 0 && (
-          <HStack gap="2">
-            <Text asChild textStyle="xs" color="fg.muted" w="16" flexShrink={0}>
-              <label htmlFor={rasterSelectId} title="Where another module (before this one) applies, as a shape">
-                Use mask
-              </label>
-            </Text>
-            <NativeSelect.Root size="xs" flex="1">
-              <NativeSelect.Field
-                id={rasterSelectId}
-                value=""
-                onChange={(ev) => ev.target.value && addRaster(ev.target.value)}
-              >
-                <option value="">Of another module…</option>
-                {sources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
-          </HStack>
         )}
         <GroupTitle hint="Where the module applies by the image's own values: luminance, saturation, hue and channels">
           Parametric

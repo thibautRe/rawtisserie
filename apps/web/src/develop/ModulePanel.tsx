@@ -165,7 +165,8 @@ import { LensSource } from './LensPicker.tsx';
 import { useRecipePreview } from './preview.ts';
 import type { LutChoice, LutLibrary } from './luts.ts';
 import { RANGE_KEYS, type RangeKey, maskSummary } from './masks.ts';
-import { BrushSettings, ShapeToolBar } from './ShapeTools.tsx';
+import { BrushSettings, ShapeSettingsSliders, ShapeToolBar } from './ShapeTools.tsx';
+import { type ShapeSettings, shapeSettings, withShapeSettings } from './shapeSettings.ts';
 import type {
   DenoiseStatus,
   IlluminantDetection,
@@ -1369,6 +1370,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
     mask: NonNullable<ModuleInstance['mask']>,
     shapeTypes: (ShapeType | undefined)[],
     rasters: (RasterShape | null)[],
+    settings: (ShapeSettings | null)[],
     sources: RasterSource[],
     view: InstanceView,
   ) {
@@ -1379,6 +1381,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         mask={mask}
         shapeTypes={shapeTypes}
         rasters={rasters}
+        settings={settings}
         sources={sources}
         ui={shapeUi}
         params={() => latest.current.params}
@@ -1432,12 +1435,15 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         const shape = params.shapes?.[d.shape];
         return shape && isRasterShape(shape) ? shape : null;
       });
+      // Its shapes' settings (opacity, feather…), which a drag on the image doesn't change.
+      const maskSettings = (m?.mask?.drawn ?? []).map((d) => shapeSettings(params.shapes?.[d.shape]));
       const rasterFrom: RasterSource[] =
         maskable && m ? rasterSources(params, id).map((s) => ({ id: s.id, title: instanceTitle(params, s) })) : [];
       const maskDeps = maskable
         ? [
             maskTypes?.join(),
             JSON.stringify(maskRasters),
+            JSON.stringify(maskSettings),
             rasterFrom.map((s) => `${s.id}:${s.title}`).join('|'),
             isEditing(shapeUi, 'mask', id) ? shapeUi : null,
             shapeUi.maskOverlay?.id === id ? shapeUi.maskOverlay : null,
@@ -1577,7 +1583,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   >
                     {mask &&
                       e.view.maskOpen &&
-                      maskEditor(kind, id, mask, maskTypes ?? [], maskRasters, rasterFrom, e.view)}
+                      maskEditor(kind, id, mask, maskTypes ?? [], maskRasters, maskSettings, rasterFrom, e.view)}
                   </MaskFold>
                 )}
               </Module>
@@ -1589,7 +1595,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
   }
 
   // What the retouch section shows of the spots' shapes: their types, and the selected
-  // one's feather. Not the shapes themselves, which change on every move of a spot drag.
+  // one's settings (feather, a stroke's size…). Not the shapes themselves, which change on every move of a spot drag.
   const retouchShapes = (() => {
     const types = params.modules
       .flatMap((m) => (m.kind === 'retouch' ? [m.params.spots.map((x) => params.shapes?.[x.shape]?.type).join()] : []))
@@ -1600,7 +1606,7 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
         ? edited.params.spots[shapeUi.selected]?.shape
         : undefined;
     const selected = id === undefined ? undefined : params.shapes?.[id];
-    return `${types}/${selected && 'feather' in selected ? selected.feather : ''}`;
+    return `${types}/${JSON.stringify(shapeSettings(selected))}`;
   })();
 
   // Lens correction strengths: 0 … 200 % of the camera's correction.
@@ -3487,21 +3493,14 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
             onCommit: (v: number) => latest.current.onCommit(with_(v)),
           };
         };
-        /** Props for a slider bound to the feather of the selected spot's shape. */
-        const bindFeather = (id: string) => {
-          const with_ = (v: number) => {
-            const current = latest.current.params.shapes?.[id];
-            return current && 'feather' in current
-              ? updateShape(latest.current.params, id, { ...current, feather: v })
-              : latest.current.params;
-          };
-          return {
-            value: shape && 'feather' in shape ? shape.feather : 0,
-            defaultValue: 0,
-            onChange: (v: number) => latest.current.onChange(with_(v)),
-            onCommit: (v: number) => latest.current.onCommit(with_(v), `${name()}: spot feather`),
-          };
+        /** The recipe with the settings of shape `id` (the selected spot's) patched. */
+        const withSettings = (id: string, patch: Partial<ShapeSettings>) => {
+          const current = latest.current.params.shapes?.[id];
+          return current
+            ? updateShape(latest.current.params, id, withShapeSettings(current, patch))
+            : latest.current.params;
         };
+        const settings = shapeSettings(shape);
         return (
           <>
             <ShapeToolBar ui={ui} target="retouch" id={e.id} kind="retouch" noun="spots" onUi={setUi} />
@@ -3604,15 +3603,14 @@ export const ModulePanel = memo(function ModulePanel(props: Props) {
                   format={(v) => `${Math.round(v * 100)} %`}
                   {...bindSpot(sel, 'opacity')}
                 />
-                {shape && shape.type !== 'brush' && (
-                  <ParamSlider
-                    label="Feather"
-                    min={0}
-                    max={0.1}
-                    step={0.001}
-                    scale={100}
-                    format={(v) => `${(v * 100).toFixed(1)} %`}
-                    {...bindFeather(spot.shape)}
+                {settings && (
+                  <ShapeSettingsSliders
+                    settings={settings}
+                    opacity={false}
+                    onChange={(patch) => latest.current.onChange(withSettings(spot.shape, patch))}
+                    onCommit={(patch, what) =>
+                      latest.current.onCommit(withSettings(spot.shape, patch), `${name()}: spot ${what}`)
+                    }
                   />
                 )}
                 {spot.mode === 'blur' && (

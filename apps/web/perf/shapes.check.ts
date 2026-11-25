@@ -272,3 +272,26 @@ test('comparing leaves the drawing tool, keeping the path; a tool picked while c
   assert.equal(await comparing(), 'false');
   await page.keyboard.press('Escape');
 });
+
+test('a mask shape’s settings are in its row’s menu; another module’s mask is a tool beside the brush', async () => {
+  const before = await entries();
+  await page.getByRole('button', { name: 'Settings of mask shape 1' }).click();
+  const content = page.locator('[data-scope="popover"][data-part="content"]');
+  const feather = content.getByRole('slider', { name: 'Feather' });
+  await feather.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.getByText('Exposure: mask shape feather').waitFor();
+  assert.equal(await entries(), before + 1);
+  await page.waitForTimeout(300);
+  await shot('shape-settings');
+  await page.keyboard.press('Escape');
+  await content.waitFor({ state: 'hidden' });
+
+  // Right after the brush, in the same group; nothing before exposure has a mask to use.
+  const tools = page.getByRole('button', { name: 'Brush: paint a stroke' }).first().locator('xpath=..');
+  await tools.getByRole('button', { name: 'Mask of another module' }).click();
+  await page.getByRole('menuitem', { name: 'No module before this one' }).waitFor();
+  await page.waitForTimeout(300);
+  await shot('mask-of-another-module');
+  await page.keyboard.press('Escape');
+});
