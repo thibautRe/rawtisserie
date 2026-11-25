@@ -568,7 +568,7 @@ export function LibraryPage() {
       </PanelDrawer>
 
       <Flex direction="column" flex="1" minW="0">
-        <HStack px="3" py="2" borderBottomWidth="1px" gap={{ base: '2', md: '3' }}>
+        <HStack px="3" py="2" borderBottomWidth="1px" gap={{ base: '2', md: '3' }} bg="bg.panel">
           <AppMenu />
           <InputGroup startElement={<Search size={14} />} maxW={{ md: 'xs' }} flex={{ base: '1', md: 'initial' }}>
             <Input

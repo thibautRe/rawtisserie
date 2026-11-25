@@ -277,7 +277,7 @@ const Toolbar = memo(function Toolbar({
   });
 
   return (
-    <HStack px="3" py="2" borderBottomWidth="1px" gap="2" {...ZEN_HIDE}>
+    <HStack px="3" py="2" borderBottomWidth="1px" gap="2" bg="bg.panel" {...ZEN_HIDE}>
       <AppMenu />
       {/* Two small lines, within the height of the header's buttons (as the library's). */}
       <Stack gap="0" minW="0" flex="1">

@@ -139,7 +139,7 @@ export function TrashPage() {
   return (
     <Flex h="full">
       <Flex direction="column" flex="1" minW="0">
-        <HStack px="3" py="2" borderBottomWidth="1px" gap="2">
+        <HStack px="3" py="2" borderBottomWidth="1px" gap="2" bg="bg.panel">
           <AppMenu />
           <HStack gap="1" color="fg.muted" textStyle="sm">
             <Link to="/settings">Settings</Link>

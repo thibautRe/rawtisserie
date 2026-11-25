@@ -30,7 +30,7 @@ export function TabbedPage({
 }) {
   return (
     <Flex direction="column" h="full">
-      <HStack px="3" gap={{ base: '2', md: '4' }} borderBottomWidth="1px">
+      <HStack px="3" gap={{ base: '2', md: '4' }} borderBottomWidth="1px" bg="bg.panel">
         <HStack gap="2" py="2">
           <AppMenu />
           <Heading size="sm">{title}</Heading>
