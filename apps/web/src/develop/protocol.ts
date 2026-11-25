@@ -1,4 +1,11 @@
-import type { EditParams, ExportMetadata, ExportOptions, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
+import type {
+  EditParams,
+  ExportMetadata,
+  ExportOptions,
+  FocusMap,
+  PhotoMetadata,
+  SensorMapping,
+} from '@rawtisserie/pipeline';
 import type { ScopeMode, ScopeRequest } from './scopes.ts';
 
 /** A part of a render, in its output pixels. */
@@ -51,6 +58,8 @@ export type WorkerRequest =
     }
   | { type: 'toneCurveInput'; id: number; params: EditParams; instance: string; maxWidth: number; maxHeight: number }
   | { type: 'detectLines'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
+  /** Where the photo is in focus (roadmap 8.9), whatever the recipe. */
+  | { type: 'focusMap'; id: number }
   | { type: 'fitPerspective'; id: number; params: EditParams; lines: GuideLine[]; mode: PerspectiveFit }
   /** A LUT's packed table, for the recipes that use it (`lutIds`). */
   | { type: 'lut'; id: number; lutId: string; bytes: ArrayBuffer }
@@ -172,6 +181,7 @@ export type WorkerResponse =
   | { type: 'detectedIlluminant'; id: number; xy: [number, number] | null; ms: number }
   | { type: 'toneCurveInput'; id: number; input: ToneCurveInput | null; ms: number }
   | { type: 'detectedLines'; id: number; lines: GuideLine[]; ms: number }
+  | { type: 'focusMap'; id: number; map: FocusMap; ms: number }
   | { type: 'fittedPerspective'; id: number; fit: PerspectiveCorrection | null; ms: number }
   | { type: 'lutLoaded'; id: number }
   | ({ type: 'parsedLut'; id: number } & ParsedLut)

@@ -27,7 +27,10 @@ import {
   updateModule,
   lensfunShot,
   exposurePhotos,
+  type FocusMap,
+  focusView,
   type PhotoRef,
+  type SensorMapping,
 } from '@rawtisserie/pipeline';
 import { Check, ChevronsLeftRight, Download, X } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -97,6 +100,7 @@ import type { ExportInfo } from './exportInfo.ts';
 import { useExportSetup } from './useExportSettings.ts';
 import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
+import { FocusOverlay } from '../components/FocusOverlay.tsx';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 import { useStableCallback } from './useStableCallback.ts';
@@ -507,6 +511,21 @@ export function DeveloperView({
   const [assessment, setAssessment] = useState(() => localStorage.getItem('developer.assessment') === '1');
   useEffect(() => localStorage.setItem('developer.assessment', assessment ? '1' : '0'), [assessment]);
   const [clipping, setClipping] = useClippingSettings();
+  // Where the photo is in focus (roadmap 8.9): measured by the worker the first time it's shown.
+  const [showFocus, setShowFocus] = useState(() => localStorage.getItem('developer.focus') === '1');
+  useEffect(() => localStorage.setItem('developer.focus', showFocus ? '1' : '0'), [showFocus]);
+  const [focusMap, setFocusMap] = useState<FocusMap | null>(null);
+  useEffect(() => {
+    if (!showFocus || focusMap) return;
+    let live = true;
+    backend.focusMap().then(
+      (map) => live && setFocusMap(map),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [showFocus, focusMap, backend]);
   const [scopes, setScopes] = useScopeSettings();
   const [cropDraft, setCropDraft] = useState<CropRect | null>(null);
   // Raw denoise runs beside renders: its progress for the panel, and a render once it's done.
@@ -721,6 +740,16 @@ export function DeveloperView({
     rangeOverlay,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
+  // On the image's frame: again only when the geometry changes, not with every frame.
+  const focusFrame = frame && { mapping: frame.mapping, width: frame.sourceWidth, height: frame.sourceHeight };
+  const focusKey = focusFrame && `${mappingKey(focusFrame.mapping)}/${focusFrame.width}/${focusFrame.height}`;
+  const focus = useMemo(
+    () =>
+      showFocus && focusMap && focusFrame
+        ? focusView(focusMap, focusFrame.mapping, focusFrame.width, focusFrame.height)
+        : null,
+    [showFocus, focusMap, focusKey], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   // The compared image shows the edited image's mask or tone overlay too, painted from
   // its committed recipe (on release, so a drag doesn't render it each frame).
   const comparedOverlays = useMemo(() => {
@@ -1501,6 +1530,7 @@ export function DeveloperView({
       else if (!mod && key === 'o' && e.shiftKey) setClipping({ sensor: !clipping.sensor });
       else if (!mod && key === 'o') setClipping({ display: !clipping.display });
       else if (!mod && key === 'i' && !e.shiftKey && !e.altKey) setPipette((p) => !p);
+      else if (!mod && key === 'f' && !e.shiftKey && !e.altKey) setShowFocus((f) => !f);
       else if (key === 'escape' && pipette) setPipette(false);
       else if (key === 'enter' && cropDraft) applyCrop();
       else if (key === 'escape' && cropDraft) setCropDraft(null);
@@ -1698,6 +1728,7 @@ export function DeveloperView({
                           style={{ width: '100%', height: '100%', display: 'block' }}
                         />
                         <canvas ref={regionCanvas} style={regionStyle(region, regionFrame)} />
+                        {focus && !framing && !comparing && <FocusOverlay view={focus} />}
                         {guides && !comparing && frame && layout && (
                           <GuideOverlay
                             lines={guides}
@@ -1944,6 +1975,8 @@ export function DeveloperView({
               onClippingChange={setClipping}
               assessment={assessment}
               onAssessmentChange={setAssessment}
+              focus={showFocus}
+              onFocusChange={setShowFocus}
               zen={<ZenButton state={zen.state} onStart={zen.start} onEnd={zen.end} />}
             />
           </Flex>
@@ -2044,4 +2077,12 @@ export function DeveloperView({
       </ThumbnailContext.Provider>
     </SampleContext.Provider>
   );
+}
+
+/** What a sensor mapping depends on, to tell a new one from the same one sent again. */
+function mappingKey(m: SensorMapping): string {
+  const lens = m.lens
+    ? `${m.lens.cx},${m.lens.cy},${m.lens.toIndex},${m.lens.scale.length},${m.lens.scale.at(-1)}`
+    : '';
+  return `${m.width},${m.height},${m.affine.join()},${m.perspective.join()},${lens}`;
 }

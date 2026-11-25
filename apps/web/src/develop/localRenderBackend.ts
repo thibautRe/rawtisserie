@@ -3,6 +3,7 @@ import {
   type EditParams,
   type ExportMetadata,
   type ExportOptions,
+  type FocusMap,
   type PhotoMetadata,
   exposurePhotos,
   lutIds,
@@ -355,6 +356,11 @@ export class LocalRenderBackend implements RenderBackend {
       maxHeight,
     });
     return r.lines;
+  }
+
+  async focusMap(): Promise<FocusMap> {
+    const r = await this.call<Extract<WorkerResponse, { type: 'focusMap' }>>({ type: 'focusMap' });
+    return r.map;
   }
 
   async fitPerspective(

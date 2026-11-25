@@ -7,6 +7,7 @@
  */
 import {
   type EditParams,
+  type FocusMap,
   type SensorMapping,
   activeDenoise,
   denoiseKeyName,
@@ -166,6 +167,9 @@ function prepareThumbnailLuts(dev: Developer, params: EditParams) {
     thumbnailLuts = thumbnailLuts.filter((x) => x !== id);
   }
 }
+
+/** Where the photo loaded is in focus, once asked (it doesn't depend on the recipe). */
+let focusMap: FocusMap | null = null;
 
 /** The last sensor mapping, by the lens and geometry instances it comes from. */
 let mapping: { key: string; value: SensorMapping } | null = null;
@@ -492,12 +496,18 @@ async function handle(msg: WorkerRequest) {
       developer = msg.type === 'load' ? new Developer(bytes) : Developer.fromDenoisedFile(bytes);
       // Its models are loaded again as recipes ask for them (from `denoise.models`).
       mapping = null;
+      focusMap = null;
       picker.fit = picker.region = null;
       pool?.invalidate();
       post({ type: 'loaded', id: msg.id, metadata: JSON.parse(developer.metadata()), ms: performance.now() - started });
       return;
     }
     if (!developer) throw new Error('No RAW file loaded');
+    if (msg.type === 'focusMap') {
+      focusMap ??= JSON.parse(developer.focusMap()) as FocusMap;
+      post({ type: 'focusMap', id: msg.id, map: focusMap, ms: performance.now() - started });
+      return;
+    }
     // What the overlays are painted from needs its LUTs and photos too (a compared render's).
     const needs =
       msg.type === 'render' && msg.overlays.recipe

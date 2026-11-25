@@ -371,3 +371,30 @@ test('the history folds as it was left; undo, redo and a menu are in its header;
   assert.equal(await rows().count(), 0);
   assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('developer.history')!)), { open: false });
 });
+
+test('F shows where the photo is in focus, over the edited image (8.9)', async () => {
+  const overlay = page.locator('[data-focus-overlay]');
+  assert.equal(await overlay.count(), 0);
+  await page.locator('body').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('f');
+  // Measured by the worker the first time.
+  await overlay.waitFor({ timeout: 30_000 });
+  const tinted = await overlay.locator('canvas').evaluate((c: HTMLCanvasElement) => {
+    const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i]! > 0) n++;
+    return n / (d.length / 4);
+  });
+  assert.ok(tinted > 0.02 && tinted < 0.98, `${Math.round(tinted * 100)} % of the cells tinted`);
+  await page.getByRole('button', { name: /^Focus/ }).waitFor();
+  await shot('focus');
+  // Comparing: on the edited image only.
+  await page.keyboard.press('y');
+  await comparedShown();
+  assert.equal(await overlay.count(), 1);
+  await page.keyboard.press('y');
+  // The status bar's toggle, remembered.
+  await page.getByRole('button', { name: /^Focus/ }).click();
+  await overlay.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => localStorage.getItem('developer.focus')), '0');
+});

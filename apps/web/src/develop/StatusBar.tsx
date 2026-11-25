@@ -1,5 +1,5 @@
 import { Button, Center, HStack, IconButton, Menu, Portal, Separator, Spinner, Text } from '@chakra-ui/react';
-import { ChevronDown, CloudAlert, CloudCheck, Frame, Pipette, SunMoon, Zap, ZoomIn } from 'lucide-react';
+import { ChevronDown, CloudAlert, CloudCheck, Focus, Frame, Pipette, SunMoon, Zap, ZoomIn } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { FIGURE_SPACE, SampleValues } from './PinnedSamples.tsx';
 import { usePixelSample } from './picker.ts';
@@ -53,6 +53,9 @@ interface Props {
   onClippingChange: (patch: Partial<ClippingSettings>) => void;
   assessment: boolean;
   onAssessmentChange: (on: boolean) => void;
+  /** Where the photo is in focus, over it (roadmap 8.9). */
+  focus: boolean;
+  onFocusChange: (on: boolean) => void;
   /** The colour picker's pipette: clicks on the image pin samples. */
   pipette?: boolean;
   onPipette?: () => void;
@@ -71,6 +74,8 @@ export function StatusBar({
   onClippingChange,
   assessment,
   onAssessmentChange,
+  focus,
+  onFocusChange,
   pipette,
   onPipette,
   zen,
@@ -104,6 +109,8 @@ export function StatusBar({
         onClippingChange={onClippingChange}
         assessment={assessment}
         onAssessmentChange={onAssessmentChange}
+        focus={focus}
+        onFocusChange={onFocusChange}
       />
       {zen}
     </HStack>
@@ -116,7 +123,9 @@ const ViewToggles = memo(function ViewToggles({
   onClippingChange,
   assessment,
   onAssessmentChange,
-}: Pick<Props, 'clipping' | 'onClippingChange' | 'assessment' | 'onAssessmentChange'>) {
+  focus,
+  onFocusChange,
+}: Pick<Props, 'clipping' | 'onClippingChange' | 'assessment' | 'onAssessmentChange' | 'focus' | 'onFocusChange'>) {
   return (
     <>
       <HStack gap="0">
@@ -180,6 +189,14 @@ const ViewToggles = memo(function ViewToggles({
         onClick={() => onClippingChange({ sensor: !clipping.sensor })}
       >
         <Zap /> Sensor
+      </Button>
+      <Button
+        size="2xs"
+        variant={focus ? 'subtle' : 'ghost'}
+        title="Focus: where the photo is sharp (F)"
+        onClick={() => onFocusChange(!focus)}
+      >
+        <Focus /> Focus
       </Button>
 
       <Separator orientation="vertical" h="4" mx="1" />

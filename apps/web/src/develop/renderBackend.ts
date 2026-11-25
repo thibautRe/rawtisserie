@@ -1,4 +1,4 @@
-import type { EditParams, ExportMetadata, ExportOptions, SensorMapping } from '@rawtisserie/pipeline';
+import type { EditParams, ExportMetadata, ExportOptions, FocusMap, SensorMapping } from '@rawtisserie/pipeline';
 import type {
   DenoiseStatus,
   GuideLine,
@@ -102,6 +102,8 @@ export interface RenderBackend {
    * perspective as rendered within `maxWidth × maxHeight`; some selected already.
    */
   detectLines(params: EditParams, maxWidth: number, maxHeight: number): Promise<GuideLine[]>;
+  /** Where the photo is in focus (roadmap 8.9), in the sensor frame. */
+  focusMap(): Promise<FocusMap>;
   /** The correction that straightens the selected `lines` (`mode`), or null without enough of them. */
   fitPerspective(params: EditParams, lines: GuideLine[], mode: PerspectiveFit): Promise<PerspectiveCorrection | null>;
   /**
