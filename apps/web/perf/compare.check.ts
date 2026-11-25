@@ -328,12 +328,10 @@ test('a mask shown and the shapes edited are on the compared image too', async (
   const hidden = await yellow();
   assert.ok(shown > hidden + 5, `yellow ${shown} with the mask shown, ${hidden} without`);
 
-  // Shapes being edited (here, retouch's spots) are drawn there too, taking no pointer.
+  // Shapes shown for editing (the mask's) are drawn there too, taking no pointer. (A
+  // drawing tool would stop the comparison: shapes are drawn on the edited image.)
   assert.equal(await page.locator('[inert] svg').count(), 0);
-  await page
-    .getByRole('button', { name: /^Circle/ })
-    .first()
-    .click();
+  await page.getByRole('button', { name: 'Show mask shapes on the image' }).click();
   await page.locator('[inert] svg').waitFor();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');

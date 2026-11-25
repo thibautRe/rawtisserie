@@ -250,3 +250,25 @@ test('in assessment zoomed in, the frame stays and a path may still have nodes a
   await page.getByRole('menuitemradio', { name: 'Fit' }).click();
   await assessment.click();
 });
+
+test('comparing leaves the drawing tool, keeping the path; a tool picked while comparing stops it', async () => {
+  const comparing = () => page.getByRole('button', { name: 'Compare', exact: true }).getAttribute('aria-pressed');
+  const before = await entries();
+  await page.getByRole('button', { name: /^Path/ }).first().click();
+  for (const [x, y] of [
+    [0.2, 0.2],
+    [0.4, 0.2],
+    [0.3, 0.4],
+  ] as const)
+    await page.mouse.click(...(await on(x, y)));
+  // Compare on: the path is applied and the tool left.
+  await page.keyboard.press('y');
+  await bar().waitFor({ state: 'detached' });
+  assert.equal(await comparing(), 'true');
+  assert.equal(await entries(), before + 1);
+  // A tool picked while comparing: the comparison stops.
+  await page.getByRole('button', { name: /^Path/ }).first().click();
+  await bar().waitFor();
+  assert.equal(await comparing(), 'false');
+  await page.keyboard.press('Escape');
+});

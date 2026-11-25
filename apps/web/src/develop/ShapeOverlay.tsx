@@ -259,13 +259,13 @@ export function ShapeOverlay(props: Props) {
     latest.current.onUi({ selected: t.items(recipe).length - 1 });
   };
 
-  /** Close the path draft into a shape (three nodes at least), and leave the path tool. */
-  const closePath = () => {
+  /** Close the path draft into a shape (three nodes at least), and leave the path tool (`leave`). */
+  const closePath = (leave = true) => {
     const nodes = draftRef.current;
     if (!nodes || nodes.length < 3) return;
     setDraft(null);
     undone.current = [];
-    latest.current.onUi({ tool: 'select' });
+    if (leave) latest.current.onUi({ tool: 'select' });
     const shape: Shape = {
       type: 'path',
       points: nodes.map((n) => n.map(round) as PathNode),
@@ -550,14 +550,17 @@ export function ShapeOverlay(props: Props) {
     return () => window.removeEventListener('keydown', down, true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A draft left when switching tools is dropped.
+  // Leaving the path tool (another tool, comparing…) keeps a path drawn, as Esc does: it's
+  // closed into a shape, or dropped if too short for one. Cancel drops it first.
   useEffect(() => {
     if (ui.tool !== 'path') {
+      // Already left: the tool picked stays.
+      if ((draftRef.current?.length ?? 0) >= 3) closePath(false);
       setDraft(null);
       setHover(null);
       undone.current = [];
     }
-  }, [ui.tool]);
+  }, [ui.tool]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Drawing ──
 
@@ -859,7 +862,7 @@ export function ShapeOverlay(props: Props) {
               undone.current = [];
               latest.current.onUi({ tool: 'select' });
             }}
-            onApply={closePath}
+            onApply={() => closePath()}
           />,
           props.bar!,
         )}

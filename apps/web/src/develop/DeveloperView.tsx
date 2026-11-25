@@ -1422,6 +1422,19 @@ export function DeveloperView({
     if (view && shapeUi.maskOverlay) setShapeUi((u) => ({ ...u, maskOverlay: null }));
   });
   const onShapeUi = useStableCallback((patch: Partial<ShapeUi>) => setShapeUi((u) => ({ ...u, ...patch })));
+  // Shapes are drawn on the edited image alone: a drawing tool picked while comparing
+  // turns the comparison off, and comparing leaves the tool (a path drawn is kept).
+  const drawingShapes = shapeUi.editing && shapeUi.tool !== 'select';
+  const wasDrawing = useRef(drawingShapes);
+  const wasComparing = useRef(compareOn);
+  useEffect(() => {
+    if (compareOn && drawingShapes) {
+      if (!wasDrawing.current) setCompareOn(false);
+      else if (!wasComparing.current) setShapeUi((u) => ({ ...u, tool: 'select' }));
+    }
+    wasDrawing.current = drawingShapes;
+    wasComparing.current = compareOn;
+  }, [compareOn, drawingShapes]);
   const onShapeCommit = useStableCallback((p: EditParams, label: string) => commit(p, label));
   // Shapes are drawn over the image, unless it shows something else (crop, before).
   // The pipette's clicks pin samples: shapes aren't edited meanwhile.

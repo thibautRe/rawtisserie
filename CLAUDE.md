@@ -257,7 +257,7 @@ documentation site) are in docs/guide/.
   A new framing module kind goes into `FRAMING_KINDS`. In a browser: `npm run test:compare -w @rawtisserie/web`.
 - Drawing shapes (`develop/ShapeOverlay.tsx`): the path tool's draft lives in the overlay
   (pointer moves re-render it, not the developer); its bar is portalled below the image
-  (`bar`), Apply, Enter and Esc close the path and leave the tool, and while the tool is on
+  (`bar`), Apply, Enter and Esc close the path and leave the tool (so does any other way out, Compare included: only Cancel drops it), and while the tool is on
   Ctrl/⌘+Z undoes its nodes (none left: it leaves the tool), not the history. The
   compared image gets a read-only copy (`readOnly`, in an `inert` element). The overlay
   is in its own layer over the stage (`shapeStage`, moved by `useZoom`'s `followers`), not
