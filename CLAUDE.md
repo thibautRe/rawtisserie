@@ -334,6 +334,12 @@ documentation site) are in docs/guide/.
   interpolation): pass it to `defaultRecipe` (server: `lensfun()` from `node.ts`; app:
   `develop/lensfun.ts`, loaded only when `mayUseLensfun`). Presets, styles and
   copy/paste carry the strengths, never a profile (`presetParams`, `styleInstance`).
+- Focus areas (roadmap 8.9): `focus.rs` measures a sharpness map per photo in the sensor
+  frame (`FocusMap` ↔ `focus.ts`, mirrored); `FOCUS_VERSION` in both: bump it when the
+  measure changes, and stored maps (`photos.focus`) are measured again, by the render
+  worker or the zoom worker (`isCurrentFocus`). It's a property of the capture, never of
+  a recipe: views place it with the recipe's `SensorMapping` (`focusView`, `focusPoint`).
+  `examples/focus.rs` draws it over photos: look at them after changing the measure.
 - White balance is colour calibration's job: the base image is balanced for D65 light
   (camera reference multipliers), and every recipe has a `colorCalibration` instance
   adapting from the as-shot light. A recipe without it renders D65-balanced colours.

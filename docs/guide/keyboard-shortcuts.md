@@ -7,12 +7,13 @@ the original) · Delete deletes · Esc clears · Space/`E` opens the culling lou
 
 **Culling loupe**: arrows move · `0`–`5`, `P`/`X`/`U` and `6`–`9` as in the grid
 (ratings and flags move on with auto-advance, `A` toggles it) · click or `Z` zooms to
-100 % (the zoom stays from one photo to the next) · `I` hides the details · Ctrl/⌘+V
+100 % (`Z` on the focus area; the zoom stays from one photo to the next) · `F` shows
+where the photo is in focus · `I` hides the details · Ctrl/⌘+V
 pastes copied settings onto the photo (with Shift, appending every module) · `D`/Enter
 develops · Esc, Space or `E` closes.
 
 **Developer**: Ctrl/⌘+Z undo · Ctrl/⌘+Shift+Z redo · Ctrl/⌘+S save · Ctrl/⌘+B
-colour-assessment frame · hold `\` to compare with the unedited image · hold `H` to hide
+colour-assessment frame · `F` shows where the photo is in focus · hold `\` to compare with the unedited image · hold `H` to hide
 everything but the image (a short press keeps it hidden until `H` or Esc) · `C` crop
 (Enter applies, Esc cancels) · retouch and masks: Delete removes the selected spot or
 shape, Enter closes a path, Esc cancels a path, then leaves the tool, the selection and the shapes' overlay ·

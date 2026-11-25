@@ -15,7 +15,7 @@ M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-dr
                  ├─▶ M3 Image quality ...... done, but 3.10 more embedded lens data
                  ├─▶ M4 Creative control ... done, but 4.2's auto-apply rules
                  ├─▶ M5 Compare ............ developer done; the library later
-                 └─▶ M8 Library workflow ... done, but 8.9 focus areas (1.0), 8.15 phase 2
+                 └─▶ M8 Library workflow ... done, but 8.15 phase 2 (8.9's 1.0 part done)
 M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
 M7 Hosted service ──── 7.1, 7.3, 7.5, 7.11 done; the rest before opening sign-ups
 M9 Branding ────────── 1.0; fonts and /ui done, logo being tried, spinner, /develop page to do
@@ -34,9 +34,9 @@ Left for 1.0, in this order:
 3. ~~4.16 a photo picker for multiple exposure~~: done (2026-11-22).
 4. **[M9 branding](#m9--branding-m-before-10--started)**: logo, spinner, the `/develop`
    landing page, a theme check. Can go in any time before launch.
-5. **[8.9 focus areas](#89-focus-areas-ml-before-10)** (moved into 1.0 on 2026-11-24):
-   the sharpness map, its overlay in the loupe (a key) and the developer, and 100 %
-   crops of the focus area in the previews of detail modules' presets.
+5. ~~[8.9 focus areas](#89-focus-areas-ml-before-10--10-part-done)~~ (moved into 1.0 on 2026-11-24):
+   done 2026-11-25 (the sharpness map, its overlay in the loupe and the developer, 100 %
+   crops in detail modules' preset previews); the AF point and sorting later.
 
 Done for 1.0: raw denoise (3.5), lensfun (3.6), diffuse and sharpen (3.7), perspective
 (3.8), tone curve and tone equalizer (4.6, 4.10), colour balance RGB (4.7), 3D LUTs
@@ -442,7 +442,30 @@ Done (details in the [archive](ROADMAP-ARCHIVE.md)):
   tree, splitting a collection at a photo (select from it and move them into a new one
   instead), and a photo's collection in its card or the loupe.
 
-### 8.9 Focus areas (M–L, before 1.0)
+### 8.9 Focus areas (M–L, before 1.0) — 1.0 part done
+
+> **Built** 2026-11-25. The measure (`crates/pipeline/src/focus.rs`, wasm `focusMap`,
+> mirrored in `packages/pipeline/src/focus.ts`): the luminance's finest à trous band
+> against the next one, less the noise expected in each, by 64 cells on the long side.
+> Read from the green photosites binned 2 × 2, square-rooted; the noise comes from the
+> difference between two greens of each block, as a profile by brightness (a global
+> floor was fooled by bright, soft walls). Ratios differ by camera (an AA filter halves
+> them), so cells are scaled by the photo's 95th percentile, with a floor so a photo
+> blurred all over doesn't light up; the absolute value is kept as `sharpness`. Cells
+> without detail above the noise are marked, not counted as blurred. The focus area is
+> the cells connected to the sharpest one (3 × 3 average) and at least 75 % as sharp.
+> `examples/focus.rs` draws it over photos; 50–250 ms natively, under 0.4 s in wasm.
+> Stored per photo (`photos.focus`, with `FOCUS_VERSION`): measured by the render worker,
+> or for older photos by the zoom worker the first time the loupe asks (nothing
+> re-renders). `focusView` places it on a version's frame through `SensorMapping`; the
+> zoom route sends it with the levels (`ZoomInfo.focus`). Loupe: F tints the sharp
+> parts and outlines the area (`FocusOverlay`), Z zooms there. Developer: F and a Focus
+> toggle in the status bar, measured by the pipeline worker on first use. Presets of
+> diffuse, contrast equalizer and glow preview a 100 % crop of the focus area
+> (`CROP_KINDS`, `renderThumbnail`'s region); not raw denoise (a network run per row).
+> Not done: the AF point from maker notes, the grid's indicator and sorting by
+> `sharpness`, the developer zooming to the focus area by default, the crop hint and
+> export check. The overlay's look (soft green blobs, dashed box) is a first try.
 
 Show where a photo is in focus, to tell at a glance whether the focus landed where it
 should (the eye, not the ear), and reuse that knowledge where a view has to pick a part

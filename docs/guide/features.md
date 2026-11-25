@@ -48,6 +48,10 @@ each time.
   longer matches the filters (reject one while showing the unflagged ones): **Apply
   filters**, in the header, hides those.
 - The loupe zooms to 100 %, and can advance to the next photo after each rating.
+- Where each photo is in focus is measured on import: `F` tints the sharp parts and
+  outlines the focus area, and `Z` zooms to 100 % there, to tell at a glance whether
+  the focus landed on the eye. The developer shows it too, and the presets of detail
+  modules (sharpen, local contrast, glow) preview a 100 % crop of the focus area.
 - Going to the developer and back keeps the filters, scroll position and selection.
 
 ### Working on many photos
