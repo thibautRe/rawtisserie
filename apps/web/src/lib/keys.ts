@@ -177,7 +177,7 @@ export class ShortcutMatcher<T> {
 
 /** Keys the library and the loupe use alone (Shift too: `P` flags as `p` does), by what they show. */
 const APP_KEYS = new Set([
-  ...'0123456789pxutdeazi'.split(''),
+  ...'0123456789pxutdeazif'.split(''),
   ' ',
   'enter',
   'escape',

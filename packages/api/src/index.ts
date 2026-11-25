@@ -1,4 +1,4 @@
-import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import type { EditParams, FocusView, PhotoMetadata } from '@rawtisserie/pipeline';
 
 export interface User {
   id: string;
@@ -321,4 +321,14 @@ export interface VersionPage {
 export interface VersionListRequest {
   query: string;
   keep: string[];
+}
+
+/** What `GET /api/versions/:id/zoom` gives: level 0 is 100 %, each next one half of it. */
+export interface ZoomInfo {
+  /** The recipe's revision, which tiles are cached under. */
+  key: string;
+  tileSize: number;
+  levels: { width: number; height: number }[];
+  /** Where the photo is in focus, on this version's frame (roadmap 8.9); null if it can't be told. */
+  focus: FocusView | null;
 }

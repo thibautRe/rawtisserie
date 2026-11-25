@@ -15,7 +15,7 @@ import { type Browser, type Page, chromium, firefox } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
 import { existsSync } from 'node:fs';
 import { defaultEditParams } from '@rawtisserie/pipeline';
-import type { Photo, PhotoDetail } from '@rawtisserie/api';
+import type { Photo, PhotoDetail, ZoomInfo } from '@rawtisserie/api';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const PORT = 4182;
@@ -92,6 +92,8 @@ let originals: Record<string, string> = {};
 let recipes: Record<string, unknown> = {};
 /** Originals whose next download fails with a server error. */
 let flaky = new Set<string>();
+/** What `/api/versions/:id/zoom` gives, by version (the others aren't found). */
+let zoomInfos: Record<string, ZoomInfo> = {};
 /** Imports: what `/api/photos/check` knows, and the files whose upload fails next. */
 /** Earlier imports, newest first, for the sidebar. */
 const IMPORTS = [1, 2, 3, 4].map((n) => ({
@@ -195,6 +197,7 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
   originals = {};
   recipes = {};
   flaky = new Set();
+  zoomInfos = {};
   knownHashes = {};
   knownNames = new Set();
   trashedNames = new Set();
@@ -348,6 +351,8 @@ async function open(path: string, viewport = { width: 1600, height: 1000 }) {
           { value: null, count: 1 },
         ],
       });
+    const zoomed = /^\/api\/versions\/(v\d+)\/zoom$/.exec(path)?.[1];
+    if (zoomed && zoomInfos[zoomed]) return json(zoomInfos[zoomed]);
     const version = /^\/api\/versions\/(v\d+)$/.exec(path)?.[1];
     const p = PHOTOS.find((p) => p.id === version);
     if (p && method === 'PATCH') patched.set(p.id, { ...patched.get(p.id), ...route.request().postDataJSON() });
@@ -1460,6 +1465,52 @@ test('a photo flagged out of the filters stays until they are applied again, in 
   await apply.click();
   await page.waitForFunction(() => document.querySelectorAll('[data-photo-id]').length === 4);
   assert.equal(await apply.count(), 0);
+});
+
+test('F shows where the photo is in focus, and Z zooms in on it', async () => {
+  await open('/');
+  // A 600 × 400 preview, sharp in a band on the right (cells of a 4 × 2 focus map).
+  const preview = `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#556"/><circle cx="450" cy="100" r="60" fill="#dca"/></svg>',
+  )}`;
+  patched.set('v1', { previewUrl: preview, thumbUrl: preview });
+  const cells = btoa(String.fromCharCode(0, 40, 254, 200, 255, 0, 230, 100));
+  zoomInfos.v1 = {
+    key: '0',
+    tileSize: 512,
+    levels: [{ width: 6000, height: 4000 }],
+    focus: { cols: 4, rows: 2, cells, area: { x: 0.5, y: 0, width: 0.5, height: 0.5, cx: 0.75, cy: 0.25 } },
+  };
+  await cards().first().waitFor();
+  await cards().first().click();
+  await page.keyboard.press('Space');
+  await page.getByRole('button', { name: 'Close (Esc)' }).waitFor();
+  const overlay = page.locator('[data-focus-overlay]');
+  assert.equal(await overlay.count(), 0, 'shown before F');
+  await page.keyboard.press('f');
+  await overlay.waitFor();
+  // Tinted where sharp: the canvas has the map's cells, transparent where blurred.
+  const alphas = await overlay.locator('canvas').evaluate((c: HTMLCanvasElement) => {
+    const data = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+    return [...data.filter((_, i) => i % 4 === 3)];
+  });
+  assert.deepEqual(
+    alphas.map((a) => a > 0),
+    [false, false, true, true, false, false, true, false],
+  );
+  if (process.env.FOCUS_SHOT) await page.screenshot({ path: process.env.FOCUS_SHOT });
+  // Z: 100 % on the focus area's centre, not the photo's.
+  await page.keyboard.press('z');
+  await page.getByText('100 %').waitFor();
+  const centre = await page.evaluate(() => {
+    const win = document.querySelector('[data-focus-overlay]')!.parentElement!.parentElement!.getBoundingClientRect();
+    const img = document.querySelector('[data-focus-overlay]')!.getBoundingClientRect();
+    return [(win.left + win.width / 2 - img.left) / img.width, (win.top + win.height / 2 - img.top) / img.height];
+  });
+  assert.ok(Math.abs(centre[0]! - 0.75) < 0.02 && Math.abs(centre[1]! - 0.25) < 0.02, `centred on ${centre}`);
+  // F again hides it; it's remembered across visits.
+  await page.keyboard.press('f');
+  await overlay.waitFor({ state: 'detached' });
 });
 
 test('"No tags" is a filter, and picking a tag unpicks it', async () => {

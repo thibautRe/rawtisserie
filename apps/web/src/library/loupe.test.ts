@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Photo } from '@rawtisserie/api';
+import type { Photo, ZoomInfo } from '@rawtisserie/api';
 import type { ZoomLayout } from '../develop/zoom.ts';
-import { type ZoomInfo, advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
+import { advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
 
 const info: ZoomInfo = {
   key: '3',
@@ -11,6 +11,7 @@ const info: ZoomInfo = {
     { width: 6000, height: 4000 },
     { width: 3000, height: 2000 },
   ],
+  focus: null,
 };
 
 // The 6000×4000 photo fitted in 1200×800 CSS pixels at dpr 1, in a 1400×900 window.

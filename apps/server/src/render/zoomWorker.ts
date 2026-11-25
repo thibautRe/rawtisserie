@@ -7,6 +7,8 @@ import { parentPort } from 'node:worker_threads';
 import {
   defaultRecipe,
   developerMeasures,
+  type FocusMap,
+  focusView,
   hasPendingAutoTune,
   importEdits,
   lutIds,
@@ -23,7 +25,7 @@ initPipeline();
 /** Only levels finer than the stored preview (2048 px) are worth tiles. */
 const PREVIEW_EDGE = 2048;
 
-let current: { key: string; dev: Developer } | null = null;
+let current: { key: string; dev: Developer; focus?: FocusMap } | null = null;
 /**
  * Recipes with pending auto-tunes (roadmap 8.7), resolved: the loupe can ask for tiles
  * before the preview's render has written them into the history.
@@ -91,8 +93,15 @@ parentPort!.on('message', async (req: ZoomRequest) => {
   try {
     const { dev, params } = await prepare(req.source);
     const all = levels(dev, params);
-    if (req.kind === 'levels') res = { jobId: req.jobId, ok: true, levels: all };
-    else {
+    if (req.kind === 'levels') {
+      // Measured here for photos rendered before focus areas (or by an older measure).
+      let measured: FocusMap | null = null;
+      let map = req.source.focus;
+      if (!map && current) map = current.focus ??= measured = JSON.parse(dev.focusMap()) as FocusMap;
+      const full = all[0]!;
+      const focus = map ? focusView(map, JSON.parse(dev.sensorMapping(params)), full.width, full.height) : null;
+      res = { jobId: req.jobId, ok: true, levels: all, focus, measured };
+    } else {
       const level = all[req.level];
       const x = req.col * ZOOM_TILE;
       const y = req.row * ZOOM_TILE;

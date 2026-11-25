@@ -1,4 +1,4 @@
-import type { EditParams } from '@rawtisserie/pipeline';
+import type { EditParams, FocusMap, FocusView } from '@rawtisserie/pipeline';
 import type { ExposureSource } from './source.ts';
 
 /** Side of a zoom tile, in pixels of its level. */
@@ -18,6 +18,8 @@ export interface ZoomSource {
   luts: string[];
   /** The other photos the recipe blends in (multiple exposure). */
   exposures: ExposureSource[];
+  /** Where the photo is in focus, if measured already (else the worker measures it). */
+  focus: FocusMap | null;
 }
 
 /** Size of each zoom level: level `n` is the image fitted in its full size / 2ⁿ. */
@@ -29,6 +31,14 @@ export type ZoomJob = { kind: 'levels' } | { kind: 'tile'; level: number; col: n
 export type ZoomRequest = ZoomJob & { jobId: number; source: ZoomSource };
 
 export type ZoomResponse =
-  | { jobId: number; ok: true; levels: ZoomLevels }
+  | {
+      jobId: number;
+      ok: true;
+      levels: ZoomLevels;
+      /** The focus map on this version's frame. */
+      focus: FocusView | null;
+      /** The focus map, when the worker measured it (to store). */
+      measured: FocusMap | null;
+    }
   | { jobId: number; ok: true; jpeg: Uint8Array }
   | { jobId: number; ok: false; error: string; notFound?: boolean };

@@ -9,6 +9,7 @@ import {
   defaultRecipe as recipeFor,
   developerMeasures,
   type EditParams,
+  type FocusMap,
   hasPendingAutoTune,
   importEdits,
   lutIds,
@@ -32,7 +33,9 @@ parentPort!.on('message', async (job: RenderJob) => {
     let imported: { label: string; recipe: EditParams } | null = null;
     const dev = new Developer(bytes);
     let resolvedRecipe: EditParams | null = null;
+    let focus: FocusMap | null = null;
     try {
+      if (job.measureFocus) focus = JSON.parse(dev.focusMap()) as FocusMap;
       for (const id of job.luts) {
         const lut = await readLut(id);
         if (lut) dev.loadLut(lut);
@@ -81,6 +84,7 @@ parentPort!.on('message', async (job: RenderJob) => {
       jobId: job.jobId,
       ok: true,
       metadata: job.extractMetadata ? metadata : null,
+      focus,
       defaultRecipe,
       imported,
       resolvedRecipe,

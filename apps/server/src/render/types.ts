@@ -1,4 +1,4 @@
-import type { EditParams, PhotoMetadata } from '@rawtisserie/pipeline';
+import type { EditParams, FocusMap, PhotoMetadata } from '@rawtisserie/pipeline';
 import type { ExposureSource } from './source.ts';
 
 export interface RenderJob {
@@ -13,6 +13,8 @@ export interface RenderJob {
   /** With `importedEdits`: the owner's LUTs by name (theirs: they may render with them). */
   userLuts: { id: string; name: string }[];
   extractMetadata: boolean;
+  /** Measure where the photo is in focus (it hasn't been, or by an older measure). */
+  measureFocus: boolean;
   /** Ids of the LUTs the recipe may use (built-in, or the owner's). */
   luts: string[];
   /** The other photos the recipe blends in (multiple exposure). */
@@ -26,6 +28,8 @@ export type RenderResult =
       jobId: number;
       ok: true;
       metadata: PhotoMetadata | null;
+      /** With `measureFocus`, where the photo is in focus. */
+      focus: FocusMap | null;
       /** With `autoDefaults`, the recipe rendered: `defaultRecipe`, its auto-tunes run. */
       defaultRecipe: EditParams | null;
       /** With `importedEdits`, their import on top of `defaultRecipe` (what was rendered then). */

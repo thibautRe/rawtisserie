@@ -241,6 +241,7 @@ export class RenderQueue {
       importedEdits: job.importedEdits,
       userLuts: job.userLuts,
       extractMetadata: job.needsMetadata,
+      measureFocus: !job.focus,
       luts: job.luts,
       exposures: job.exposures,
       outputs: (Object.entries(RENDER_SIZES) as [RenderSize, number][]).map(([size, maxSize]) => ({
@@ -266,6 +267,7 @@ export class RenderQueue {
         WHERE id = ${versionId}`);
       if (result.defaultRecipe) await addDefaultRecipe(tx, versionId, result.defaultRecipe, result.imported);
       if (result.resolvedRecipe && job.params) await resolveEntry(tx, versionId, job.params, result.resolvedRecipe);
+      if (result.focus) await photos(tx).update({ id: job.photoId }, { focus: result.focus });
       if (result.metadata) {
         await photos(tx).update({ id: job.photoId }, metadataColumns(result.metadata));
         // The in-camera rating seeds versions that haven't been rated yet.

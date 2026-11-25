@@ -7,6 +7,7 @@ import {
   type Target as ApiTarget,
   type VersionListRequest,
   type VersionPage,
+  type ZoomInfo,
 } from '@rawtisserie/api';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
@@ -605,10 +606,11 @@ export async function photoRoutes(
   app.get('/api/versions/:id/zoom', async (request, reply) => {
     const { id } = Id.parse(request.params);
     const source = await zoomSource(currentUser(request).id, id);
-    const levels = await zoom.levels(source, clientGone(reply)).catch((err) => {
+    const { levels, focus, measured } = await zoom.levels(source, clientGone(reply)).catch((err) => {
       throw zoomFailed(err);
     });
-    return { key: String(source.revision), tileSize: ZOOM_TILE, levels };
+    if (measured) await photos(db).update({ id: source.photoId }, { focus: measured });
+    return { key: String(source.revision), tileSize: ZOOM_TILE, levels, focus } satisfies ZoomInfo;
   });
 
   /** One tile of a zoom level (`ZOOM_TILE` square, smaller at the right and bottom edges). */

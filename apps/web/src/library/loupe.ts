@@ -2,7 +2,7 @@
  * The culling loupe's pure parts: which photos it walks through, and which tiles of a
  * zoomed-in view to load. `Loupe.tsx` puts them on the page.
  */
-import type { BulkPatch, Photo } from '@rawtisserie/api';
+import type { BulkPatch, Photo, ZoomInfo } from '@rawtisserie/api';
 import type { ZoomLayout, ZoomView } from '../develop/zoom.ts';
 import { visibleRegion } from '../develop/zoom.ts';
 
@@ -18,14 +18,6 @@ export function loupeOrder(opened: string[], listed: Photo[]): string[] {
 
 /** Whether a culling change moves the loupe on (with auto-advance): ratings and flags, not labels. */
 export const advancesOn = (patch: BulkPatch) => patch.rating !== undefined || patch.flag !== undefined;
-
-/** What `GET /api/versions/:id/zoom` gives: level 0 is 100 %, each next one half of it. */
-export interface ZoomInfo {
-  /** The recipe's revision, which tiles are cached under. */
-  key: string;
-  tileSize: number;
-  levels: { width: number; height: number }[];
-}
 
 /**
  * The zoom level whose tiles to show at `scale` (device pixels per full-resolution

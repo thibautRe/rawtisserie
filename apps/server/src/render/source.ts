@@ -1,5 +1,12 @@
 /** What renders a version: its original, its current recipe and the LUTs and other photos it may use. */
-import { type EditParams, exposurePhotos, lutIds, normalizeEditParams } from '@rawtisserie/pipeline';
+import {
+  type EditParams,
+  exposurePhotos,
+  type FocusMap,
+  isCurrentFocus,
+  lutIds,
+  normalizeEditParams,
+} from '@rawtisserie/pipeline';
 import type { Queryable } from '@databases/pg';
 import { db, sql } from '../db.ts';
 import { usableLuts, userLutNames } from '../luts/storage.ts';
@@ -20,6 +27,8 @@ export interface RenderSource {
   userLuts: { id: string; name: string }[];
   /** The photo's metadata hasn't been read yet. */
   needsMetadata: boolean;
+  /** Where the photo is in focus (roadmap 8.9), if measured by the current measure. */
+  focus: FocusMap | null;
   /** Bumped on every history change. */
   revision: number;
   /** The LUTs the recipe uses that its owner may use. */
@@ -48,7 +57,7 @@ export async function exposureSources(tx: Queryable, ownerId: string, recipe: Ed
 
 export async function renderSource(versionId: string): Promise<RenderSource | null> {
   const [row] = (await db.query(sql`
-    SELECT v.photo_id, v.revision, v.imported_edits, p.owner_id, p.storage_key, p.exif IS NULL AS needs_metadata, h.recipe,
+    SELECT v.photo_id, v.revision, v.imported_edits, p.owner_id, p.storage_key, p.exif IS NULL AS needs_metadata, p.focus, h.recipe,
       NOT EXISTS (SELECT 1 FROM history_entries e WHERE e.version_id = v.id) AS no_history
     FROM versions v
     JOIN photos p ON p.id = v.photo_id
@@ -60,6 +69,7 @@ export async function renderSource(versionId: string): Promise<RenderSource | nu
     owner_id: string;
     storage_key: string;
     needs_metadata: boolean;
+    focus: unknown;
     recipe: EditParams | null;
     no_history: boolean;
   }[];
@@ -74,6 +84,7 @@ export async function renderSource(versionId: string): Promise<RenderSource | nu
     importedEdits: row.no_history ? row.imported_edits : null,
     userLuts: row.no_history && row.imported_edits ? await userLutNames(db, row.owner_id) : [],
     needsMetadata: row.needs_metadata,
+    focus: isCurrentFocus(row.focus) ? row.focus : null,
     revision: row.revision,
     luts: recipe ? await usableLuts(db, row.owner_id, lutIds(recipe)) : [],
     exposures: recipe ? await exposureSources(db, row.owner_id, recipe) : [],

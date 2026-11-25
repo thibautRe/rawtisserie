@@ -588,6 +588,13 @@
         "typeName": "FLOAT4"
       },
       {
+        "name": "focus",
+        "isNullable": true,
+        "hasDefault": false,
+        "typeId": 3802,
+        "typeName": "JSONB"
+      },
+      {
         "name": "gps_latitude",
         "isNullable": true,
         "hasDefault": false,

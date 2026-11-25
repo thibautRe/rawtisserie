@@ -2,13 +2,14 @@
  * The culling loupe: one photo at a time over the whole window, from the library grid.
  * Arrow keys move, ratings, flags and colour labels are one key each (moving on to the
  * next photo with auto-advance), and a click or Z zooms to 100 % with tiles rendered
- * by the server (`/api/versions/:id/zoom`). The zoom stays where it is from one photo
- * to the next, to compare the focus across a burst. With `details` (phones, where the
+ * by the server (`/api/versions/:id/zoom`), on the focus area when the server found
+ * one (roadmap 8.9), which F shows over the photo. The zoom stays where it is from one
+ * photo to the next, to compare the focus across a burst. With `details` (phones, where the
  * library's info panel is otherwise a selection away), the photo's details sit below
  * it: the loupe scrolls to them.
  */
 import { Box, Circle, Flex, HStack, IconButton, Image, Spinner, Switch, Text, Theme } from '@chakra-ui/react';
-import { Check, ChevronDown, Info, SlidersHorizontal, Star, X } from 'lucide-react';
+import { Check, ChevronDown, Focus, Info, SlidersHorizontal, Star, X } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useZoomInfo } from '../api/hooks.ts';
 import { type BulkPatch, COLOR_LABELS, type Photo } from '@rawtisserie/api';
@@ -18,6 +19,7 @@ import { captureLine, formatDateTime } from '../lib/format.ts';
 import { useElementSize } from '../lib/useElementSize.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { FilmRoll } from './FilmRoll.tsx';
+import { FocusOverlay } from '../components/FocusOverlay.tsx';
 import { advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
 import { TileLoader } from './tileLoader.ts';
 import { useTagShortcuts } from './useTagShortcuts.tsx';
@@ -99,6 +101,8 @@ export function Loupe({
 
   const [autoAdvance, setAutoAdvance] = useState(() => stored('loupe.autoAdvance', true));
   const [showInfo, setShowInfo] = useState(() => stored('loupe.info', true));
+  const [showFocus, setShowFocus] = useState(() => stored('loupe.focus', false));
+  useEffect(() => localStorage.setItem('loupe.focus', String(showFocus)), [showFocus]);
   useEffect(() => localStorage.setItem('loupe.autoAdvance', String(autoAdvance)), [autoAdvance]);
   useEffect(() => localStorage.setItem('loupe.info', String(showInfo)), [showInfo]);
 
@@ -174,7 +178,10 @@ export function Loupe({
     const t = setTimeout(() => setDwelled(id), ZOOM_INFO_DELAY_MS);
     return () => clearTimeout(t);
   }, [id]);
-  const info = useZoomInfo(photo, dwelled === id || zoom !== null).data;
+  // Asked at once when the focus is shown: it comes with the zoom levels.
+  const info = useZoomInfo(photo, dwelled === id || zoom !== null || showFocus).data;
+  const focus = info?.focus ?? null;
+  const focusPoint = focus?.area ? ([focus.area.cx, focus.area.cy] as const) : undefined;
   const preview = sizes.current.get(id) ?? null;
 
   const dpr = window.devicePixelRatio || 1;
@@ -252,7 +259,8 @@ export function Loupe({
     else if (key === 'arrowleft' || key === 'arrowup' || key === 'pageup') go(index - 1);
     else if (key === 'home') go(0);
     else if (key === 'end') go(order.length - 1);
-    else if (key === 'z') zoomTo(zoom ? null : 1);
+    else if (key === 'z') zoomTo(zoom ? null : 1, focusPoint);
+    else if (key === 'f') setShowFocus((s) => !s);
     else if (key === 'a') setAutoAdvance((a) => !a);
     else if (key === 'i') setShowInfo((s) => !s);
     else if ((key === 'd' || key === 'enter') && onDevelop) onDevelop(photo.id);
@@ -319,6 +327,17 @@ export function Loupe({
               <Switch.Label hideBelow="md">Auto-advance</Switch.Label>
             </Switch.Root>
           )}
+          <IconButton
+            size="sm"
+            variant={showFocus ? 'subtle' : 'ghost'}
+            color="white"
+            aria-label="Show where the photo is in focus (F)"
+            aria-pressed={showFocus}
+            title="Show where the photo is in focus (F)"
+            onClick={() => setShowFocus((s) => !s)}
+          >
+            <Focus />
+          </IconButton>
           {onDevelop && (
             <IconButton
               size="sm"
@@ -418,6 +437,7 @@ export function Loupe({
                 )
               );
             })}
+          {showFocus && focus && <FocusOverlay view={focus} />}
         </Box>
         {(!photo.previewUrl || (zoom && tilesPending)) && (
           <Spinner position="absolute" bottom="3" right="3" size="sm" color="whiteAlpha.800" />
@@ -525,8 +545,8 @@ export function Loupe({
           )}
           <Text color="whiteAlpha.600" whiteSpace="nowrap" hideBelow="lg">
             {onChange
-              ? `← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · A auto-advance${onPaste ? ` · ${commandLabel('Ctrl+V')} paste` : ''} · Esc close`
-              : '← → move · Z zoom · Esc close'}
+              ? `← → move · 0–5 rate · P X U flag · 6–9 label · Z zoom · F focus · A auto-advance${onPaste ? ` · ${commandLabel('Ctrl+V')} paste` : ''} · Esc close`
+              : '← → move · Z zoom · F focus · Esc close'}
           </Text>
         </HStack>
       )}

@@ -8,6 +8,7 @@
 import { Worker } from 'node:worker_threads';
 import type { FastifyBaseLogger } from 'fastify';
 import type { RenderSource } from './source.ts';
+import type { FocusMap, FocusView } from '@rawtisserie/pipeline';
 import type { ZoomJob, ZoomLevels, ZoomRequest, ZoomResponse, ZoomSource } from './zoomTypes.ts';
 
 const IDLE_MS = 2 * 60_000;
@@ -42,10 +43,14 @@ export class ZoomRenderer {
     this.log = log;
   }
 
-  async levels(source: RenderSource, signal?: AbortSignal): Promise<ZoomLevels> {
+  /** The zoom levels, where the photo is in focus on them, and the focus map if it was measured for this. */
+  async levels(
+    source: RenderSource,
+    signal?: AbortSignal,
+  ): Promise<{ levels: ZoomLevels; focus: FocusView | null; measured: FocusMap | null }> {
     const res = await this.run({ kind: 'levels' }, source, signal);
     if (!('levels' in res)) throw new Error('Unexpected zoom response');
-    return res.levels;
+    return { levels: res.levels, focus: res.focus, measured: res.measured };
   }
 
   async tile(source: RenderSource, level: number, col: number, row: number, signal?: AbortSignal): Promise<Uint8Array> {
@@ -70,6 +75,7 @@ export class ZoomRenderer {
       userLuts: src.userLuts,
       luts: src.luts,
       exposures: src.exposures,
+      focus: src.focus,
     };
     const res = await new Promise<ZoomResponse>((resolve) => {
       this.queue.push({ body, source, signal, resolve });

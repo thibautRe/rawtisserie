@@ -18,7 +18,6 @@ import type {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { HistoryOp } from '../develop/history.ts';
 import { type BatchEdit, runBatchEdit, undoBatchEdit } from '../library/batchEdit.ts';
-import type { ZoomInfo } from '../library/loupe.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ApiError, api } from './client.ts';
 import { clearOriginals } from './originals.ts';
@@ -45,6 +44,7 @@ import type {
   Target,
   TrashPage,
   User,
+  ZoomInfo,
 } from '@rawtisserie/api';
 
 // ── Auth ────────────────────────────────────────────────────────────────────

@@ -1,5 +1,14 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { type ZoomLayout, type ZoomView, panView, placeView, zoomAround, zoomCentredOn, zoomScale } from './zoom.ts';
+import {
+  type ZoomLayout,
+  type ZoomView,
+  panView,
+  placeView,
+  zoomAround,
+  zoomCentredOn,
+  zoomOn,
+  zoomScale,
+} from './zoom.ts';
 
 /** How long the view must stay still before the zoomed-in region is rendered. */
 const SETTLE_MS = 150;
@@ -284,11 +293,18 @@ export function useZoom(
     };
   }
 
-  /** Zoom to `scale` (null: fit), keeping the point at the centre of the window. Stable. */
-  const zoomTo = useRef((scale: number | null) => {
+  /**
+   * Zoom to `scale` (null: fit), keeping the point at the centre of the window, or
+   * centred on the image's point `at` (0…1, e.g. the focus area). Stable.
+   */
+  const zoomTo = useRef((scale: number | null, at?: readonly [number, number]) => {
     const s = state.current;
     if (!s.layout) return;
     const { windowWidth, windowHeight } = s.layout;
+    if (scale !== null && at) {
+      show(zoomOn(s.layout, scale, at[0], at[1]), 'now');
+      return;
+    }
     show(scale === null ? null : zoomAround(s.layout, s.view, scale, windowWidth / 2, windowHeight / 2), 'now');
   }).current;
 
