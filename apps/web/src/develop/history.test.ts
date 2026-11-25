@@ -45,7 +45,7 @@ test('committing from an earlier point drops the later entries, and restore brin
   s.commit(glow(s.committed, 1), 1);
   s.commit(glow(s.committed, 2), 60_000);
   s.goto(1);
-  // No coalescing with an entry we navigated to.
+  // No coalescing with an entry this session didn't write last.
   const snapshot = s.snapshot();
   assert.equal(s.commit(exposure(s.committed, 3), 60_001), 2);
   assert.deepEqual(
@@ -56,6 +56,16 @@ test('committing from an earlier point drops the later entries, and restore brin
   assert.equal(s.getState().end, 1);
   assert.equal(s.getState().entries.length, 3);
   assert.deepEqual(ops.at(-1), { type: 'splice', from: 2, entries: snapshot.entries.slice(1), end: 1 });
+});
+
+test('coming back to the entry written last still coalesces', () => {
+  const { s } = store();
+  s.commit(exposure(defaultEditParams, 1), 0);
+  s.undo();
+  s.redo();
+  s.commit(exposure(s.committed, 1.5), 20_000);
+  assert.equal(s.getState().entries.length, 1);
+  assert.equal(s.getState().entries[0]!.label, 'Exposure: ev 1.5');
 });
 
 test('undo and redo move the end', () => {

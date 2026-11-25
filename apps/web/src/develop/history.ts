@@ -133,7 +133,6 @@ export class HistoryStore {
     const { entries, end, live } = this.#state;
     const target = Math.max(0, Math.min(entries.length, seq));
     if (target === end && live === this.committed) return;
-    this.#last = null;
     this.#set({ end: target, live: this.recipeAt(target) }, { type: 'goto', end: target });
   }
 
