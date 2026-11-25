@@ -113,6 +113,13 @@ function sampleCells(cells: Uint8Array, cols: number, rows: number, u: number, v
   return Math.round(sum / weight);
 }
 
+/** The centre of `map`'s focus area on the output frame `mapping` places (normalised); null without one, or cropped out. */
+export function focusPoint(map: FocusMap, mapping: SensorMapping): [number, number] | null {
+  if (!map.area) return null;
+  const [x, y] = fromSensor(mapping, map.area.cx, map.area.cy);
+  return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? [x, y] : null;
+}
+
 /** `area` (sensor frame) in the output frame: the box around its mapped outline, clipped; null if cropped out. */
 function areaInFrame(area: FocusArea, mapping: SensorMapping): FocusArea | null {
   const [cx, cy] = fromSensor(mapping, area.cx, area.cy);

@@ -44,7 +44,15 @@ export type WorkerRequest =
       compare: boolean;
     }
   /** A small final-quality render (`Developer.renderThumbnail`), apart from the interactive ones' caches. */
-  | { type: 'thumbnail'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
+  | {
+      type: 'thumbnail';
+      id: number;
+      params: EditParams;
+      maxWidth: number;
+      maxHeight: number;
+      /** Instead, a square of this side at 100 %, on the focus area (roadmap 8.9). */
+      crop?: number;
+    }
   | { type: 'export'; id: number; params: EditParams; options: ExportOptions; metadata: ExportMetadata }
   | { type: 'autoTuneFilmic'; id: number; params: EditParams; maxWidth: number; maxHeight: number }
   | {

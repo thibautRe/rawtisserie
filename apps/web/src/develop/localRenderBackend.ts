@@ -273,13 +273,14 @@ export class LocalRenderBackend implements RenderBackend {
     };
   }
 
-  async thumbnail(params: EditParams, maxWidth: number, maxHeight: number): Promise<ImageBitmap> {
+  async thumbnail(params: EditParams, maxWidth: number, maxHeight: number, crop?: number): Promise<ImageBitmap> {
     await this.prepare(params);
     const r = await this.call<Extract<WorkerResponse, { type: 'thumbnail' }>>({
       type: 'thumbnail',
       params,
       maxWidth,
       maxHeight,
+      ...(crop && { crop }),
     });
     return r.bitmap;
   }
