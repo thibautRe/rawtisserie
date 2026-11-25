@@ -145,38 +145,32 @@ export function LocalDevelopPage() {
 
   if (backend && loaded) {
     return (
-      <>
-        {picker}
-        <DeveloperView
-          key={loaded.file.name + loaded.file.lastModified}
-          backend={backend}
-          filename={loaded.file.name}
-          metadata={loaded.metadata}
-          exportInfo={fileExportInfo(loaded.file.name, loaded.metadata)}
-          original={originalRecipe(loaded.metadata)}
-          initialHistory={autoApplied(loaded.metadata)}
-          chooseExposure={chooseLocalPhoto}
-          actions={(history) => (
-            <>
-              {/* Edits live only in this tab: anything past the automatic entry is lost on leaving. */}
-              <LeaveWarning active={history.entries.length > 1} />
-              <Button size={HEADER_SIZE} variant="ghost" onClick={() => input.current?.click()}>
-                <FolderOpen /> Open…
+      <DeveloperView
+        key={loaded.file.name + loaded.file.lastModified}
+        backend={backend}
+        filename={loaded.file.name}
+        metadata={loaded.metadata}
+        exportInfo={fileExportInfo(loaded.file.name, loaded.metadata)}
+        original={originalRecipe(loaded.metadata)}
+        initialHistory={autoApplied(loaded.metadata)}
+        chooseExposure={chooseLocalPhoto}
+        actions={(history) => (
+          <>
+            {/* Edits live only in this tab: anything past the automatic entry is lost on leaving. */}
+            <LeaveWarning active={history.entries.length > 1} />
+            {me && (
+              <Button
+                size={HEADER_SIZE}
+                colorPalette="orange"
+                loading={savingToLibrary}
+                onClick={() => void saveToLibrary(history)}
+              >
+                <LibraryBig /> Add to library
               </Button>
-              {me && (
-                <Button
-                  size={HEADER_SIZE}
-                  colorPalette="orange"
-                  loading={savingToLibrary}
-                  onClick={() => void saveToLibrary(history)}
-                >
-                  <LibraryBig /> Add to library
-                </Button>
-              )}
-            </>
-          )}
-        />
-      </>
+            )}
+          </>
+        )}
+      />
     );
   }
 
