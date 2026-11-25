@@ -22,6 +22,7 @@ pub mod demosaic;
 pub mod denoise;
 pub mod encode;
 pub mod export;
+pub mod focus;
 pub mod frame;
 pub mod image;
 pub mod lens;

@@ -11,3 +11,4 @@ export * from './autoTune.ts';
 export * from './denoise.ts';
 export * from './lensfun.ts';
 export * from './importedEdits.ts';
+export * from './focus.ts';

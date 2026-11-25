@@ -332,6 +332,13 @@ impl Developer {
         serde_json::to_string(self.inner.metadata()).map_err(js_err)
     }
 
+    /// Where the photo is sharp (`focus::FocusMap`, roadmap 8.9), as JSON. Takes a
+    /// fraction of a second: measured on the sensor data, whatever the recipe.
+    #[wasm_bindgen(js_name = focusMap)]
+    pub fn focus_map(&self) -> Result<String, JsError> {
+        serde_json::to_string(&rawtisserie_pipeline::focus::measure(self.inner.photo())).map_err(js_err)
+    }
+
     /// `[width, height]` of the image fitted within these bounds (0 = unbounded): with
     /// no bounds, the size of the (cropped) image at full resolution.
     #[wasm_bindgen(js_name = outputSize)]
