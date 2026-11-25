@@ -110,8 +110,10 @@ pub enum ClipMode {
 
 const OVER: [u8; 3] = [255, 0, 0];
 const MASK: [f32; 3] = [255.0, 214.0, 0.0];
-/// How much of the mask colour covers a pixel the mask fully selects.
-const MASK_OPACITY: f32 = 0.7;
+/// How much of the mask colour covers a pixel the mask fully selects: all of it, so solid
+/// yellow is where the module applies fully, and the image shows through only where it
+/// applies partly.
+const MASK_OPACITY: f32 = 1.0;
 const UNDER: [u8; 3] = [0, 64, 255];
 const SENSOR: [u8; 3] = [255, 0, 255];
 

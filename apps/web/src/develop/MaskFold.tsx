@@ -41,7 +41,7 @@ export function MaskFold({
   /** The mask differs from a new one, and its reset. */
   modified: boolean;
   onReset: () => void;
-  /** Whether the image shows where the module applies. */
+  /** Whether the image shows where the mask applies. */
   showing: boolean;
   /** The mask limits the module (shapes, ranges, opacity below 100 %): something to show. */
   selective?: boolean;
@@ -124,7 +124,7 @@ export function MaskFold({
           colorPalette={showing ? 'yellow' : 'gray'}
           aria-pressed={showing}
           aria-label={showing ? 'Hide the mask' : 'Show the mask'}
-          title={showing ? 'Hide the mask' : 'Show where the module applies, in yellow'}
+          title={showing ? 'Hide the mask' : 'Show where the mask applies, in yellow: solid where fully'}
           onClick={() => onShow(!showing)}
         >
           <ScanEye />
