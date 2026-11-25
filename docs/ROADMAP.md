@@ -18,7 +18,7 @@ M1 Foundations ──┬─▶ M2 Workflow ........... done, but 2.6 keyboard-dr
                  └─▶ M8 Library workflow ... done, but 8.9 focus areas (1.0), 8.15 phase 2
 M6 Cloud processing ── independent; step 1 (native renderer) useful on its own
 M7 Hosted service ──── 7.1, 7.3, 7.5, 7.11 done; the rest before opening sign-ups
-M9 Branding ────────── 1.0; fonts and /ui done, logo, spinner, /develop page to do
+M9 Branding ────────── 1.0; fonts and /ui done, logo being tried, spinner, /develop page to do
 M10 Responsive ─────── library on phones done; the developer after M6
 ```
 
@@ -526,7 +526,11 @@ curve's gain in EV at our nodes, linked through its norm or per channel). Later:
 ## M9 — Branding (M, before 1.0) — started
 
 - **Logo:** a mark and wordmark for the 🍗 name. Favicon, app icons and an OpenGraph
-  image.
+  image. Being tried in the app since 2026-11-25 (`components/Logo.tsx`, the favicon, the
+  menu button, the login page, the `/develop` landing): a drumstick whose skin is a Bayer
+  sensor's photosites, raw (sensor colours) at the tip and cooked towards the bone, flat
+  when small, shaded strips when large. The rounds of ideas are on `/ui/logo`. Still to
+  do: app icons (PNG, manifest) and the OpenGraph image.
 - **Typography:** in the app since 2026-11-10, still being tried: **Geologica** (since
   2026-11-11) for headings, body and small uppercase labels (the `label` font token),
   **Lilex** for values that change as you edit (the `numeric` token: slider readouts,

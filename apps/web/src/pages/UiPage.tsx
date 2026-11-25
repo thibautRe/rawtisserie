@@ -53,6 +53,7 @@ import type { ColorLabel, Flag, Photo, Transfer } from '@rawtisserie/api';
 import { PhotoCard } from '../library/PhotoCard.tsx';
 import { FilmRoll } from '../library/FilmRoll.tsx';
 import { commandLabel } from '../lib/keys.ts';
+import { Logo, LogoMark } from '../components/Logo.tsx';
 
 /**
  * Sets the colour mode on the whole document (menus and popovers are portalled out of
@@ -302,7 +303,10 @@ export function UiPage() {
       <Box position="sticky" top="0" zIndex="sticky" bg="bg.panel" borderBottomWidth="1px">
         <Container maxW="6xl" py="3">
           <HStack justify="space-between" wrap="wrap" gap="3">
-            <Heading size="md">🍗 UI</Heading>
+            <HStack gap="2">
+              <LogoMark size={24} />
+              <Heading size="md">UI</Heading>
+            </HStack>
             <SegmentGroup.Root
               size="xs"
               value={mode}
@@ -404,6 +408,46 @@ export function UiPage() {
               <Code size="sm">GET /api/tags</Code>
             </Example>
           </Grid>
+        </Block>
+
+        <Block
+          title="Logo"
+          guide={
+            <>
+              <Code>components/Logo.tsx</Code>. The small mark is flat, for 32 px and less (icons, the menu button, the
+              favicon:
+              <Code>assets/favicon.svg</Code> is a copy of it); the large one has its photosites as shaded strips, for
+              anything bigger. The ideas behind it are on <Code>/ui/logo</Code>.
+            </>
+          }
+        >
+          <HStack gap="8" wrap="wrap" align="end">
+            <Example label="LogoMark small, 16–32">
+              <HStack gap="3" align="end">
+                <LogoMark size={16} />
+                <LogoMark size={24} />
+                <LogoMark size={32} />
+              </HStack>
+            </Example>
+            <Example label="LogoMark large, 64–112">
+              <HStack gap="3" align="end">
+                <LogoMark size={64} variant="large" />
+                <LogoMark size={112} variant="large" />
+              </HStack>
+            </Example>
+            <Example label="Logo">
+              <Logo />
+            </Example>
+            <Example label='Logo size="xl"'>
+              <Logo size="xl" />
+            </Example>
+            <Example label="Logo tagline">
+              <Logo size="lg" tagline />
+            </Example>
+            <Example label="Logo stacked">
+              <Logo stacked />
+            </Example>
+          </HStack>
         </Block>
 
         <Block

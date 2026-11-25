@@ -33,10 +33,7 @@ export function LoginPage() {
   return (
     <Center h="full" p="4">
       <Stack gap="6" w="full" maxW="sm" align="center">
-        <Stack align="center" gap="1">
-          <Logo size="xl" />
-          <Text color="fg.muted">from raw to well done</Text>
-        </Stack>
+        <Logo size="xl" tagline />
         <Card.Root w="full" as="form" onSubmit={submit}>
           <Card.Body>
             <Stack gap="4">

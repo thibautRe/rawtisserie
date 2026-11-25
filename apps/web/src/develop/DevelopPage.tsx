@@ -1,4 +1,16 @@
-import { Box, Button, Center, Flex, Heading, Progress, Spinner, Stack, Text } from '@chakra-ui/react';
+import {
+  Box,
+  Button,
+  Center,
+  Flex,
+  HStack,
+  Heading,
+  Link as ChakraLink,
+  Progress,
+  Spinner,
+  Stack,
+  Text,
+} from '@chakra-ui/react';
 import {
   AUTO_RECIPE_LABEL,
   type PhotoMetadata,
@@ -15,6 +27,7 @@ import { api } from '../api/client.ts';
 import { fetchDenoised, fetchOriginal, keepDenoised, originalByHash } from '../api/originals.ts';
 import { useMe, usePhoto, useSaveHistory, type UploadResult } from '../api/hooks.ts';
 import { AppMenu } from '../components/AppMenu.tsx';
+import { Logo } from '../components/Logo.tsx';
 import { toaster } from '../components/toaster.tsx';
 import { type LibraryReturnState, libraryPath } from '../library/libraryView.ts';
 import { PHOTO_ACCEPT, versionLabel } from '../lib/format.ts';
@@ -197,38 +210,59 @@ export function LocalDevelopPage() {
       <Box position="absolute" top="2" left="3">
         <AppMenu />
       </Box>
-      <Stack
-        align="center"
-        gap="5"
-        textAlign="center"
-        maxW="lg"
-        p="12"
-        borderWidth="2px"
-        borderStyle="dashed"
-        borderRadius="xl"
-        borderColor={dragging ? 'orange.solid' : 'border'}
-        bg={dragging ? 'orange.subtle' : undefined}
-      >
-        <Text fontSize="5xl" lineHeight="1">
-          🍗
-        </Text>
-        <Heading size="2xl">Develop a RAW file</Heading>
-        <Text color="fg.muted">
-          Drop a RAW file here (ARW, CR2, CR3, NEF, DNG, RAF, ORF, RW2…) to develop it: exposure, white balance, tone
-          mapping, colour, sharpening, crop & straighten. Export the result as a JPEG. JPEG, PNG, TIFF and WebP images
-          open too, for lighter touches.
-        </Text>
-        <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!backend}>
-          <FolderOpen /> Open a RAW file
-        </Button>
-        <Text textStyle="sm" color="fg.muted" display="flex" alignItems="center" gap="1.5">
-          <ShieldCheck size={16} /> Processed entirely in your browser — your file is never uploaded.
-        </Text>
-        {error && (
-          <Box color="fg.error" textStyle="sm">
-            Could not open this file: {error}
-          </Box>
-        )}
+      <Stack align="center" gap="6" w="full" maxW="lg">
+        {/* The name above the drop zone, modest: the drop zone is what this page is for. */}
+        <Logo size="lg" tagline />
+        <Stack
+          align="center"
+          gap="4"
+          textAlign="center"
+          w="full"
+          px={{ base: '6', md: '12' }}
+          py={{ base: '8', md: '10' }}
+          borderWidth="2px"
+          borderStyle="dashed"
+          borderRadius="xl"
+          borderColor={dragging ? 'orange.solid' : 'border'}
+          bg={dragging ? 'orange.subtle' : undefined}
+          transition="background 0.15s, border-color 0.15s"
+        >
+          <Heading size="2xl">{dragging ? 'Drop it to develop it' : 'Develop a RAW file'}</Heading>
+          <Text color="fg.muted" textWrap="balance">
+            A fast RAW developer that runs right in your browser.
+          </Text>
+          <Text textStyle="xs" color="fg.subtle" fontFamily="label" textTransform="uppercase" letterSpacing="wider">
+            Exposure · White balance · Tones · Colour · Denoise
+          </Text>
+          <Stack align="center" gap="2" pt="2">
+            <Button colorPalette="orange" size="lg" onClick={() => input.current?.click()} disabled={!backend}>
+              <FolderOpen /> Open a RAW file
+            </Button>
+            <Text textStyle="xs" color="fg.subtle">
+              or drop it anywhere on this page
+            </Text>
+          </Stack>
+          {error && (
+            <Box color="fg.error" textStyle="sm">
+              Could not open this file: {error}
+            </Box>
+          )}
+        </Stack>
+        <Stack align="center" gap="1.5">
+          <HStack gap="1.5" textStyle="xs" color="fg.subtle">
+            <ShieldCheck size={13} aria-hidden />
+            <Text>Your photo never leaves your computer.</Text>
+          </HStack>
+          {/* Signed out (null; undefined is still asking): the library is what an account is for. */}
+          {me === null && (
+            <Text textStyle="xs" color="fg.subtle">
+              Want a library for your photos?{' '}
+              <ChakraLink asChild color="orange.fg">
+                <Link to="/login">Log in</Link>
+              </ChakraLink>
+            </Text>
+          )}
+        </Stack>
       </Stack>
     </Center>
   );

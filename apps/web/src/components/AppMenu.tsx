@@ -4,6 +4,7 @@ import { memo } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useLogout, useMe, useStorage } from '../api/hooks.ts';
 import { libraryPath } from '../library/libraryView.ts';
+import { LogoMark } from './Logo.tsx';
 import { StorageMeter } from './StorageMeter.tsx';
 
 /**
@@ -20,8 +21,8 @@ export const AppMenu = memo(function AppMenu() {
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
-        <IconButton aria-label="RAWtisserie menu" title="RAWtisserie" size="sm" variant="ghost" fontSize="lg">
-          <span aria-hidden>🍗</span>
+        <IconButton aria-label="RAWtisserie menu" title="RAWtisserie" size="sm" variant="ghost">
+          <LogoMark size={30} />
         </IconButton>
       </Menu.Trigger>
       <Portal>

@@ -15,6 +15,8 @@ export const router = createBrowserRouter([
       { path: '/develop', element: <LocalDevelopPage /> },
       // The UI's building blocks on one page (fonts loaded there only).
       { path: '/ui', lazy: async () => ({ Component: (await import('./pages/UiPage.tsx')).UiPage }) },
+      // Logo ideas (M9), as SVG.
+      { path: '/ui/logo', lazy: async () => ({ Component: (await import('./pages/LogoPage.tsx')).LogoPage }) },
       {
         element: <RequireAuth />,
         children: [
