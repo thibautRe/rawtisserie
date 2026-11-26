@@ -57,6 +57,8 @@ launch, is done), 4.2's auto-apply rules.
    "Not done" and "Later" notes beside done items, [Performance](#performance) and
    [Cross-cutting](#cross-cutting) (rawler from a release, Rust tooling, the slider perf
    budget, render queue fairness).
+4. [8.16 subject detection](#816-subject-detection-l-after-10): faces, eyes and
+   subjects, which 8.9's focus area waits for.
 
 ---
 
@@ -520,6 +522,23 @@ user's files: brushes in masks; denoise as raw denoise; Ansel's colour
 equalizer (rings of curves, another module). rgb curve comes through as Tones (each
 curve's gain in EV at our nodes, linked through its norm or per channel). Later: Lightroom (`crs:` XMP) and Capture One
 (`.cos`) through the same report and warning.
+
+### 8.16 Subject detection (L, after 1.0)
+
+Find faces, eyes and the main subject (a person, an animal, a vehicle) in a photo, as a
+property of the capture like 8.9's sharpness map: measured once per photo, in the
+sensor frame.
+
+- **Why:** a sharpness map alone can't say where the focus _should_ be, and the sharpest
+  region it picks is often not the subject (a textured foreground, foliage). 8.9's focus
+  area (the box, zooming to it, the presets' 100 % crops) was dropped on 2026-11-26 until
+  this exists: the eye or the subject is the region to check, and the map says whether
+  it's sharp there.
+- **Uses:** the loupe and the developer zoom to the eye; culling flags a burst's shots
+  whose subject isn't sharp; masks could later start from a subject or a face.
+- **Open questions:** the models (small enough to run in the render worker and in wasm,
+  with a licence we can ship), and whether the maker notes' AF point and detected
+  subject (Sony's eye AF) are enough on their own for some cameras.
 
 ---
 
