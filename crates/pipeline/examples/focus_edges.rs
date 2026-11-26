@@ -24,6 +24,19 @@ const ZONE: usize = 24;
 /// Edges this blurred (σ, sensor pixels) are fully shown in the scale style, none from `HIDE`.
 const SHOW: f32 = 2.5;
 const HIDE: f32 = 6.0;
+/// The opacity style's colour, fully opaque up to `OPAQUE` (σ, sensor pixels), clear from `CLEAR`.
+const TINT: [f32; 3] = [90.0, 255.0, 120.0];
+const OPAQUE: f32 = 0.5;
+const CLEAR: f32 = 5.0;
+
+/// `grey` with an edge of blur `sigma` (NaN: none) over it, in `TINT`.
+fn faded(grey: f32, sigma: f32) -> [f32; 3] {
+    if sigma.is_nan() {
+        return [grey; 3];
+    }
+    let a = (1.0 - (sigma - OPAQUE) / (CLEAR - OPAQUE)).clamp(0.0, 1.0);
+    std::array::from_fn(|k| grey * (1.0 - a) + TINT[k] * a)
+}
 
 /// `grey` with an edge of blur `sigma` (NaN: none) over it.
 fn over(grey: f32, sigma: f32) -> [f32; 3] {
@@ -134,6 +147,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         save("peaking", &|i| if sharpest[i] <= PEAKING { [90.0, 255.0, 120.0] } else { [dim[i]; 3] })?;
         // Scale: every edge coloured by its blur, fading out as it gets wide.
         save("scale", &|i| over(dim[i], sharpest[i]))?;
+        // Opacity: the same edges in one colour, more opaque the sharper they are.
+        save("opacity", &|i| faded(dim[i], sharpest[i]))?;
         // Zones: cells of `ZONE` measure pixels, the first quartile of their edges' blur.
         let (cols, rows) = (m.width.div_ceil(ZONE), m.height.div_ceil(ZONE));
         let mut zones = vec![f32::NAN; cols * rows];
@@ -175,17 +190,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let crop = demosaic::develop_base_region(&photo, 1, rawtisserie_pipeline::Region { x: rx, y: ry, width: size, height: size });
             let mut plain = Rgba8 { width: size, height: size, data: vec![255; size * size * 4] };
             let mut scaled = plain.clone();
+            let mut opaque = plain.clone();
             for (j, p) in crop.pixels.iter().enumerate() {
                 let (px, py) = (rx + j % size, ry + j / size);
                 let b = m.blur[((py / m.factor).min(m.height - 1)) * m.width + (px / m.factor).min(m.width - 1)];
+                let o = faded(grey(*p).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 * 0.5, b);
                 let c = over(grey(*p).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 * 0.5, b);
                 for k in 0..3 {
                     plain.data[j * 4 + k] = ((p[k] / peak).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8;
                     scaled.data[j * 4 + k] = c[k] as u8;
+                    opaque.data[j * 4 + k] = o[k] as u8;
                 }
             }
             std::fs::write(out.join(format!("{name}-crop{i}.jpg")), encode::jpeg(&plain, 90)?)?;
             std::fs::write(out.join(format!("{name}-crop{i}-edges.jpg")), encode::jpeg(&scaled, 90)?)?;
+            std::fs::write(out.join(format!("{name}-crop{i}-opacity.jpg")), encode::jpeg(&opaque, 90)?)?;
         }
     }
     Ok(())
