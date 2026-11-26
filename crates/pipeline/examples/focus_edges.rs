@@ -34,7 +34,8 @@ fn faded(grey: f32, sigma: f32) -> [f32; 3] {
     if sigma.is_nan() {
         return [grey; 3];
     }
-    let a = (1.0 - (sigma - OPAQUE) / (CLEAR - OPAQUE)).clamp(0.0, 1.0);
+    // Cubic: drops fast past the sharpest edges (σ 1: 0.70, 2: 0.30, 3: 0.09).
+    let a = (1.0 - (sigma - OPAQUE) / (CLEAR - OPAQUE)).clamp(0.0, 1.0).powi(3);
     std::array::from_fn(|k| grey * (1.0 - a) + TINT[k] * a)
 }
 
