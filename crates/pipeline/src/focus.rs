@@ -21,6 +21,8 @@ use serde::Serialize;
 
 use crate::decode::{Layout, RawPhoto};
 
+pub mod edges;
+
 /// Bumped whenever the measure changes, so stored maps are measured again.
 pub const FOCUS_VERSION: u32 = 1;
 
