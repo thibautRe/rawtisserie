@@ -18,7 +18,14 @@ export const FocusOverlay = memo(function FocusOverlay({ view }: { view: FocusVi
     ctx.putImageData(new ImageData(focusOverlayPixels(view), view.width, view.height), 0, 0);
   }, [view]);
   return (
-    <Box position="absolute" inset="0" pointerEvents="none" data-focus-overlay>
+    <Box
+      position="absolute"
+      inset="0"
+      pointerEvents="none"
+      data-focus-overlay
+      // The photo under it in grey, a little darker, so the green edges stand out.
+      style={{ backdropFilter: 'grayscale(1) brightness(0.75)' }}
+    >
       <canvas ref={canvas} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
     </Box>
   );

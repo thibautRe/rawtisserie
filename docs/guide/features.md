@@ -48,7 +48,7 @@ each time.
   longer matches the filters (reject one while showing the unflagged ones): **Apply
   filters**, in the header, hides those.
 - The loupe zooms to 100 %, and can advance to the next photo after each rating.
-- Where each photo is in focus is measured on import: `F` draws its edges in green,
+- Where each photo is in focus is measured on import: `F` greys the photo and draws its edges in green,
   the sharper the more opaque, to tell at a glance whether the focus landed on the eye.
   The developer shows it too.
 - Going to the developer and back keeps the filters, scroll position and selection.
