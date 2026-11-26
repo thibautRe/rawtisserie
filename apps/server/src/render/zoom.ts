@@ -8,7 +8,7 @@
 import { Worker } from 'node:worker_threads';
 import type { FastifyBaseLogger } from 'fastify';
 import type { RenderSource } from './source.ts';
-import type { FocusMap, FocusView } from '@rawtisserie/pipeline';
+import type { FocusMap, SensorMapping } from '@rawtisserie/pipeline';
 import type { ZoomJob, ZoomLevels, ZoomRequest, ZoomResponse, ZoomSource } from './zoomTypes.ts';
 
 const IDLE_MS = 2 * 60_000;
@@ -47,7 +47,11 @@ export class ZoomRenderer {
   async levels(
     source: RenderSource,
     signal?: AbortSignal,
-  ): Promise<{ levels: ZoomLevels; focus: FocusView | null; measured: FocusMap | null }> {
+  ): Promise<{
+    levels: ZoomLevels;
+    focus: { map: FocusMap; mapping: SensorMapping } | null;
+    measured: FocusMap | null;
+  }> {
     const res = await this.run({ kind: 'levels' }, source, signal);
     if (!('levels' in res)) throw new Error('Unexpected zoom response');
     return { levels: res.levels, focus: res.focus, measured: res.measured };

@@ -1,4 +1,4 @@
-import type { EditParams, FocusView, PhotoMetadata } from '@rawtisserie/pipeline';
+import type { EditParams, FocusMap, PhotoMetadata, SensorMapping } from '@rawtisserie/pipeline';
 
 export interface User {
   id: string;
@@ -329,6 +329,9 @@ export interface ZoomInfo {
   key: string;
   tileSize: number;
   levels: { width: number; height: number }[];
-  /** Where the photo is in focus, on this version's frame (roadmap 8.9); null if it can't be told. */
-  focus: FocusView | null;
+  /**
+   * Where the photo is in focus (roadmap 8.9), in the sensor frame, and how this
+   * version's frame (level 0) maps onto it; null if it can't be told.
+   */
+  focus: { map: FocusMap; mapping: SensorMapping } | null;
 }

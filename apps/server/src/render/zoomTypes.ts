@@ -1,4 +1,4 @@
-import type { EditParams, FocusMap, FocusView } from '@rawtisserie/pipeline';
+import type { EditParams, FocusMap, SensorMapping } from '@rawtisserie/pipeline';
 import type { ExposureSource } from './source.ts';
 
 /** Side of a zoom tile, in pixels of its level. */
@@ -35,8 +35,8 @@ export type ZoomResponse =
       jobId: number;
       ok: true;
       levels: ZoomLevels;
-      /** The focus map on this version's frame. */
-      focus: FocusView | null;
+      /** The focus map, and how this version's frame maps onto it. */
+      focus: { map: FocusMap; mapping: SensorMapping } | null;
       /** The focus map, when the worker measured it (to store). */
       measured: FocusMap | null;
     }

@@ -398,20 +398,3 @@ test('F shows where the photo is in focus, over the edited image (8.9)', async (
   await overlay.waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => localStorage.getItem('developer.focus')), '0');
 });
-
-test("a detail module's presets show a crop at 100 % on the focus area (8.9)", async () => {
-  await page.getByRole('button', { name: 'Diffuse or sharpen presets' }).click();
-  const item = page.getByRole('menuitem', { name: /Lens deblur: soft/ });
-  await item.waitFor();
-  const thumb = item.locator('canvas');
-  await page.waitForFunction(
-    (el) => !!el && el.width > 1 && getComputedStyle(el).display !== 'none',
-    await thumb.elementHandle(),
-    { timeout: 60_000 },
-  );
-  // A square crop, not the fitted 3:2 image.
-  const [w, h] = await thumb.evaluate((c: HTMLCanvasElement) => [c.width, c.height]);
-  assert.equal(w, h);
-  await shot('detail-presets');
-  await page.keyboard.press('Escape');
-});

@@ -4,11 +4,9 @@
  * the backend's thumbnail developer, which keeps caches of its own, after the
  * interactive renders (the worker runs them when it has nothing else to do), and kept
  * here by recipe, so reopening a menu over the same recipe shows them at once.
- * Detail modules' (`CROP_KINDS`) show a crop at 100 % on the focus area instead
- * (roadmap 8.9): fitted, what they change is too fine to see.
  */
 import { Box, Spinner } from '@chakra-ui/react';
-import type { EditParams, ModuleKind } from '@rawtisserie/pipeline';
+import type { EditParams } from '@rawtisserie/pipeline';
 import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import type { RenderBackend } from './renderBackend.ts';
 
@@ -16,12 +14,6 @@ import type { RenderBackend } from './renderBackend.ts';
 export const THUMBNAIL_SIZE = 42;
 /** How many thumbnails are kept. */
 const KEPT = 96;
-
-/**
- * Kinds whose presets' thumbnails are crops at 100 %. Not raw denoise: its network
- * would run for each one.
- */
-export const CROP_KINDS: readonly ModuleKind[] = ['diffuse', 'contrastEqualizer', 'glow'];
 
 export class ThumbnailCache {
   private entries = new Map<string, Promise<ImageBitmap>>();
@@ -31,15 +23,15 @@ export class ThumbnailCache {
     this.backend = backend;
   }
 
-  /** The image rendered with `recipe` within `size × size` device pixels; or, with `crop`, a square of that at 100 % on the focus area. */
-  get(recipe: EditParams, size: number, crop = false): Promise<ImageBitmap> {
-    const key = `${size}${crop ? ' crop' : ''} ${JSON.stringify(recipe)}`;
+  /** The image rendered with `recipe` within `size × size` device pixels. */
+  get(recipe: EditParams, size: number): Promise<ImageBitmap> {
+    const key = `${size} ${JSON.stringify(recipe)}`;
     let entry = this.entries.get(key);
     if (entry) {
       // Most recently used last.
       this.entries.delete(key);
     } else {
-      entry = this.backend.thumbnail(recipe, size, size, crop ? size : undefined);
+      entry = this.backend.thumbnail(recipe, size, size);
       // A failed one is tried again next time.
       entry.catch(() => this.entries.get(key) === entry && this.entries.delete(key));
     }
@@ -77,16 +69,9 @@ export function useThumbnailCache(backend: RenderBackend): ThumbnailCache {
 
 /**
  * The image as `recipe` (read once, when mounted) leaves it, fitted in a
- * `THUMBNAIL_SIZE` square, or with `crop` a square of it at 100 % on the focus area.
- * Menus mount their items when they open.
+ * `THUMBNAIL_SIZE` square. Menus mount their items when they open.
  */
-export const MenuThumbnail = memo(function MenuThumbnail({
-  recipe,
-  crop = false,
-}: {
-  recipe: () => EditParams;
-  crop?: boolean;
-}) {
+export const MenuThumbnail = memo(function MenuThumbnail({ recipe }: { recipe: () => EditParams }) {
   const cache = useContext(ThumbnailContext);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<'loading' | 'done' | 'failed'>('loading');
@@ -94,7 +79,7 @@ export const MenuThumbnail = memo(function MenuThumbnail({
     if (!cache) return;
     let live = true;
     const size = Math.round(THUMBNAIL_SIZE * Math.min(window.devicePixelRatio || 1, 3));
-    cache.get(recipe(), size, crop).then(
+    cache.get(recipe(), size).then(
       (bitmap) => {
         const c = canvas.current;
         if (!live || !c) return;

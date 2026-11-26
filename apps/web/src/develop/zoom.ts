@@ -109,13 +109,6 @@ export function zoomCentredOn(layout: ZoomLayout, view: ZoomView | null, scale: 
   return placeView(layout, { scale: s, cx, cy }).view;
 }
 
-/** Zoom to `scale` with the image's point `(cx, cy)` (0…1) at the centre of the window, or as near as the image allows. */
-export function zoomOn(layout: ZoomLayout, scale: number, cx: number, cy: number) {
-  const s = zoomLevel(layout, scale);
-  if (s === null) return null;
-  return placeView(layout, { scale: s, cx, cy }).view;
-}
-
 /** Move the image by `(dx, dy)` CSS pixels. */
 export function panView(layout: ZoomLayout, view: ZoomView | null, dx: number, dy: number) {
   const p = placeView(layout, view);

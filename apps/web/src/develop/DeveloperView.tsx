@@ -28,7 +28,6 @@ import {
   lensfunShot,
   exposurePhotos,
   type FocusMap,
-  focusView,
   type PhotoRef,
   type SensorMapping,
 } from '@rawtisserie/pipeline';
@@ -101,6 +100,7 @@ import { useExportSetup } from './useExportSettings.ts';
 import { ScopePanel, scopeHeight, useScopeSettings } from './ScopePanel.tsx';
 import { StatusBar, useClippingSettings } from './StatusBar.tsx';
 import { FocusOverlay } from '../components/FocusOverlay.tsx';
+import { useFocusView } from '../lib/focusOverlay.ts';
 import { type SaveFn, useAutosave } from './useAutosave.ts';
 import { useRenderLoop } from './useRenderLoop.ts';
 import { useStableCallback } from './useStableCallback.ts';
@@ -741,14 +741,14 @@ export function DeveloperView({
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const { frame, error, pending } = useRenderLoop(backend, job);
   // On the image's frame: again only when the geometry changes, not with every frame.
-  const focusFrame = frame && { mapping: frame.mapping, width: frame.sourceWidth, height: frame.sourceHeight };
-  const focusKey = focusFrame && `${mappingKey(focusFrame.mapping)}/${focusFrame.width}/${focusFrame.height}`;
-  const focus = useMemo(
-    () =>
-      showFocus && focusMap && focusFrame
-        ? focusView(focusMap, focusFrame.mapping, focusFrame.width, focusFrame.height)
-        : null,
-    [showFocus, focusMap, focusKey], // eslint-disable-line react-hooks/exhaustive-deps
+  const focus = useFocusView(
+    showFocus ? focusMap : null,
+    frame && {
+      mapping: frame.mapping,
+      width: frame.sourceWidth,
+      height: frame.sourceHeight,
+      key: `${mappingKey(frame.mapping)}/${frame.sourceWidth}/${frame.sourceHeight}`,
+    },
   );
   // The compared image shows the edited image's mask or tone overlay too, painted from
   // its committed recipe (on release, so a drag doesn't render it each frame).

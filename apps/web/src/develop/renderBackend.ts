@@ -71,10 +71,9 @@ export interface RenderBackend {
   ): Promise<Frame>;
   /**
    * A small final-quality render within `maxWidth × maxHeight` (menu previews), with
-   * caches of its own so it doesn't slow down the interactive renders after it. With
-   * `crop`, instead a square of that side at 100 % on the focus area (roadmap 8.9).
+   * caches of its own so it doesn't slow down the interactive renders after it.
    */
-  thumbnail(params: EditParams, maxWidth: number, maxHeight: number, crop?: number): Promise<ImageBitmap>;
+  thumbnail(params: EditParams, maxWidth: number, maxHeight: number): Promise<ImageBitmap>;
   /** A final-quality export: the file, typed by its format. */
   export(params: EditParams, options: ExportOptions, metadata: ExportMetadata): Promise<Blob>;
   /** Filmic white/black relative exposures measured on the image, or null. */

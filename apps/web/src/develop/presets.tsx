@@ -61,7 +61,7 @@ import {
 } from '../api/hooks.ts';
 import { toaster } from '../components/toaster.tsx';
 import { ManagerDialog } from './ManagerDialog.tsx';
-import { CROP_KINDS, MenuThumbnail } from './thumbnails.tsx';
+import { MenuThumbnail } from './thumbnails.tsx';
 import { instanceTitle } from './changes.ts';
 import { useStableCallback } from './useStableCallback.ts';
 import { commandLabel } from '../lib/keys.ts';
@@ -217,7 +217,7 @@ export const PresetMenu = memo(
       const hint = presetHint(p);
       return (
         <Menu.Item key={p.id} value={`apply:${p.id}`} py="1">
-          <MenuThumbnail recipe={() => recipeFor(p)} crop={CROP_KINDS.includes(p.moduleKind)} />
+          <MenuThumbnail recipe={() => recipeFor(p)} />
           <Text flex="1" truncate>
             {p.name}
           </Text>

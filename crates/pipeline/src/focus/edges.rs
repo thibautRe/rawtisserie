@@ -1,18 +1,20 @@
-//! Sharpness at edges (roadmap 8.9, prototype): how wide each edge of the photo is
-//! blurred, in pixels, rather than how much fine detail an area has.
+//! How wide each edge of a photo is blurred, in pixels.
 //!
 //! An edge blurred by a Gaussian of width σ, seen through a Gaussian derivative of
 //! width s, has a gradient proportional to its contrast / √(σ² + s²). The ratio of two
 //! such gradients, at s₁ and s₂, doesn't depend on the contrast and falls as σ grows:
-//! it tells σ (Zhuo & Sim, "Defocus map estimation from a single image", 2011). Edges
-//! are where the coarser gradient is a local maximum along its direction and well
-//! above the noise; elsewhere there's nothing to tell. The expected noise energy is
-//! subtracted from both gradients first, and the ratio is turned into σ by a table of
-//! synthetic edges through the same discrete kernels, so σ is absolute: in sensor
-//! pixels, comparable from one photo to the next.
+//! it tells σ (Zhuo & Sim, "Defocus map estimation from a single image", 2011), so a
+//! faint eyelash counts as much as a bright highlight. Edges are where the coarser
+//! gradient is a local maximum along its direction and well above the noise; elsewhere
+//! there's nothing to tell. The noise's share of each gradient is measured on the
+//! photo (raw files' noise isn't white) and subtracted, and the ratio is turned into σ
+//! by a table of synthetic edges through the same discrete kernels, so σ is absolute.
+//! Each edge pixel's estimate is noisy: it takes the median of the edge pixels around.
+//!
+//! Gradients are computed in strips of `STRIP` rows (with margins), so the memory
+//! needed is a few strips and a byte per pixel.
 
-use super::{BINS, Luma, bin, percentile};
-use crate::decode::RawPhoto;
+use super::Luma;
 
 /// The two gradient scales, in the measure's pixels (binned 2 × 2 for a mosaic).
 const S1: f32 = 0.75;
@@ -22,111 +24,167 @@ const SNR: f32 = 3.5;
 /// Blur widths the table covers, in the measure's pixels; wider ones read as this.
 const MAX_BLUR: f32 = 6.0;
 const TABLE_STEP: f32 = 0.025;
+/// Above this (square-rooted) luminance, a pixel may be clipped: no noise, no edges.
+const CLIPPED: f32 = 0.97;
+/// Edge pixels around one (a square of `2 ALONG + 1`) whose estimates are pooled…
+const ALONG: usize = 2;
+/// …and how many there must be: a lone edge pixel is noise more often than not.
+const MIN_ALONG: usize = 4;
+/// Rows of gradients computed at once, and every how many strips the noise is sampled.
+const STRIP: usize = 64;
+const NOISE_STRIPS: usize = 4;
+/// Brightness bins of the noise floor (square-rooted luminance, 0 … 1).
+const BINS: usize = 32;
 
-/// Each pixel's edge blur, in the measure's pixels (`factor` sensor pixels each).
-pub struct EdgeBlur {
-    pub width: usize,
-    pub height: usize,
-    pub factor: usize,
-    /// The blur's σ in sensor pixels, NaN where there's no edge.
-    pub blur: Vec<f32>,
-}
+/// σ in sensor pixels is a value times this; `NONE` for no edge.
+pub const STEP: f32 = 0.05;
+pub const NONE: u8 = 255;
 
-pub fn measure(photo: &RawPhoto) -> EdgeBlur {
-    let luma = Luma::new(photo);
+/// Each pixel's edge blur (σ in sensor pixels, as `STEP`s), row by row, `NONE` where
+/// there's no edge.
+pub fn measure(luma: &Luma) -> Vec<u8> {
     let (w, h) = (luma.width, luma.height);
-    let mut y = vec![0.0f32; w * h];
-    for (r, row) in y.chunks_mut(w).enumerate() {
-        luma.row(r, row);
-    }
-
     let k1 = Kernels::new(S1);
     let k2 = Kernels::new(S2);
-    let (gx1, gy1, _) = k1.gradients(&y, w, h);
-    let (gx2, gy2, smooth) = k2.gradients(&y, w, h);
-    drop(y);
     let table = table(&k1, &k2);
-    let m1: Vec<f32> = gx1.iter().zip(&gy1).map(|(x, y)| x * x + y * y).collect();
-    let m2: Vec<f32> = gx2.iter().zip(&gy2).map(|(x, y)| x * x + y * y).collect();
-    drop((gx1, gy1));
-    let (floor1, floor2) = (noise_floor(&m1, &smooth), noise_floor(&m2, &smooth));
+    let margin = k1.radius.max(k2.radius) + 1;
+    let strips = h.div_ceil(STRIP);
 
-    let mut raw = vec![f32::NAN; w * h];
-    for yy in 1..h.saturating_sub(1) {
-        for xx in 1..w - 1 {
-            let i = yy * w + xx;
-            if smooth[i] > CLIPPED {
-                continue;
-            }
-            let b = bin(smooth[i]);
-            let n2 = floor2[b];
-            if m2[i] < SNR * SNR * n2 || m2[i] <= 0.0 {
-                continue;
-            }
-            // Non-maximum suppression along the gradient, quantised to 45°.
-            let (ax, ay) = (gx2[i].abs(), gy2[i].abs());
-            let d: isize = if ax > 2.414 * ay {
-                1
-            } else if ay > 2.414 * ax {
-                w as isize
-            } else if (gx2[i] > 0.0) == (gy2[i] > 0.0) {
-                w as isize + 1
-            } else {
-                w as isize - 1
-            };
-            let (a, c) = (m2[(i as isize + d) as usize], m2[(i as isize - d) as usize]);
-            if m2[i] < a || m2[i] <= c {
-                continue;
-            }
-            let ratio = ((m1[i] - floor1[b]).max(0.0) / (m2[i] - n2)).sqrt();
-            raw[i] = invert(&table, ratio) * luma.factor as f32;
+    // The noise floors, from every few strips.
+    let (mut by_bin1, mut by_bin2) = (vec![Vec::new(); BINS], vec![Vec::new(); BINS]);
+    for strip in (0..strips).step_by(NOISE_STRIPS) {
+        let g = Strip::new(luma, &k1, &k2, strip, margin);
+        for i in (g.core_start()..g.core_end()).step_by(7) {
+            let b = bin(g.smooth[i]);
+            by_bin1[b].push(g.m1[i]);
+            by_bin2[b].push(g.m2[i]);
         }
     }
-    // Each edge pixel's estimate is noisy: the median of the edge pixels around it.
-    let mut blur = vec![f32::NAN; w * h];
-    let mut near = Vec::with_capacity(25);
+    let (floor1, floor2) = (noise_floor(&by_bin1), noise_floor(&by_bin2));
+    drop((by_bin1, by_bin2));
+
+    let scale = luma.factor as f32 / STEP;
+    let mut raw = vec![NONE; w * h];
+    for strip in 0..strips {
+        let g = Strip::new(luma, &k1, &k2, strip, margin);
+        for yy in g.y0.max(1)..g.y1.min(h - 1) {
+            for xx in 1..w.saturating_sub(1) {
+                let i = (yy - g.top) * w + xx;
+                if g.smooth[i] > CLIPPED {
+                    continue;
+                }
+                let b = bin(g.smooth[i]);
+                let (m2, n2) = (g.m2[i], floor2[b]);
+                if m2 < SNR * SNR * n2 || m2 <= 0.0 {
+                    continue;
+                }
+                // Non-maximum suppression along the gradient, quantised to 45°.
+                let (gx, gy) = (g.gx2[i], g.gy2[i]);
+                let (ax, ay) = (gx.abs(), gy.abs());
+                let d: isize = if ax > 2.414 * ay {
+                    1
+                } else if ay > 2.414 * ax {
+                    w as isize
+                } else if (gx > 0.0) == (gy > 0.0) {
+                    w as isize + 1
+                } else {
+                    w as isize - 1
+                };
+                let (a, c) = (g.m2[(i as isize + d) as usize], g.m2[(i as isize - d) as usize]);
+                if m2 < a || m2 <= c {
+                    continue;
+                }
+                let ratio = ((g.m1[i] - floor1[b]).max(0.0) / (m2 - n2)).sqrt();
+                raw[yy * w + xx] = (invert(&table, ratio) * scale).round().min((NONE - 1) as f32) as u8;
+            }
+        }
+    }
+
+    let mut blur = vec![NONE; w * h];
+    let mut near = Vec::with_capacity((2 * ALONG + 1).pow(2));
     for yy in 0..h {
         for xx in 0..w {
-            if raw[yy * w + xx].is_nan() {
+            if raw[yy * w + xx] == NONE {
                 continue;
             }
             near.clear();
             for y2 in yy.saturating_sub(ALONG)..(yy + ALONG + 1).min(h) {
                 for x2 in xx.saturating_sub(ALONG)..(xx + ALONG + 1).min(w) {
                     let v = raw[y2 * w + x2];
-                    if !v.is_nan() {
+                    if v != NONE {
                         near.push(v);
                     }
                 }
             }
-            // A lone edge pixel is noise more often than not.
-            if near.len() < MIN_ALONG {
-                continue;
+            if near.len() >= MIN_ALONG {
+                let k = near.len() / 2;
+                blur[yy * w + xx] = *near.select_nth_unstable(k).1;
             }
-            let k = near.len() / 2;
-            blur[yy * w + xx] = *near.select_nth_unstable_by(k, |a, b| a.total_cmp(b)).1;
         }
     }
-    EdgeBlur { width: w, height: h, factor: luma.factor, blur }
+    blur
 }
 
-/// Above this (square-rooted) luminance, a pixel may be clipped: no noise, no edges.
-const CLIPPED: f32 = 0.97;
-/// Edge pixels around one (a square of `2 ALONG + 1`) whose estimates are pooled…
-const ALONG: usize = 2;
-/// …and how many there must be.
-const MIN_ALONG: usize = 4;
+/// One strip's gradients: rows `y0..y1` of the image, computed with `top..` (margins
+/// above and below, where the image has them) so that they read no clamped rows.
+struct Strip {
+    w: usize,
+    top: usize,
+    y0: usize,
+    y1: usize,
+    m1: Vec<f32>,
+    m2: Vec<f32>,
+    gx2: Vec<f32>,
+    gy2: Vec<f32>,
+    smooth: Vec<f32>,
+}
 
-/// A gradient's expected squared magnitude from noise alone, by brightness bin: measured
-/// on the photo (raw files' noise isn't white, and differs by camera and ISO), as a low
-/// percentile of the squared magnitudes (most pixels of a bin are flat; edges and
-/// texture lift the higher ones). For noise only, |g|² is exponential: its first
-/// quartile is ln(4/3) times its mean.
-fn noise_floor(m: &[f32], smooth: &[f32]) -> [f32; BINS] {
-    let mut by_bin: Vec<Vec<f32>> = vec![Vec::new(); BINS];
-    for i in (0..m.len()).step_by(7) {
-        by_bin[bin(smooth[i])].push(m[i]);
+impl Strip {
+    fn new(luma: &Luma, k1: &Kernels, k2: &Kernels, strip: usize, margin: usize) -> Self {
+        let (w, h) = (luma.width, luma.height);
+        let y0 = strip * STRIP;
+        let y1 = (y0 + STRIP).min(h);
+        let top = y0.saturating_sub(margin);
+        let bottom = (y1 + margin).min(h);
+        let n = bottom - top;
+        let mut y = vec![0.0f32; n * w];
+        for (r, row) in y.chunks_mut(w).enumerate() {
+            luma.row(top + r, row);
+        }
+        let (gx1, gy1, _) = k1.gradients(&y, w, n);
+        let (gx2, gy2, smooth) = k2.gradients(&y, w, n);
+        let mag = |x: &[f32], y: &[f32]| -> Vec<f32> { x.iter().zip(y).map(|(x, y)| x * x + y * y).collect() };
+        Self { w, top, y0, y1, m1: mag(&gx1, &gy1), m2: mag(&gx2, &gy2), gx2, gy2, smooth }
     }
+
+    fn core_start(&self) -> usize {
+        (self.y0 - self.top) * self.w
+    }
+
+    fn core_end(&self) -> usize {
+        (self.y1 - self.top) * self.w
+    }
+}
+
+fn percentile(values: &[f32], p: f32) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut v = values.to_vec();
+    let i = ((v.len() - 1) as f32 * p).round() as usize;
+    *v.select_nth_unstable_by(i, |a, b| a.total_cmp(b)).1
+}
+
+fn bin(luma: f32) -> usize {
+    ((luma * BINS as f32) as usize).min(BINS - 1)
+}
+
+/// A gradient's expected squared magnitude from noise alone, by brightness bin: a low
+/// percentile of the bin's squared magnitudes (most pixels of a bin are flat; edges and
+/// texture lift the higher ones). For noise only, |g|² is exponential: its first
+/// quartile is ln(4/3) times its mean. Bins with too few samples take their nearest
+/// neighbour's.
+fn noise_floor(by_bin: &[Vec<f32>]) -> [f32; BINS] {
     let measured: Vec<Option<f32>> =
         by_bin.iter().map(|v| (v.len() >= 500).then(|| percentile(v, 0.25) / (4.0f32 / 3.0).ln())).collect();
     std::array::from_fn(|i| {

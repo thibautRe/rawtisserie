@@ -2,10 +2,10 @@
  * The culling loupe: one photo at a time over the whole window, from the library grid.
  * Arrow keys move, ratings, flags and colour labels are one key each (moving on to the
  * next photo with auto-advance), and a click or Z zooms to 100 % with tiles rendered
- * by the server (`/api/versions/:id/zoom`), on the focus area when the server found
- * one (roadmap 8.9), which F shows over the photo. The zoom stays where it is from one
- * photo to the next, to compare the focus across a burst. With `details` (phones, where the
- * library's info panel is otherwise a selection away), the photo's details sit below
+ * by the server (`/api/versions/:id/zoom`). F shows where the photo is in focus over it
+ * (roadmap 8.9). The zoom stays where it is from one photo to the next, to compare the
+ * focus across a burst. With `details` (phones, where the library's info panel is
+ * otherwise a selection away), the photo's details sit below
  * it: the loupe scrolls to them.
  */
 import { Box, Circle, Flex, HStack, IconButton, Image, Spinner, Switch, Text, Theme } from '@chakra-ui/react';
@@ -20,6 +20,7 @@ import { useElementSize } from '../lib/useElementSize.ts';
 import { LABEL_COLORS } from './FilterSidebar.tsx';
 import { FilmRoll } from './FilmRoll.tsx';
 import { FocusOverlay } from '../components/FocusOverlay.tsx';
+import { useFocusView } from '../lib/focusOverlay.ts';
 import { advancesOn, loupeOrder, tileLevel, tileUrl, visibleTiles } from './loupe.ts';
 import { TileLoader } from './tileLoader.ts';
 import { useTagShortcuts } from './useTagShortcuts.tsx';
@@ -180,8 +181,13 @@ export function Loupe({
   }, [id]);
   // Asked at once when the focus is shown: it comes with the zoom levels.
   const info = useZoomInfo(photo, dwelled === id || zoom !== null || showFocus).data;
-  const focus = info?.focus ?? null;
-  const focusPoint = focus?.area ? ([focus.area.cx, focus.area.cy] as const) : undefined;
+  const level = info?.levels[0];
+  const focus = useFocusView(
+    showFocus ? (info?.focus?.map ?? null) : null,
+    info?.focus && level
+      ? { mapping: info.focus.mapping, width: level.width, height: level.height, key: `${id}/${info.key}` }
+      : null,
+  );
   const preview = sizes.current.get(id) ?? null;
 
   const dpr = window.devicePixelRatio || 1;
@@ -259,7 +265,7 @@ export function Loupe({
     else if (key === 'arrowleft' || key === 'arrowup' || key === 'pageup') go(index - 1);
     else if (key === 'home') go(0);
     else if (key === 'end') go(order.length - 1);
-    else if (key === 'z') zoomTo(zoom ? null : 1, focusPoint);
+    else if (key === 'z') zoomTo(zoom ? null : 1);
     else if (key === 'f') setShowFocus((s) => !s);
     else if (key === 'a') setAutoAdvance((a) => !a);
     else if (key === 'i') setShowInfo((s) => !s);

@@ -375,16 +375,15 @@ impl Developer {
     /// A small final-quality render (menu previews of presets and styles), from a
     /// developer of the same photo with caches of its own: tiny renders would otherwise
     /// evict the base image the interactive ones use. It has the LUTs loaded here and
-    /// those loaded for it (`loadThumbnailLut`). With `region`, only that part of the
-    /// render (as for `render`): a detail module's preview at 100 %, on the focus area.
+    /// those loaded for it (`loadThumbnailLut`).
     #[wasm_bindgen(js_name = renderThumbnail)]
-    pub fn render_thumbnail(&mut self, params_json: &str, max_width: u32, max_height: u32, region: Option<Vec<u32>>) -> Result<RenderedImage, JsError> {
+    pub fn render_thumbnail(&mut self, params_json: &str, max_width: u32, max_height: u32) -> Result<RenderedImage, JsError> {
         let params = EditParams::from_json(params_json).map_err(js_err)?;
         let thumbnails = self.thumbnails.get_or_insert_with(|| self.inner.sibling());
         let luts = thumbnails.luts_mut();
         *luts = self.inner.luts().clone();
         luts.extend(&self.thumbnail_luts);
-        let img = thumbnails.render(&params, render_size(max_width, max_height, region)?, Quality::Final);
+        let img = thumbnails.render(&params, RenderSize::fit(max_width, max_height), Quality::Final);
         Ok(RenderedImage {
             width: img.width as u32,
             height: img.height as u32,

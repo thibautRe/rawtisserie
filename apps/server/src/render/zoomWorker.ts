@@ -8,11 +8,11 @@ import {
   defaultRecipe,
   developerMeasures,
   type FocusMap,
-  focusView,
   hasPendingAutoTune,
   importEdits,
   lutIds,
   resolveAutoTunes,
+  type SensorMapping,
 } from '@rawtisserie/pipeline';
 import { Developer, initPipeline, lensfun } from '@rawtisserie/pipeline/node';
 import { readLut } from '../luts/files.ts';
@@ -98,8 +98,7 @@ parentPort!.on('message', async (req: ZoomRequest) => {
       let measured: FocusMap | null = null;
       let map = req.source.focus;
       if (!map && current) map = current.focus ??= measured = JSON.parse(dev.focusMap()) as FocusMap;
-      const full = all[0]!;
-      const focus = map ? focusView(map, JSON.parse(dev.sensorMapping(params)), full.width, full.height) : null;
+      const focus = map ? { map, mapping: JSON.parse(dev.sensorMapping(params)) as SensorMapping } : null;
       res = { jobId: req.jobId, ok: true, levels: all, focus, measured };
     } else {
       const level = all[req.level];

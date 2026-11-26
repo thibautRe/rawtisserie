@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { type Browser, type Page, chromium, firefox } from 'playwright';
 import { type PreviewServer, build, preview } from 'vite';
 import { existsSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { defaultEditParams } from '@rawtisserie/pipeline';
 import type { Photo, PhotoDetail, ZoomInfo } from '@rawtisserie/api';
 
@@ -1467,19 +1468,23 @@ test('a photo flagged out of the filters stays until they are applied again, in 
   assert.equal(await apply.count(), 0);
 });
 
-test('F shows where the photo is in focus, and Z zooms in on it', async () => {
+test('F shows where the photo is in focus', async () => {
   await open('/');
-  // A 600 × 400 preview, sharp in a band on the right (cells of a 4 × 2 focus map).
+  // A 600 × 300 preview whose edges are sharp on the right (a 4 × 2 focus map: σ 0 and
+  // 2 sensor pixels, the rest without edges).
   const preview = `data:image/svg+xml,${encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#556"/><circle cx="450" cy="100" r="60" fill="#dca"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300"><rect width="600" height="300" fill="#556"/><circle cx="450" cy="75" r="60" fill="#dca"/></svg>',
   )}`;
   patched.set('v1', { previewUrl: preview, thumbUrl: preview });
-  const cells = btoa(String.fromCharCode(0, 40, 254, 200, 255, 0, 230, 100));
+  const cells = Uint8Array.from([255, 255, 0, 20, 255, 255, 0, 255]);
   zoomInfos.v1 = {
     key: '0',
     tileSize: 512,
-    levels: [{ width: 6000, height: 4000 }],
-    focus: { cols: 4, rows: 2, cells, area: { x: 0.5, y: 0, width: 0.5, height: 0.5, cx: 0.75, cy: 0.25 } },
+    levels: [{ width: 6000, height: 3000 }],
+    focus: {
+      map: { version: 2, cols: 4, rows: 2, cells: deflateSync(cells).toString('base64') },
+      mapping: { width: 6000, height: 3000, affine: [0, 0, 6000, 0, 0, 3000], perspective: [0, 0], lens: null },
+    },
   };
   await cards().first().waitFor();
   await cards().first().click();
@@ -1489,26 +1494,19 @@ test('F shows where the photo is in focus, and Z zooms in on it', async () => {
   assert.equal(await overlay.count(), 0, 'shown before F');
   await page.keyboard.press('f');
   await overlay.waitFor();
-  // Tinted where sharp: the canvas has the map's cells, transparent where blurred.
+  // The map's cells on the photo's frame, opaque where sharp, fainter where blurred.
   const alphas = await overlay.locator('canvas').evaluate((c: HTMLCanvasElement) => {
     const data = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
     return [...data.filter((_, i) => i % 4 === 3)];
   });
+  assert.equal(alphas.length, 8);
   assert.deepEqual(
     alphas.map((a) => a > 0),
     [false, false, true, true, false, false, true, false],
   );
+  assert.ok(alphas[3]! < alphas[2]!, `${alphas}`);
   if (process.env.FOCUS_SHOT) await page.screenshot({ path: process.env.FOCUS_SHOT });
-  // Z: 100 % on the focus area's centre, not the photo's.
-  await page.keyboard.press('z');
-  await page.getByText('100 %').waitFor();
-  const centre = await page.evaluate(() => {
-    const win = document.querySelector('[data-focus-overlay]')!.parentElement!.parentElement!.getBoundingClientRect();
-    const img = document.querySelector('[data-focus-overlay]')!.getBoundingClientRect();
-    return [(win.left + win.width / 2 - img.left) / img.width, (win.top + win.height / 2 - img.top) / img.height];
-  });
-  assert.ok(Math.abs(centre[0]! - 0.75) < 0.02 && Math.abs(centre[1]! - 0.25) < 0.02, `centred on ${centre}`);
-  // F again hides it; it's remembered across visits.
+  // F again hides it.
   await page.keyboard.press('f');
   await overlay.waitFor({ state: 'detached' });
 });

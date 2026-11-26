@@ -10,7 +10,6 @@ import {
   type FocusMap,
   type SensorMapping,
   activeDenoise,
-  focusPoint,
   denoiseKeyName,
   denoiseModelId,
   exposurePhotos,
@@ -171,22 +170,6 @@ function prepareThumbnailLuts(dev: Developer, params: EditParams) {
 
 /** Where the photo loaded is in focus, once asked (it doesn't depend on the recipe). */
 let focusMap: FocusMap | null = null;
-
-/**
- * A `side`-pixel square of the full-size render of `params` (`width × height`):
- * `region` is `[x, y, width, height]`, centred on the focus area, or on the image
- * without one.
- */
-function focusCrop(dev: Developer, params: EditParams, json: string, side: number) {
-  focusMap ??= JSON.parse(dev.focusMap()) as FocusMap;
-  const [width = 1, height = 1] = dev.outputSize(json, 0, 0);
-  const [cx, cy] = focusPoint(focusMap, sensorMapping(dev, params, json)) ?? [0.5, 0.5];
-  const w = Math.min(side, width);
-  const h = Math.min(side, height);
-  const x = Math.min(width - w, Math.max(0, Math.round(cx * width - w / 2)));
-  const y = Math.min(height - h, Math.max(0, Math.round(cy * height - h / 2)));
-  return { width, height, region: Uint32Array.from([x, y, w, h]) };
-}
 
 /** The last sensor mapping, by the lens and geometry instances it comes from. */
 let mapping: { key: string; value: SensorMapping } | null = null;
@@ -654,10 +637,7 @@ async function handle(msg: WorkerRequest) {
       }
       await rendered(data, width, height, scope);
     } else if (msg.type === 'thumbnail') {
-      const crop = msg.crop ? focusCrop(developer, msg.params, params, msg.crop) : null;
-      const img = crop
-        ? developer.renderThumbnail(params, crop.width, crop.height, crop.region)
-        : developer.renderThumbnail(params, msg.maxWidth, msg.maxHeight);
+      const img = developer.renderThumbnail(params, msg.maxWidth, msg.maxHeight);
       const { width, height } = img;
       const bitmap = await toBitmap(img.takeData(), width, height);
       img.free();
